@@ -316,8 +316,8 @@ const MemoizedMuscleGroup = React.memo<{
             }}
             activeOpacity={0.75}
           >
-            <Text style={[styles.segBtnText, mode === 'fatigue' && styles.segBtnTextActive]}>
-              Fatigue & Rest
+            <Text style={[styles.segBtnText, mode === 'fatigue' && styles.segBtnTextActive]} numberOfLines={1}>
+              Fatigue
             </Text>
           </TouchableOpacity>
 
@@ -329,8 +329,8 @@ const MemoizedMuscleGroup = React.memo<{
             }}
             activeOpacity={0.75}
           >
-            <Text style={[styles.segBtnText, mode === 'balance' && styles.segBtnTextActive]}>
-              Muscle Balance
+            <Text style={[styles.segBtnText, mode === 'balance' && styles.segBtnTextActive]} numberOfLines={1}>
+              Balance
             </Text>
           </TouchableOpacity>
 
@@ -342,7 +342,7 @@ const MemoizedMuscleGroup = React.memo<{
             }}
             activeOpacity={0.75}
           >
-            <Text style={[styles.segBtnText, mode === 'strength' && styles.segBtnTextActive]}>
+            <Text style={[styles.segBtnText, mode === 'strength' && styles.segBtnTextActive]} numberOfLines={1}>
               Strength
             </Text>
           </TouchableOpacity>
@@ -357,8 +357,8 @@ const MemoizedMuscleGroup = React.memo<{
             }}
             activeOpacity={0.75}
           >
-            <Text style={[styles.segBtnText, mode === 'volume' && styles.segBtnTextActive]}>
-              Volume Load
+            <Text style={[styles.segBtnText, mode === 'volume' && styles.segBtnTextActive]} numberOfLines={1}>
+              Volume
             </Text>
           </TouchableOpacity>
 
@@ -370,8 +370,8 @@ const MemoizedMuscleGroup = React.memo<{
             }}
             activeOpacity={0.75}
           >
-            <Text style={[styles.segBtnText, mode === 'growth' && styles.segBtnTextActive]}>
-              Overload %
+            <Text style={[styles.segBtnText, mode === 'growth' && styles.segBtnTextActive]} numberOfLines={1}>
+              Growth
             </Text>
           </TouchableOpacity>
 
@@ -383,7 +383,7 @@ const MemoizedMuscleGroup = React.memo<{
             }}
             activeOpacity={0.75}
           >
-            <Text style={[styles.segBtnText, mode === 'balance' && styles.segBtnTextActive]}>
+            <Text style={[styles.segBtnText, mode === 'balance' && styles.segBtnTextActive]} numberOfLines={1}>
               Symmetry
             </Text>
           </TouchableOpacity>
@@ -609,7 +609,7 @@ const MemoizedMuscleGroup = React.memo<{
                   <Text style={styles.legendLabel}>Recovering</Text>
                 </View>
                 <View style={styles.legendPill}>
-                  <View style={[styles.legendDot, { backgroundColor: isDark ? '#232128' : '#e4e4e9' }]} />
+                  <View style={[styles.legendDot, { backgroundColor: '#34d399' }]} />
                   <Text style={styles.legendLabel}>Ready</Text>
                 </View>
               </View>
@@ -741,13 +741,15 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 3,
     marginBottom: 12,
+    height: 40,
   },
   segBtn: {
     flex: 1,
-    paddingVertical: 7,
+    height: 34,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 9,
+    paddingHorizontal: 4,
   },
   segBtnActive: {
     backgroundColor: '#2C2C2E',
@@ -759,8 +761,9 @@ const styles = StyleSheet.create({
   },
   segBtnText: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 12.5,
+    fontSize: 12,
     color: '#8e8e93',
+    textAlign: 'center',
   },
   segBtnTextActive: {
     color: '#ffffff',

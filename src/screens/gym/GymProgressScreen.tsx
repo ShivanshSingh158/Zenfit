@@ -206,12 +206,12 @@ export default function GymProgressScreen() {
           gap: 14,
         }}>
           {/* Card Header & Log Weight Button */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View>
-              <Text style={{ fontSize: 16, fontFamily: FONT_FAMILY.bold, color: colors.textPrimary }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <View style={{ flex: 1, paddingRight: 4 }}>
+              <Text style={{ fontSize: 16, fontFamily: FONT_FAMILY.bold, color: colors.textPrimary }} numberOfLines={1}>
                 Body Composition
               </Text>
-              <Text style={{ fontSize: 11, fontFamily: FONT_FAMILY.medium, color: colors.textMuted }}>
+              <Text style={{ fontSize: 11, fontFamily: FONT_FAMILY.medium, color: colors.textMuted }} numberOfLines={1}>
                 Weight, BMI & Milestone Progress
               </Text>
             </View>
@@ -225,18 +225,19 @@ export default function GymProgressScreen() {
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 5,
-                paddingHorizontal: 12,
-                paddingVertical: 7,
+                paddingHorizontal: 10,
+                paddingVertical: 6,
                 borderRadius: 10,
                 backgroundColor: isDark ? 'rgba(165,153,255,0.15)' : 'rgba(108,92,231,0.12)',
                 borderWidth: 1,
                 borderColor: isDark ? 'rgba(165,153,255,0.3)' : 'rgba(108,92,231,0.25)',
+                flexShrink: 0,
               }}
               activeOpacity={0.7}
             >
-              <Ionicons name="add-circle-outline" size={15} color={colors.accentPrimary || '#a599ff'} />
-              <Text style={{ fontSize: 12, fontFamily: FONT_FAMILY.bold, color: colors.accentPrimary || '#a599ff' }}>
-                Log Weight & Photo
+              <Ionicons name="add-circle-outline" size={14} color={colors.accentPrimary || '#a599ff'} />
+              <Text style={{ fontSize: 11.5, fontFamily: FONT_FAMILY.bold, color: colors.accentPrimary || '#a599ff' }}>
+                Log Weight
               </Text>
             </TouchableOpacity>
           </View>
@@ -296,9 +297,9 @@ export default function GymProgressScreen() {
                 fontSize: 18,
                 fontFamily: FONT_FAMILY.bold,
                 marginTop: 2,
-                color: weightDelta < 0 ? '#34d399' : weightDelta > 0 ? '#fb923c' : colors.textPrimary,
+                color: (startWeight && currentWeight) ? (weightDelta < 0 ? '#34d399' : weightDelta > 0 ? '#fb923c' : colors.textPrimary) : colors.textPrimary,
               }}>
-                {weightDelta > 0 ? `+${weightDelta} kg` : `${weightDelta} kg`}
+                {(startWeight && currentWeight) ? (weightDelta > 0 ? `+${weightDelta} kg` : `${weightDelta} kg`) : '—'}
               </Text>
             </View>
           </View>
