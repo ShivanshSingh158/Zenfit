@@ -1,0 +1,236 @@
+import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+export const PRIORITY = { CRITICAL: 1, HIGH: 2, MEDIUM: 3, LOW: 4 } as const;
+export const ALARM_CAP = Platform.OS === 'ios' ? 64 : 450;
+
+export function getSoundChannelId(baseChannel: 'reminders' | 'task_alarm', soundPref?: string | null): string {
+  if (Platform.OS !== 'android') return baseChannel;
+  if (!soundPref || soundPref === 'default') return baseChannel;
+  const cleanKey = soundPref.replace('.wav', '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  return `${baseChannel}_v2_${cleanKey}`;
+}
+
+// ── Notification handler ──────────────────────────────────────────────────────
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+// ── Permission setup ──────────────────────────────────────────────────────────
+
+export async function ensureNotificationChannels(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  try {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'ZenTrack',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#cba6f7',
+      sound: 'default',
+      enableLights: true,
+      enableVibrate: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+    await Notifications.setNotificationChannelAsync('reminders', {
+      name: 'Task Reminders & Alarms',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 500, 250, 500],
+      lightColor: '#a599ff',
+      sound: 'default',
+      enableLights: true,
+      enableVibrate: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+    await Notifications.setNotificationChannelAsync('location_reminders', {
+      name: 'Location & Arrival Reminders',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 500, 200, 500, 200, 500],
+      lightColor: '#8B5CF6',
+      sound: 'default',
+      enableLights: true,
+      enableVibrate: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+    await Notifications.setNotificationChannelAsync('habits', {
+      name: 'Habit Streak',
+      importance: Notifications.AndroidImportance.HIGH,
+      lightColor: '#ff9f4d',
+      sound: 'default',
+      enableLights: true,
+      enableVibrate: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+    await Notifications.setNotificationChannelAsync('sara_critical', {
+      name: 'Critical Priority Alerts',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 600, 200, 600, 200, 600],
+      lightColor: '#ff3b30',
+      sound: 'default',
+      enableLights: true,
+      enableVibrate: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+    await Notifications.setNotificationChannelAsync('wellness', {
+      name: 'Hydration & Health Reminders',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#38bdf8',
+      sound: 'default',
+      enableLights: true,
+      enableVibrate: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+    await Notifications.setNotificationChannelAsync('active_workout', {
+      name: 'Active Workout HUD & Rest Timer',
+      importance: Notifications.AndroidImportance.LOW,
+      sound: undefined,
+      enableLights: false,
+      enableVibrate: false,
+      showBadge: false,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+    // ── Task Alarm: Distinct double-pulse so you never miss a task ──
+    await Notifications.setNotificationChannelAsync('task_alarm', {
+      name: 'Task Alarms',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 400, 200, 400, 100, 400, 100, 800],
+      lightColor: '#a599ff',
+      sound: 'default',
+      enableLights: true,
+      enableVibrate: true,
+      showBadge: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      bypassDnd: false,
+    });
+    // ── Urgent Task Alarm: Heavy multi-pulse alarm stream with max audibility ──
+    await Notifications.setNotificationChannelAsync('task_urgent_alarm_v1', {
+      name: 'Urgent Reminders & Alarms',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 800, 300, 800, 300, 800, 300, 1200],
+      lightColor: '#ff3b30',
+      sound: 'default',
+      audioAttributes: {
+        usage: Notifications.AndroidAudioUsage?.ALARM ?? 4,
+        contentType: Notifications.AndroidAudioContentType?.SONIFICATION ?? 4,
+        flags: {
+          enforceAudibility: true,
+          requestHardwareAudioVideoSynchronization: false,
+        },
+      },
+      enableLights: true,
+      enableVibrate: true,
+      bypassDnd: true,
+    });
+
+    const savedSound = await AsyncStorage.getItem('zentrack_notif_notifs_sound').catch(() => 'default');
+    if (savedSound && savedSound !== 'default') {
+      const dynamicRemindersId = getSoundChannelId('reminders', savedSound);
+      const dynamicTaskAlarmId = getSoundChannelId('task_alarm', savedSound);
+
+      await Notifications.setNotificationChannelAsync(dynamicRemindersId, {
+        name: `Task Reminders (${savedSound.replace('.wav', '')})`,
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 500, 250, 500],
+        lightColor: '#a599ff',
+        sound: savedSound,
+        enableLights: true,
+        enableVibrate: true,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      });
+
+      await Notifications.setNotificationChannelAsync(dynamicTaskAlarmId, {
+        name: `Task Alarms (${savedSound.replace('.wav', '')})`,
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 400, 200, 400, 100, 400, 100, 800],
+        lightColor: '#a599ff',
+        sound: savedSound,
+        enableLights: true,
+        enableVibrate: true,
+        showBadge: true,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        bypassDnd: false,
+      });
+    }
+  } catch (e) {
+    console.warn('[NotificationChannels] Channel creation warning:', e);
+  }
+}
+
+export async function requestNotificationPermissions(): Promise<boolean> {
+  try {
+    await ensureNotificationChannels();
+
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    let final = existing;
+    if (existing !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync({
+        ios: {
+          allowAlert: true,
+          allowBadge: true,
+          allowSound: true,
+        },
+      });
+      final = status;
+    }
+
+    await Notifications.setNotificationCategoryAsync('active_workout_ongoing', [
+      { identifier: 'WORKOUT_DONE_SET', buttonTitle: '✓ Done Set', options: { opensAppToForeground: false } },
+      { identifier: 'WORKOUT_ADD_WEIGHT', buttonTitle: '+2.5kg', options: { opensAppToForeground: false } },
+      { identifier: 'WORKOUT_NEXT_EXERCISE', buttonTitle: '⏭ Next', options: { opensAppToForeground: false } },
+    ]);
+    await Notifications.setNotificationCategoryAsync('active_rest_timer', [
+      { identifier: 'REST_SKIP', buttonTitle: '⏩ Skip Rest', options: { opensAppToForeground: false } },
+      { identifier: 'REST_ADD_30S', buttonTitle: '+30s Rest', options: { opensAppToForeground: false } },
+      { identifier: 'OPEN_WORKOUT', buttonTitle: '🏋️ Open HUD', options: { opensAppToForeground: true } },
+    ]);
+
+    await Notifications.setNotificationCategoryAsync('class_reminder', [
+      { identifier: 'mark_present', buttonTitle: '✅ Present', options: { opensAppToForeground: false } },
+      { identifier: 'mark_absent', buttonTitle: '❌ Absent', options: { opensAppToForeground: false, isDestructive: true } },
+      { identifier: 'mark_cancelled', buttonTitle: '🚫 Cancelled', options: { opensAppToForeground: false } },
+    ]);
+    await Notifications.setNotificationCategoryAsync('gym_reminder', [
+      { identifier: 'start_workout', buttonTitle: '🏋️ Start Workout', options: { opensAppToForeground: true } },
+      { identifier: 'snooze_15m', buttonTitle: '⏰ Snooze 15m', options: { opensAppToForeground: false } },
+    ]);
+    await Notifications.setNotificationCategoryAsync('task_reminder', [
+      { identifier: 'mark_task_done', buttonTitle: 'Mark Done', options: { opensAppToForeground: false } },
+      { identifier: 'snooze_10m', buttonTitle: 'Snooze 10m', options: { opensAppToForeground: false } },
+      { identifier: 'open_tasks', buttonTitle: 'Open Task', options: { opensAppToForeground: true } },
+    ]);
+    await Notifications.setNotificationCategoryAsync('location_gym_arrival', [
+      { identifier: 'START_WORKOUT', buttonTitle: '🏋️ Start Workout', options: { opensAppToForeground: true } },
+      { identifier: 'DISMISS', buttonTitle: '✕ Dismiss', options: { opensAppToForeground: false, isDestructive: true } },
+    ]);
+    await Notifications.setNotificationCategoryAsync('location_gym_departure', [
+      { identifier: 'SAVE_SUMMARY', buttonTitle: '✓ Save Summary', options: { opensAppToForeground: true } },
+      { identifier: 'DISMISS', buttonTitle: '✕ Dismiss', options: { opensAppToForeground: false, isDestructive: true } },
+    ]);
+    await Notifications.setNotificationCategoryAsync('location_task_reminder', [
+      { identifier: 'MARK_DONE', buttonTitle: '✓ Mark Done', options: { opensAppToForeground: false } },
+      { identifier: 'OPEN_TASK', buttonTitle: '📋 Open Task', options: { opensAppToForeground: true } },
+    ]);
+    await Notifications.setNotificationCategoryAsync('habit_reminder', [
+      { identifier: 'log_habit', buttonTitle: '🔥 Log It', options: { opensAppToForeground: false } },
+      { identifier: 'open_habits', buttonTitle: '📊 View Habits', options: { opensAppToForeground: true } },
+    ]);
+
+    if (final !== 'granted') {
+      console.warn('[Notifications] Notification permission not granted:', final);
+      return false;
+    }
+
+    return true;
+  } catch (err: any) {
+    console.warn('[Notifications] Setup warning:', err?.message);
+    return false;
+  }
+}
