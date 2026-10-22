@@ -325,115 +325,114 @@ export default function GymSplitsScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000000' : colors.background }]} edges={['top']}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* ── 1. Clean, Spacious Header with Segment Toggle ── */}
-        <View style={styles.header}>
-          <View style={{ flex: 1, paddingRight: 6 }}>
-            <Text style={[styles.screenTitle, { color: colors.textPrimary || '#ffffff' }]}>
-              Plan & Programming
-            </Text>
-            <Text style={styles.subTitle}>
-              {activeSegment === 'routine' ? `${activeTemplateLabel} • ${activePatternLabel}` : '361 Verified Biomechanical Movements'}
-            </Text>
-          </View>
-
-          {activeSegment === 'routine' && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => {
-                  hapticLight();
-                  setShowScheduleSettings(true);
-                }}
-                style={styles.settingsBtn}
-              >
-                <Ionicons name="time-outline" size={16} color="#8e8e93" />
-                <Text style={styles.settingsBtnText}>Schedule</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => {
-                  hapticLight();
-                  setSplitSettingsVisible(true);
-                }}
-                style={styles.settingsBtn}
-              >
-                <Ionicons name="options-outline" size={16} color="#8e8e93" />
-                <Text style={styles.settingsBtnText}>Split</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+      {/* ── 1. Clean, Spacious Header with Segment Toggle ── */}
+      <View style={styles.header}>
+        <View style={{ flex: 1, paddingRight: 6 }}>
+          <Text style={[styles.screenTitle, { color: colors.textPrimary || '#ffffff' }]}>
+            Plan & Programming
+          </Text>
+          <Text style={styles.subTitle}>
+            {activeSegment === 'routine' ? `${activeTemplateLabel} • ${activePatternLabel}` : '361 Verified Biomechanical Movements'}
+          </Text>
         </View>
 
-        {/* ── Segment Toggle: My Routine vs Exercise Vault ── */}
-        <View style={{
-          flexDirection: 'row',
-          marginHorizontal: 16,
-          marginBottom: 12,
-          padding: 3,
-          borderRadius: 12,
-          backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
-        }}>
-          <TouchableOpacity
-            style={{
-              flex: 1,
-              paddingVertical: 8,
-              borderRadius: 9,
-              alignItems: 'center',
-              backgroundColor: activeSegment === 'routine' ? (isDark ? '#23222a' : '#ffffff') : 'transparent',
-              shadowColor: '#000',
-              shadowOpacity: activeSegment === 'routine' ? 0.2 : 0,
-              shadowRadius: 4,
-              elevation: activeSegment === 'routine' ? 2 : 0,
-            }}
-            onPress={() => {
-              hapticLight();
-              setActiveSegment('routine');
-            }}
-          >
-            <Text style={{
-              fontSize: 13,
-              fontFamily: FONT_FAMILY.bold,
-              color: activeSegment === 'routine' ? (colors.accentPrimary || '#a599ff') : colors.textMuted,
-            }}>
-              📋 My Routine
-            </Text>
-          </TouchableOpacity>
+        {activeSegment === 'routine' && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => {
+                hapticLight();
+                setShowScheduleSettings(true);
+              }}
+              style={styles.settingsBtn}
+            >
+              <Ionicons name="time-outline" size={16} color="#8e8e93" />
+              <Text style={styles.settingsBtnText}>Schedule</Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={{
-              flex: 1,
-              paddingVertical: 8,
-              borderRadius: 9,
-              alignItems: 'center',
-              backgroundColor: activeSegment === 'vault' ? (isDark ? '#23222a' : '#ffffff') : 'transparent',
-              shadowColor: '#000',
-              shadowOpacity: activeSegment === 'vault' ? 0.2 : 0,
-              shadowRadius: 4,
-              elevation: activeSegment === 'vault' ? 2 : 0,
-            }}
-            onPress={() => {
-              hapticLight();
-              setActiveSegment('vault');
-            }}
-          >
-            <Text style={{
-              fontSize: 13,
-              fontFamily: FONT_FAMILY.bold,
-              color: activeSegment === 'vault' ? (colors.accentPrimary || '#a599ff') : colors.textMuted,
-            }}>
-              📚 Exercise Vault
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {activeSegment === 'vault' ? (
-          <View style={{ minHeight: 600 }}>
-            <ExerciseLibraryScreen isEmbedded />
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => {
+                hapticLight();
+                setSplitSettingsVisible(true);
+              }}
+              style={styles.settingsBtn}
+            >
+              <Ionicons name="options-outline" size={16} color="#8e8e93" />
+              <Text style={styles.settingsBtnText}>Split</Text>
+            </TouchableOpacity>
           </View>
-        ) : (
-          <>
+        )}
+      </View>
+
+      {/* ── Segment Toggle: My Routine vs Exercise Vault ── */}
+      <View style={{
+        flexDirection: 'row',
+        marginHorizontal: 16,
+        marginBottom: 12,
+        padding: 3,
+        borderRadius: 12,
+        backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+      }}>
+        <TouchableOpacity
+          style={{
+            flex: 1,
+            paddingVertical: 8,
+            borderRadius: 9,
+            alignItems: 'center',
+            backgroundColor: activeSegment === 'routine' ? (isDark ? '#23222a' : '#ffffff') : 'transparent',
+            shadowColor: '#000',
+            shadowOpacity: activeSegment === 'routine' ? 0.2 : 0,
+            shadowRadius: 4,
+            elevation: activeSegment === 'routine' ? 2 : 0,
+          }}
+          onPress={() => {
+            hapticLight();
+            setActiveSegment('routine');
+          }}
+        >
+          <Text style={{
+            fontSize: 13,
+            fontFamily: FONT_FAMILY.bold,
+            color: activeSegment === 'routine' ? (colors.accentPrimary || '#a599ff') : colors.textMuted,
+          }}>
+            📋 My Routine
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={{
+            flex: 1,
+            paddingVertical: 8,
+            borderRadius: 9,
+            alignItems: 'center',
+            backgroundColor: activeSegment === 'vault' ? (isDark ? '#23222a' : '#ffffff') : 'transparent',
+            shadowColor: '#000',
+            shadowOpacity: activeSegment === 'vault' ? 0.2 : 0,
+            shadowRadius: 4,
+            elevation: activeSegment === 'vault' ? 2 : 0,
+          }}
+          onPress={() => {
+            hapticLight();
+            setActiveSegment('vault');
+          }}
+        >
+          <Text style={{
+            fontSize: 13,
+            fontFamily: FONT_FAMILY.bold,
+            color: activeSegment === 'vault' ? (colors.accentPrimary || '#a599ff') : colors.textMuted,
+          }}>
+            📚 Exercise Vault
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {activeSegment === 'vault' ? (
+        <View style={{ flex: 1, paddingBottom: 85 }}>
+          <ExerciseLibraryScreen isEmbedded />
+        </View>
+      ) : (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
 
         {/* ── 2. Minimalist Weekday Selector (Mon to Sun + All Days) ── */}
         <View style={styles.weekdayBar}>
@@ -616,9 +615,8 @@ export default function GymSplitsScreen() {
             );
           })}
         </View>
-      </>
-    )}
       </ScrollView>
+    )}
 
       {/* ── Add Exercise Modal ── */}
       {addExerciseDayIndex !== null && (
