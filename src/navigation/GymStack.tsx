@@ -51,9 +51,21 @@ function MainTabs() {
       backBehavior="history"
     >
       <Tab.Screen name="Today" component={GymHomeScreen} />
-      <Tab.Screen name="Splits" component={GymSplitsScreen} />
-      <Tab.Screen name="History" component={GymHistoryScreen} />
+      <Tab.Screen name="Plan" component={GymSplitsScreen} />
+      <Tab.Screen name="Analytics" component={GymHistoryScreen} />
       <Tab.Screen name="Body" component={GymProgressScreen} />
+
+      {/* Backward-compatibility aliases */}
+      <Tab.Screen
+        name="Splits"
+        component={GymSplitsScreen}
+        options={{ tabBarItemStyle: { display: 'none' }, tabBarButton: () => null }}
+      />
+      <Tab.Screen
+        name="History"
+        component={GymHistoryScreen}
+        options={{ tabBarItemStyle: { display: 'none' }, tabBarButton: () => null }}
+      />
     </Tab.Navigator>
   );
 }

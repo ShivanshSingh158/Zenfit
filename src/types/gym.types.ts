@@ -210,9 +210,11 @@ export interface BodyweightLog {
 
 export type GymNavigationParamList = {
   Today: undefined;
+  Plan: undefined;
+  Analytics: undefined;
+  Body: undefined;
   Splits: undefined;
   History: undefined;
-  Body: undefined;
   GymHome: undefined;
   ActiveLogging: { date: string; initialIndex?: number };
   WorkoutSummary: { date?: string; readOnly?: boolean } | undefined;

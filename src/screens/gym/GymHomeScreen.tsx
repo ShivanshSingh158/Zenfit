@@ -368,13 +368,85 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
         </View>
 
         {isEffectiveRest ? (
-          weeklyReportReady ? (
-            <Suspense fallback={<WeeklyReportSkeleton />}>
-              <WeeklyGymReport gymLogs={gymLogs} weekAnchorDate={selectedDate} userGymPlan={userGymPlan} />
-            </Suspense>
-          ) : (
-            <WeeklyReportSkeleton />
-          )
+          <View style={{
+            backgroundColor: isDark ? '#141418' : colors.surface,
+            borderRadius: 20,
+            padding: 24,
+            alignItems: 'center',
+            borderWidth: 1,
+            borderColor: isDark ? 'rgba(255,255,255,0.06)' : colors.border,
+            marginVertical: 12,
+            gap: 12,
+          }}>
+            <View style={{
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              backgroundColor: isDark ? 'rgba(94,218,158,0.12)' : 'rgba(16,185,129,0.1)',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <Ionicons name="leaf-outline" size={28} color="#5eda9e" />
+            </View>
+
+            <Text style={{ fontSize: 18, fontFamily: FONT_FAMILY.bold, color: colors.textPrimary }}>
+              Rest & Recovery Day
+            </Text>
+
+            <Text style={{
+              fontSize: 13.5,
+              fontFamily: FONT_FAMILY.body,
+              color: colors.textMuted,
+              textAlign: 'center',
+              lineHeight: 20,
+              paddingHorizontal: 8,
+            }}>
+              Your muscles grow during sleep and recovery. Hydrate, eat nutrient-dense meals, and let your central nervous system recharge.
+            </Text>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 8, width: '100%' }}>
+              <TouchableOpacity
+                onPress={() => {
+                  hapticLight();
+                  navigation.navigate('Analytics');
+                }}
+                style={{
+                  flex: 1,
+                  backgroundColor: isDark ? 'rgba(165,153,255,0.12)' : 'rgba(108,92,231,0.08)',
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(165,153,255,0.25)' : 'rgba(108,92,231,0.2)',
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={{ fontSize: 13, fontFamily: FONT_FAMILY.bold, color: '#a599ff' }}>
+                  View Weekly Analytics →
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  hapticLight();
+                  setShowAddModal(true);
+                }}
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={{ fontSize: 13, fontFamily: FONT_FAMILY.bold, color: colors.textSecondary }}>
+                  + Log Workout
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         ) : (
           <>
             {/* HERO WORKOUT BANNER (Integrated Naturally in Flow) */}

@@ -26,22 +26,32 @@ export const TAB_CONFIG: Record<string, {
     activeIcon: 'flame',
     inactiveIcon: 'flame-outline',
   },
-  Splits: {
-    name: 'Splits',
+  Plan: {
+    name: 'Plan',
     activeIcon: 'clipboard',
     inactiveIcon: 'clipboard-outline',
   },
-  History: {
-    name: 'History',
-    activeIcon: 'time',
-    inactiveIcon: 'time-outline',
+  Analytics: {
+    name: 'Analytics',
+    activeIcon: 'bar-chart',
+    inactiveIcon: 'bar-chart-outline',
   },
   Body: {
     name: 'Body',
     activeIcon: 'body',
     inactiveIcon: 'body-outline',
   },
-  // Compatibility fallbacks
+  // Backward-compatibility aliases
+  Splits: {
+    name: 'Plan',
+    activeIcon: 'clipboard',
+    inactiveIcon: 'clipboard-outline',
+  },
+  History: {
+    name: 'Analytics',
+    activeIcon: 'bar-chart',
+    inactiveIcon: 'bar-chart-outline',
+  },
   Workout: {
     name: 'Today',
     activeIcon: 'flame',

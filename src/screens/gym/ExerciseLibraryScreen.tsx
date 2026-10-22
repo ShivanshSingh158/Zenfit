@@ -28,7 +28,11 @@ const MUSCLE_FILTERS = [
   'Core',
 ];
 
-export default function ExerciseLibraryScreen() {
+interface ExerciseLibraryProps {
+  isEmbedded?: boolean;
+}
+
+export default function ExerciseLibraryScreen({ isEmbedded = false }: ExerciseLibraryProps) {
   const { colors, isDark } = useTheme();
   const navigation = useNavigation<any>();
 
@@ -123,21 +127,28 @@ export default function ExerciseLibraryScreen() {
     );
   }, [colors, isDark, handleSelectExercise]);
 
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background || '#060509' }]} edges={['top']}>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+  const Container = isEmbedded ? View : SafeAreaView;
+  const containerProps = isEmbedded
+    ? { style: [styles.container, { backgroundColor: colors.background || '#060509' }] }
+    : { style: [styles.container, { backgroundColor: colors.background || '#060509' }], edges: ['top' as const] };
 
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={[styles.screenTitle, { color: colors.textPrimary || '#ffffff' }]}>
-            Exercise Vault
-          </Text>
-          <Text style={styles.subTitle}>
-            {EXERCISE_DATABASE.length} scientifically catalogued exercises
-          </Text>
+  return (
+    <Container {...containerProps}>
+      {!isEmbedded && <StatusBar style={isDark ? 'light' : 'dark'} />}
+
+      {/* Header (only when standalone) */}
+      {!isEmbedded && (
+        <View style={styles.header}>
+          <View>
+            <Text style={[styles.screenTitle, { color: colors.textPrimary || '#ffffff' }]}>
+              Exercise Vault
+            </Text>
+            <Text style={styles.subTitle}>
+              {EXERCISE_DATABASE.length} scientifically catalogued exercises
+            </Text>
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Search Input Bar */}
       <View style={styles.searchSection}>
@@ -223,7 +234,7 @@ export default function ExerciseLibraryScreen() {
           </View>
         }
       />
-    </SafeAreaView>
+    </Container>
   );
 }
 
