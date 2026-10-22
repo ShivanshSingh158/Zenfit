@@ -226,9 +226,21 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(fu
                 onAdd();
               }}
               style={styles.quickAddPill}
-              hitSlop={{ top: 6, bottom: 6, left: 4, right: 6 }}
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
             >
               <Text style={styles.quickAddText}>+30s</Text>
+            </TouchableOpacity>
+
+            {/* Quick 1-Tap Skip Button */}
+            <TouchableOpacity
+              onPress={() => {
+                hapticMedium();
+                onSkip();
+              }}
+              style={[styles.quickAddPill, { marginLeft: 3, paddingHorizontal: 5 }]}
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 6 }}
+            >
+              <Ionicons name="close" size={12} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
         </Animated.View>

@@ -48,9 +48,7 @@ import BodyMetricsSheet from '../../components/Gym/BodyMetricsSheet';
 import { useGymProfile } from '../../hooks/useGymProfile';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BeforeAfterSlider from '../../components/Gym/BeforeAfterSlider';
-import { MuscleDistributionChart } from '../../components/Gym/Charts/MuscleDistributionChart';
 import MuscleDonutChart from '../../components/Gym/Charts/MuscleDonutChart';
-import GymProgressDonut from '../../components/Gym/GymProgressDonut';
 
 type TimeRange = '7d' | '30d' | '90d' | '1y' | 'all';
 type ExCurveMode = '1rm' | 'top' | 'effort';
@@ -744,13 +742,6 @@ export default function GymProgressScreen() {
                   </View>
                 </View>
               ))}
-            </View>
-
-            {/* Visual Muscle Donut Distribution */}
-            <View style={{ marginTop: 14 }}>
-              <MuscleDistributionChart
-                data={macroMuscleStats.list.map(m => ({ muscle: m.name, sets: m.sets }))}
-              />
             </View>
           </View>
         )}

@@ -129,7 +129,7 @@ export function AnimatedPressable({
     onPressOut?.(e);
   };
 
-  return (
+  const content = (
     <AnimatedPressableCore
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
@@ -138,13 +138,21 @@ export function AnimatedPressable({
       unstable_pressDelay={0}
       android_ripple={null}
       style={[style, animatedStyle]}
-      entering={entering}
-      exiting={exiting}
       {...props}
     >
       {children}
     </AnimatedPressableCore>
   );
+
+  if (entering || exiting) {
+    return (
+      <Animated.View entering={entering} exiting={exiting}>
+        {content}
+      </Animated.View>
+    );
+  }
+
+  return content;
 }
 
 export default AnimatedPressable;

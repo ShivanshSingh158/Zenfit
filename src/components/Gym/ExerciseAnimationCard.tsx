@@ -8,7 +8,8 @@
  * - Collapsible step-by-step execution cues.
  */
 import React, { useEffect, useState } from 'react';
-import { View, Text, Image, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getExerciseMediaUri, ExerciseDefinition } from '../../services/exerciseMediaService';
@@ -121,9 +122,9 @@ export const ExerciseAnimationCard: React.FC<ExerciseAnimationCardProps> = React
           <Image
             source={{ uri: activeUri }}
             style={styles.gifImage}
-            resizeMode="contain"
-            fadeDuration={0}
-            progressiveRenderingEnabled={true}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            transition={150}
             onError={() => {
               if (activeUri) {
                 setFailedUris(prev => ({ ...prev, [activeUri]: true }));

@@ -12,10 +12,27 @@ import { InteractionManager } from 'react-native';
 import { useWellnessData } from '../contexts/domains/WellnessContext';
 import { GYM_PLAN } from '../data/gymPlan';
 import { preCacheExercises } from '../services/exerciseMediaService';
+import { getExerciseCatalogue, getCategoryMap } from '../components/Gym/AddExerciseModal';
 
 export function useGymPlanPreCache() {
   const { userGymPlan } = useWellnessData();
   const lastPlanHashRef = useRef<string>('');
+  const warmedUpRef = useRef(false);
+
+  // Cold-boot background warming of 1,600+ exercise catalogue & category maps
+  useEffect(() => {
+    if (warmedUpRef.current) return;
+    warmedUpRef.current = true;
+    const task = InteractionManager.runAfterInteractions(() => {
+      setTimeout(() => {
+        try {
+          getExerciseCatalogue();
+          getCategoryMap();
+        } catch (_) {}
+      }, 2000);
+    });
+    return () => task.cancel();
+  }, []);
 
   useEffect(() => {
     const names: string[] = [];

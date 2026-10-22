@@ -16,10 +16,11 @@ export const VolumeBarChart: React.FC<VolumeBarChartProps> = React.memo(function
 
   useEffect(() => {
     anim.setValue(0);
-    Animated.timing(anim, {
+    Animated.spring(anim, {
       toValue: 1,
-      duration: 800,
-      useNativeDriver: false, // height/width cannot use native driver
+      tension: 50,
+      friction: 8,
+      useNativeDriver: true,
     }).start();
   }, [data]);
 
@@ -33,6 +34,7 @@ export const VolumeBarChart: React.FC<VolumeBarChartProps> = React.memo(function
 
   const maxVolume = Math.max(...data.map(d => d.volume), 1);
   const barWidth = 26;
+  const maxBarHeight = height - 45;
 
   return (
     <View style={styles.container}>
@@ -48,28 +50,28 @@ export const VolumeBarChart: React.FC<VolumeBarChartProps> = React.memo(function
         </View>
 
         {data.map((d, i) => {
-          const curH = anim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [4, Math.max(4, (d.volume / maxVolume) * (height - 45))], // 45px for top/bottom labels
-          });
-
+          const targetH = Math.max(4, (d.volume / maxVolume) * maxBarHeight);
           const formattedVol = d.volume >= 1000 ? `${(d.volume / 1000).toFixed(1)}k` : `${d.volume}`;
 
           return (
             <View key={i} style={{ alignItems: 'center' }}>
               <Text style={styles.topVolumeLabel}>{formattedVol}</Text>
-              <Animated.View style={{
-                width: barWidth,
-                height: curH,
-                backgroundColor: '#a599ff',
-                borderTopLeftRadius: 6,
-                borderTopRightRadius: 6,
-                shadowColor: '#a599ff',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.4,
-                shadowRadius: 6,
-                elevation: 4,
-              }} />
+              <View style={{ height: targetH, justifyContent: 'flex-end' }}>
+                <Animated.View style={{
+                  width: barWidth,
+                  height: targetH,
+                  backgroundColor: '#a599ff',
+                  borderTopLeftRadius: 6,
+                  borderTopRightRadius: 6,
+                  shadowColor: '#a599ff',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.4,
+                  shadowRadius: 6,
+                  elevation: 4,
+                  transformOrigin: 'bottom',
+                  transform: [{ scaleY: anim }],
+                }} />
+              </View>
               <Text style={styles.barLabel}>{d.label}</Text>
             </View>
           );

@@ -29,7 +29,7 @@ import { handleSyncError } from '../../utils/errorUtils';
 import { makeAddExerciseStyles } from './addExerciseStyles';
 import ExerciseSearchDropdown, { ExerciseCatalogEntry } from './ExerciseSearchDropdown';
 import ExerciseCustomFields from './ExerciseCustomFields';
-import { getBiomechanicalPrescription, normalizeExerciseKey, resolveExerciseTargetMuscle } from '../../utils/gymUtils';
+import { getBiomechanicalPrescription, normalizeExerciseKey, resolveExerciseTargetMuscle, getPreviousExerciseSession } from '../../utils/gymUtils';
 
 /** Build a full deduplicated exercise catalogue from our database + plan + dataset with calibrated tiers. */
 function buildCatalogue(): ExerciseCatalogEntry[] {
@@ -111,7 +111,7 @@ function buildCatalogue(): ExerciseCatalogEntry[] {
 let _exerciseCatalogue: ExerciseCatalogEntry[] | null = null;
 let _categoryMap: Record<string, ExerciseCatalogEntry[]> | null = null;
 
-function getExerciseCatalogue(): ExerciseCatalogEntry[] {
+export function getExerciseCatalogue(): ExerciseCatalogEntry[] {
   if (!_exerciseCatalogue) {
     _exerciseCatalogue = buildCatalogue();
     loadCustomExercisesToCatalogue().catch(() => {});
@@ -119,7 +119,7 @@ function getExerciseCatalogue(): ExerciseCatalogEntry[] {
   return _exerciseCatalogue;
 }
 
-function getCategoryMap(): Record<string, ExerciseCatalogEntry[]> {
+export function getCategoryMap(): Record<string, ExerciseCatalogEntry[]> {
   if (!_categoryMap) {
     const cat = getExerciseCatalogue();
     _categoryMap = {
@@ -513,21 +513,9 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
   }, [debouncedQuery, muscleSearchFilter, catalogueReady]);
 
   const getLastSessionSets = (exerciseId: string, exerciseName: string) => {
-    if (!gymLogs) return null;
-    const targetKey = normalizeExerciseKey(exerciseName);
-    const logsWithEx = [...gymLogs]
-      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-      .filter(log => Array.isArray(log.exercises) && log.exercises.some((ex: any) =>
-        (ex.exerciseId && ex.exerciseId === exerciseId) ||
-        (ex.name && normalizeExerciseKey(ex.name) === targetKey)
-      ));
-    if (logsWithEx.length === 0) return null;
-    const latestLog = logsWithEx[0];
-    const ex = latestLog.exercises!.find((ex: any) =>
-      (ex.exerciseId && ex.exerciseId === exerciseId) ||
-      (ex.name && normalizeExerciseKey(ex.name) === targetKey)
-    );
-    return ex?.setsLog ?? null;
+    if (!gymLogs || !exerciseName) return null;
+    const session = getPreviousExerciseSession(exerciseName, gymLogs);
+    return session?.sets ?? null;
   };
 
   const handleSelectSuggestion = (entry: ExerciseCatalogEntry) => {

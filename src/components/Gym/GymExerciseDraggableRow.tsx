@@ -136,12 +136,7 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
         <View style={s.rowActions}>
           <TouchableOpacity
             style={s.actionBtn}
-            onPress={() => onShowHistory({ id: ex.exerciseId, name: ex.name })}
-          >
-            <Ionicons name="time-outline" size={20} color={COLORS.textMuted} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={s.actionBtn}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             onPress={() => {
               hapticMedium();
               onShowMenu(ex);

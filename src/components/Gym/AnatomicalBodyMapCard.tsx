@@ -226,18 +226,6 @@ const MemoizedMuscleGroup = React.memo<{
   function MemoizedMuscleGroup({ slug, paths, fill, isSelected, isDark, onPress }) {
     return (
       <G onPress={() => onPress(slug)}>
-        {/* Invisible wide stroke hit target */}
-        {paths.map((dStr, idx) => (
-          <Path
-            key={`hit-${slug}-${idx}`}
-            d={dStr}
-            fill="transparent"
-            stroke="transparent"
-            strokeWidth={20}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        ))}
         {/* Visible Muscle Path */}
         {paths.map((dStr, idx) => (
           <Path

@@ -52,165 +52,133 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
   const youtubeIconSize = exNameStr.length > 24 ? 22 : 26;
 
   return (
-    <View style={styles.titleArea}>
-      {/* 3-Pill Header Row: Guaranteed 1 Line Always */}
+    <View style={[styles.titleArea, { alignItems: 'stretch', paddingHorizontal: 16 }]}>
+      {/* Row 1: Exercise Title (Left) + YouTube + Swap + Superset (Right) */}
       <View
         style={{
           flexDirection: 'row',
           alignItems: 'center',
-          justifyContent: 'center',
-          gap: 6,
-          marginBottom: 10,
+          justifyContent: 'space-between',
           width: '100%',
-          paddingHorizontal: 6,
-          flexWrap: 'nowrap',
+          gap: 8,
         }}
       >
-        {/* Muscle Group Pill */}
-        <View
-          style={[
-            styles.musclePill,
-            {
-              backgroundColor: hexToRgba(colors.accentPrimary, 0.15),
-              marginBottom: 0,
-              paddingHorizontal: 8,
-              paddingVertical: 4,
-              flexShrink: 1,
-              maxWidth: '46%',
-              flexDirection: 'row',
-              alignItems: 'center',
-            },
-          ]}
-        >
-          <View style={[styles.muscleDot, { backgroundColor: colors.accentPrimary, marginRight: 4, flexShrink: 0 }]} />
-          <Text
-            style={[styles.muscleText, { color: colors.accentPrimary, fontSize: muscleFontSize }]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.75}
-          >
-            {muscleName}
-          </Text>
-        </View>
-
-        {/* Swap Button */}
-        <TouchableOpacity
-          onPress={onSwapPress}
-          style={[
-            styles.musclePill,
-            {
-              backgroundColor: 'rgba(255,255,255,0.08)',
-              marginBottom: 0,
-              paddingHorizontal: 8,
-              paddingVertical: 4,
-              flexDirection: 'row',
-              alignItems: 'center',
-              flexShrink: 0,
-            },
-          ]}
-        >
-          <Ionicons name="swap-horizontal" size={13} color={colors.textPrimary} />
-          <Text style={[styles.muscleText, { color: colors.textPrimary, marginLeft: 3, fontSize: 11 }]}>SWAP</Text>
-        </TouchableOpacity>
-
-        {/* Superset Button */}
-        <TouchableOpacity
-          onPress={onSupersetPress}
-          style={[
-            styles.musclePill,
-            {
-              backgroundColor: exercise.supersetGroup
-                ? 'rgba(255,159,77,0.18)'
-                : 'rgba(255,255,255,0.06)',
-              marginBottom: 0,
-              paddingHorizontal: 8,
-              paddingVertical: 4,
-              flexDirection: 'row',
-              alignItems: 'center',
-              borderColor: exercise.supersetGroup ? 'rgba(255,159,77,0.4)' : 'rgba(255,255,255,0.08)',
-              borderWidth: 1,
-              flexShrink: 0,
-            },
-          ]}
-        >
-          <Ionicons
-            name="git-merge-outline"
-            size={12}
-            color={exercise.supersetGroup ? '#ff9f4d' : colors.textMuted}
-          />
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 6 }}>
           <Text
             style={[
-              styles.muscleText,
+              styles.exerciseName,
               {
-                color: exercise.supersetGroup ? '#ff9f4d' : colors.textMuted,
-                marginLeft: 3,
-                fontSize: 11,
+                fontSize: nameFontSize,
+                marginBottom: 0,
+                flexShrink: 1,
+                textAlign: 'left',
+              },
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.78}
+          >
+            {exercise.name}
+          </Text>
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={onVideoToggle}
+            style={[styles.videoBtn, { flexShrink: 0, padding: 2 }]}
+          >
+            <Ionicons
+              name={showVideo ? "close-circle" : "logo-youtube"}
+              size={showVideo ? 20 : youtubeIconSize}
+              color={showVideo ? colors.textMuted : "#FF0000"}
+            />
+          </TouchableOpacity>
+        </View>
+
+        {/* Compact Right-Aligned Actions */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {/* Swap Button */}
+          <TouchableOpacity
+            onPress={onSwapPress}
+            style={[
+              styles.musclePill,
+              {
+                backgroundColor: 'rgba(255,255,255,0.08)',
+                marginBottom: 0,
+                paddingHorizontal: 7,
+                paddingVertical: 3.5,
+                flexDirection: 'row',
+                alignItems: 'center',
               },
             ]}
           >
-            {exercise.supersetGroup ? `SUPER-${exercise.supersetGroup}` : 'SUPERSET'}
-          </Text>
-        </TouchableOpacity>
+            <Ionicons name="swap-horizontal" size={13} color={colors.textPrimary} />
+            <Text style={[styles.muscleText, { color: colors.textPrimary, marginLeft: 3, fontSize: 10.5 }]}>SWAP</Text>
+          </TouchableOpacity>
+
+          {/* Superset Button */}
+          <TouchableOpacity
+            onPress={onSupersetPress}
+            style={[
+              styles.musclePill,
+              {
+                backgroundColor: exercise.supersetGroup
+                  ? 'rgba(255,159,77,0.18)'
+                  : 'rgba(255,255,255,0.06)',
+                marginBottom: 0,
+                paddingHorizontal: 7,
+                paddingVertical: 3.5,
+                flexDirection: 'row',
+                alignItems: 'center',
+                borderColor: exercise.supersetGroup ? 'rgba(255,159,77,0.4)' : 'rgba(255,255,255,0.08)',
+                borderWidth: 1,
+              },
+            ]}
+          >
+            <Ionicons
+              name="git-merge-outline"
+              size={12}
+              color={exercise.supersetGroup ? '#ff9f4d' : colors.textMuted}
+            />
+            <Text
+              style={[
+                styles.muscleText,
+                {
+                  color: exercise.supersetGroup ? '#ff9f4d' : colors.textMuted,
+                  marginLeft: 3,
+                  fontSize: 10.5,
+                },
+              ]}
+            >
+              {exercise.supersetGroup ? `SUPER-${exercise.supersetGroup}` : 'SUPER'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Exercise Name & YouTube Form Button — Guaranteed 1 Line */}
+      {/* Subtitle: Muscle Dot + Name + Goal / Last Session Stats + Inline Match Target */}
       <View
         style={{
           flexDirection: 'row',
           alignItems: 'center',
-          justifyContent: 'center',
-          gap: 6,
-          paddingHorizontal: 12,
-          width: '100%',
-          flexWrap: 'nowrap',
-        }}
-      >
-        <Text
-          style={[
-            styles.exerciseName,
-            {
-              fontSize: nameFontSize,
-              marginBottom: 0,
-              flexShrink: 1,
-            },
-          ]}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.78}
-        >
-          {exercise.name}
-        </Text>
-        <TouchableOpacity
-          activeOpacity={0.75}
-          onPress={onVideoToggle}
-          style={[styles.videoBtn, { flexShrink: 0, padding: 2 }]}
-        >
-          <Ionicons
-            name={showVideo ? "close-circle" : "logo-youtube"}
-            size={showVideo ? 20 : youtubeIconSize}
-            color={showVideo ? colors.textMuted : "#FF0000"}
-          />
-        </TouchableOpacity>
-      </View>
-
-      {/* Goal / Last Session Stats + Inline Match Target Action (Single Compact Row) */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
+          justifyContent: 'flex-start',
           gap: 8,
           marginTop: 4,
           marginBottom: 0,
           width: '100%',
-          paddingHorizontal: 8,
           flexWrap: 'nowrap',
         }}
       >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accentPrimary }} />
+          <Text style={{ fontSize: 11.5, fontFamily: FONT_FAMILY.bold, color: colors.accentPrimary }}>
+            {muscleName}
+          </Text>
+          <Text style={{ fontSize: 11, color: colors.textTertiary }}>•</Text>
+        </View>
+
         <Text
           style={[
             styles.lastTimeText,
-            { marginTop: 0, textAlign: 'center', flexShrink: 1, fontSize: 12 },
+            { marginTop: 0, textAlign: 'left', flexShrink: 1, fontSize: 11.5 },
           ]}
           numberOfLines={1}
           adjustsFontSizeToFit
