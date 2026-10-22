@@ -11,16 +11,17 @@
       "resizeMode": "contain",
       "backgroundColor": "#060509"
     },
+    "scheme": "zentrack",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.zenfit.app"
+      "bundleIdentifier": "com.shiv157.zentrack"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo_white.png",
         "backgroundColor": "#060509"
       },
-      "package": "com.zenfit.app",
+      "package": "com.shiv157.zentrack",
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.VIBRATE",
@@ -33,7 +34,13 @@
     "plugins": [
       "expo-notifications",
       "expo-av",
-      "expo-image-picker"
+      "expo-image-picker",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.336719988763-a8l7noum7dapki5st6uoqvscnnlkid7e"
+        }
+      ]
     ],
     "newArchEnabled": true,
     "extra": {

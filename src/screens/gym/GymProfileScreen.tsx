@@ -16,11 +16,12 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useCoreData } from '../../contexts/domains/CoreDataContext';
 import { useGymProfile } from '../../hooks/useGymProfile';
 import { GymProfileModal } from '../../components/Gym/GymProfileModal';
-import { hapticLight, hapticSuccess } from '../../utils/haptics';
+import { hapticLight, hapticMedium, hapticSuccess } from '../../utils/haptics';
+import { FONT_FAMILY } from '../../theme/tokens';
 
 export default function GymProfileScreen() {
   const { colors, isDark } = useTheme();
-  const { user } = useCoreData();
+  const { user, performGoogleSignIn, performSignOut } = useCoreData();
   const { gymProfile, saveGymProfile } = useGymProfile();
 
   const [profileModalVisible, setProfileModalVisible] = useState(false);
@@ -63,7 +64,7 @@ export default function GymProfileScreen() {
                 {gymProfile?.goal ? `${gymProfile.goal.toUpperCase()} ATHLETE` : 'ZENFIT ATHLETE'}
               </Text>
               <Text style={styles.athleteEmail}>
-                {user?.email || 'Offline Guest Lifter'}
+                {user && !user.isAnonymous ? (user.displayName ? `${user.displayName} • ${user.email}` : user.email) : 'Offline Guest Lifter'}
               </Text>
             </View>
             <View style={styles.editBadge}>
@@ -198,27 +199,139 @@ export default function GymProfileScreen() {
           </View>
         </View>
 
-        {/* Section: Cloud & Diagnostics */}
+        {/* Section: Cloud & Athlete Account */}
         <View style={styles.section}>
-          <Text style={styles.sectionHeader}>CLOUD SYNC & BACKUP</Text>
+          <Text style={styles.sectionHeader}>GOOGLE CLOUD SYNC & ACCOUNT</Text>
 
-          <View style={[styles.settingsGroup, { backgroundColor: cardBg, borderColor: cardBorder }]}>
-            <View style={styles.settingRow}>
-              <View style={styles.settingIconText}>
-                <Ionicons name="cloud-done-outline" size={20} color="#5eda9e" />
-                <View style={{ marginLeft: 12 }}>
-                  <Text style={[styles.settingLabel, { color: colors.textPrimary || '#ffffff' }]}>
-                    Cloud Connection
-                  </Text>
-                  <Text style={styles.settingSub}>
-                    Syncing workouts with Firebase
-                  </Text>
+          <View style={[styles.settingsGroup, { backgroundColor: cardBg, borderColor: cardBorder, padding: 16 }]}>
+            {user && !user.isAnonymous ? (
+              <View style={{ gap: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, paddingRight: 8 }}>
+                    <View style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 21,
+                      backgroundColor: 'rgba(94, 218, 158, 0.15)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      <Ionicons name="logo-google" size={20} color="#5eda9e" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontFamily: FONT_FAMILY.bold, color: colors.textPrimary || '#ffffff' }} numberOfLines={1}>
+                        {user.displayName || 'Google Athlete'}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: '#8e8e93', marginTop: 1 }} numberOfLines={1}>
+                        {user.email}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: 8,
+                    backgroundColor: 'rgba(94, 218, 158, 0.15)',
+                  }}>
+                    <Text style={{ fontSize: 11, fontFamily: FONT_FAMILY.bold, color: '#5eda9e' }}>
+                      Synced
+                    </Text>
+                  </View>
                 </View>
+
+                <Text style={{ fontSize: 11.5, color: '#8e8e93', lineHeight: 16 }}>
+                  Workouts, PRs, bodyweight and routines are continuously synced with your Google account in Firestore.
+                </Text>
+
+                <TouchableOpacity
+                  onPress={async () => {
+                    hapticLight();
+                    Alert.alert(
+                      'Sign Out',
+                      'Are you sure you want to sign out from Google?',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Sign Out',
+                          style: 'destructive',
+                          onPress: async () => {
+                            await performSignOut();
+                          },
+                        },
+                      ]
+                    );
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    paddingVertical: 10,
+                    borderRadius: 10,
+                    backgroundColor: isDark ? 'rgba(255, 107, 107, 0.1)' : 'rgba(235, 77, 75, 0.08)',
+                    borderWidth: 1,
+                    borderColor: isDark ? 'rgba(255, 107, 107, 0.25)' : 'rgba(235, 77, 75, 0.2)',
+                  }}
+                >
+                  <Ionicons name="log-out-outline" size={16} color="#FF6B6B" />
+                  <Text style={{ fontSize: 13, fontFamily: FONT_FAMILY.bold, color: '#FF6B6B' }}>
+                    Sign Out from Google
+                  </Text>
+                </TouchableOpacity>
               </View>
-              <View style={[styles.statusBadge, { backgroundColor: 'rgba(94, 218, 158, 0.15)' }]}>
-                <Text style={[styles.statusText, { color: '#5eda9e' }]}>Active</Text>
+            ) : (
+              <View style={{ gap: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <View style={{
+                    width: 42,
+                    height: 42,
+                    borderRadius: 21,
+                    backgroundColor: 'rgba(255, 209, 102, 0.12)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    <Ionicons name="cloud-offline-outline" size={20} color="#FFD166" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontFamily: FONT_FAMILY.bold, color: colors.textPrimary || '#ffffff' }}>
+                      Offline Guest Mode
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#8e8e93', marginTop: 1 }}>
+                      Data stored locally on this device
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={{ fontSize: 12, color: '#8e8e93', lineHeight: 17 }}>
+                  Sign in with your Google account to restore and sync your full workout history, PRs, and custom splits across all your devices.
+                </Text>
+
+                <TouchableOpacity
+                  onPress={async () => {
+                    hapticMedium();
+                    const res = await performGoogleSignIn();
+                    if (!res.success && !res.cancelled) {
+                      Alert.alert('Google Sign-In', res.error || 'Failed to sign in with Google.');
+                    }
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    paddingVertical: 12,
+                    borderRadius: 12,
+                    backgroundColor: isDark ? '#ffffff' : '#1c1b22',
+                  }}
+                >
+                  <Ionicons name="logo-google" size={16} color={isDark ? '#000000' : '#ffffff'} />
+                  <Text style={{ fontSize: 13, fontFamily: FONT_FAMILY.bold, color: isDark ? '#000000' : '#ffffff' }}>
+                    Sign In with Google to Sync Data
+                  </Text>
+                </TouchableOpacity>
               </View>
-            </View>
+            )}
           </View>
         </View>
 

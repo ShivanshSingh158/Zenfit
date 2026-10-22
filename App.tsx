@@ -45,8 +45,10 @@ const ZEN_LIGHT_THEME = {
   },
 };
 
+import AuthScreen from './src/screens/AuthScreen';
+
 function MainNavigator() {
-  const { user, loading } = useCoreData();
+  const { user, loading, isGuest } = useCoreData();
   const { isDark, colors } = useTheme();
 
   useEffect(() => {
@@ -59,6 +61,15 @@ function MainNavigator() {
     return (
       <View style={{ flex: 1, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color="#a599ff" />
+      </View>
+    );
+  }
+
+  if (!user && !isGuest) {
+    return (
+      <View style={{ flex: 1, backgroundColor: isDark ? '#000000' : colors.background }}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000000' : colors.background} />
+        <AuthScreen />
       </View>
     );
   }
