@@ -272,20 +272,6 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
               style={s.morphBtn}
               onPress={() => {
                 hapticLight();
-                setShowPRSheet(true);
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={s.morphBtnIconWrap}>
-                <Ionicons name="trophy-outline" size={15} color="#FFD166" />
-              </View>
-              <Text style={[s.headerBtnText, { color: '#FFD166' }]}>PRs</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={s.morphBtn}
-              onPress={() => {
-                hapticLight();
                 setShowSwapModal(true);
               }}
               activeOpacity={0.7}
@@ -297,45 +283,17 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={s.morphBtn}
+              style={[s.morphBtn, { backgroundColor: isDark ? 'rgba(165,153,255,0.12)' : 'rgba(108,92,231,0.08)', borderColor: isDark ? 'rgba(165,153,255,0.25)' : 'rgba(108,92,231,0.2)' }]}
               onPress={() => {
                 hapticLight();
-                setShowCardioModal(true);
+                setShowAiModal(true);
               }}
               activeOpacity={0.7}
             >
               <View style={s.morphBtnIconWrap}>
-                <Ionicons name="fitness-outline" size={17} color={colors.textSecondary} />
+                <Ionicons name="sparkles" size={15} color="#a599ff" />
               </View>
-              <Text style={s.headerBtnText}>Cardio</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={s.morphBtn}
-              onPress={() => {
-                hapticLight();
-                setShowBodyMetrics(true);
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={s.morphBtnIconWrap}>
-                <Ionicons name="body-outline" size={17} color={colors.textSecondary} />
-              </View>
-              <Text style={s.headerBtnText}>Body</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={s.morphBtn}
-              onPress={() => {
-                hapticLight();
-                setShowAddModal(true);
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={s.morphBtnIconWrap}>
-                <Ionicons name="add" size={19} color="#a599ff" />
-              </View>
-              <Text style={[s.headerBtnText, { color: '#a599ff' }]}>Add</Text>
+              <Text style={[s.headerBtnText, { color: '#a599ff' }]}>Coach</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -738,20 +696,6 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
         />
       )}
 
-      {/* 7. Log Cardio Modal */}
-      {!!logCardioFor && (
-        <LogCardioModal
-          visible={Boolean(logCardioFor)}
-          cardio={logCardioFor}
-          onClose={() => setLogCardioFor(null)}
-          onSave={(updates) => {
-            if (logCardioFor) {
-              updateCardio(logCardioFor.id, updates);
-              setLogCardioFor(null);
-            }
-          }}
-        />
-      )}
 
       {/* 8. PR Hall of Fame Sheet */}
       <PRHallOfFameSheet

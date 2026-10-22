@@ -437,29 +437,48 @@ export default function GymProgressScreen() {
           </Text>
         </View>
 
-        <TouchableOpacity
-          onPress={() => {
-            hapticLight();
-            setShowBodyMetrics(true);
-          }}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 5,
-            paddingHorizontal: 10,
-            paddingVertical: 7,
-            borderRadius: 10,
-            backgroundColor: isDark ? 'rgba(165,153,255,0.12)' : 'rgba(108,92,231,0.1)',
-            borderWidth: 1,
-            borderColor: isDark ? 'rgba(165,153,255,0.28)' : 'rgba(108,92,231,0.25)',
-          }}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="camera-outline" size={15} color={colors.accentPrimary} />
-          <Text style={{ fontSize: 12, fontFamily: FONT_FAMILY.bold, color: colors.accentPrimary }}>
-            Weight & Photo
-          </Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => {
+              hapticLight();
+              setShowBodyMetrics(true);
+            }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 5,
+              paddingHorizontal: 10,
+              paddingVertical: 7,
+              borderRadius: 10,
+              backgroundColor: isDark ? 'rgba(165,153,255,0.12)' : 'rgba(108,92,231,0.1)',
+              borderWidth: 1,
+              borderColor: isDark ? 'rgba(165,153,255,0.28)' : 'rgba(108,92,231,0.25)',
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="camera-outline" size={15} color={colors.accentPrimary} />
+            <Text style={{ fontSize: 12, fontFamily: FONT_FAMILY.bold, color: colors.accentPrimary }}>
+              Weight & Photo
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              hapticLight();
+              navigation.navigate('GymProfile');
+            }}
+            style={{
+              padding: 7,
+              borderRadius: 10,
+              backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+              borderWidth: 1,
+              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="settings-outline" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Time Range Filter Tabs */}

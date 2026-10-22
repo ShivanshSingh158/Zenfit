@@ -220,39 +220,9 @@ export function WellnessProvider({
       scheduleListenerRestart("userGymPlan")
     ));
 
-    const wellnessCutoffDateStr = offsetDateStr(formatLocalDateStr(new Date()), -90);
-
-    unsubsRef.current.push(onSnapshot(
-      query(collection(db, COLLECTION.WATER_LOGS), where("userId", "==", uid), where("date", ">=", wellnessCutoffDateStr)),
-      snap => {
-        if (snap.metadata.hasPendingWrites) return;
-        if (snap.docs.length === 0 && snap.metadata.fromCache && hasCachedDataRef.current) return;
-        unstable_batchedUpdates(() => {
-          const fresh = applyPendingQueueOverlay(COLLECTION.WATER_LOGS, snap.docs.map(d => ({ id: d.id, ...d.data() } as WaterLog)));
-          setWaterLogs(prev => areItemsEqual(prev, fresh) ? prev : fresh);
-          InteractionManager.runAfterInteractions(() => writeWellnessCache({ waterLogs: fresh }));
-        });
-      },
-      scheduleListenerRestart("waterLogs")
-    ));
-
     deferredInteractionRef.current?.cancel();
     deferredInteractionRef.current = InteractionManager.runAfterInteractions(() => {
       if (!subscribedRef.current) return;
-      unsubsRef.current.push(onSnapshot(
-        query(collection(db, COLLECTION.SLEEP_LOGS), where("userId", "==", uid), where("date", ">=", wellnessCutoffDateStr)),
-        snap => {
-          if (snap.metadata.hasPendingWrites) return;
-          if (snap.docs.length === 0 && snap.metadata.fromCache && hasCachedDataRef.current) return;
-          unstable_batchedUpdates(() => {
-            const fresh = applyPendingQueueOverlay(COLLECTION.SLEEP_LOGS, snap.docs.map(d => ({ id: d.id, ...d.data() } as SleepLog)));
-            setSleepLogs(prev => areItemsEqual(prev, fresh) ? prev : fresh);
-            InteractionManager.runAfterInteractions(() => writeWellnessCache({ sleepLogs: fresh }));
-          });
-        },
-        scheduleListenerRestart("sleepLogs")
-      ));
-
       unsubsRef.current.push(onSnapshot(
         query(collection(db, 'weight_logs'), where("userId", "==", uid)),
         snap => {

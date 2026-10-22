@@ -31,7 +31,7 @@ import ActiveExerciseVideo from '../../components/Gym/ActiveExerciseVideo';
 import SupersetPickerModal from '../../components/Gym/SupersetPickerModal';
 import ActiveSwapModal from '../../components/Gym/ActiveSwapModal';
 import AnimatedRestTimer from '../../components/Gym/AnimatedRestTimer';
-import ActiveQuickChips from '../../components/Gym/ActiveQuickChips';
+import ExerciseDeepDiveModal from '../../components/Gym/ExerciseDeepDiveModal';
 import { insertWarmupLadder } from '../../utils/warmupGenerator';
 import { saveCachedLiveWorkoutData, updateLiveWorkoutWidget } from '../../services/widgetSyncService';
 import { dismissActiveWorkoutNotification } from '../../services/activeWorkoutNotificationService';
@@ -399,6 +399,7 @@ export default function ActiveLoggingScreen() {
   const [isAiSwapLoading, setIsAiSwapLoading] = useState(false);
   const [isRefreshingVideo, setIsRefreshingVideo] = useState(false);
   const [showCompletedWarmups, setShowCompletedWarmups] = useState(false);
+  const [deepDiveVisible, setDeepDiveVisible] = useState(false);
 
   useEffect(() => {
     setShowCompletedWarmups(false);
@@ -1310,9 +1311,12 @@ export default function ActiveLoggingScreen() {
           <Text style={styles.headerTitle}>Exercise {activeExIndex + 1} of {exercises.length}</Text>
           <TouchableOpacity
             style={styles.backBtn}
-            onPress={() => navigation.navigate('ExerciseDetail', { exerciseId: exercise.exerciseId, date })}
+            onPress={() => {
+              hapticLight();
+              setDeepDiveVisible(true);
+            }}
           >
-            <Ionicons name="ellipsis-horizontal" size={24} color={colors.textPrimary} />
+            <Ionicons name="analytics-outline" size={22} color={colors.textPrimary} />
           </TouchableOpacity>
         </View>
 
@@ -1380,28 +1384,6 @@ export default function ActiveLoggingScreen() {
               styles={styles}
               onSetAction={handleSetAction}
               onToggleShowWarmups={setShowCompletedWarmups}
-            />
-
-            {/* Quick Set Value Repeating Chips */}
-            <ActiveQuickChips
-              activeSetIndex={activeSetIndex}
-              styles={styles}
-              onRepeatPrevious={() => {
-                hapticLight();
-                if (activeSetIndex > 0) {
-                  const prevSet = exercise.setsLog[activeSetIndex - 1];
-                  if (prevSet) {
-                    setSetInputs(prev => {
-                      const copy = [...prev];
-                      copy[activeSetIndex] = {
-                        weight: prevSet.weight != null ? String(prevSet.weight) : '',
-                        reps: prevSet.reps != null ? String(prevSet.reps) : '',
-                      };
-                      return copy;
-                    });
-                  }
-                }
-              }}
             />
 
             {/* Set Actions: Balanced Clean Pills for Add Set & Auto Warm-up */}
@@ -1594,6 +1576,16 @@ export default function ActiveLoggingScreen() {
           />
         </View>
       ) : null}
+
+      {/* Deep-Dive Inspector Modal */}
+      {deepDiveVisible && exercise && (
+        <ExerciseDeepDiveModal
+          visible={deepDiveVisible}
+          exerciseName={exercise.name}
+          gymLogs={gymLogs || []}
+          onClose={() => setDeepDiveVisible(false)}
+        />
+      )}
     </SafeAreaView>
   );
 }

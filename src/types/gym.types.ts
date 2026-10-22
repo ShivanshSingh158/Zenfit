@@ -148,6 +148,11 @@ export interface GymProfile {
   dietaryPreference?: string | null;
   foodAllergies?: string | null;
   activityLevel?: string | null;
+  // Hardware and workout preferences
+  unitIsLbs?: boolean;
+  autoTimer?: boolean;
+  hapticsEnabled?: boolean;
+  audioCues?: boolean;
   updatedAt?: number;
 }
 

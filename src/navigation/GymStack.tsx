@@ -40,13 +40,13 @@ function MainTabs() {
       id="ZenFitMainTabs"
       initialRouteName="Today"
       tabBar={renderTabBar}
-      detachInactiveScreens={false}
+      detachInactiveScreens={true}
       screenOptions={{
         headerShown: false,
         animation: 'shift',
         sceneStyle: { backgroundColor: colors.background },
         lazy: true,
-        freezeOnBlur: false,
+        freezeOnBlur: true,
       }}
       backBehavior="history"
     >
@@ -54,48 +54,6 @@ function MainTabs() {
       <Tab.Screen name="Splits" component={GymSplitsScreen} />
       <Tab.Screen name="History" component={GymHistoryScreen} />
       <Tab.Screen name="Body" component={GymProgressScreen} />
-
-      {/* ── Backward-Compatibility Aliases ── */}
-      <Tab.Screen
-        name="Workout"
-        component={GymHomeScreen}
-        options={{
-          tabBarItemStyle: { display: 'none' },
-          tabBarButton: () => null,
-        }}
-      />
-      <Tab.Screen
-        name="Progress"
-        component={GymProgressScreen}
-        options={{
-          tabBarItemStyle: { display: 'none' },
-          tabBarButton: () => null,
-        }}
-      />
-      <Tab.Screen
-        name="GymHome"
-        component={GymHomeScreen}
-        options={{
-          tabBarItemStyle: { display: 'none' },
-          tabBarButton: () => null,
-        }}
-      />
-      <Tab.Screen
-        name="GymProgress"
-        component={GymProgressScreen}
-        options={{
-          tabBarItemStyle: { display: 'none' },
-          tabBarButton: () => null,
-        }}
-      />
-      <Tab.Screen
-        name="GymHistory"
-        component={GymHistoryScreen}
-        options={{
-          tabBarItemStyle: { display: 'none' },
-          tabBarButton: () => null,
-        }}
-      />
     </Tab.Navigator>
   );
 }
@@ -114,8 +72,6 @@ export default function GymStack() {
       }}
     >
       <Stack.Screen name="MainTabs" component={MainTabs} />
-      <Stack.Screen name="GymHome" component={MainTabs} />
-      <Stack.Screen name="Today" component={MainTabs} />
       <Stack.Screen
         name="ActiveLogging"
         component={ActiveLoggingScreen}

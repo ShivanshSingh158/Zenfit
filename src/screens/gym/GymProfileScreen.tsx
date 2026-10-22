@@ -21,13 +21,14 @@ import { hapticLight, hapticSuccess } from '../../utils/haptics';
 export default function GymProfileScreen() {
   const { colors, isDark } = useTheme();
   const { user } = useCoreData();
-  const { gymProfile } = useGymProfile();
+  const { gymProfile, saveGymProfile } = useGymProfile();
 
   const [profileModalVisible, setProfileModalVisible] = useState(false);
-  const [unitIsLbs, setUnitIsLbs] = useState(false);
-  const [autoTimer, setAutoTimer] = useState(true);
-  const [hapticsEnabled, setHapticsEnabled] = useState(true);
-  const [audioCues, setAudioCues] = useState(true);
+
+  const unitIsLbs = gymProfile?.unitIsLbs ?? false;
+  const autoTimer = gymProfile?.autoTimer ?? true;
+  const hapticsEnabled = gymProfile?.hapticsEnabled ?? true;
+  const audioCues = gymProfile?.audioCues ?? true;
 
   const cardBg = isDark ? '#0f0e13' : '#ffffff';
   const cardBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)';
@@ -117,7 +118,7 @@ export default function GymProfileScreen() {
                 </View>
               </View>
               <TouchableOpacity
-                onPress={() => { hapticLight(); setUnitIsLbs(!unitIsLbs); }}
+                onPress={() => { hapticLight(); saveGymProfile({ unitIsLbs: !unitIsLbs }); }}
                 style={[styles.unitToggle, { backgroundColor: isDark ? '#23222a' : '#e5e5ea' }]}
               >
                 <Text style={[styles.unitText, { color: colors.accentPrimary || '#a599ff' }]}>
@@ -143,7 +144,7 @@ export default function GymProfileScreen() {
               </View>
               <Switch
                 value={autoTimer}
-                onValueChange={v => { hapticLight(); setAutoTimer(v); }}
+                onValueChange={v => { hapticLight(); saveGymProfile({ autoTimer: v }); }}
                 thumbColor="#ffffff"
                 trackColor={{ false: '#3a3a3c', true: colors.accentPrimary || '#a599ff' }}
               />
@@ -166,7 +167,7 @@ export default function GymProfileScreen() {
               </View>
               <Switch
                 value={audioCues}
-                onValueChange={v => { hapticLight(); setAudioCues(v); }}
+                onValueChange={v => { hapticLight(); saveGymProfile({ audioCues: v }); }}
                 thumbColor="#ffffff"
                 trackColor={{ false: '#3a3a3c', true: colors.accentPrimary || '#a599ff' }}
               />
@@ -189,7 +190,7 @@ export default function GymProfileScreen() {
               </View>
               <Switch
                 value={hapticsEnabled}
-                onValueChange={v => { hapticLight(); setHapticsEnabled(v); }}
+                onValueChange={v => { hapticLight(); saveGymProfile({ hapticsEnabled: v }); }}
                 thumbColor="#ffffff"
                 trackColor={{ false: '#3a3a3c', true: colors.accentPrimary || '#a599ff' }}
               />

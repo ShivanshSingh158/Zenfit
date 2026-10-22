@@ -43,6 +43,10 @@ export const DEFAULT_PROFILE: GymProfile = {
   exercisesToAvoid: '',
   focusMuscles: '',
   notes: '',
+  unitIsLbs: false,
+  autoTimer: true,
+  hapticsEnabled: true,
+  audioCues: true,
 };
 
 export function useGymProfile() {
