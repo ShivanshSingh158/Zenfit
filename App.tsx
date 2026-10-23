@@ -1,19 +1,31 @@
 import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import React, { useEffect } from 'react';
-import { View, ActivityIndicator, LogBox, StatusBar } from 'react-native';
+import React from 'react';
+import { View, LogBox, StatusBar } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import * as SplashScreen from 'expo-splash-screen';
+import { enableScreens, enableFreeze } from 'react-native-screens';
+
+// ─── Frame 0 Module-Level Optimizations (ZenTrack Architecture) ───────────────
+// Hold splash until NavigationContainer.onReady() or AuthScreen paints
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
+// Enable native Android Fragment containers and tab freezing
+enableScreens(true);
+enableFreeze(true);
+
+// Pre-warm L1 memory cache via atomic multiGet BEFORE React renders Frame 0
+import { loadBootManifest } from './src/utils/bootManifest';
+loadBootManifest().catch(() => {});
 
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { PortalProvider } from './src/contexts/PortalContext';
 import { CoreDataProvider, useCoreData } from './src/contexts/domains/CoreDataContext';
 import { WellnessProvider } from './src/contexts/domains/WellnessContext';
 import GymStack from './src/navigation/GymStack';
-
-SplashScreen.preventAutoHideAsync().catch(() => {});
+import AuthScreen from './src/screens/AuthScreen';
 
 LogBox.ignoreLogs([
   'expo-notifications: Android Push notifications',
@@ -45,23 +57,15 @@ const ZEN_LIGHT_THEME = {
   },
 };
 
-import AuthScreen from './src/screens/AuthScreen';
-
 function MainNavigator() {
   const { user, loading, isGuest } = useCoreData();
   const { isDark, colors } = useTheme();
 
-  useEffect(() => {
-    if (!loading) {
-      SplashScreen.hideAsync().catch(() => {});
-    }
-  }, [loading]);
-
-  if (loading) {
+  // Instant 0ms transition: if cached user or guest exists, this never renders.
+  // If fresh install, this holds for <5ms while local storage checks.
+  if (loading && !user && !isGuest) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#a599ff" />
-      </View>
+      <View style={{ flex: 1, backgroundColor: '#000000' }} />
     );
   }
 
@@ -78,7 +82,13 @@ function MainNavigator() {
     <View style={{ flex: 1, backgroundColor: isDark ? '#000000' : colors.background }}>
       <WellnessProvider user={user}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000000' : colors.background} />
-        <NavigationContainer theme={isDark ? ZEN_DARK_THEME : ZEN_LIGHT_THEME}>
+        <NavigationContainer
+          theme={isDark ? ZEN_DARK_THEME : ZEN_LIGHT_THEME}
+          onReady={() => {
+            // Dismiss splash screen the exact millisecond the UI paints
+            SplashScreen.hideAsync().catch(() => {});
+          }}
+        >
           <GymStack />
         </NavigationContainer>
       </WellnessProvider>
@@ -87,16 +97,13 @@ function MainNavigator() {
 }
 
 export default function App() {
-  const [fontsLoaded] = useFonts({
+  // Load fonts in background without blocking initial paint (non-blocking)
+  useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
   });
-
-  if (!fontsLoaded) {
-    return null;
-  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000000' }}>

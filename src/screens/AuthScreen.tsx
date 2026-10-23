@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 
+import * as SplashScreen from 'expo-splash-screen';
 import { useTheme } from '../contexts/ThemeContext';
 import { useCoreData } from '../contexts/domains/CoreDataContext';
 import { FONT_FAMILY, RADIUS } from '../theme/tokens';
@@ -52,6 +53,7 @@ export default function AuthScreen() {
   const slideAnim = useRef(new Animated.Value(20)).current;
 
   useEffect(() => {
+    SplashScreen.hideAsync().catch(() => {});
     Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
       Animated.spring(slideAnim, { toValue: 0, tension: 70, friction: 9, useNativeDriver: true }),
