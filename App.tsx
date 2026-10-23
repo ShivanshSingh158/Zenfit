@@ -1,15 +1,16 @@
 import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import React from 'react';
+import React, { useState } from 'react';
 import { View, LogBox, StatusBar } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
+import { PlayfairDisplay_600SemiBold, PlayfairDisplay_600SemiBold_Italic } from '@expo-google-fonts/playfair-display';
 import * as SplashScreen from 'expo-splash-screen';
 import { enableScreens, enableFreeze } from 'react-native-screens';
 
 // ─── Frame 0 Module-Level Optimizations (ZenTrack Architecture) ───────────────
-// Hold splash until NavigationContainer.onReady() or AuthScreen paints
+// Hold splash until NavigationContainer.onReady() or LandingScreen paints
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // Enable native Android Fragment containers and tab freezing
@@ -25,6 +26,7 @@ import { PortalProvider } from './src/contexts/PortalContext';
 import { CoreDataProvider, useCoreData } from './src/contexts/domains/CoreDataContext';
 import { WellnessProvider } from './src/contexts/domains/WellnessContext';
 import GymStack from './src/navigation/GymStack';
+import LandingScreen from './src/screens/LandingScreen';
 import AuthScreen from './src/screens/AuthScreen';
 
 LogBox.ignoreLogs([
@@ -60,6 +62,7 @@ const ZEN_LIGHT_THEME = {
 function MainNavigator() {
   const { user, loading, isGuest } = useCoreData();
   const { isDark, colors } = useTheme();
+  const [authStep, setAuthStep] = useState<'welcome' | 'signin'>('welcome');
 
   // Instant 0ms transition: if cached user or guest exists, this never renders.
   // If fresh install, this holds for <5ms while local storage checks.
@@ -69,11 +72,16 @@ function MainNavigator() {
     );
   }
 
+  // 2-Step ZenTrack Authentication Flow (01 / welcome -> 02 / sign in)
   if (!user && !isGuest) {
     return (
       <View style={{ flex: 1, backgroundColor: isDark ? '#000000' : colors.background }}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000000' : colors.background} />
-        <AuthScreen />
+        {authStep === 'welcome' ? (
+          <LandingScreen onGetStarted={() => setAuthStep('signin')} />
+        ) : (
+          <AuthScreen onBack={() => setAuthStep('welcome')} />
+        )}
       </View>
     );
   }
@@ -103,6 +111,8 @@ export default function App() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
+    PlayfairDisplay_600SemiBold,
+    PlayfairDisplay_600SemiBold_Italic,
   });
 
   return (
