@@ -8,7 +8,7 @@
  * - Auto pre-caching for scheduled weekly gym plans.
  */
 import * as FileSystem from 'expo-file-system/legacy';
-import { EXERCISE_DATABASE } from '../data/exerciseDatabase';
+import rawExercises from '../data/exercises.json';
 
 export interface ExerciseDefinition {
   id: string;
@@ -21,32 +21,83 @@ export interface ExerciseDefinition {
   instruction?: string;
   instructionHi?: string;
   steps?: string[];
-  image?: string;
-  gifUrl?: string;
-  mediaId?: string;
+  image: string;
+  gifUrl: string;
+  mediaId: string;
 }
 
-const EXERCISES: ExerciseDefinition[] = EXERCISE_DATABASE.map(e => ({
-  id: e.id,
-  name: e.name,
-  category: e.muscle,
-  bodyPart: e.muscle,
-  equipment: 'Gym Equipment',
-  target: e.muscle,
-  secondaryMuscles: [],
-  instruction: '',
-  instructionHi: '',
-  steps: [],
-  image: '',
-  gifUrl: '',
-  mediaId: e.id,
-}));
+const EXERCISES: ExerciseDefinition[] = rawExercises as ExerciseDefinition[];
 
 // Fast normalized lookup maps
 const EXERCISE_BY_ID = new Map<string, ExerciseDefinition>();
 const EXERCISE_BY_NORM_NAME = new Map<string, ExerciseDefinition>();
 
 const KNOWN_SYNONYMS: Record<string, string> = {
+  // Routine Specific Aliases (100% Match Guarantees)
+  'chest supported incline dumbbell row': 'dumbbell incline row',
+  'chest-supported incline dumbbell row': 'dumbbell incline row',
+  'chest supported row': 'dumbbell incline row',
+  'chest-supported t-bar row': 'lever reverse t-bar row',
+  'chest supported t-bar row': 'lever reverse t-bar row',
+  't-bar row': 'lever reverse t-bar row',
+  't bar row': 'lever reverse t-bar row',
+  'pec deck fly': 'lever seated fly',
+  'pec deck': 'lever seated fly',
+  'reverse pec deck': 'lever seated reverse fly',
+  'reverse pec deck back focus': 'lever seated reverse fly',
+  'reverse pec deck (back focus)': 'lever seated reverse fly',
+  'lat pulldowns standard': 'cable pulldown',
+  'lat pulldowns (standard)': 'cable pulldown',
+  'neutral-grip lat pulldowns': 'cable pulldown',
+  'neutral grip lat pulldowns': 'cable pulldown',
+  'neutral grip lat pulldown': 'cable pulldown',
+  'lat pulldowns': 'cable pulldown',
+  'lat pulldown': 'cable pulldown',
+  'seated cable rows': 'cable seated row',
+  'seated cable row': 'cable seated row',
+  'cable lateral raises': 'cable lateral raise',
+  'cable lateral raise': 'cable lateral raise',
+  'machine overhead press': 'barbell seated overhead press',
+  'ez-bar skullcrushers': 'barbell lying triceps extension skull crusher',
+  'ez bar skullcrushers': 'barbell lying triceps extension skull crusher',
+  'skullcrushers': 'barbell lying triceps extension skull crusher',
+  'dual-rope tricep pushdowns': 'cable pushdown (with rope attachment)',
+  'dual rope tricep pushdowns': 'cable pushdown (with rope attachment)',
+  'rope tricep pushdowns': 'cable pushdown (with rope attachment)',
+  'tricep pushdowns': 'cable pushdown',
+  'tricep pushdown': 'cable pushdown',
+  'standing ez-bar curls': 'ez barbell curl',
+  'standing ez bar curls': 'ez barbell curl',
+  'incline dumbbell curls': 'dumbbell incline biceps curl',
+  'incline db curls': 'dumbbell incline biceps curl',
+  'hack squats or leg press': 'sled hack squat',
+  'hack squats': 'sled hack squat',
+  'hack squat': 'sled hack squat',
+  'leg extensions': 'lever leg extension',
+  'leg extension': 'lever leg extension',
+  'leg curls': 'lever seated leg curl',
+  'leg curl': 'lever seated leg curl',
+  'standing machine calf raises': 'standing calf raise',
+  'standing calf raises': 'standing calf raise',
+  'kneeling cable crunches': 'cable kneeling crunch',
+  'hanging knee raises': 'hanging knee raise',
+  'cable woodchoppers': 'cable standing up woodchop',
+  'high-to-low cable crossovers': 'cable standing cross-over high reverse fly',
+  'high to low cable crossovers': 'cable standing cross-over high reverse fly',
+  'incline dumbbell press': 'dumbbell incline bench press',
+  'incline db press': 'dumbbell incline bench press',
+  'dumbbell incline press': 'dumbbell incline bench press',
+  'flat dumbbell press': 'dumbbell bench press',
+  'dumbbell bench press': 'dumbbell bench press',
+  'barbell bench press': 'barbell bench press',
+  'incline barbell bench press': 'barbell incline bench press',
+  'incline barbell press': 'barbell incline bench press',
+  'romanian deadlifts rdls': 'barbell romanian deadlift',
+  'romanian deadlifts (rdls)': 'barbell romanian deadlift',
+  'romanian deadlifts': 'barbell romanian deadlift',
+  'romanian deadlift': 'barbell romanian deadlift',
+
+  // Common Shorthands & Abbreviations
   rdl: 'romanian deadlift',
   rdls: 'romanian deadlift',
   ghr: 'glute ham raise',
@@ -56,9 +107,9 @@ const KNOWN_SYNONYMS: Record<string, string> = {
   dips: 'dip',
   'pull ups': 'pull up',
   'chin ups': 'chin up',
-  'skull crushers': 'skull crusher',
+  'skull crushers': 'barbell lying triceps extension skull crusher',
   pushdowns: 'pushdown',
-  pulldowns: 'pulldown',
+  pulldowns: 'cable pulldown',
   deadlifts: 'deadlift',
   squats: 'squat',
   curls: 'curl',
@@ -82,7 +133,6 @@ const KNOWN_SYNONYMS: Record<string, string> = {
   'pinch hold': 'farmers walk',
   'stomach vacuum': 'alternate heel touchers',
   'hammer strength': 'lever',
-  'pec deck': 'lever seated fly',
   preacher: 'preacher curl',
 };
 
@@ -120,11 +170,11 @@ EXERCISES.forEach(ex => {
 // CDN Base URLs (jsDelivr for high-speed global edge distribution)
 const CDN_PRIMARY_BASE = 'https://cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@main';
 const CDN_FALLBACK_BASE = 'https://raw.githubusercontent.com/hasaneyldrm/exercises-dataset/main';
-const CACHE_DIR = `${FileSystem.cacheDirectory}exercise_gifs/`;
+const CACHE_DIR = `${FileSystem.cacheDirectory || ''}exercise_gifs/`;
 
 let isCacheDirEnsured = false;
 async function ensureCacheDir() {
-  if (isCacheDirEnsured) return;
+  if (isCacheDirEnsured || !FileSystem.cacheDirectory) return;
   try {
     const info = await FileSystem.getInfoAsync(CACHE_DIR);
     if (!info.exists) {
@@ -155,14 +205,23 @@ export function resolveExercise(nameOrId: string): ExerciseDefinition | null {
     return EXERCISE_BY_NORM_NAME.get(norm)!;
   }
 
-  // 3. Cleaned string normalized match (synonyms expanded)
+  // 3. Known direct full-phrase synonym match
+  const lowerTrimmed = trimmed.toLowerCase();
+  for (const [key, target] of Object.entries(KNOWN_SYNONYMS)) {
+    if (lowerTrimmed === key || normalize(lowerTrimmed) === normalize(key)) {
+      const match = EXERCISE_BY_NORM_NAME.get(normalize(target));
+      if (match) return match;
+    }
+  }
+
+  // 4. Cleaned string normalized match (synonyms expanded)
   const cleaned = cleanString(trimmed);
   const cleanNorm = normalize(cleaned);
   if (EXERCISE_BY_NORM_NAME.has(cleanNorm)) {
     return EXERCISE_BY_NORM_NAME.get(cleanNorm)!;
   }
 
-  // 4. Substring matching
+  // 5. Substring matching
   for (const ex of EXERCISES) {
     const exNorm = normalize(ex.name);
     if (exNorm.includes(cleanNorm) || cleanNorm.includes(exNorm)) {
@@ -170,7 +229,7 @@ export function resolveExercise(nameOrId: string): ExerciseDefinition | null {
     }
   }
 
-  // 5. Token overlap scoring with stemming
+  // 6. Token overlap scoring with stemming
   const queryTokens = tokenize(trimmed);
   let bestMatch: ExerciseDefinition | null = null;
   let bestScore = 0;
@@ -217,7 +276,7 @@ export function searchExercises(query: string, bodyPartFilter?: string, limit = 
       ex.name.toLowerCase().includes(normQuery) ||
       ex.target.toLowerCase().includes(normQuery) ||
       ex.equipment.toLowerCase().includes(normQuery) ||
-      ex.secondaryMuscles.some(m => m.toLowerCase().includes(normQuery))
+      (ex.secondaryMuscles && ex.secondaryMuscles.some(m => m.toLowerCase().includes(normQuery)))
     );
   }).slice(0, limit);
 }
@@ -226,6 +285,7 @@ export function searchExercises(query: string, bodyPartFilter?: string, limit = 
  * Returns remote CDN URL for an exercise's animation GIF
  */
 export function getExerciseGifCdnUrl(ex: ExerciseDefinition, useFallback = false): string {
+  if (!ex.gifUrl) return '';
   const base = useFallback ? CDN_FALLBACK_BASE : CDN_PRIMARY_BASE;
   if (ex.gifUrl.startsWith('http')) return ex.gifUrl;
   return `${base}/${ex.gifUrl}`;
@@ -235,6 +295,7 @@ export function getExerciseGifCdnUrl(ex: ExerciseDefinition, useFallback = false
  * Returns remote CDN URL for an exercise's thumbnail image
  */
 export function getExerciseThumbnailUrl(ex: ExerciseDefinition, useFallback = false): string {
+  if (!ex.image) return '';
   const base = useFallback ? CDN_FALLBACK_BASE : CDN_PRIMARY_BASE;
   if (ex.image.startsWith('http')) return ex.image;
   return `${base}/${ex.image}`;
@@ -260,14 +321,16 @@ export async function getExerciseMediaUri(nameOrId: string): Promise<{
   const localPath = `${CACHE_DIR}${fileName}`;
 
   try {
-    const fileInfo = await FileSystem.getInfoAsync(localPath);
-    if (fileInfo.exists && fileInfo.size > 1000) {
-      return {
-        definition: def,
-        gifUri: localPath,
-        imageUri: getExerciseThumbnailUrl(def),
-        isOffline: true,
-      };
+    if (FileSystem.cacheDirectory) {
+      const fileInfo = await FileSystem.getInfoAsync(localPath);
+      if (fileInfo.exists && fileInfo.size > 1000) {
+        return {
+          definition: def,
+          gifUri: localPath,
+          imageUri: getExerciseThumbnailUrl(def),
+          isOffline: true,
+        };
+      }
     }
   } catch (e) {
     // Ignore and fallback to CDN
@@ -296,14 +359,16 @@ export async function preCacheExercises(exerciseNames: string[]): Promise<number
     const localPath = `${CACHE_DIR}${fileName}`;
 
     try {
-      const fileInfo = await FileSystem.getInfoAsync(localPath);
-      if (!fileInfo.exists || fileInfo.size < 1000) {
-        const cdnUrl = getExerciseGifCdnUrl(def);
-        const res = await FileSystem.downloadAsync(cdnUrl, localPath);
-        if (!res || res.status < 200 || res.status >= 300) {
-          await FileSystem.deleteAsync(localPath, { idempotent: true });
-        } else {
-          cachedCount++;
+      if (FileSystem.cacheDirectory) {
+        const fileInfo = await FileSystem.getInfoAsync(localPath);
+        if (!fileInfo.exists || fileInfo.size < 1000) {
+          const cdnUrl = getExerciseGifCdnUrl(def);
+          const res = await FileSystem.downloadAsync(cdnUrl, localPath);
+          if (!res || res.status < 200 || res.status >= 300) {
+            await FileSystem.deleteAsync(localPath, { idempotent: true });
+          } else {
+            cachedCount++;
+          }
         }
       }
     } catch (e) {
@@ -319,10 +384,12 @@ export async function preCacheExercises(exerciseNames: string[]): Promise<number
  */
 export async function clearExerciseMediaCache(): Promise<void> {
   try {
-    const info = await FileSystem.getInfoAsync(CACHE_DIR);
-    if (info.exists) {
-      await FileSystem.deleteAsync(CACHE_DIR, { idempotent: true });
-      isCacheDirEnsured = false;
+    if (FileSystem.cacheDirectory) {
+      const info = await FileSystem.getInfoAsync(CACHE_DIR);
+      if (info.exists) {
+        await FileSystem.deleteAsync(CACHE_DIR, { idempotent: true });
+        isCacheDirEnsured = false;
+      }
     }
   } catch (e) {
     console.warn('[ExerciseMediaService] Failed to clear media cache:', e);
