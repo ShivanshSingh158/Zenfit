@@ -1,8 +1,8 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { FONT_FAMILY, RADIUS } from '../../theme/tokens';
-import { hexToRgba, resolveExerciseTargetMuscle } from '../../utils/gymUtils';
+import { resolveExerciseTargetMuscle } from '../../utils/gymUtils';
 
 export interface ActiveExerciseHeaderProps {
   exercise: any;
@@ -40,173 +40,191 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
   const rawMuscle = exercise.muscle;
   const resolved = resolveExerciseTargetMuscle(exercise.name, rawMuscle).targetMuscle;
   const muscleName = (resolved || rawMuscle || 'Mixed').toUpperCase();
-  // Dynamic font sizing for long muscle group names (e.g., TRANSVERSE ABS, ANTERIOR DELTOID)
-  const muscleFontSize = muscleName.length > 13 ? 9.5 : muscleName.length > 9 ? 10.5 : 11.5;
-
-  const exNameStr = exercise.name || '';
-  // Dynamic font sizing for exercise name to guarantee 1-line fit:
-  // Short (<= 17 chars, e.g. "Barbell Curls", "Bench Press"): 20px (standard large size)
-  // Medium (18-24 chars, e.g. "Incline Dumbbell Press"): 17.5px
-  // Long (25+ chars, e.g. "Heel-Elevated Goblet Squats", "Romanian Deadlifts (RDLs)"): 15.5px
-  const nameFontSize = exNameStr.length > 24 ? 15.5 : exNameStr.length > 17 ? 17.5 : 20;
-  const youtubeIconSize = exNameStr.length > 24 ? 22 : 26;
 
   return (
-    <View style={[styles.titleArea, { alignItems: 'stretch', paddingHorizontal: 16 }]}>
-      {/* Row 1: Exercise Title (Left) + YouTube + Swap + Superset (Right) */}
+    <View style={[styles.titleArea, { alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 }]}>
+      {/* ── Row 1: Three Centered Feature Pills (• MUSCLE | ⇄ SWAP | ⚯ SUPERSET) ── */}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          marginBottom: 10,
+        }}
+      >
+        {/* Muscle Pill */}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: 'rgba(165, 153, 255, 0.12)',
+            borderColor: 'rgba(165, 153, 255, 0.28)',
+            borderWidth: 1,
+            paddingHorizontal: 12,
+            paddingVertical: 5,
+            borderRadius: RADIUS.full,
+            gap: 6,
+          }}
+        >
+          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#a599ff' }} />
+          <Text style={{ fontFamily: FONT_FAMILY.bold, fontSize: 11, color: '#a599ff', letterSpacing: 0.8 }}>
+            {muscleName}
+          </Text>
+        </View>
+
+        {/* Swap Button Pill */}
+        <TouchableOpacity
+          onPress={onSwapPress}
+          activeOpacity={0.75}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: 'rgba(255, 255, 255, 0.08)',
+            borderColor: 'rgba(255, 255, 255, 0.12)',
+            borderWidth: 1,
+            paddingHorizontal: 12,
+            paddingVertical: 5,
+            borderRadius: RADIUS.full,
+            gap: 5,
+          }}
+        >
+          <Ionicons name="swap-horizontal" size={13} color="#ffffff" />
+          <Text style={{ fontFamily: FONT_FAMILY.bold, fontSize: 11, color: '#ffffff', letterSpacing: 0.5 }}>
+            SWAP
+          </Text>
+        </TouchableOpacity>
+
+        {/* Superset Button Pill */}
+        <TouchableOpacity
+          onPress={onSupersetPress}
+          activeOpacity={0.75}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: exercise.supersetGroup
+              ? 'rgba(255, 159, 77, 0.18)'
+              : 'rgba(255, 255, 255, 0.08)',
+            borderColor: exercise.supersetGroup
+              ? 'rgba(255, 159, 77, 0.4)'
+              : 'rgba(255, 255, 255, 0.12)',
+            borderWidth: 1,
+            paddingHorizontal: 12,
+            paddingVertical: 5,
+            borderRadius: RADIUS.full,
+            gap: 5,
+          }}
+        >
+          <Ionicons
+            name="git-merge-outline"
+            size={13}
+            color={exercise.supersetGroup ? '#ff9f4d' : '#8e8e93'}
+          />
+          <Text
+            style={{
+              fontFamily: FONT_FAMILY.bold,
+              fontSize: 11,
+              color: exercise.supersetGroup ? '#ff9f4d' : '#8e8e93',
+              letterSpacing: 0.5,
+            }}
+          >
+            {exercise.supersetGroup ? `SUPER-${exercise.supersetGroup}` : 'SUPERSET'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* ── Row 2: Exercise Title (Large, Bold, Centered) + Red YouTube Play Button ── */}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          marginBottom: 10,
+          paddingHorizontal: 12,
+        }}
+      >
+        <Text
+          style={{
+            fontSize: 22,
+            fontFamily: FONT_FAMILY.bold,
+            color: '#ffffff',
+            textAlign: 'center',
+            letterSpacing: -0.3,
+          }}
+          numberOfLines={2}
+        >
+          {exercise.name}
+        </Text>
+
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={onVideoToggle}
+          style={{ padding: 2 }}
+        >
+          <Ionicons
+            name={showVideo ? "close-circle" : "logo-youtube"}
+            size={24}
+            color={showVideo ? colors.textMuted : "#FF0000"}
+          />
+        </TouchableOpacity>
+      </View>
+
+      {/* ── Row 3: Last Stats (Left) + Match Target Pill (Right) ── */}
       <View
         style={{
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'space-between',
           width: '100%',
-          gap: 8,
+          paddingHorizontal: 4,
+          marginBottom: 8,
         }}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 6 }}>
-          <Text
-            style={[
-              styles.exerciseName,
-              {
-                fontSize: nameFontSize,
-                marginBottom: 0,
-                flexShrink: 1,
-                textAlign: 'left',
-              },
-            ]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.78}
-          >
-            {exercise.name}
-          </Text>
-          <TouchableOpacity
-            activeOpacity={0.75}
-            onPress={onVideoToggle}
-            style={[styles.videoBtn, { flexShrink: 0, padding: 2 }]}
-          >
-            <Ionicons
-              name={showVideo ? "close-circle" : "logo-youtube"}
-              size={showVideo ? 20 : youtubeIconSize}
-              color={showVideo ? colors.textMuted : "#FF0000"}
-            />
-          </TouchableOpacity>
-        </View>
-
-        {/* Compact Right-Aligned Actions */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-          {/* Swap Button */}
-          <TouchableOpacity
-            onPress={onSwapPress}
-            style={[
-              styles.musclePill,
-              {
-                backgroundColor: 'rgba(255,255,255,0.08)',
-                marginBottom: 0,
-                paddingHorizontal: 7,
-                paddingVertical: 3.5,
-                flexDirection: 'row',
-                alignItems: 'center',
-              },
-            ]}
-          >
-            <Ionicons name="swap-horizontal" size={13} color={colors.textPrimary} />
-            <Text style={[styles.muscleText, { color: colors.textPrimary, marginLeft: 3, fontSize: 10.5 }]}>SWAP</Text>
-          </TouchableOpacity>
-
-          {/* Superset Button */}
-          <TouchableOpacity
-            onPress={onSupersetPress}
-            style={[
-              styles.musclePill,
-              {
-                backgroundColor: exercise.supersetGroup
-                  ? 'rgba(255,159,77,0.18)'
-                  : 'rgba(255,255,255,0.06)',
-                marginBottom: 0,
-                paddingHorizontal: 7,
-                paddingVertical: 3.5,
-                flexDirection: 'row',
-                alignItems: 'center',
-                borderColor: exercise.supersetGroup ? 'rgba(255,159,77,0.4)' : 'rgba(255,255,255,0.08)',
-                borderWidth: 1,
-              },
-            ]}
-          >
-            <Ionicons
-              name="git-merge-outline"
-              size={12}
-              color={exercise.supersetGroup ? '#ff9f4d' : colors.textMuted}
-            />
-            <Text
-              style={[
-                styles.muscleText,
-                {
-                  color: exercise.supersetGroup ? '#ff9f4d' : colors.textMuted,
-                  marginLeft: 3,
-                  fontSize: 10.5,
-                },
-              ]}
-            >
-              {exercise.supersetGroup ? `SUPER-${exercise.supersetGroup}` : 'SUPER'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Subtitle: Muscle Dot + Name + Goal / Last Session Stats + Inline Match Target */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'flex-start',
-          gap: 8,
-          marginTop: 4,
-          marginBottom: 0,
-          width: '100%',
-          flexWrap: 'nowrap',
-        }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accentPrimary }} />
-          <Text style={{ fontSize: 11.5, fontFamily: FONT_FAMILY.bold, color: colors.accentPrimary }}>
-            {muscleName}
-          </Text>
-          <Text style={{ fontSize: 11, color: colors.textTertiary }}>•</Text>
-        </View>
-
         <Text
-          style={[
-            styles.lastTimeText,
-            { marginTop: 0, textAlign: 'left', flexShrink: 1, fontSize: 11.5 },
-          ]}
+          style={{
+            fontSize: 12.5,
+            color: '#8e8e93',
+            fontFamily: FONT_FAMILY.medium,
+            flexShrink: 1,
+            marginRight: 8,
+          }}
           numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.82}
         >
-          {lastTimeData ?? `Goal: ${exercise.targetSets} sets × ${exercise.targetReps} reps`}
+          {lastTimeData ? `Last: ${lastTimeData}` : `Goal: ${exercise.targetSets} sets × ${exercise.targetReps} reps`}
         </Text>
 
         {!isAllComplete && onRepeatPrevious && (
           <TouchableOpacity
             activeOpacity={0.75}
-            style={[styles.quickChipRepeat, { paddingVertical: 4, paddingHorizontal: 8, flexShrink: 0 }]}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 5,
+              backgroundColor: 'rgba(165, 153, 255, 0.12)',
+              borderColor: 'rgba(165, 153, 255, 0.3)',
+              borderWidth: 1,
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: RADIUS.full,
+              flexShrink: 0,
+            }}
             onPress={onRepeatPrevious}
           >
             <Ionicons
-              name={activeSetIndex && activeSetIndex > 0 ? "copy-outline" : "locate-outline"}
-              size={11}
+              name={activeSetIndex && activeSetIndex > 0 ? "copy-outline" : "sparkles-outline"}
+              size={12}
               color="#a599ff"
             />
-            <Text style={[styles.quickChipTextHighlight, { fontSize: 11 }]}>
+            <Text style={{ fontSize: 11.5, fontFamily: FONT_FAMILY.bold, color: '#a599ff' }}>
               {activeSetIndex && activeSetIndex > 0 ? `Same as Set ${activeSetIndex}` : 'Match Target'}
             </Text>
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Progression & Deload Intelligence Banner (Compact 1-Line) */}
-      {overloadSuggestion && overloadSuggestion.reason && (
+      {/* ── Row 4: Target & Overload Banner (Full-Width Pill) ── */}
+      {overloadSuggestion && overloadSuggestion.reason ? (
         <View
           style={{
             flexDirection: 'row',
@@ -214,59 +232,60 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
             gap: 6,
             backgroundColor: overloadSuggestion.isDeload
               ? 'rgba(255, 127, 80, 0.12)'
-              : overloadSuggestion.type === 'increase' || overloadSuggestion.reason.includes('🔥') || overloadSuggestion.reason.includes('⚡')
-              ? 'rgba(94, 218, 158, 0.10)'
               : 'rgba(255, 255, 255, 0.04)',
             borderColor: overloadSuggestion.isDeload
               ? 'rgba(255, 127, 80, 0.30)'
-              : overloadSuggestion.type === 'increase' || overloadSuggestion.reason.includes('🔥') || overloadSuggestion.reason.includes('⚡')
-              ? 'rgba(94, 218, 158, 0.28)'
               : 'rgba(255, 255, 255, 0.08)',
             borderWidth: 1,
             borderRadius: RADIUS.full,
             paddingHorizontal: 12,
-            paddingVertical: 5,
-            marginTop: 6,
-            width: '92%',
-            alignSelf: 'center',
+            paddingVertical: 6,
+            width: '100%',
           }}
         >
           <Ionicons
-            name={
-              overloadSuggestion.isDeload
-                ? 'warning-outline'
-                : overloadSuggestion.type === 'increase' || overloadSuggestion.reason.includes('🔥')
-                ? 'trending-up'
-                : overloadSuggestion.reason.includes('⚡')
-                ? 'flash-outline'
-                : 'information-circle-outline'
-            }
-            size={13}
-            color={
-              overloadSuggestion.isDeload
-                ? '#ff7f50'
-                : overloadSuggestion.type === 'increase' || overloadSuggestion.reason.includes('🔥') || overloadSuggestion.reason.includes('⚡')
-                ? '#5eda9e'
-                : '#8e8e93'
-            }
-            style={{ flexShrink: 0 }}
+            name="information-circle-outline"
+            size={14}
+            color={overloadSuggestion.isDeload ? '#ff7f50' : '#8e8e93'}
           />
           <Text
             style={{
               fontFamily: FONT_FAMILY.medium,
               fontSize: 11.5,
-              color: overloadSuggestion.isDeload
-                ? '#ff7f50'
-                : overloadSuggestion.type === 'increase' || overloadSuggestion.reason.includes('🔥') || overloadSuggestion.reason.includes('⚡')
-                ? '#5eda9e'
-                : '#9d9da5',
+              color: overloadSuggestion.isDeload ? '#ff7f50' : '#a0a0a8',
               flex: 1,
             }}
             numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.85}
           >
             {overloadSuggestion.reason}
+          </Text>
+        </View>
+      ) : (
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            backgroundColor: 'rgba(255, 255, 255, 0.04)',
+            borderColor: 'rgba(255, 255, 255, 0.08)',
+            borderWidth: 1,
+            borderRadius: RADIUS.full,
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            width: '100%',
+          }}
+        >
+          <Ionicons name="information-circle-outline" size={14} color="#8e8e93" />
+          <Text
+            style={{
+              fontFamily: FONT_FAMILY.medium,
+              fontSize: 11.5,
+              color: '#a0a0a8',
+              flex: 1,
+            }}
+            numberOfLines={1}
+          >
+            Target: Aim for clean concentric tempo across all sets
           </Text>
         </View>
       )}
@@ -280,38 +299,23 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'space-between',
-            backgroundColor: 'rgba(255,159,77,0.12)',
+            backgroundColor: 'rgba(255, 159, 77, 0.12)',
             borderWidth: 1,
-            borderColor: 'rgba(255,159,77,0.35)',
+            borderColor: 'rgba(255, 159, 77, 0.35)',
             borderRadius: RADIUS.md,
             paddingHorizontal: 12,
             paddingVertical: 8,
             marginTop: 8,
-            width: '92%',
-            alignSelf: 'center',
+            width: '100%',
           }}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginRight: 10, minWidth: 0 }}>
-            <Ionicons name="git-merge" size={14} color="#ff9f4d" style={{ flexShrink: 0 }} />
-            <View style={{
-              backgroundColor: 'rgba(255,159,77,0.2)',
-              paddingHorizontal: 6,
-              paddingVertical: 2,
-              borderRadius: 6,
-              flexShrink: 0,
-            }}>
-              <Text style={{ fontFamily: FONT_FAMILY.bold, fontSize: 10, color: '#ff9f4d', letterSpacing: 0.5 }}>
-                {exercise.supersetGroup}
-              </Text>
-            </View>
-            <Text style={{ fontFamily: FONT_FAMILY.medium, fontSize: 12, color: '#ff9f4d', flex: 1 }} numberOfLines={1}>
-              {partnerExercise.name}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginRight: 10 }}>
+            <Ionicons name="git-merge" size={14} color="#ff9f4d" />
+            <Text style={{ fontSize: 12, fontFamily: FONT_FAMILY.medium, color: '#ff9f4d' }}>
+              Superset: {partnerExercise.name}
             </Text>
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-            <Text style={{ fontFamily: FONT_FAMILY.bold, fontSize: 11, color: '#ff9f4d' }}>SWITCH</Text>
-            <Ionicons name="chevron-forward" size={12} color="#ff9f4d" />
-          </View>
+          <Ionicons name="chevron-forward" size={14} color="#ff9f4d" />
         </TouchableOpacity>
       )}
     </View>

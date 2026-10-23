@@ -1316,7 +1316,7 @@ export default function ActiveLoggingScreen() {
               setDeepDiveVisible(true);
             }}
           >
-            <Ionicons name="analytics-outline" size={22} color={colors.textPrimary} />
+            <Ionicons name="ellipsis-horizontal" size={22} color={colors.textPrimary} />
           </TouchableOpacity>
         </View>
 
