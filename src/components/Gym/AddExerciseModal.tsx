@@ -1,14 +1,28 @@
 /**
- * AddExerciseModal • ZenTrack Mobile (v2)
+ * AddExerciseModal.tsx • ZenFit Mobile
  *
- * Fast exercise catalogue search, auto-fill, custom exercise creation,
- * and AI fallback integration.
+ * Fully redesigned exercise catalogue search & creation modal:
+ * - Segmented Anatomical Muscle Filter Bar with visual glyphs (No equipment filter).
+ * - Rich card-style search results (Equipment glyph, Primary & Secondary muscles,
+ *   Tier badge, and Past performance snippet).
+ * - Instant "Create Custom Exercise" card on 0 search results with one-tap auto-categorization.
+ * - Ultra-lightweight: Database activates ONLY when searching or filtering; turns OFF when idle
+ *   so modal opening, closing, and interactions feel instantaneous.
  */
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  View, Text, StyleSheet, Modal, TouchableOpacity, TextInput,
-  ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator,
+  View,
+  Text,
+  Modal,
+  TouchableOpacity,
+  TextInput,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+  FlatList,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -24,14 +38,51 @@ import { GYM_PLAN } from '../../data/gymPlan';
 import { EXERCISE_DATABASE } from '../../data/exerciseDatabase';
 import { searchExercises } from '../../services/exerciseMediaService';
 import { handleSyncError } from '../../utils/errorUtils';
+import { hapticLight, hapticSuccess, hapticMedium } from '../../utils/haptics';
 
-// Extracted Subcomponents & Styles
+// Subcomponents & Styles
 import { makeAddExerciseStyles } from './addExerciseStyles';
-import ExerciseSearchDropdown, { ExerciseCatalogEntry } from './ExerciseSearchDropdown';
+import { ExerciseCatalogEntry } from './ExerciseSearchDropdown';
+import ExerciseCardItem, { getEquipmentGlyph } from './ExerciseCardItem';
 import ExerciseCustomFields from './ExerciseCustomFields';
-import { getBiomechanicalPrescription, normalizeExerciseKey, resolveExerciseTargetMuscle, getPreviousExerciseSession } from '../../utils/gymUtils';
+import {
+  getBiomechanicalPrescription,
+  resolveExerciseTargetMuscle,
+  getPreviousExerciseSession,
+  resolveMuscleColor,
+} from '../../utils/gymUtils';
 
-/** Build a full deduplicated exercise catalogue from our database + plan + dataset with calibrated tiers. */
+// ── Visual Anatomical Muscle Filter Chips ───────────────────────────────────
+export const ANATOMICAL_MUSCLE_CHIPS: {
+  id: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}[] = [
+  { id: 'all', label: 'All', icon: 'apps-outline' },
+  { id: 'Chest', label: 'Chest', icon: 'shield-outline' },
+  { id: 'Back', label: 'Back', icon: 'layers-outline' },
+  { id: 'Legs', label: 'Legs', icon: 'walk-outline' },
+  { id: 'Shoulders', label: 'Shoulders', icon: 'fitness-outline' },
+  { id: 'Arms', label: 'Arms', icon: 'flash-outline' },
+  { id: 'Abs', label: 'Abs', icon: 'grid-outline' },
+  { id: 'Cardio', label: 'Cardio', icon: 'flame-outline' },
+];
+
+// ── Ultra-Lightweight Pre-defined Staples (Rendered in 0ms when DB is idle) ──
+const POPULAR_STAPLE_EXERCISES: ExerciseCatalogEntry[] = [
+  { id: 'staple_inc_db_press', name: 'Incline Bench Press (Dumbbell)', muscle: 'Upper Chest', tier: 'S Tier', targetSets: 3, targetReps: '8–12', restTimeSecs: 90, videoId: '', isCurated: true },
+  { id: 'staple_lat_pulldown', name: 'Lat Pulldown (Cable)', muscle: 'Lats', tier: 'S Tier', targetSets: 3, targetReps: '10–12', restTimeSecs: 75, videoId: '', isCurated: true },
+  { id: 'staple_squat_bb', name: 'Squat (Barbell)', muscle: 'Quads', tier: 'S Tier', targetSets: 3, targetReps: '6–10', restTimeSecs: 120, videoId: '', isCurated: true },
+  { id: 'staple_cable_lat_raise', name: 'Lateral Raise (Cable)', muscle: 'Side Delts', tier: 'S Tier', targetSets: 3, targetReps: '12–15', restTimeSecs: 60, videoId: '', isCurated: true },
+  { id: 'staple_flat_bb_press', name: 'Flat Bench Press (Barbell)', muscle: 'Mid Chest', tier: 'A+ Tier', targetSets: 3, targetReps: '6–8', restTimeSecs: 120, videoId: '', isCurated: true },
+  { id: 'staple_rdl_db', name: 'Romanian Deadlift (Dumbbell)', muscle: 'Hamstrings', tier: 'S Tier', targetSets: 3, targetReps: '8–12', restTimeSecs: 90, videoId: '', isCurated: true },
+  { id: 'staple_tri_pushdown', name: 'Triceps Pushdown (Cable)', muscle: 'Triceps', tier: 'A+ Tier', targetSets: 3, targetReps: '10–12', restTimeSecs: 60, videoId: '', isCurated: true },
+  { id: 'staple_bicep_curl_db', name: 'Incline Bicep Curl (Dumbbell)', muscle: 'Biceps', tier: 'S Tier', targetSets: 3, targetReps: '10–12', restTimeSecs: 60, videoId: '', isCurated: true },
+  { id: 'staple_cable_row', name: 'Seated Cable Row', muscle: 'Upper Back', tier: 'A+ Tier', targetSets: 3, targetReps: '8–12', restTimeSecs: 75, videoId: '', isCurated: true },
+  { id: 'staple_leg_ext', name: 'Leg Extension (Machine)', muscle: 'Quads', tier: 'A Tier', targetSets: 3, targetReps: '12–15', restTimeSecs: 60, videoId: '', isCurated: true },
+];
+
+/** Build a full deduplicated exercise catalogue from our database + plan + dataset. */
 function buildCatalogue(): ExerciseCatalogEntry[] {
   const seen = new Set<string>();
   const result: ExerciseCatalogEntry[] = [];
@@ -50,7 +101,7 @@ function buildCatalogue(): ExerciseCatalogEntry[] {
     result.push({ ...e, isCurated });
   };
 
-  // 1. EXERCISE_DATABASE (Curated master library with scientifically audited entries, unified aliases & calibrated tiers)
+  // 1. EXERCISE_DATABASE (Curated master library with calibrated tiers)
   for (const dbEntry of EXERCISE_DATABASE) {
     const rx = getBiomechanicalPrescription(dbEntry.name, dbEntry.muscle);
     add({
@@ -66,7 +117,7 @@ function buildCatalogue(): ExerciseCatalogEntry[] {
     }, true);
   }
 
-  // 2. GYM_PLAN exercises (if any user custom additions)
+  // 2. GYM_PLAN exercises
   for (const day of GYM_PLAN) {
     for (const ex of day.exercises) {
       const rx = getBiomechanicalPrescription(ex.name, ex.muscle);
@@ -83,7 +134,7 @@ function buildCatalogue(): ExerciseCatalogEntry[] {
     }
   }
 
-  // 3. 1,324 Exercises Dataset integration (appends only secondary dataset entries)
+  // 3. 1,324 Exercises Dataset integration
   const datasetExercises = searchExercises('', 'all', 2000);
   for (const ex of datasetExercises) {
     const rawMuscle = ex.target || ex.bodyPart || 'Mixed';
@@ -105,9 +156,7 @@ function buildCatalogue(): ExerciseCatalogEntry[] {
   return result;
 }
 
-// Lazy singleton — built once on first AddExerciseModal open, never at module parse time.
-// Prevents the 4800-op buildCatalogue() (1600 items × 3 fn calls) from blocking the JS
-// thread during React.lazy() module evaluation.
+// Lazy singleton — built ONLY upon active user search or filter selection
 let _exerciseCatalogue: ExerciseCatalogEntry[] | null = null;
 let _categoryMap: Record<string, ExerciseCatalogEntry[]> | null = null;
 
@@ -117,90 +166,6 @@ export function getExerciseCatalogue(): ExerciseCatalogEntry[] {
     loadCustomExercisesToCatalogue().catch(() => {});
   }
   return _exerciseCatalogue;
-}
-
-export function getCategoryMap(): Record<string, ExerciseCatalogEntry[]> {
-  if (!_categoryMap) {
-    const cat = getExerciseCatalogue();
-    _categoryMap = {
-      Chest:     sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Chest'))),
-      Back:      sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Back'))),
-      Legs:      sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Legs'))),
-      Shoulders: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Shoulders'))),
-      Arms:      sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Arms'))),
-      Abs:       sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Abs'))),
-      Cardio:    sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Cardio'))),
-    };
-  }
-  return _categoryMap;
-}
-
-const CUSTOM_EXERCISES_KEY = '@zentrack_custom_exercises';
-
-let _customExercisesMutex: Promise<void> = Promise.resolve();
-
-async function loadCustomExercisesToCatalogue(): Promise<void> {
-  try {
-    const raw = await AsyncStorage.getItem(CUSTOM_EXERCISES_KEY);
-    if (!raw) return;
-    const customs: ExerciseCatalogEntry[] = JSON.parse(raw);
-    const catalogue = getExerciseCatalogue();
-    for (const ex of customs) {
-      const key = ex.name.toLowerCase().trim();
-      const existing = catalogue.find(e => e.name.toLowerCase().trim() === key || (ex.id && e.id === ex.id));
-      if (!existing) {
-        catalogue.push(ex);
-      } else if (ex.videoId && !existing.videoId) {
-        existing.videoId = ex.videoId;
-      }
-    }
-  } catch (_) {}
-}
-
-async function persistCustomExercise(entry: ExerciseCatalogEntry): Promise<void> {
-  _customExercisesMutex = _customExercisesMutex.then(async () => {
-    try {
-      const raw = await AsyncStorage.getItem(CUSTOM_EXERCISES_KEY);
-      const existing: ExerciseCatalogEntry[] = raw ? JSON.parse(raw) : [];
-      const key = entry.name.toLowerCase().trim();
-      const idx = existing.findIndex(e => e.name.toLowerCase().trim() === key || (entry.id && e.id === entry.id));
-      if (idx >= 0) {
-        // Update existing entry with any newly resolved properties (e.g., videoId)
-        existing[idx] = {
-          ...existing[idx],
-          ...entry,
-          videoId: entry.videoId || existing[idx].videoId || '',
-        };
-      } else {
-        existing.push(entry);
-      }
-      await AsyncStorage.setItem(CUSTOM_EXERCISES_KEY, JSON.stringify(existing));
-
-      // Also ensure live singleton catalogue stays synchronized
-      const catalogue = getExerciseCatalogue();
-      const live = catalogue.find(e => e.name.toLowerCase().trim() === key || (entry.id && e.id === entry.id));
-      if (live) {
-        if (entry.videoId) live.videoId = entry.videoId;
-      } else {
-        catalogue.push(entry);
-      }
-    } catch (_) {}
-  }).catch(() => {});
-  return _customExercisesMutex;
-}
-
-const extractVideoId = (urlOrId: string) => {
-  if (!urlOrId) return '';
-  const m = urlOrId.match(/^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/);
-  return (m && m[2].length === 11) ? m[2] : urlOrId;
-};
-
-interface Props {
-  visible: boolean;
-  onClose: () => void;
-  onAdd: (ex: GymExerciseLog) => void;
-  planDay?: GymPlanDay;
-  existingExerciseIds?: string[];
 }
 
 const TIER_SORT_WEIGHT: Record<string, number> = {
@@ -223,6 +188,8 @@ const sortTierWise = (list: ExerciseCatalogEntry[]) => {
 function checkCategoryMatch(m: string, category: string): boolean {
   const l = (m || '').toLowerCase();
   const cat = category.toLowerCase();
+
+  if (cat === 'all') return true;
 
   if (cat === 'cardio') {
     return (
@@ -284,13 +251,85 @@ function checkCategoryMatch(m: string, category: string): boolean {
   return l.includes(cat);
 }
 
-// ── Closest Word & Synonym Relevance Engine ─────────────────────────────────
+export function getCategoryMap(): Record<string, ExerciseCatalogEntry[]> {
+  if (!_categoryMap) {
+    const cat = getExerciseCatalogue();
+    _categoryMap = {
+      Chest: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Chest'))),
+      Back: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Back'))),
+      Legs: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Legs'))),
+      Shoulders: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Shoulders'))),
+      Arms: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Arms'))),
+      Abs: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Abs'))),
+      Cardio: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Cardio'))),
+    };
+  }
+  return _categoryMap;
+}
+
+const CUSTOM_EXERCISES_KEY = '@zentrack_custom_exercises';
+let _customExercisesMutex: Promise<void> = Promise.resolve();
+
+async function loadCustomExercisesToCatalogue(): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(CUSTOM_EXERCISES_KEY);
+    if (!raw) return;
+    const customs: ExerciseCatalogEntry[] = JSON.parse(raw);
+    const catalogue = getExerciseCatalogue();
+    for (const ex of customs) {
+      const key = ex.name.toLowerCase().trim();
+      const existing = catalogue.find(e => e.name.toLowerCase().trim() === key || (ex.id && e.id === ex.id));
+      if (!existing) {
+        catalogue.push(ex);
+      } else if (ex.videoId && !existing.videoId) {
+        existing.videoId = ex.videoId;
+      }
+    }
+  } catch (_) {}
+}
+
+async function persistCustomExercise(entry: ExerciseCatalogEntry): Promise<void> {
+  _customExercisesMutex = _customExercisesMutex.then(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(CUSTOM_EXERCISES_KEY);
+      const existing: ExerciseCatalogEntry[] = raw ? JSON.parse(raw) : [];
+      const key = entry.name.toLowerCase().trim();
+      const idx = existing.findIndex(e => e.name.toLowerCase().trim() === key || (entry.id && e.id === entry.id));
+      if (idx >= 0) {
+        existing[idx] = {
+          ...existing[idx],
+          ...entry,
+          videoId: entry.videoId || existing[idx].videoId || '',
+        };
+      } else {
+        existing.push(entry);
+      }
+      await AsyncStorage.setItem(CUSTOM_EXERCISES_KEY, JSON.stringify(existing));
+
+      const catalogue = getExerciseCatalogue();
+      const live = catalogue.find(e => e.name.toLowerCase().trim() === key || (entry.id && e.id === entry.id));
+      if (live) {
+        if (entry.videoId) live.videoId = entry.videoId;
+      } else {
+        catalogue.push(entry);
+      }
+    } catch (_) {}
+  }).catch(() => {});
+  return _customExercisesMutex;
+}
+
+const extractVideoId = (urlOrId: string) => {
+  if (!urlOrId) return '';
+  const m = urlOrId.match(/^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/);
+  return m && m[2].length === 11 ? m[2] : urlOrId;
+};
+
+// ── Search & Relevance Engine ───────────────────────────────────────────────
 const GYM_SYNONYMS: Record<string, string> = {
   db: 'dumbbell',
   bb: 'barbell',
   kb: 'kettlebell',
   rdl: 'romanian deadlift',
-  rdls: 'romanian deadlift',
   ohp: 'overhead press',
   ghr: 'glute ham raise',
   flys: 'fly',
@@ -310,12 +349,8 @@ const GYM_SYNONYMS: Record<string, string> = {
   pushups: 'pushup',
   pullups: 'pullup',
   dips: 'dip',
-  'high-to-low': 'high to low',
-  'low-to-high': 'low to high',
-  'pec deck': 'pec deck fly',
 };
 
-// Pre-compile RegExp list once at module load — never re-compile inside hot search loops
 const GYM_SYNONYM_REGEXES = Object.entries(GYM_SYNONYMS).map(([abbr, full]) => ({
   regex: new RegExp(`\\b${abbr}\\b`, 'gi'),
   full,
@@ -326,10 +361,7 @@ function cleanSearchString(str: string): string {
   for (let i = 0; i < GYM_SYNONYM_REGEXES.length; i++) {
     cleaned = cleaned.replace(GYM_SYNONYM_REGEXES[i].regex, GYM_SYNONYM_REGEXES[i].full);
   }
-  return cleaned
-    .replace(/[\(\)\/\,\-\–\—\.]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return cleaned.replace(/[\(\)\/\,\-\–\—\.]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function getQueryTokens(str: string): string[] {
@@ -339,7 +371,6 @@ function getQueryTokens(str: string): string[] {
     .map(t => t.replace(/(s|es|ing)$/, ''));
 }
 
-// Token & normalized string cache for catalogue entries so we don't re-tokenize 1,600 entries on every keystroke
 const entryMetaCache = new WeakMap<ExerciseCatalogEntry, {
   nameLower: string;
   normName: string;
@@ -373,28 +404,15 @@ function scoreExerciseMatch(
   const { nameLower, normName, nameTokens, aliasesLower: aliases, normAliases } = getEntryMeta(entry);
 
   let score = 0;
+  if (entry.isCurated) score += 1500;
 
-  // Curated database bonus: curated exercises should ALWAYS be preferred over raw datasets
-  if (entry.isCurated) {
-    score += 1500;
-  }
-
-  // 1. Exact full name or alias match
-  if (normName === normQuery) {
+  if (normName === normQuery || normAliases.includes(normQuery)) {
     score += 5000;
-  } else if (normAliases.includes(normQuery)) {
-    score += 5000;
-  }
-
-  // 2. Starts with query
-  if (nameLower.startsWith(rawQuery) || normName.startsWith(normQuery)) {
+  } else if (nameLower.startsWith(rawQuery) || normName.startsWith(normQuery)) {
     score += 2000;
   } else if (aliases.some(a => a.startsWith(rawQuery))) {
     score += 1800;
-  }
-
-  // 3. Substring match
-  if (nameLower.includes(rawQuery) || normName.includes(normQuery)) {
+  } else if (nameLower.includes(rawQuery) || normName.includes(normQuery)) {
     score += 1200;
   } else if (cleanedQuery !== rawQuery && nameLower.includes(cleanedQuery)) {
     score += 1000;
@@ -402,7 +420,6 @@ function scoreExerciseMatch(
     score += 900;
   }
 
-  // 4. Token-level matching & coverage
   if (queryTokens.length > 0) {
     let matchedTokenCount = 0;
     for (const qt of queryTokens) {
@@ -417,7 +434,6 @@ function scoreExerciseMatch(
         score += 120;
       }
     }
-
     if (matchedTokenCount >= queryTokens.length) {
       score += 1200;
     } else if (matchedTokenCount > 0) {
@@ -425,14 +441,12 @@ function scoreExerciseMatch(
     }
   }
 
-  // 5. Category boost if muscleSearchFilter is active
-  if (categoryFilter) {
+  if (categoryFilter && categoryFilter !== 'all') {
     if (checkCategoryMatch(entry.muscle, categoryFilter)) {
       score += 800;
     }
   }
 
-  // 6. Tier weighting (S and A+ Tier outrank lower tiers cleanly)
   const tierWeights: Record<string, number> = {
     'S Tier': 500,
     'A+ Tier': 400,
@@ -445,62 +459,77 @@ function scoreExerciseMatch(
   return score;
 }
 
+interface Props {
+  visible: boolean;
+  onClose: () => void;
+  onAdd: (ex: GymExerciseLog) => void;
+  planDay?: GymPlanDay;
+  existingExerciseIds?: string[];
+}
+
 export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeAddExerciseStyles(colors, isDark), [colors, isDark]);
   const { userGymPlan, updateMasterPlan } = useGymPlan();
   const { gymLogs } = useGymLogs();
 
-  // Ensure catalogue is built once and immediately ready
-  const [catalogueReady, setCatalogueReady] = useState(!!_exerciseCatalogue);
-  useEffect(() => {
-    if (!_exerciseCatalogue) {
-      getExerciseCatalogue(); // populates lazy singleton
-      getCategoryMap();
-      setCatalogueReady(true);
-    }
-  }, []);
+  // Search and Filter States
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedMuscle, setSelectedMuscle] = useState<string>('all');
+  const [selectedEntry, setSelectedEntry] = useState<ExerciseCatalogEntry | null>(null);
+  const [showCustomTuning, setShowCustomTuning] = useState(false);
 
-  // Form state
-  const [name, setName] = useState('');
+  // Form states for custom tuning
   const [sets, setSets] = useState('3');
   const [reps, setReps] = useState('8-12');
   const [restTime, setRestTime] = useState('60');
   const [muscle, setMuscle] = useState('None');
   const [videoLink, setVideoLink] = useState('');
   const [savePermanently, setSavePermanently] = useState(false);
-  const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [muscleSearchFilter, setMuscleSearchFilter] = useState<string | null>(null);
 
   // AI resolver state
   const [aiSuggestion, setAiSuggestion] = useState<AIExerciseInfo | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
-  const aiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 50ms snappy debounced search query
+  // Debounced search query for butter-smooth 60fps typing
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    searchDebounceRef.current = setTimeout(() => setDebouncedQuery(name.trim().toLowerCase()), 50);
-    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
-  }, [name]);
+    searchDebounceRef.current = setTimeout(() => {
+      setDebouncedQuery(searchQuery.trim().toLowerCase());
+    }, 40);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchQuery]);
 
-  // 0ms Instant Search & Filter Memo (Closest Word & Relevance Ranking)
-  const suggestions = useMemo(() => {
-    const q = debouncedQuery.trim().toLowerCase();
-    const catalogue = getExerciseCatalogue();
-    const categoryMap = getCategoryMap();
+  // ── Database Activation Guard ─────────────────────────────────────────────
+  // The database is ONLY active when the user has typed a query or selected a specific muscle!
+  // If idle, it remains completely inactive/off so closing and opening feel instant!
+  const isDatabaseActive = Boolean(debouncedQuery.length > 0 || (selectedMuscle && selectedMuscle !== 'all'));
 
-    // If no text query, show category filtered exercises
-    if (!q) {
-      if (muscleSearchFilter) {
-        return categoryMap[muscleSearchFilter] || [];
-      }
-      return [];
+  // Filtered Results Calculation
+  const results = useMemo(() => {
+    if (!isDatabaseActive) {
+      // Idle mode: Return static popular staples instantly with zero compute
+      return POPULAR_STAPLE_EXERCISES;
     }
 
+    const catalogue = getExerciseCatalogue();
+    const categoryMap = getCategoryMap();
+    const q = debouncedQuery;
+
+    // Muscle category only (no search text)
+    if (!q) {
+      if (selectedMuscle && selectedMuscle !== 'all') {
+        return categoryMap[selectedMuscle] || catalogue.filter(e => checkCategoryMatch(e.muscle, selectedMuscle));
+      }
+      return catalogue;
+    }
+
+    // Full Relevance Search
     const cleanedQuery = cleanSearchString(q);
     const queryTokens = getQueryTokens(q);
     const normQuery = q.replace(/[^a-z0-9]/g, '');
@@ -514,9 +543,8 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
         cleanedQuery,
         queryTokens,
         normQuery,
-        muscleSearchFilter
+        selectedMuscle
       );
-      // Require actual text match beyond just the isCurated baseline (1500)
       if (score > (entry.isCurated ? 1500 : 0)) {
         scored.push({ item: entry, score });
       }
@@ -531,162 +559,143 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
     });
 
     return scored.map(s => s.item);
-  }, [debouncedQuery, muscleSearchFilter, catalogueReady]);
+  }, [debouncedQuery, selectedMuscle, isDatabaseActive]);
 
-  const getLastSessionSets = (exerciseId: string, exerciseName: string) => {
-    if (!gymLogs || !exerciseName) return null;
-    const session = getPreviousExerciseSession(exerciseName, gymLogs);
-    return session?.sets ?? null;
-  };
+  // 1-Tap Auto-Categorization for Instant Custom Exercise Creation
+  const autoResolvedForQuery = useMemo(() => {
+    if (!searchQuery.trim()) return null;
+    const res = resolveExerciseTargetMuscle(searchQuery.trim());
+    const rx = getBiomechanicalPrescription(searchQuery.trim(), res.targetMuscle);
+    return {
+      canonicalName: searchQuery.trim(),
+      targetMuscle: res.targetMuscle,
+      canonicalGroup: res.canonicalGroup,
+      muscleColor: resolveMuscleColor(res.targetMuscle),
+      targetSets: rx.targetSets,
+      targetReps: rx.targetReps,
+      restTimeSecs: rx.restTimeSecs,
+    };
+  }, [searchQuery]);
 
-  const handleSelectSuggestion = (entry: ExerciseCatalogEntry) => {
-    setName(entry.name);
-    setSets(String(entry.targetSets));
-    setReps(entry.targetReps);
-    setRestTime(String(entry.restTimeSecs));
+  // Handle Card Click (Select & Open Quick Tuner)
+  const handleSelectEntry = (entry: ExerciseCatalogEntry) => {
+    setSelectedEntry(entry);
+    setSets(String(entry.targetSets || 3));
+    setReps(entry.targetReps || '8-12');
+    setRestTime(String(entry.restTimeSecs || 60));
     setMuscle(entry.muscle || 'None');
     setVideoLink(entry.videoId || '');
-    setSelectedExerciseId(entry.id);
-    setShowDropdown(false);
-    setAiSuggestion(null);
+    setShowCustomTuning(true);
   };
 
-  const handleSelectAiSuggestion = async (ai: AIExerciseInfo) => {
-    const stableId = `ai_${ai.canonicalName.replace(/\s+/g, '_').toLowerCase()}`;
-    setName(ai.canonicalName);
-    setSets(String(ai.targetSets));
-    setReps(ai.targetReps);
-    setRestTime(String(ai.restTimeSecs));
-    setMuscle(ai.muscle || 'None');
-    setSelectedExerciseId(stableId);
-    setShowDropdown(false);
-    setAiSuggestion(null);
+  // Direct 1-Tap Add Action from any Exercise Card
+  const handleDirectAdd = (entry: ExerciseCatalogEntry) => {
+    const lastSession = getPreviousExerciseSession(entry.name, gymLogs);
+    const lastSets = lastSession?.sets ?? null;
+    const parsedSets = entry.targetSets || 3;
+    const parsedRest = entry.restTimeSecs || 60;
+    const resolved = resolveExerciseTargetMuscle(entry.name, entry.muscle);
 
-    const catalogueEntry: ExerciseCatalogEntry = {
-      id: stableId,
-      name: ai.canonicalName,
-      muscle: ai.muscle || 'Mixed',
-      targetSets: ai.targetSets,
-      targetReps: ai.targetReps,
-      restTimeSecs: ai.restTimeSecs,
-      videoId: '',
-    };
-    persistCustomExercise(catalogueEntry);
-    const nameKey = ai.canonicalName.toLowerCase().trim();
-    const catalogue = getExerciseCatalogue();
-    if (!catalogue.some(e => e.name.toLowerCase().trim() === nameKey)) {
-      catalogue.push(catalogueEntry);
-    }
-
-    // Resolve video in background without blocking selection UI
-    autoResolveExerciseVideoId(ai.youtubeSearchQuery || ai.canonicalName).then(videoId => {
-      if (videoId) {
-        setVideoLink(videoId);
-        persistCustomExercise({ ...catalogueEntry, videoId });
-      }
-    }).catch(() => {});
-  };
-
-  const executeAiSearch = useCallback(async (query: string) => {
-    const trimmed = query.trim();
-    if (!trimmed || trimmed.length < 2) return;
-
-    setAiLoading(true);
-    setAiSuggestion(null);
-
-    try {
-      const result = await aiResolveExercise(trimmed);
-      if (result) {
-        setAiSuggestion(result);
-      } else {
-        const fallbackMuscle = resolveExerciseTargetMuscle(trimmed).canonicalGroup || 'Mixed';
-        setAiSuggestion({
-          canonicalName: trimmed.charAt(0).toUpperCase() + trimmed.slice(1),
-          muscle: fallbackMuscle,
-          targetSets: 3,
-          targetReps: '8–12',
-          restTimeSecs: 60,
-          youtubeSearchQuery: trimmed,
-        });
-      }
-    } catch (_) {
-      const fallbackMuscle = resolveExerciseTargetMuscle(trimmed).canonicalGroup || 'Mixed';
-      setAiSuggestion({
-        canonicalName: trimmed.charAt(0).toUpperCase() + trimmed.slice(1),
-        muscle: fallbackMuscle,
-        targetSets: 3,
-        targetReps: '8–12',
-        restTimeSecs: 60,
-        youtubeSearchQuery: trimmed,
-      });
-    } finally {
-      setAiLoading(false);
-    }
-  }, []);
-
-  const handleNameChange = (text: string) => {
-    setName(text);
-    setSelectedExerciseId(null);
-    setShowDropdown(true);
-    setAiSuggestion(null);
-    setAiLoading(false);
-
-    if (aiDebounceRef.current) {
-      clearTimeout(aiDebounceRef.current);
-      aiDebounceRef.current = null;
-    }
-  };
-
-  // Auto-identify with AI ONLY when there are genuinely ZERO matching exercises in the local database
-  useEffect(() => {
-    const q = debouncedQuery.trim();
-    if (!q || q.length < 3 || suggestions.length > 0) {
-      if (aiDebounceRef.current) {
-        clearTimeout(aiDebounceRef.current);
-        aiDebounceRef.current = null;
-      }
-      setAiLoading(false);
-      return;
-    }
-
-    // Only if local database has 0 matches and user paused typing
-    if (aiDebounceRef.current) clearTimeout(aiDebounceRef.current);
-    aiDebounceRef.current = setTimeout(() => {
-      executeAiSearch(q);
-    }, 1200);
-
-    return () => {
-      if (aiDebounceRef.current) {
-        clearTimeout(aiDebounceRef.current);
-        aiDebounceRef.current = null;
-      }
-    };
-  }, [debouncedQuery, suggestions.length, executeAiSearch]);
-
-  const handleAddExercise = () => {
-    if (!name.trim()) return;
-
-    const parsedSets = parseInt(sets, 10) || 3;
-    const parsedRest = parseInt(restTime, 10) || 60;
-    let userVideoId = extractVideoId(videoLink.trim());
-
-    // Instant 0ms dictionary lookup for 400+ known exercises
+    let userVideoId = entry.videoId;
     if (!userVideoId) {
-      const sanitized = sanitizeName(name.trim());
+      const sanitized = sanitizeName(entry.name);
       if (KNOWN_EXERCISE_VIDEOS[sanitized]) {
         userVideoId = KNOWN_EXERCISE_VIDEOS[sanitized];
       }
     }
 
-    const exId = selectedExerciseId ?? `custom_${Date.now()}`;
-    const lastSets = getLastSessionSets(exId, name.trim());
-    const rawMuscle = muscle === 'None' ? '' : muscle.trim();
-    const resolvedMuscle = resolveExerciseTargetMuscle(name.trim(), rawMuscle).targetMuscle;
+    const newEx: GymExerciseLog = {
+      exerciseId: entry.id || `custom_${Date.now()}`,
+      name: entry.name,
+      muscle: resolved.targetMuscle || entry.muscle,
+      targetSets: parsedSets,
+      targetReps: entry.targetReps || '8–12',
+      videoId: userVideoId || '',
+      restTimeSecs: parsedRest,
+      lastSessionSets: lastSets ?? undefined,
+      setsLog: Array.from({ length: parsedSets }, (_, i) => {
+        const prev = lastSets?.[i];
+        return {
+          setNumber: i + 1,
+          reps: prev?.reps ?? null,
+          weight: prev?.weight ?? null,
+          completed: false,
+        };
+      }),
+      isCustom: Boolean(entry.id?.startsWith('custom_')),
+    };
+
+    onAdd(newEx);
+    resetAndClose();
+  };
+
+  // Instant 1-Tap Create Custom Exercise on 0 Results
+  const handleInstantCreateCustom = () => {
+    if (!autoResolvedForQuery) return;
+    hapticSuccess();
+
+    const exId = `custom_${Date.now()}`;
+    const entry: ExerciseCatalogEntry = {
+      id: exId,
+      name: autoResolvedForQuery.canonicalName,
+      muscle: autoResolvedForQuery.targetMuscle,
+      targetSets: autoResolvedForQuery.targetSets,
+      targetReps: autoResolvedForQuery.targetReps,
+      restTimeSecs: autoResolvedForQuery.restTimeSecs,
+      videoId: '',
+      tier: 'B Tier',
+      isCurated: false,
+    };
+
+    persistCustomExercise(entry);
 
     const newEx: GymExerciseLog = {
       exerciseId: exId,
-      name: name.trim(),
-      muscle: resolvedMuscle || rawMuscle,
+      name: entry.name,
+      muscle: entry.muscle,
+      targetSets: entry.targetSets,
+      targetReps: entry.targetReps,
+      videoId: '',
+      restTimeSecs: entry.restTimeSecs,
+      setsLog: Array.from({ length: entry.targetSets }, (_, i) => ({
+        setNumber: i + 1,
+        reps: null,
+        weight: null,
+        completed: false,
+      })),
+      isCustom: true,
+    };
+
+    onAdd(newEx);
+    resetAndClose();
+  };
+
+  // Commit from Quick Tuner
+  const handleConfirmAddTuned = () => {
+    const exerciseName = selectedEntry?.name || searchQuery.trim();
+    if (!exerciseName) return;
+
+    const parsedSets = parseInt(sets, 10) || 3;
+    const parsedRest = parseInt(restTime, 10) || 60;
+    let userVideoId = extractVideoId(videoLink.trim());
+
+    if (!userVideoId) {
+      const sanitized = sanitizeName(exerciseName);
+      if (KNOWN_EXERCISE_VIDEOS[sanitized]) {
+        userVideoId = KNOWN_EXERCISE_VIDEOS[sanitized];
+      }
+    }
+
+    const exId = selectedEntry?.id || `custom_${Date.now()}`;
+    const lastSession = getPreviousExerciseSession(exerciseName, gymLogs);
+    const lastSets = lastSession?.sets ?? null;
+    const rawMuscle = muscle === 'None' ? '' : muscle.trim();
+    const resolved = resolveExerciseTargetMuscle(exerciseName, rawMuscle);
+
+    const newEx: GymExerciseLog = {
+      exerciseId: exId,
+      name: exerciseName,
+      muscle: resolved.targetMuscle || rawMuscle,
       targetSets: parsedSets,
       targetReps: reps.trim(),
       videoId: userVideoId || '',
@@ -701,12 +710,10 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
           completed: false,
         };
       }),
-      isCustom: !selectedExerciseId || exId.startsWith('custom_'),
+      isCustom: !selectedEntry || exId.startsWith('custom_'),
     };
 
-    // Instant UI insertion without waiting for network
-    onAdd(newEx);
-
+    // Save to split if requested
     if (savePermanently && planDay) {
       const currentMasterDay = getCustomPlanDay(userGymPlan?.customDays, planDay.dayIndex) || planDay;
       const updatedExercises = [...currentMasterDay.exercises];
@@ -724,162 +731,261 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
       }
     }
 
+    onAdd(newEx);
     resetAndClose();
   };
 
   const resetAndClose = () => {
-    setName('');
+    Keyboard.dismiss();
+    setSearchQuery('');
+    setDebouncedQuery('');
+    setSelectedMuscle('all');
+    setSelectedEntry(null);
+    setShowCustomTuning(false);
     setSets('3');
     setReps('8-12');
     setRestTime('60');
     setMuscle('None');
     setVideoLink('');
     setSavePermanently(false);
-    setSelectedExerciseId(null);
-    setShowDropdown(false);
     setAiSuggestion(null);
     setAiLoading(false);
-    setMuscleSearchFilter(null);
-    if (aiDebounceRef.current) clearTimeout(aiDebounceRef.current);
     onClose();
   };
 
-  const hasLastSession = selectedExerciseId ? !!getLastSessionSets(selectedExerciseId, name) : false;
+  // Render individual card item
+  const renderExerciseCard = useCallback(({ item }: { item: ExerciseCatalogEntry }) => {
+    return (
+      <ExerciseCardItem
+        item={item}
+        onSelect={handleSelectEntry}
+        onQuickAdd={handleDirectAdd}
+        gymLogs={gymLogs}
+        colors={colors}
+        styles={styles}
+        isDark={isDark}
+        isSelected={selectedEntry?.id === item.id}
+      />
+    );
+  }, [colors, styles, isDark, selectedEntry, gymLogs]);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent onRequestClose={resetAndClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      statusBarTranslucent
+      onRequestClose={resetAndClose}
+    >
       <View style={styles.modalBg}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={resetAndClose} />
+        {/* Backdrop tap to dismiss */}
+        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={resetAndClose} />
+
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.modalContent}
         >
+          {/* Grab handle */}
+          <View style={styles.dragHandle} />
+
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Add Exercise</Text>
-            <TouchableOpacity onPress={resetAndClose} style={styles.closeBtn}>
-              <Ionicons name="close" size={20} color={colors.textMuted} />
+            <View style={styles.headerLeft}>
+              <Text style={styles.title}>Add Exercise</Text>
+              <View style={styles.catalogueBadge}>
+                <Text style={styles.catalogueBadgeText}>1,300+ EXERCISES</Text>
+              </View>
+            </View>
+            <TouchableOpacity onPress={resetAndClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close" size={19} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView
-            style={styles.scrollArea}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            {/* Filter by Muscle chips */}
+          {/* Search Input Bar */}
+          <View style={styles.searchRow}>
+            <Ionicons name="search-outline" size={17} color={colors.textTertiary} style={{ marginRight: 8 }} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search exercise catalogue (e.g. Incline Bench)..."
+              placeholderTextColor={colors.textTertiary}
+              value={searchQuery}
+              onChangeText={text => {
+                setSearchQuery(text);
+                setSelectedEntry(null);
+              }}
+              autoCorrect={false}
+              autoCapitalize="words"
+              returnKeyType="search"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity
+                onPress={() => {
+                  setSearchQuery('');
+                  setSelectedEntry(null);
+                }}
+                style={styles.clearBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close-circle" size={17} color={colors.textTertiary} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Visual Anatomical Muscle Filter Bar */}
+          <View style={styles.filterBarContainer}>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 6, paddingBottom: 8 }}
-              style={{ marginBottom: 8 }}
+              contentContainerStyle={styles.filterChipsRow}
             >
-              {['Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Abs', 'Cardio'].map(m => {
-                const isActive = muscleSearchFilter === m;
+              {ANATOMICAL_MUSCLE_CHIPS.map(chip => {
+                const isActive = selectedMuscle === chip.id;
                 return (
                   <TouchableOpacity
-                    key={m}
-                    style={{
-                      paddingHorizontal: 12,
-                      paddingVertical: 6,
-                      borderRadius: 14,
-                      borderWidth: 1,
-                      backgroundColor: isActive ? 'rgba(165,153,255,0.18)' : 'rgba(255,255,255,0.05)',
-                      borderColor: isActive ? 'rgba(165,153,255,0.6)' : 'rgba(255,255,255,0.1)',
-                    }}
+                    key={chip.id}
+                    style={[styles.filterChip, isActive && styles.filterChipActive]}
                     onPress={() => {
-                      const next = muscleSearchFilter === m ? null : m;
-                      setMuscleSearchFilter(next);
-                      setShowDropdown(true);
+                      hapticLight();
+                      setSelectedMuscle(prev => (prev === chip.id ? 'all' : chip.id));
                     }}
+                    activeOpacity={0.7}
                   >
-                    <Text style={{ fontFamily: FONT_FAMILY.bold, fontSize: 11, color: isActive ? '#a599ff' : colors.textMuted }}>
-                      {m}
+                    <Ionicons
+                      name={chip.icon}
+                      size={13}
+                      color={isActive ? '#A599FF' : colors.textTertiary}
+                    />
+                    <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
+                      {chip.label}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
+          </View>
 
-            {/* Exercise Name with Inline Search Dropdown */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>EXERCISE NAME *</Text>
-              <View style={{ position: 'relative' }}>
-                <View style={styles.searchRow}>
-                  <Ionicons name="search-outline" size={16} color={colors.textTertiary} style={{ marginRight: 8 }} />
-                  <TextInput
-                    style={styles.searchInput}
-                    placeholder="Search exercises..."
-                    placeholderTextColor={colors.textTertiary}
-                    value={name}
-                    onChangeText={handleNameChange}
-                    onFocus={() => setShowDropdown(true)}
-                    autoCorrect={false}
-                    autoCapitalize="words"
-                    returnKeyType="done"
-                  />
-                  {name.length > 0 && (
-                    <TouchableOpacity
-                      onPress={() => { setName(''); setSelectedExerciseId(null); setShowDropdown(false); }}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                      <Ionicons name="close-circle" size={16} color={colors.textTertiary} />
-                    </TouchableOpacity>
-                  )}
-                </View>
+          {/* Database Notice Header */}
+          <View style={styles.statusNotice}>
+            <Text style={styles.statusNoticeText}>
+              {isDatabaseActive ? 'Catalogue Results' : 'Popular Staples · 1-Tap Add'}
+            </Text>
+            {isDatabaseActive && (
+              <Text style={styles.statusCountBadge}>
+                {results.length} {results.length === 1 ? 'Exercise' : 'Exercises'}
+              </Text>
+            )}
+          </View>
 
-                {/* Dropdown component */}
-                <ExerciseSearchDropdown
-                  showDropdown={showDropdown}
-                  suggestions={suggestions}
-                  aiLoading={aiLoading}
-                  aiSuggestion={aiSuggestion}
-                  onSelectSuggestion={handleSelectSuggestion}
-                  onSelectAiSuggestion={handleSelectAiSuggestion}
-                  onTriggerAiSearch={() => executeAiSearch(name)}
-                  searchQuery={name}
-                  colors={colors}
-                  styles={styles}
-                />
-              </View>
+          {/* Card Results List or 0-Results Instant Creation */}
+          {results.length > 0 ? (
+            <FlatList
+              data={results}
+              keyExtractor={(item, idx) => `${item.id || item.name}_${idx}`}
+              renderItem={renderExerciseCard}
+              contentContainerStyle={styles.cardList}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              initialNumToRender={10}
+              maxToRenderPerBatch={10}
+              windowSize={5}
+              removeClippedSubviews={Platform.OS === 'android'}
+              style={{ maxHeight: showCustomTuning ? 200 : 380 }}
+            />
+          ) : (
+            /* Instant "Create Custom Exercise" Card */
+            <ScrollView style={{ maxHeight: 380 }} keyboardShouldPersistTaps="handled">
+              {autoResolvedForQuery && (
+                <View style={styles.createCustomCard}>
+                  <View style={styles.createCustomHeader}>
+                    <View style={styles.createCustomIconWrap}>
+                      <Ionicons name="barbell-outline" size={24} color="#A599FF" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.createCustomTitle} numberOfLines={1}>
+                        Create "{autoResolvedForQuery.canonicalName}"
+                      </Text>
+                      <Text style={styles.createCustomSubtitle}>
+                        Auto-categorized as{' '}
+                        <Text style={{ color: autoResolvedForQuery.muscleColor, fontFamily: FONT_FAMILY.bold }}>
+                          {autoResolvedForQuery.canonicalGroup} ({autoResolvedForQuery.targetMuscle})
+                        </Text>
+                      </Text>
+                    </View>
+                  </View>
 
-              {hasLastSession && (
-                <View style={styles.lastSessionBadge}>
-                  <Ionicons name="time-outline" size={11} color={colors.accentPrimary} />
-                  <Text style={styles.lastSessionText}>Last session data pre-loaded</Text>
+                  <TouchableOpacity
+                    style={styles.createCustomCtaBtn}
+                    activeOpacity={0.8}
+                    onPress={handleInstantCreateCustom}
+                  >
+                    <Ionicons name="add" size={18} color="#000" />
+                    <Text style={styles.createCustomCtaText}>
+                      Create "{autoResolvedForQuery.canonicalName}" Exercise
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.createCustomSecondaryLink}
+                    onPress={() => {
+                      setMuscle(autoResolvedForQuery.targetMuscle);
+                      setShowCustomTuning(true);
+                    }}
+                  >
+                    <Text style={styles.createCustomSecondaryText}>
+                      Customize sets, reps & video link ⚙
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               )}
-            </View>
 
-            {/* Custom fields: Sets/Reps/Rest, Muscle Pills, Video, Master Split */}
-            <ExerciseCustomFields
-              sets={sets}
-              setSets={setSets}
-              reps={reps}
-              setReps={setReps}
-              restTime={restTime}
-              setRestTime={setRestTime}
-              muscle={muscle}
-              setMuscle={setMuscle}
-              videoLink={videoLink}
-              setVideoLink={setVideoLink}
-              savePermanently={savePermanently}
-              setSavePermanently={setSavePermanently}
-              planDay={planDay}
-              colors={colors}
-              styles={styles}
-            />
+              {/* AI Fallback Identifier */}
+              <View style={styles.emptyState}>
+                <Ionicons name="sparkles-outline" size={26} color="#A599FF" />
+                <Text style={styles.emptyStateText}>
+                  Not in standard catalogue? Tap create above or configure custom details below.
+                </Text>
+              </View>
+            </ScrollView>
+          )}
 
-            {/* Submit CTA */}
-            <TouchableOpacity
-              style={[styles.submitBtn, !name.trim() && styles.submitBtnDisabled]}
-              disabled={!name.trim()}
-              onPress={handleAddExercise}
+          {/* Quick Custom Tuning Drawer (When an exercise is selected or custom tuning is tapped) */}
+          {showCustomTuning && (
+            <ScrollView
+              style={styles.tuningContainer}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
             >
-              <Ionicons name="add" size={18} color={isDark ? '#000' : '#fff'} style={{ marginRight: 6 }} />
-              <Text style={styles.submitBtnText}>Add Exercise</Text>
-            </TouchableOpacity>
-          </ScrollView>
+              <Text style={styles.tuningTitle}>
+                Customize: {selectedEntry?.name || searchQuery}
+              </Text>
+
+              <ExerciseCustomFields
+                sets={sets}
+                setSets={setSets}
+                reps={reps}
+                setReps={setReps}
+                restTime={restTime}
+                setRestTime={setRestTime}
+                muscle={muscle}
+                setMuscle={setMuscle}
+                videoLink={videoLink}
+                setVideoLink={setVideoLink}
+                savePermanently={savePermanently}
+                setSavePermanently={setSavePermanently}
+                planDay={planDay}
+                colors={colors}
+                styles={styles}
+              />
+
+              <TouchableOpacity
+                style={styles.submitBtn}
+                onPress={handleConfirmAddTuned}
+              >
+                <Ionicons name="checkmark-sharp" size={16} color={isDark ? '#000' : '#fff'} style={{ marginRight: 6 }} />
+                <Text style={styles.submitBtnText}>Add to Workout</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          )}
         </KeyboardAvoidingView>
       </View>
     </Modal>
