@@ -84,7 +84,7 @@ export const ExerciseCustomFields: React.FC<ExerciseCustomFieldsProps> = React.m
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: SPACE.sm, paddingVertical: 4 }}
+          contentContainerStyle={styles.muscleChipsScroll || { gap: 8, paddingVertical: 2 }}
         >
           {MUSCLES_LIST.map(m => {
             const isSelected = muscle === m;
@@ -95,15 +95,15 @@ export const ExerciseCustomFields: React.FC<ExerciseCustomFieldsProps> = React.m
                 key={m}
                 style={[
                   styles.musclePill,
-                  isSelected && {
-                    backgroundColor: hexToRgba(baseColor, 0.15),
-                    borderColor: baseColor,
-                  },
+                  isSelected && styles.musclePillActive,
                 ]}
                 onPress={() => setMuscle(m)}
+                activeOpacity={0.7}
               >
-                <View style={[styles.muscleDot, { backgroundColor: baseColor }]} />
-                <Text style={[styles.muscleText, isSelected && { color: baseColor }]}>{m}</Text>
+                <View style={[styles.musclePillDot, { backgroundColor: baseColor }]} />
+                <Text style={[styles.musclePillText, isSelected && styles.musclePillTextActive]}>
+                  {m}
+                </Text>
               </TouchableOpacity>
             );
           })}

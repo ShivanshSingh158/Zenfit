@@ -947,9 +947,21 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              <Text style={styles.tuningTitle}>
-                Customize: {selectedEntry?.name || searchQuery}
-              </Text>
+              <View style={styles.tuningHeaderRow}>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={styles.tuningTitle}>Customize Exercise</Text>
+                  <Text style={styles.tuningSubtitle} numberOfLines={1}>
+                    {selectedEntry?.name || searchQuery}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setShowCustomTuning(false)}
+                  style={styles.tuningCloseBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={16} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
 
               <ExerciseCustomFields
                 sets={sets}
@@ -972,8 +984,9 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
               <TouchableOpacity
                 style={styles.submitBtn}
                 onPress={handleConfirmAddTuned}
+                activeOpacity={0.8}
               >
-                <Ionicons name="checkmark-sharp" size={16} color={isDark ? '#000' : '#fff'} style={{ marginRight: 6 }} />
+                <Ionicons name="checkmark-sharp" size={16} color={isDark ? '#000000' : '#FFFFFF'} style={{ marginRight: 6 }} />
                 <Text style={styles.submitBtnText}>Add to Workout</Text>
               </TouchableOpacity>
             </ScrollView>
