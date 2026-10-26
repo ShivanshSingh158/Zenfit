@@ -789,9 +789,11 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
           <View style={styles.dragHandle} />
 
           {showCustomTuning ? (
-            /* ── VIEW 2: Dedicated Customization View (Spacious & Clean) ── */
-            <View style={{ flex: 1, maxHeight: 560 }}>
-              {/* Header with Back button and Close */}
+            /* ══════════════════════════════════════════════════════════════════
+               DEDICATED CUSTOMIZE EXERCISE VIEW
+               ══════════════════════════════════════════════════════════════════ */
+            <>
+              {/* Header with Back to Catalogue + Close */}
               <View style={styles.header}>
                 <TouchableOpacity
                   onPress={() => setShowCustomTuning(false)}
@@ -802,6 +804,10 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                   <Text style={styles.backBtnText}>Catalogue</Text>
                 </TouchableOpacity>
 
+                <Text style={styles.title} numberOfLines={1}>
+                  Customize
+                </Text>
+
                 <TouchableOpacity
                   onPress={resetAndClose}
                   style={styles.closeBtn}
@@ -811,34 +817,31 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                 </TouchableOpacity>
               </View>
 
-              {/* Exercise Title Banner */}
-              <View style={styles.customExerciseHeader}>
-                <Text style={styles.customExerciseTitle} numberOfLines={2}>
-                  {selectedEntry?.name || searchQuery}
-                </Text>
-                <View style={styles.customExerciseMuscleRow}>
-                  <View
-                    style={[
-                      styles.muscleDot,
-                      {
-                        backgroundColor: resolveMuscleColor(
-                          muscle !== 'None' ? muscle : (selectedEntry?.muscle || 'Mixed')
-                        ),
-                      },
-                    ]}
-                  />
-                  <Text style={styles.customExerciseMuscleText}>
-                    {muscle !== 'None' ? muscle : (selectedEntry?.muscle || 'General')}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Scrollable Customization Form */}
               <ScrollView
-                showsVerticalScrollIndicator={false}
+                style={styles.tuningFullScroll}
+                contentContainerStyle={styles.tuningFullContent}
                 keyboardShouldPersistTaps="handled"
-                contentContainerStyle={{ paddingBottom: 28 }}
+                showsVerticalScrollIndicator={false}
               >
+                {/* Hero Info Card for Exercise */}
+                <View style={styles.customizeHeroCard}>
+                  <Text style={styles.customizeHeroTitle} numberOfLines={2}>
+                    {selectedEntry?.name || searchQuery}
+                  </Text>
+                  <View style={styles.customizeHeroMeta}>
+                    <View
+                      style={[
+                        styles.muscleDot,
+                        { backgroundColor: resolveMuscleColor(muscle !== 'None' ? muscle : (selectedEntry?.muscle || 'Mixed')) },
+                      ]}
+                    />
+                    <Text style={styles.customizeHeroMuscle}>
+                      {muscle !== 'None' ? muscle : (selectedEntry?.muscle || 'General')}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Custom Sets / Reps / Muscle / Video Fields */}
                 <ExerciseCustomFields
                   sets={sets}
                   setSets={setSets}
@@ -857,34 +860,28 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                   styles={styles}
                 />
 
+                {/* Confirm Action Button */}
                 <TouchableOpacity
                   style={styles.submitBtn}
                   onPress={handleConfirmAddTuned}
                   activeOpacity={0.8}
                 >
-                  <Ionicons
-                    name="checkmark-sharp"
-                    size={16}
-                    color={isDark ? '#000000' : '#FFFFFF'}
-                    style={{ marginRight: 6 }}
-                  />
+                  <Ionicons name="checkmark-sharp" size={17} color={isDark ? '#000000' : '#FFFFFF'} style={{ marginRight: 6 }} />
                   <Text style={styles.submitBtnText}>Add to Workout</Text>
                 </TouchableOpacity>
               </ScrollView>
-            </View>
+            </>
           ) : (
-            /* ── VIEW 1: Catalogue Search & Results List ── */
+            /* ══════════════════════════════════════════════════════════════════
+               CATALOGUE SEARCH & FILTER VIEW
+               ══════════════════════════════════════════════════════════════════ */
             <>
               {/* Header */}
               <View style={styles.header}>
                 <View style={styles.headerLeft}>
                   <Text style={styles.title}>Add Exercise</Text>
                 </View>
-                <TouchableOpacity
-                  onPress={resetAndClose}
-                  style={styles.closeBtn}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
+                <TouchableOpacity onPress={resetAndClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Ionicons name="close" size={19} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
@@ -952,7 +949,7 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                 </ScrollView>
               </View>
 
-              {/* Notice Header */}
+              {/* Database Notice Header */}
               <View style={styles.statusNotice}>
                 <Text style={styles.statusNoticeText}>
                   {isDatabaseActive ? 'Exercises' : 'Popular Exercises'}
@@ -972,11 +969,11 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                   maxToRenderPerBatch={10}
                   windowSize={5}
                   removeClippedSubviews={Platform.OS === 'android'}
-                  style={{ maxHeight: 440 }}
+                  style={{ maxHeight: 460 }}
                 />
               ) : (
                 /* Instant "Create Custom Exercise" Card */
-                <ScrollView style={{ maxHeight: 440 }} keyboardShouldPersistTaps="handled">
+                <ScrollView style={{ maxHeight: 460 }} keyboardShouldPersistTaps="handled">
                   {autoResolvedForQuery && (
                     <View style={styles.createCustomCard}>
                       <View style={styles.createCustomHeader}>

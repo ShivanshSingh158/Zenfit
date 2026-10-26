@@ -52,14 +52,14 @@ export const makeAddExerciseStyles = (colors: any, isDark: boolean = true) =>
     backBtn: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 4,
+      gap: 3,
       paddingVertical: 4,
       paddingRight: 8,
     },
     backBtnText: {
       fontFamily: FONT_FAMILY.medium,
       fontSize: 14,
-      color: colors.textSecondary,
+      color: colors.textPrimary,
     },
     closeBtn: {
       width: 32,
@@ -69,28 +69,39 @@ export const makeAddExerciseStyles = (colors: any, isDark: boolean = true) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    customExerciseHeader: {
-      marginBottom: 14,
-      paddingBottom: 10,
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : colors.border,
+
+    // Customize Dedicated View Styles
+    tuningFullScroll: {
+      maxHeight: 520,
     },
-    customExerciseTitle: {
+    tuningFullContent: {
+      paddingTop: 6,
+      paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+    },
+    customizeHeroCard: {
+      backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+      borderRadius: RADIUS.lg,
+      padding: 14,
+      marginBottom: 14,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.06)' : colors.border,
+    },
+    customizeHeroTitle: {
       fontFamily: FONT_FAMILY.bold,
-      fontSize: 18,
+      fontSize: 16.5,
       color: colors.textPrimary,
       letterSpacing: -0.3,
       marginBottom: 4,
     },
-    customExerciseMuscleRow: {
+    customizeHeroMeta: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
     },
-    customExerciseMuscleText: {
+    customizeHeroMuscle: {
       fontFamily: FONT_FAMILY.medium,
       fontSize: 12,
-      color: colors.textTertiary,
+      color: colors.textSecondary,
     },
 
     // Search Row
