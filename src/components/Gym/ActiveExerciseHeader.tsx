@@ -13,17 +13,24 @@ export interface OverloadBannerProps {
 
 export const OverloadBanner: React.FC<OverloadBannerProps> = ({ overloadSuggestion }) => {
   const targetWeight = overloadSuggestion?.recommended || overloadSuggestion?.suggestedWeight || 0;
-  if (!overloadSuggestion || targetWeight <= 0) {
-    return null;
+  if (targetWeight > 0) {
+    const repsText = overloadSuggestion?.suggestedReps || overloadSuggestion?.reps || '8-12';
+    return (
+      <View style={headerStyles.overloadRow}>
+        <Ionicons name="trending-up" size={14} color={IOS_DARK.green} />
+        <Text style={headerStyles.overloadText}>
+          Progressive Overload: Try {targetWeight} kg × {repsText} today
+        </Text>
+      </View>
+    );
   }
 
-  const repsText = overloadSuggestion.suggestedReps || overloadSuggestion.reps || '8-10';
-
+  // When calibrating baseline for a fresh exercise without past logs
   return (
     <View style={headerStyles.overloadRow}>
       <Ionicons name="trending-up" size={14} color={IOS_DARK.green} />
       <Text style={headerStyles.overloadText}>
-        Progressive Overload: Try {targetWeight} kg × {repsText} today
+        Progressive Overload: Calibrating baseline · Complete sets today
       </Text>
     </View>
   );
