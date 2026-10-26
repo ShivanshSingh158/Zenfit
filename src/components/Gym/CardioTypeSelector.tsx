@@ -59,14 +59,14 @@ export const CardioTypeSelector: React.FC<CardioTypeSelectorProps> = React.memo(
               <Ionicons
                 name={icon as any}
                 size={18}
-                color={isSelected ? (isDark ? '#000000' : '#FFFFFF') : colors.accentPrimary}
+                color={isSelected ? (isDark ? '#000000' : '#FFFFFF') : (isDark ? 'rgba(255,255,255,0.75)' : colors.textPrimary)}
               />
             </View>
             <Text style={[styles.chipLabel, isSelected && styles.chipLabelSelected]}>
               {label}
             </Text>
             {isSelected && (
-              <Ionicons name="checkmark-circle" size={16} color={colors.accentPrimary} />
+              <Ionicons name="checkmark-circle" size={16} color={isDark ? '#FFFFFF' : '#000000'} />
             )}
           </TouchableOpacity>
         );

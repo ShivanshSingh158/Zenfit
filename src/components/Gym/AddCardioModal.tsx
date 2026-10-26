@@ -97,6 +97,7 @@ export function AddCardioModal({ visible, onClose, onAdd }: Props) {
 
           {/* Header */}
           <View style={s.header}>
+            <View style={s.headerSpacer} />
             <Text style={s.title}>Add Cardio</Text>
             <TouchableOpacity style={s.closeBtn} onPress={() => handleClose()} activeOpacity={0.7}>
               <Ionicons name="close" size={16} color={colors.textPrimary} />

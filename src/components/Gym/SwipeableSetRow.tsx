@@ -37,7 +37,7 @@ const BlinkingCursor: React.FC = React.memo(() => {
         {
           width: 2,
           height: 18,
-          backgroundColor: '#0A84FF',
+          backgroundColor: '#FFFFFF',
           marginLeft: 2,
           borderRadius: 1,
         },
@@ -369,9 +369,9 @@ const rowStyles = StyleSheet.create({
     minHeight: 48,
   },
   rowActive: {
-    backgroundColor: '#202028',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderLeftWidth: 3,
-    borderLeftColor: '#0A84FF',
+    borderLeftColor: '#FFFFFF',
   },
   rowCompleted: {
     backgroundColor: 'rgba(48, 209, 88, 0.05)',
@@ -424,11 +424,11 @@ const rowStyles = StyleSheet.create({
     width: '100%',
     height: 36,
     borderRadius: 8,
-    backgroundColor: IOS_DARK.bgElevatedInput,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   numericInputText: {
     color: IOS_DARK.labelPrimary,
@@ -440,14 +440,15 @@ const rowStyles = StyleSheet.create({
     color: IOS_DARK.labelSecondary,
   },
   numericInputTextActive: {
-    color: '#A599FF',
+    color: '#FFFFFF',
   },
   numericInputActive: {
-    backgroundColor: '#38383A',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.14)',
   },
   numericInputActiveKeypad: {
-    borderColor: '#0A84FF',
-    backgroundColor: 'rgba(10, 132, 255, 0.12)',
+    borderColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
   },
   textWithCursorContainer: {
     flexDirection: 'row',
@@ -455,7 +456,7 @@ const rowStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   numericInputCompleted: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
   },
   colCheck: {
     width: 42,

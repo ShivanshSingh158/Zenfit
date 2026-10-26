@@ -140,7 +140,7 @@ export const StickyLoggingDock: React.FC<StickyLoggingDockProps> = React.memo(({
                     {activeWeight > 0 ? `${activeWeight} kg` : 'BW'} × {activeReps} reps · RIR {selectedRir}
                   </Text>
                 </View>
-                <Ionicons name="stopwatch-outline" size={20} color="#FFFFFF" />
+                <Ionicons name="stopwatch-outline" size={20} color="#000000" />
               </View>
             </TouchableOpacity>
           </View>
@@ -202,21 +202,21 @@ const dockStyles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 5,
     borderRadius: 8,
-    backgroundColor: '#24242A',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   rirPillActive: {
-    backgroundColor: '#0A84FF',
-    borderColor: '#0A84FF',
+    backgroundColor: '#FFFFFF',
+    borderColor: '#FFFFFF',
   },
   rirPillText: {
     fontSize: 12,
     fontFamily: FONT_FAMILY.bold,
-    color: '#D1D1D6',
+    color: '#8E8E93',
   },
   rirPillTextActive: {
-    color: '#FFFFFF',
+    color: '#000000',
   },
   actionRow: {
     flexDirection: 'row',
@@ -227,8 +227,8 @@ const dockStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     height: 48,
-    borderRadius: 12,
-    backgroundColor: '#24242A',
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 2,
@@ -252,13 +252,13 @@ const dockStyles = StyleSheet.create({
   logBtn: {
     flex: 1,
     height: 48,
-    borderRadius: 12,
-    backgroundColor: '#0A84FF',
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
-    paddingHorizontal: 14,
-    shadowColor: '#0A84FF',
+    paddingHorizontal: 16,
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.2,
     shadowRadius: 6,
     elevation: 4,
   },
@@ -273,13 +273,13 @@ const dockStyles = StyleSheet.create({
   logBtnTitle: {
     fontSize: 13.5,
     fontFamily: FONT_FAMILY.bold,
-    color: '#FFFFFF',
+    color: '#000000',
     letterSpacing: -0.2,
   },
   logBtnSubtitle: {
     fontSize: 11,
-    fontFamily: FONT_FAMILY.body,
-    color: 'rgba(255, 255, 255, 0.8)',
+    fontFamily: FONT_FAMILY.medium,
+    color: 'rgba(0, 0, 0, 0.65)',
     marginTop: 1,
   },
   allCompleteBtn: {

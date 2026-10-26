@@ -211,7 +211,8 @@ export function LogCardioModal({ visible, cardio, onClose, onSave }: Props) {
           <View style={s.handle} />
 
           <View style={s.header}>
-            <View style={s.headerLeft}>
+            <View style={s.headerSpacer} />
+            <View style={s.headerCenter}>
               <Text style={s.title}>Log {cardio.type}</Text>
               <Text style={s.subtitle}>
                 {(TYPE_FIELDS[cardio.type] || DEFAULT_FIELDS)
@@ -242,7 +243,11 @@ export function LogCardioModal({ visible, cardio, onClose, onSave }: Props) {
                   >
                     <View style={s.fieldHeader}>
                       <View style={s.fieldIconBox}>
-                        <Ionicons name={field.icon as any} size={11} color={colors.accentPrimary} />
+                        <Ionicons
+                          name={field.icon as any}
+                          size={12}
+                          color={isDark ? 'rgba(255,255,255,0.85)' : colors.textPrimary}
+                        />
                       </View>
                       <Text style={s.fieldLabel}>{field.label}</Text>
                       <Text style={s.fieldUnit}>{field.unit}</Text>

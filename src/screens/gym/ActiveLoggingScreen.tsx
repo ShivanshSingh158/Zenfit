@@ -1553,9 +1553,6 @@ export default function ActiveLoggingScreen() {
                 <Text style={styles.headerTitle}>Active Session</Text>
               )}
             </View>
-            <Text style={{ fontSize: 11, fontFamily: FONT_FAMILY.medium, color: colors.textSecondary, marginTop: 1 }}>
-              Exercise {activeExIndex + 1} of {exercises.length}
-            </Text>
           </View>
 
           <TouchableOpacity
@@ -1566,12 +1563,12 @@ export default function ActiveLoggingScreen() {
             }}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
-            <Ionicons name="stats-chart-outline" size={20} color={colors.accentPrimary || '#A599FF'} />
+            <Ionicons name="stats-chart-outline" size={20} color={isDark ? 'rgba(255,255,255,0.85)' : colors.textPrimary} />
           </TouchableOpacity>
         </View>
 
         {/* 1-Tap Horizontal Exercise Switcher Carousel Strip (Jump in 0ms) */}
-        <View style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', paddingBottom: 4 }}>
+        <View style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', paddingBottom: 6 }}>
           <ScrollView
             ref={carouselScrollRef}
             horizontal
@@ -1599,14 +1596,20 @@ export default function ActiveLoggingScreen() {
                     flexDirection: 'row',
                     alignItems: 'center',
                     gap: 5,
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
-                    borderRadius: 10,
+                    paddingHorizontal: 14,
+                    paddingVertical: 7,
+                    borderRadius: 20,
                     backgroundColor: isCurrent
-                      ? (colors.accentPrimary || '#A599FF')
+                      ? '#FFFFFF'
                       : isExDone
-                      ? 'rgba(48, 209, 88, 0.14)'
-                      : (isDark ? '#1C1C1E' : '#E5E5EA'),
+                      ? 'rgba(48, 209, 88, 0.12)'
+                      : (isDark ? 'rgba(255,255,255,0.05)' : '#E5E5EA'),
+                    borderWidth: 1,
+                    borderColor: isCurrent
+                      ? '#FFFFFF'
+                      : isExDone
+                      ? 'rgba(48, 209, 88, 0.25)'
+                      : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'),
                   }}
                   activeOpacity={0.7}
                 >
@@ -1619,7 +1622,7 @@ export default function ActiveLoggingScreen() {
                       ? '#30D158'
                       : (isDark ? '#8E8E93' : '#636366'),
                   }}>
-                    {idx + 1}. {ex.name.split(' ')[0]}
+                    {ex.name.split(' ')[0]}
                   </Text>
                   {isExDone && (
                     <Ionicons

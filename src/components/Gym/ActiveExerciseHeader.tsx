@@ -98,7 +98,7 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
           >
-            <Ionicons name="calculator-outline" size={17} color={IOS_DARK.accent} />
+            <Ionicons name="calculator-outline" size={16} color="rgba(255, 255, 255, 0.85)" />
           </TouchableOpacity>
         )}
 
@@ -111,7 +111,7 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           activeOpacity={0.7}
         >
-          <Ionicons name="swap-horizontal" size={17} color={IOS_DARK.labelSecondary} />
+          <Ionicons name="swap-horizontal" size={16} color="rgba(255, 255, 255, 0.85)" />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -121,7 +121,7 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
           }}
           style={[
             headerStyles.circleBtn,
-            showVideo && { backgroundColor: IOS_DARK.accent },
+            showVideo && { backgroundColor: '#FFFFFF', borderColor: '#FFFFFF' },
           ]}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           activeOpacity={0.7}
@@ -129,7 +129,7 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
           <Ionicons
             name={showVideo ? 'close' : 'play'}
             size={16}
-            color={showVideo ? '#000000' : '#FFFFFF'}
+            color={showVideo ? '#000000' : 'rgba(255, 255, 255, 0.85)'}
           />
         </TouchableOpacity>
       </View>
@@ -189,7 +189,9 @@ const headerStyles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: IOS_DARK.bgElevatedInput,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },

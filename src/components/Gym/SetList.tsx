@@ -171,7 +171,7 @@ export const SetList: React.FC<SetListProps> = React.memo(({
             style={styles.tableAddSetRow}
             activeOpacity={0.7}
           >
-            <Ionicons name="add" size={17} color={isDark ? '#A599FF' : colors.accentPrimary} />
+            <Ionicons name="add" size={17} color={isDark ? 'rgba(255, 255, 255, 0.85)' : '#000000'} />
             <Text style={styles.tableAddSetText}>Add Set</Text>
           </TouchableOpacity>
         </>

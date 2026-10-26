@@ -103,10 +103,11 @@ export const makeActiveLoggingStyles = (colors: any, isDark: boolean = true) => 
 
     // ── Apple Inset Grouped Set Table ──────────────────────────────────────
     tableCard: {
-      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
+      backgroundColor: isDark ? '#141417' : colors.surface,
       borderRadius: 16,
       overflow: 'hidden',
-      borderWidth: 0,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : colors.border,
       marginBottom: 14,
     },
     tableHeaderRow: {
@@ -114,9 +115,9 @@ export const makeActiveLoggingStyles = (colors: any, isDark: boolean = true) => 
       alignItems: 'center',
       paddingVertical: 10,
       paddingHorizontal: 12,
-      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.02)',
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: isDark ? 'rgba(84, 84, 88, 0.36)' : 'rgba(0, 0, 0, 0.08)',
+      borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)',
     },
     tableColHeader: {
       fontFamily: FONT_FAMILY.bold,
@@ -127,7 +128,7 @@ export const makeActiveLoggingStyles = (colors: any, isDark: boolean = true) => 
     },
     tableHairline: {
       height: StyleSheet.hairlineWidth,
-      backgroundColor: isDark ? 'rgba(84, 84, 88, 0.36)' : 'rgba(0, 0, 0, 0.08)',
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)',
       marginLeft: 12,
       marginRight: 12,
     },
@@ -142,7 +143,7 @@ export const makeActiveLoggingStyles = (colors: any, isDark: boolean = true) => 
     tableAddSetText: {
       fontFamily: FONT_FAMILY.bold,
       fontSize: 13,
-      color: isDark ? '#A599FF' : colors.accentPrimary,
+      color: isDark ? '#FFFFFF' : '#000000',
       letterSpacing: 0.3,
     },
 
