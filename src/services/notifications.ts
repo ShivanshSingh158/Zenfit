@@ -33,6 +33,11 @@ import {
 
 export { requestNotificationPermissions, ensureNotificationChannels, PRIORITY, ALARM_CAP };
 
+// Module-level permission cache — avoids calling requestPermissionsAsync on
+// every scheduleGymNotifications invocation when the user has already denied.
+// Reset to null on app restart automatically (module re-evaluation).
+let _cachedPermissionGranted: boolean | null = null;
+
 // ── Storage Keys ──────────────────────────────────────────────────────────────
 export const GYM_NOTIF_ENABLED_KEY = '@gym_notification_enabled';
 export const GYM_NOTIF_TIME_KEY = '@gym_notification_time';
@@ -131,18 +136,23 @@ export async function scheduleGymNotifications(params: ScheduleParams): Promise<
   const { gymLogs = [], userGymPlan = null } = params;
 
   try {
-    // 1. Ensure notification channels exist before any scheduling
+    // 1. Fast-bail: if we already know permission is denied, skip entirely.
+    //    This prevents repeated requestPermissionsAsync calls that cause Expo Go
+    //    to flood the console with permission-denied warnings.
+    if (_cachedPermissionGranted === false) return;
+
+    // 2. Ensure notification channels exist before any scheduling
     await ensureNotificationChannels();
 
-    // 2. Verify permissions. If not granted, attempt request
-    let { status } = await Notifications.getPermissionsAsync();
-    if (status !== 'granted') {
-      const granted = await requestNotificationPermissions();
-      if (!granted) {
-        // Permission denied – silenced to avoid console spam in Expo Go.
-        // Re-enable the warn below when debugging notification issues:
-        // console.warn('[Notifications] Permissions not granted. Skipping scheduling.');
-        return;
+    // 3. Verify permissions. If not granted, attempt request once and cache result.
+    if (_cachedPermissionGranted !== true) {
+      let { status } = await Notifications.getPermissionsAsync();
+      if (status !== 'granted') {
+        const granted = await requestNotificationPermissions();
+        _cachedPermissionGranted = granted;
+        if (!granted) return;
+      } else {
+        _cachedPermissionGranted = true;
       }
     }
 
