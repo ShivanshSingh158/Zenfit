@@ -156,7 +156,7 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
     [weeklyMuscleLoad]
   );
 
-  const needFatigue = mode === 'fatigue' || mode === 'strength' || variant === 'weekly';
+  const needFatigue = mode === 'fatigue' || mode === 'strength';
   const weeklyFatigue = useMemo(
     () => needFatigue ? calculateMuscleFatigue(gymLogs, weekAnchorDate) : ({} as Record<string, any>),
     [gymLogs, weekAnchorDate, needFatigue]
@@ -164,76 +164,73 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
 
   const genderGeometry = JOINED_BODY_PATHS[bodyGender] || JOINED_BODY_PATHS.male;
 
-  // ── Color Generators ────────────────────────────────────────────────────────
-  const getMuscleFillColor = (slug: MuscleSlug): string => {
+  // ── Memoized Color Map (O(1) lookup: eliminates 36 function recalculations on every tap) ──
+  const muscleColorMap = useMemo<Record<MuscleSlug, string>>(() => {
+    const map = {} as Record<MuscleSlug, string>;
     const baseColor = isDark ? '#232128' : '#e4e4e9';
 
-    if (mode === 'fatigue') {
-      const r = weeklyFatigue[slug];
-      const level = r ? r.fatigueLevel : 0;
-      if (level === 4) return '#ff4757'; // 🔴 Fatigued
-      if (level === 3) return '#ff7f50'; // 🟠 High
-      if (level === 2) return '#ffd32a'; // 🟡 Recovering
-      if (level === 1) return '#d4ac0d'; // 🟡 Light
-      return baseColor; // ⚫ Ready
-    }
-
-    if (variant === 'weekly') {
-      if (mode === 'volume') {
-        const level = weeklyMuscleLevels[slug] || 0;
-        if (level === 4) return '#5eda9e'; // 🟢 Peak volume / Target Hit
-        if (level === 3) return '#89dceb'; // 🔹 Optimal volume
-        if (level === 2) return '#a599ff'; // 🟣 Moderate volume
-        if (level === 1) return '#6d5fe0'; // 🟣 Base volume
-        return baseColor;
-      }
-      if (mode === 'balance') {
-        const b = balanceModel[slug];
-        if (b && b.status !== 'untrained') return b.color;
-        const level = weeklyMuscleLevels[slug] || 0;
-        if (level === 4) return '#5eda9e';
-        if (level === 3) return '#89dceb';
-        if (level === 2) return '#a599ff';
-        if (level === 1) return '#6d5fe0';
-        return baseColor;
-      }
-      if (mode === 'strength') {
+    for (const slug of MUSCLES) {
+      if (mode === 'fatigue') {
         const r = weeklyFatigue[slug];
-        const score = r ? r.strengthScore : 0.7;
-        if (score >= 0.95) return '#ffd32a';
-        if (score >= 0.88) return '#cca00b';
-        if (score >= 0.80) return '#a6820a';
-        if (score >= 0.73) return '#6b5406';
-        return baseColor;
+        const level = r ? r.fatigueLevel : 0;
+        if (level === 4) map[slug] = '#ff4757'; // 🔴 Fatigued
+        else if (level === 3) map[slug] = '#ff7f50'; // 🟠 High
+        else if (level === 2) map[slug] = '#ffd32a'; // 🟡 Recovering
+        else if (level === 1) map[slug] = '#d4ac0d'; // 🟡 Light
+        else map[slug] = baseColor;
+      } else if (variant === 'weekly') {
+        if (mode === 'volume') {
+          const level = weeklyMuscleLevels[slug] || 0;
+          if (level === 4) map[slug] = '#5eda9e'; // 🟢 Peak volume / Target Hit
+          else if (level === 3) map[slug] = '#89dceb'; // 🔹 Optimal volume
+          else if (level === 2) map[slug] = '#a599ff'; // 🟣 Moderate volume
+          else if (level === 1) map[slug] = '#6d5fe0'; // 🟣 Base volume
+          else map[slug] = baseColor;
+        } else if (mode === 'balance') {
+          const b = balanceModel[slug];
+          if (b && b.status !== 'untrained') map[slug] = b.color;
+          else {
+            const level = weeklyMuscleLevels[slug] || 0;
+            if (level === 4) map[slug] = '#5eda9e';
+            else if (level === 3) map[slug] = '#89dceb';
+            else if (level === 2) map[slug] = '#a599ff';
+            else if (level === 1) map[slug] = '#6d5fe0';
+            else map[slug] = baseColor;
+          }
+        } else if (mode === 'strength') {
+          const r = weeklyFatigue[slug];
+          const score = r ? r.strengthScore : 0.7;
+          if (score >= 0.95) map[slug] = '#ffd32a';
+          else if (score >= 0.88) map[slug] = '#cca00b';
+          else if (score >= 0.80) map[slug] = '#a6820a';
+          else if (score >= 0.73) map[slug] = '#6b5406';
+          else map[slug] = baseColor;
+        } else {
+          map[slug] = baseColor;
+        }
+      } else {
+        // Long-Term Analytics Variant
+        if (mode === 'volume') {
+          const v = volumeModel[slug];
+          if (!v || v.level === 0) map[slug] = baseColor;
+          else if (v.level === 4) map[slug] = '#5eda9e';
+          else if (v.level === 3) map[slug] = '#89dceb';
+          else if (v.level === 2) map[slug] = '#a599ff';
+          else if (v.level === 1) map[slug] = '#6d5fe0';
+          else map[slug] = baseColor;
+        } else if (mode === 'growth') {
+          const g = growthModel[slug];
+          map[slug] = (g && g.status !== 'untrained') ? g.color : baseColor;
+        } else if (mode === 'balance') {
+          const b = balanceModel[slug];
+          map[slug] = (b && b.status !== 'untrained') ? b.color : baseColor;
+        } else {
+          map[slug] = baseColor;
+        }
       }
-      return baseColor;
     }
-
-    // Long-Term Analytics Variant
-    if (mode === 'volume') {
-      const v = volumeModel[slug];
-      if (!v || v.level === 0) return baseColor;
-      if (v.level === 4) return '#5eda9e'; // 🟢 Peak volume Emerald
-      if (v.level === 3) return '#89dceb'; // 🔹 High volume Cyan
-      if (v.level === 2) return '#a599ff'; // 🟣 Moderate volume Violet
-      if (v.level === 1) return '#6d5fe0'; // 🟣 Base volume
-      return baseColor;
-    }
-
-    if (mode === 'growth') {
-      const g = growthModel[slug];
-      if (!g || g.status === 'untrained') return baseColor;
-      return g.color;
-    }
-
-    if (mode === 'balance') {
-      const b = balanceModel[slug];
-      if (!b || b.status === 'untrained') return baseColor;
-      return b.color;
-    }
-
-    return baseColor;
-  };
+    return map;
+  }, [mode, variant, isDark, weeklyFatigue, weeklyMuscleLevels, balanceModel, volumeModel, growthModel]);
 
   const handleMusclePress = (slug: MuscleSlug) => {
     feedback.selectionChange();
@@ -304,7 +301,7 @@ const MemoizedMuscleGroup = React.memo<{
               if (!d) return null;
 
               const isSelected = selectedMuscle === slug;
-              const fill = getMuscleFillColor(slug);
+              const fill = muscleColorMap[slug] || (isDark ? '#232128' : '#e4e4e9');
 
               return (
                 <MemoizedMuscleGroup
@@ -404,7 +401,7 @@ const MemoizedMuscleGroup = React.memo<{
         <View style={styles.inspectorCard}>
           <View style={styles.inspectorTop}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={[styles.inspectorDot, { backgroundColor: getMuscleFillColor(selectedMuscle!) }]} />
+              <View style={[styles.inspectorDot, { backgroundColor: muscleColorMap[selectedMuscle!] || colors.accentPrimary }]} />
               <Text style={[styles.inspectorTitle, { color: colors.textPrimary }]}>{selectedData.name}</Text>
             </View>
             <TouchableOpacity
@@ -457,7 +454,7 @@ const MemoizedMuscleGroup = React.memo<{
                       <Text style={{ color: '#5eda9e', fontFamily: FONT_FAMILY.bold }}>
                         {selectedData.weeklySets} sets
                       </Text>{' '}
-                      <Text style={{ color: getMuscleFillColor(selectedMuscle!), fontFamily: FONT_FAMILY.bold }}>
+                      <Text style={{ color: muscleColorMap[selectedMuscle!] || '#5eda9e', fontFamily: FONT_FAMILY.bold }}>
                         ({weeklyMuscleLevels[selectedMuscle!] === 4
                           ? '🟢 Target Hit (12+ sets)'
                           : weeklyMuscleLevels[selectedMuscle!] === 3

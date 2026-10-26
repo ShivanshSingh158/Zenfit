@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { FONT_FAMILY } from '../../theme/tokens';
 import { GymExerciseLog, GymPlanDay } from '../../types/gym.types';
-import { useWellnessData } from '../../contexts/domains/WellnessContext';
+import { useGymPlan, useGymLogs } from '../../contexts/domains/WellnessContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getCustomPlanDay } from '../../hooks/useGymLog';
 import { autoResolveExerciseVideoId } from '../../services/exerciseVideoResolver';
@@ -448,7 +448,8 @@ function scoreExerciseMatch(
 export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeAddExerciseStyles(colors, isDark), [colors, isDark]);
-  const { userGymPlan, updateMasterPlan, gymLogs } = useWellnessData();
+  const { userGymPlan, updateMasterPlan } = useGymPlan();
+  const { gymLogs } = useGymLogs();
 
   // Ensure catalogue is built once and immediately ready
   const [catalogueReady, setCatalogueReady] = useState(!!_exerciseCatalogue);

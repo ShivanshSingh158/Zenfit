@@ -7,7 +7,7 @@ import { formatDateShort } from '../../utils/dateUtils';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { FONT_FAMILY, FONT_SIZE, SPACE, RADIUS } from '../../theme/tokens';
-import { useWellnessData } from '../../contexts/domains/WellnessContext';
+import { useGymLogs } from '../../contexts/domains/WellnessContext';
 import { useTheme } from "../../contexts/ThemeContext";
 
 interface Props {
@@ -22,7 +22,7 @@ type HistoryItem = { date: string; logItem?: any; ex?: any };
 export function ExerciseHistoryDrawer({ visible, exerciseName, exerciseId, onClose }: Props) {
   const { colors, isDark } = useTheme();
   const styles = React.useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
-  const { gymLogs } = useWellnessData();
+  const { gymLogs } = useGymLogs();
 
   // Find history: either all workouts, or specific exercise
   const history = React.useMemo<HistoryItem[]>(() => {

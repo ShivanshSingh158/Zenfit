@@ -9,13 +9,13 @@
  */
 import { useEffect, useRef } from 'react';
 import { InteractionManager } from 'react-native';
-import { useWellnessData, getWorkoutActiveGlobal } from '../contexts/domains/WellnessContext';
+import { useGymPlan, getWorkoutActiveGlobal } from '../contexts/domains/WellnessContext';
 import { GYM_PLAN } from '../data/gymPlan';
 import { preCacheExercises } from '../services/exerciseMediaService';
 import { getExerciseCatalogue, getCategoryMap } from '../components/Gym/AddExerciseModal';
 
 export function useGymPlanPreCache() {
-  const { userGymPlan } = useWellnessData();
+  const { userGymPlan } = useGymPlan();
   const lastPlanHashRef = useRef<string>('');
   const warmedUpRef = useRef(false);
 

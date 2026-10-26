@@ -11,7 +11,7 @@ import { StatusBar } from 'expo-status-bar';
 
 import { SPACE } from '../../theme/tokens';
 import { useGymLog, todayStr, planDayIndexForDate, getCustomPlanDay } from '../../hooks/useGymLog';
-import { useWellnessData } from '../../contexts/domains/WellnessContext';
+import { useGymPlan, useGymLogs } from '../../contexts/domains/WellnessContext';
 import { GYM_PLAN, GYM_PLAN_PPL, GYM_PLAN_ARNOLD } from '../../data/gymPlan';
 import { EXERCISE_DATABASE } from '../../data/exerciseDatabase';
 import { resolveMuscleColor, hexToRgba, canonicalizeMuscle, resolveExerciseTargetMuscle, getExerciseSwapAlternatives, getPreviousExerciseSession } from '../../utils/gymUtils';
@@ -113,7 +113,8 @@ export default function ExerciseSwapScreen() {
   const date = route.params?.date || todayStr();
 
   const { log, updateExercise } = useGymLog(date);
-  const { userGymPlan, updateMasterPlan, gymLogs } = useWellnessData();
+  const { userGymPlan, updateMasterPlan } = useGymPlan();
+  const { gymLogs } = useGymLogs();
 
   const [activeTab, setActiveTab] = useState<'ai' | 'all'>('ai');
   const [search, setSearch] = useState('');

@@ -39,6 +39,10 @@ import { makeStyles } from './gymHomeStyles';
 import GymWorkoutBanner from '../../components/Gym/GymWorkoutBanner';
 import GymExerciseDraggableRow from '../../components/Gym/GymExerciseDraggableRow';
 
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAYS_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const DAYS_FULL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
 function getMuscleWeight(m: string): number {
   const ml = m.toLowerCase();
   if (ml.includes('chest') || ml.includes('pec')) return 1;
@@ -122,21 +126,24 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     return dates;
   }, [weekOffset, today]);
 
-  // Formatted date strings for Compact Structural Header (e.g. "Today" + "Fri, Oct 23")
+  // Formatted date strings for Compact Structural Header (0ms static lookup; zero ICU bridge overhead)
   const { headerTitleText, headerDateText } = useMemo(() => {
     try {
       const [yyyy, mm, dd] = selectedDate.split('-');
       const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+      const dayOfWeek = d.getDay();
+      const monthIdx = d.getMonth();
+      const dayNum = d.getDate();
       const isToday = selectedDate === todayStr();
       if (isToday) {
         return {
           headerTitleText: 'Today',
-          headerDateText: d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+          headerDateText: `${DAYS_SHORT[dayOfWeek]}, ${MONTHS_SHORT[monthIdx]} ${dayNum}`,
         };
       }
       return {
-        headerTitleText: d.toLocaleDateString('en-US', { weekday: 'long' }),
-        headerDateText: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        headerTitleText: DAYS_FULL[dayOfWeek],
+        headerDateText: `${MONTHS_SHORT[monthIdx]} ${dayNum}`,
       };
     } catch {
       return { headerTitleText: 'Today', headerDateText: selectedDate };
@@ -153,15 +160,6 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     }
     return activePlanDay?.exercises || [];
   }, [log?.exercises, activePlanDay?.exercises]);
-
-  const draggableItemParamsList = useMemo(() => {
-    return activeExercises.map((ex: any, idx: number) => ({
-      item: { ...ex, originalIndex: idx },
-      drag: () => {},
-      isActive: false,
-      getIndex: () => idx,
-    }));
-  }, [activeExercises]);
 
   const existingExerciseIds = useMemo(() => {
     return activeExercises.map((e: any) => e.exerciseId || e.id);
@@ -239,6 +237,18 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     setDeepDiveExercise(exItem.name);
   }, []);
 
+  // Pre-indexed O(1) map of previous exercise sessions (eliminates O(N) scan during checkmark tap)
+  const previousSessionMap = useMemo(() => {
+    const map = new Map<string, any>();
+    const targetDateStr = selectedDate || todayStr();
+    for (const ex of activeExercises) {
+      if (ex?.name && !map.has(ex.name)) {
+        map.set(ex.name, getPreviousExerciseSession(ex.name, gymLogs, targetDateStr));
+      }
+    }
+    return map;
+  }, [activeExercises, gymLogs, selectedDate]);
+
   // Direct toggle on GymHome list: allows user to mark an exercise done/undone without opening active logger
   const handleToggleExerciseComplete = useCallback((ex: any, idx: number) => {
     hapticMedium();
@@ -246,8 +256,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     const isCurrentlyDone = setsLog.length > 0 && setsLog.every((s: any) => s.completed);
     const targetCompleted = !isCurrentlyDone;
 
-    const targetDateStr = selectedDate || todayStr();
-    const prevSession = getPreviousExerciseSession(ex.name, gymLogs, targetDateStr);
+    const prevSession = previousSessionMap.get(ex.name);
     const lastSets = prevSession?.sets || [];
     const lastValidSet = lastSets.length > 0 ? lastSets[lastSets.length - 1] : null;
 
@@ -281,7 +290,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     if (targetCompleted) {
       awardXP('GYM_SET').catch(() => {});
     }
-  }, [selectedDate, gymLogs, updateExercise]);
+  }, [previousSessionMap, updateExercise]);
 
   // Whenever returning to GymHomeScreen, reload any fresh active draft via fast direct key check.
   // CRITICAL: Only re-hydrate if the draft has actual logged sets — never on a ghost workoutStartTime alone.
@@ -566,16 +575,18 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
               ) : (
                 <View style={s.insetGroupedCard}>
                   {activeExercises.map((ex: any, idx: number) => {
-                    const itemParams = draggableItemParamsList[idx];
+                    const prevEx = idx > 0 ? (activeExercises[idx - 1] as any) : null;
+                    const isPartner = Boolean(ex.supersetGroup && prevEx?.supersetGroup === ex.supersetGroup);
 
                     return (
                       <React.Fragment key={ex.exerciseId || ex.name || idx}>
                         {idx > 0 && <View style={s.hairlineDivider} />}
                         <GymExerciseDraggableRow
-                          itemParams={itemParams as any}
+                          exercise={ex}
+                          index={idx}
+                          isPartnerWithPrevious={isPartner}
                           logCompleted={isWorkoutCompleted}
                           logWorkoutStartTime={log?.workoutStartTime || null}
-                          logExercises={log?.exercises}
                           s={s}
                           selectedDate={selectedDate}
                           navigation={navigation}

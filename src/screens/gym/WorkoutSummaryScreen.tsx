@@ -20,7 +20,7 @@ import { calculateExerciseMaxWeight, formatIndianDatePretty, normalizeExerciseKe
 import { dateStrOffset, todayStr } from '../../hooks/useGymLog';
 import { springs } from '../../theme/motion';
 import { feedback } from '../../utils/haptics';
-import { useWellnessData } from '../../contexts/domains/WellnessContext';
+import { useGymLogs } from '../../contexts/domains/WellnessContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { awardXP } from '../../services/xpSystem';
 import { computeOrGetHotCache, generateDatasetFingerprint } from '../../utils/hotCacheStore';
@@ -38,7 +38,7 @@ export default function WorkoutSummaryScreen() {
 
   const readOnly = route.params?.readOnly || false;
   const targetDate = route.params?.date;
-  const { gymLogs } = useWellnessData();
+  const { gymLogs } = useGymLogs();
 
   const [showConfetti, setShowConfetti] = useState(true);
   const [showAllExercises, setShowAllExercises] = useState(false);

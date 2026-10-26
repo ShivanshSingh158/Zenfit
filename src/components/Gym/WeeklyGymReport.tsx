@@ -228,12 +228,11 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
   const dateRangeStr = useMemo(() => {
     if (!weekDates.length) return '';
     try {
-      const [y1, m1, d1] = weekDates[0].split('-').map(Number);
-      const [y2, m2, d2] = weekDates[6].split('-').map(Number);
-      const dt1 = new Date(y1, m1 - 1, d1);
-      const dt2 = new Date(y2, m2 - 1, d2);
-      const month1 = dt1.toLocaleDateString('en-US', { month: 'short' });
-      const month2 = dt2.toLocaleDateString('en-US', { month: 'short' });
+      const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const [, m1, d1] = weekDates[0].split('-').map(Number);
+      const [, m2, d2] = weekDates[6].split('-').map(Number);
+      const month1 = MONTHS_SHORT[m1 - 1] || '';
+      const month2 = MONTHS_SHORT[m2 - 1] || '';
       if (month1 === month2) {
         return `${month1} ${d1} – ${d2}`;
       }

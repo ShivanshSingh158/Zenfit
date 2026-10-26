@@ -9,7 +9,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import {
   Modal, View, Text, TouchableOpacity, TextInput, Platform,
   ScrollView, ActivityIndicator, Alert, Pressable, KeyboardAvoidingView,
-  Keyboard, KeyboardEvent,
+  Keyboard, KeyboardEvent, InteractionManager,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -18,7 +18,7 @@ import { StatusBar } from 'expo-status-bar';
 import { FONT_FAMILY } from '../../theme/tokens';
 import { processGymChat, parseOptionsFromText } from '../../agent/saraAgent';
 import { useCoreData } from '../../contexts/domains/CoreDataContext';
-import { useWellnessData } from '../../contexts/domains/WellnessContext';
+import { useGymLogs } from '../../contexts/domains/WellnessContext';
 import { useCreativeData } from '../../contexts/domains/CreativeContext';
 import { UserGymPlanDoc, GymPlanDay } from '../../types/gym.types';
 import { feedback } from '../../utils/haptics';
@@ -81,7 +81,7 @@ export function ZenGymAiModal({
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeZenGymAiStyles(colors, isDark), [colors, isDark]);
 
-  const { gymLogs } = useWellnessData();
+  const { gymLogs } = useGymLogs();
   const { gymProfile } = useGymProfile();
 
   const [input, setInput] = useState('');
@@ -132,10 +132,12 @@ export function ZenGymAiModal({
   }, []);
 
   const saveChatSession = useCallback((msgs: ChatMessage[]) => {
-    AsyncStorage.setItem(
-      STORAGE_KEY_SESSIONS,
-      JSON.stringify([{ id: 'default', title: 'Gym Chat', updatedAt: Date.now(), messages: msgs }])
-    ).catch(() => {});
+    InteractionManager.runAfterInteractions(() => {
+      AsyncStorage.setItem(
+        STORAGE_KEY_SESSIONS,
+        JSON.stringify([{ id: 'default', title: 'Gym Chat', updatedAt: Date.now(), messages: msgs }])
+      ).catch(() => {});
+    });
   }, []);
 
   const scrollToBottom = () => {

@@ -29,7 +29,7 @@ function MainTabs() {
       id="ZenFitMainTabs"
       initialRouteName="Today"
       tabBar={renderTabBar}
-      detachInactiveScreens={false}
+      detachInactiveScreens={true}
       screenOptions={{
         headerShown: false,
         animation: 'shift',

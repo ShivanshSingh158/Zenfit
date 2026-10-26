@@ -6,7 +6,10 @@ import { IOS_DARK, FONT_FAMILY } from '../../theme/tokens';
 import { hapticLight, hapticMedium } from '../../utils/haptics';
 
 export interface GymExerciseDraggableRowProps {
-  itemParams: RenderItemParams<any>;
+  itemParams?: RenderItemParams<any>;
+  exercise?: any;
+  index?: number;
+  isPartnerWithPrevious?: boolean;
   logCompleted: boolean;
   logWorkoutStartTime: number | null;
   logExercises?: any[];
@@ -21,13 +24,22 @@ export interface GymExerciseDraggableRowProps {
 
 export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = React.memo(({
   itemParams,
+  exercise,
+  index,
+  isPartnerWithPrevious: propIsPartner,
   logExercises,
   s,
   onResumeWorkout,
   onShowMenu,
   onToggleComplete,
 }) => {
-  const { item: ex, drag, isActive } = itemParams;
+  const ex = exercise || itemParams?.item;
+  if (!ex) return null;
+
+  const drag = itemParams?.drag;
+  const isActive = itemParams?.isActive || false;
+  const originalIndex = index ?? ex.originalIndex ?? 0;
+
   const setsLog = ex.setsLog || [];
   const isDone = setsLog.length > 0 && setsLog.every((set: any) => set.completed);
   const totalSets = setsLog.length;
@@ -43,8 +55,8 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
     subText = `${totalSets} sets × ${ex.targetReps || '8-10'} reps`;
   }
 
-  const isPartnerWithPrevious = ex.isPartnerWithPrevious ?? (
-    Boolean(ex.supersetGroup && logExercises && logExercises[ex.originalIndex - 1]?.supersetGroup === ex.supersetGroup)
+  const isPartnerWithPrevious = propIsPartner ?? ex.isPartnerWithPrevious ?? (
+    Boolean(ex.supersetGroup && logExercises && logExercises[originalIndex - 1]?.supersetGroup === ex.supersetGroup)
   );
 
   return (
@@ -151,18 +163,30 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
       </TouchableOpacity>
     </View>
   );
-}, (prev, next) =>
-  prev.itemParams.item === next.itemParams.item &&
-  prev.itemParams.isActive === next.itemParams.isActive &&
-  prev.logCompleted === next.logCompleted &&
-  prev.logWorkoutStartTime === next.logWorkoutStartTime &&
-  prev.logExercises === next.logExercises &&
-  prev.s === next.s &&
-  prev.selectedDate === next.selectedDate &&
-  prev.onResumeWorkout === next.onResumeWorkout &&
-  prev.onShowHistory === next.onShowHistory &&
-  prev.onShowMenu === next.onShowMenu &&
-  prev.onToggleComplete === next.onToggleComplete
-);
+}, (prev, next) => {
+  if (prev.exercise && next.exercise) {
+    return (
+      prev.exercise === next.exercise &&
+      prev.index === next.index &&
+      prev.isPartnerWithPrevious === next.isPartnerWithPrevious &&
+      prev.logCompleted === next.logCompleted &&
+      prev.logWorkoutStartTime === next.logWorkoutStartTime &&
+      prev.s === next.s &&
+      prev.selectedDate === next.selectedDate &&
+      prev.onResumeWorkout === next.onResumeWorkout &&
+      prev.onShowHistory === next.onShowHistory &&
+      prev.onShowMenu === next.onShowMenu &&
+      prev.onToggleComplete === next.onToggleComplete
+    );
+  }
+  return (
+    prev.itemParams?.item === next.itemParams?.item &&
+    prev.itemParams?.isActive === next.itemParams?.isActive &&
+    prev.logCompleted === next.logCompleted &&
+    prev.logWorkoutStartTime === next.logWorkoutStartTime &&
+    prev.s === next.s &&
+    prev.selectedDate === next.selectedDate
+  );
+});
 
 export default GymExerciseDraggableRow;

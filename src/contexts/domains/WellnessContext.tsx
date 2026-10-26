@@ -349,15 +349,32 @@ export function WellnessProvider({
     gymLogsRef.current = gymLogs;
   }, [gymLogs]);
 
-  // Automatic single source of truth: Reschedule Gym Notifications whenever gym plan or logs update
+  // Debounced notification scheduling: only triggers after 3s of idle or on app background transition
   useEffect(() => {
-    const handle = InteractionManager.runAfterInteractions(() => {
-      scheduleGymNotifications({
-        gymLogs: gymLogsRef.current || [],
-        userGymPlan: userGymPlanRef.current,
-      }).catch(() => {});
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    timeoutId = setTimeout(() => {
+      InteractionManager.runAfterInteractions(() => {
+        scheduleGymNotifications({
+          gymLogs: gymLogsRef.current || [],
+          userGymPlan: userGymPlanRef.current,
+        }).catch(() => {});
+      });
+    }, 3000);
+
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'background' || nextState === 'inactive') {
+        if (timeoutId) clearTimeout(timeoutId);
+        scheduleGymNotifications({
+          gymLogs: gymLogsRef.current || [],
+          userGymPlan: userGymPlanRef.current,
+        }).catch(() => {});
+      }
     });
-    return () => handle.cancel();
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      sub.remove();
+    };
   }, [userGymPlan, gymLogs.length]);
 
   const openSubscriptions = useCallback((uid: string) => {

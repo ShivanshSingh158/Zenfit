@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { InteractionManager, DeviceEventEmitter, AppState } from 'react-native';
 import { collection, doc, setDoc, updateDoc, serverTimestamp, deleteField } from 'firebase/firestore';
 import { db, auth } from '../services/firebase';
-import { useWellnessData, getWorkoutActiveGlobal } from '../contexts/domains/WellnessContext';
+import { useGymLogs, useGymPlan, getWorkoutActiveGlobal } from '../contexts/domains/WellnessContext';
 import { useCoreData } from '../contexts/domains/CoreDataContext';
 import { GYM_PLAN, GYM_PLAN_ARNOLD, WEEKDAY_TO_PLAN } from '../data/gymPlan';
 import { GymDayLog, GymExerciseLog, GymSet, GymCardioLog, GymPlanDay } from '../types/gym.types';
@@ -111,7 +111,8 @@ export {
 };
 
 export function useGymLog(dateStr: string) {
-  const { gymLogs, gymLogsReady, ensureSubscribed: gymEnsureSubscribed, userGymPlan, updateMasterPlan, updateFullMasterPlan, optimisticAddGymLog, optimisticUpdateGymLog } = useWellnessData();
+  const { gymLogs, gymLogsReady, ensureSubscribed: gymEnsureSubscribed, optimisticAddGymLog, optimisticUpdateGymLog } = useGymLogs();
+  const { userGymPlan, updateMasterPlan, updateFullMasterPlan } = useGymPlan();
   const { user } = useCoreData();
 
   // ── FIX 1: Ref-based gymLogs access inside saveLog ────────────────────────

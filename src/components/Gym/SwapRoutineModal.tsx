@@ -7,7 +7,7 @@ import { View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { GYM_PLAN } from '../../data/gymPlan';
-import { useWellnessData } from '../../contexts/domains/WellnessContext';
+import { useGymPlan } from '../../contexts/domains/WellnessContext';
 import { getCustomPlanDay } from '../../hooks/useGymLog';
 import { hapticSuccess } from '../../utils/haptics';
 import { formatIndianDate } from '../../utils/gymUtils';
@@ -33,7 +33,7 @@ export function SwapRoutineModal({
 }: Props) {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeSwapRoutineStyles(colors, isDark), [colors, isDark]);
-  const { userGymPlan } = useWellnessData();
+  const { userGymPlan } = useGymPlan();
 
   const days = useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => i + 1).map(idx => {

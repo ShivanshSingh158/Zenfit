@@ -11,7 +11,7 @@ import YoutubeIframe from 'react-native-youtube-iframe';
 import { StatusBar } from 'expo-status-bar';
 
 import { FONT_FAMILY } from '../../theme/tokens';
-import { useWellnessData } from '../../contexts/domains/WellnessContext';
+import { useGymLogs, useGymPlan } from '../../contexts/domains/WellnessContext';
 import { useGymLog, planDayIndexForDate, getCustomPlanDay } from '../../hooks/useGymLog';
 import { GYM_PLAN, GYM_PLAN_ARNOLD } from '../../data/gymPlan';
 import { EXERCISE_DATABASE } from '../../data/exerciseDatabase';
@@ -50,7 +50,8 @@ export default function ExerciseDetailScreen() {
   const paramReps = route.params?.targetReps;
   const paramRest = route.params?.restTimeSecs;
 
-  const { gymLogs, userGymPlan, updateMasterPlan } = useWellnessData();
+  const { gymLogs } = useGymLogs();
+  const { userGymPlan, updateMasterPlan } = useGymPlan();
   const { log, updateExercise, deleteExercise } = useGymLog(date);
 
   const currentExercise = useMemo(() => {
