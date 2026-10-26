@@ -609,7 +609,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="add" size={14} color={isDark ? IOS_DARK.accent : colors.accentPrimary} />
+                  <Ionicons name="add" size={13} color={isDark ? '#000000' : '#FFFFFF'} />
                   <Text style={s.sectionActionText}>Add</Text>
                 </TouchableOpacity>
               </View>

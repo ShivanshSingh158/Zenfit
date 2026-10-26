@@ -78,7 +78,7 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
           isActive && { backgroundColor: IOS_DARK.bgElevatedInput },
         ]}
       >
-        {/* ── ZONE 1: Left 80% Touch Zone (Opens Workout / Deep Dive) ── */}
+        {/* Left Touch Zone (Opens Workout / Deep Dive) */}
         <TouchableOpacity
           style={s.heroLeftTouchZone}
           activeOpacity={0.7}
@@ -97,52 +97,50 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
           }}
           delayLongPress={220}
         >
-          {/* Header: Subtle Muscle Indicator Dot + Name */}
-          <View style={s.heroMetaRow}>
-            <View style={[s.heroMuscleDot, { backgroundColor: muscleColor }]} />
-            <Text style={s.heroMuscleText} numberOfLines={1}>{muscleName}</Text>
-          </View>
-
-          {/* Exercise Title */}
+          {/* Row 1: Exercise Title */}
           <Text
             style={[
               s.rowTitle,
               isDone && s.textStrikethrough,
               isActive && { color: IOS_DARK.accent, fontWeight: '700' },
             ]}
-            numberOfLines={2}
+            numberOfLines={1}
           >
             {ex.name}
           </Text>
 
-          {/* Sleek Segmented Set Progress Bar + Live Status */}
-          <View style={s.heroProgressRow}>
-            <View style={s.heroSegmentsWrap}>
-              {Array.from({ length: Math.min(totalSets, 8) }).map((_, sIdx) => {
-                const isSetDone = Boolean(setsLog[sIdx]?.completed);
-                return (
-                  <View
-                    key={sIdx}
-                    style={[
-                      s.heroSegmentBar,
-                      isSetDone ? s.heroSegmentCompleted : s.heroSegmentPending,
-                    ]}
-                  />
-                );
-              })}
-            </View>
-            <Text style={s.heroProgressText} numberOfLines={1}>
-              {progressLabel}
+          {/* Row 2: Muscle Dot + Name + Prescription / Progress */}
+          <View style={s.cardMuscleRow || s.heroMetaRow}>
+            <View style={[s.muscleDot || s.heroMuscleDot, { backgroundColor: muscleColor }]} />
+            <Text style={s.cardMuscleText || s.heroMuscleText} numberOfLines={1}>
+              {muscleName}
+              <Text style={s.cardSnippetInline || s.heroProgressText}> · {progressLabel}</Text>
             </Text>
+            {completedCount > 0 && completedCount < totalSets && (
+              <View style={s.heroSegmentsWrap}>
+                {Array.from({ length: Math.min(totalSets, 6) }).map((_, sIdx) => {
+                  const isSetDone = Boolean(setsLog[sIdx]?.completed);
+                  return (
+                    <View
+                      key={sIdx}
+                      style={[
+                        s.heroSegmentBar,
+                        isSetDone ? s.heroSegmentCompleted : s.heroSegmentPending,
+                      ]}
+                    />
+                  );
+                })}
+              </View>
+            )}
           </View>
         </TouchableOpacity>
 
-        {/* ── ZONE 2: Right 20% Fast-Action Zone ── */}
+        {/* Right Action Zone (Aligned Horizontally) */}
         <View style={s.heroRightActionZone}>
           {/* Fast Kebab Menu (···) */}
           <TouchableOpacity
             style={s.heroKebabBtn}
-            hitSlop={{ top: 12, bottom: 8, left: 12, right: 12 }}
+            hitSlop={{ top: 10, bottom: 10, left: 8, right: 4 }}
             activeOpacity={0.7}
             onPress={() => {
               hapticMedium();
@@ -158,7 +156,7 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
               s.heroCheckmarkBtn,
               isDone && s.heroCheckmarkBtnCompleted,
             ]}
-            hitSlop={{ top: 8, bottom: 12, left: 12, right: 12 }}
+            hitSlop={{ top: 10, bottom: 10, left: 4, right: 8 }}
             activeOpacity={0.7}
             onPress={(e) => {
               e.stopPropagation?.();
@@ -171,10 +169,8 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
             }}
           >
             {isDone ? (
-              <Ionicons name="checkmark" size={15} color="#FFFFFF" />
-            ) : (
-              <View style={s.heroCheckmarkHollow} />
-            )}
+              <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+            ) : null}
           </TouchableOpacity>
         </View>
       </View>
