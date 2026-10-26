@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Pressable,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -270,8 +271,14 @@ export const GymTemplateModal: React.FC<GymTemplateModalProps> = ({
                 <Text style={styles.navSubtitle}>{selectedSplit.name}</Text>
               </View>
 
-              <TouchableOpacity onPress={handleFinalApply} style={styles.navApplyBtn}>
-                <Text style={styles.navApplyBtnText}>Apply</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  hapticLight();
+                  onClose();
+                }}
+                style={styles.navCloseBtn}
+              >
+                <Ionicons name="close" size={20} color="#8E8E93" />
               </TouchableOpacity>
             </View>
 
@@ -285,17 +292,29 @@ export const GymTemplateModal: React.FC<GymTemplateModalProps> = ({
                 <View style={styles.presetsSection}>
                   <Text style={styles.sectionHeading}>QUICK SCHEDULE PRESETS</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetsScroll}>
-                    {selectedSplit.presets.map(preset => (
-                      <TouchableOpacity
-                        key={`preset-${preset.id}`}
-                        activeOpacity={0.75}
-                        onPress={() => handleApplyPreset(preset.dayMap)}
-                        style={styles.presetChip}
-                      >
-                        <Text style={styles.presetChipTitle}>{preset.name}</Text>
-                        <Text style={styles.presetChipSub}>{preset.description}</Text>
-                      </TouchableOpacity>
-                    ))}
+                    {selectedSplit.presets.map(preset => {
+                      const isPresetActive = Object.entries(preset.dayMap).every(
+                        ([d, wId]) => dayMapping[Number(d)] === wId
+                      );
+
+                      return (
+                        <TouchableOpacity
+                          key={`preset-${preset.id}`}
+                          activeOpacity={0.75}
+                          onPress={() => handleApplyPreset(preset.dayMap)}
+                          style={[
+                            styles.presetChip,
+                            isPresetActive && styles.presetChipActive,
+                            { backgroundColor: isPresetActive ? (isDark ? 'rgba(108, 92, 231, 0.15)' : 'rgba(108, 92, 231, 0.08)') : (isDark ? IOS_DARK.bgGroupedCard : colors.surface) },
+                          ]}
+                        >
+                          <Text style={[styles.presetChipTitle, isPresetActive && { color: '#A599FF' }]}>
+                            {preset.name}
+                          </Text>
+                          <Text style={styles.presetChipSub}>{preset.description}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </ScrollView>
                 </View>
               )}
@@ -328,7 +347,11 @@ export const GymTemplateModal: React.FC<GymTemplateModalProps> = ({
                     >
                       {/* Left Day Label */}
                       <View style={styles.dayColLeft}>
-                        <Text style={styles.dayShortName}>{DAY_SHORT[dIdx]}</Text>
+                        <View style={[styles.dayShortBadge, { backgroundColor: isRest ? 'rgba(142, 142, 147, 0.12)' : 'rgba(108, 92, 231, 0.14)' }]}>
+                          <Text style={[styles.dayShortName, { color: isRest ? '#8E8E93' : '#A599FF' }]}>
+                            {DAY_SHORT[dIdx]}
+                          </Text>
+                        </View>
                         <Text style={[styles.dayFullName, { color: isDark ? '#FFFFFF' : '#000000' }]}>
                           {dayName}
                         </Text>
@@ -338,12 +361,12 @@ export const GymTemplateModal: React.FC<GymTemplateModalProps> = ({
                       <View style={styles.dayColRight}>
                         {isRest ? (
                           <View style={styles.restBadgeBox}>
-                            <Ionicons name="moon-outline" size={13} color="#8E8E93" style={{ marginRight: 4 }} />
+                            <Ionicons name="moon-outline" size={13} color="#8E8E93" style={{ marginRight: 5 }} />
                             <Text style={styles.restBadgeText}>Rest & Recovery</Text>
                           </View>
                         ) : (
                           <View style={styles.workoutBadgeBox}>
-                            <Ionicons name="barbell-outline" size={13} color="#A599FF" style={{ marginRight: 4 }} />
+                            <Ionicons name="barbell-outline" size={13} color="#A599FF" style={{ marginRight: 5 }} />
                             <Text style={styles.workoutBadgeText} numberOfLines={1}>
                               {workout?.name || 'Workout'}
                             </Text>
@@ -385,38 +408,71 @@ export const GymTemplateModal: React.FC<GymTemplateModalProps> = ({
             <Pressable
               style={[
                 styles.pickerContainer,
-                { backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF' },
+                {
+                  backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+                  paddingBottom: Platform.OS === 'android' ? 48 : 34,
+                },
               ]}
               onPress={e => e.stopPropagation()}
             >
               <View style={styles.pickerIndicator} />
-              <Text style={[styles.pickerTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-                {activePickerDayIndex ? DAY_NAMES[activePickerDayIndex - 1] : ''} Assignment
-              </Text>
-              <Text style={styles.pickerSub}>
-                Choose which workout or rest day to schedule on this day
-              </Text>
 
-              <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
-                {/* Rest Option */}
+              <View style={styles.pickerHeaderRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.pickerTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
+                    {activePickerDayIndex ? DAY_NAMES[activePickerDayIndex - 1] : ''} Assignment
+                  </Text>
+                  <Text style={styles.pickerSub}>
+                    Choose which workout or rest day to schedule
+                  </Text>
+                </View>
                 <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() => activePickerDayIndex && handleAssignDay(activePickerDayIndex, 'rest')}
-                  style={styles.pickerOptionRow}
+                  onPress={() => setActivePickerDayIndex(null)}
+                  style={styles.pickerCloseBtn}
                 >
-                  <View style={[styles.pickerIconBox, { backgroundColor: 'rgba(142, 142, 147, 0.15)' }]}>
-                    <Ionicons name="moon" size={16} color="#8E8E93" />
-                  </View>
-                  <View style={styles.pickerTextCol}>
-                    <Text style={[styles.pickerOptionTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-                      Rest & Recovery
-                    </Text>
-                    <Text style={styles.pickerOptionSub}>Complete recovery & active restoration</Text>
-                  </View>
-                  {activePickerDayIndex && dayMapping[activePickerDayIndex] === 'rest' && (
-                    <Ionicons name="checkmark" size={18} color="#A599FF" />
-                  )}
+                  <Ionicons name="close" size={20} color="#8E8E93" />
                 </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                style={{ maxHeight: 440 }}
+                contentContainerStyle={{ paddingBottom: 16 }}
+                showsVerticalScrollIndicator={true}
+              >
+                {/* Rest Option */}
+                {(() => {
+                  const isCurrent = activePickerDayIndex ? dayMapping[activePickerDayIndex] === 'rest' : false;
+                  return (
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() => activePickerDayIndex && handleAssignDay(activePickerDayIndex, 'rest')}
+                      style={[
+                        styles.pickerCardOption,
+                        isCurrent && styles.pickerCardOptionActive,
+                        {
+                          backgroundColor: isCurrent
+                            ? (isDark ? 'rgba(108, 92, 231, 0.12)' : 'rgba(108, 92, 231, 0.08)')
+                            : (isDark ? 'rgba(255, 255, 255, 0.04)' : '#F2F2F7'),
+                        },
+                      ]}
+                    >
+                      <View style={[styles.pickerIconBox, { backgroundColor: 'rgba(142, 142, 147, 0.15)' }]}>
+                        <Ionicons name="moon" size={17} color="#8E8E93" />
+                      </View>
+                      <View style={styles.pickerTextCol}>
+                        <Text style={[styles.pickerOptionTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
+                          Rest & Recovery
+                        </Text>
+                        <Text style={styles.pickerOptionSub}>Complete recovery & active restoration</Text>
+                      </View>
+                      {isCurrent && (
+                        <View style={styles.pickerCheckmarkCircle}>
+                          <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })()}
 
                 {/* Split's Workouts */}
                 {selectedSplit.workouts.map(w => {
@@ -426,10 +482,18 @@ export const GymTemplateModal: React.FC<GymTemplateModalProps> = ({
                       key={`pick-w-${w.id}`}
                       activeOpacity={0.7}
                       onPress={() => activePickerDayIndex && handleAssignDay(activePickerDayIndex, w.id)}
-                      style={styles.pickerOptionRow}
+                      style={[
+                        styles.pickerCardOption,
+                        isCurrent && styles.pickerCardOptionActive,
+                        {
+                          backgroundColor: isCurrent
+                            ? (isDark ? 'rgba(108, 92, 231, 0.12)' : 'rgba(108, 92, 231, 0.08)')
+                            : (isDark ? 'rgba(255, 255, 255, 0.04)' : '#F2F2F7'),
+                        },
+                      ]}
                     >
                       <View style={[styles.pickerIconBox, { backgroundColor: 'rgba(165, 153, 255, 0.15)' }]}>
-                        <Ionicons name="barbell" size={16} color="#A599FF" />
+                        <Ionicons name="barbell" size={17} color="#A599FF" />
                       </View>
                       <View style={styles.pickerTextCol}>
                         <Text style={[styles.pickerOptionTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
@@ -439,7 +503,11 @@ export const GymTemplateModal: React.FC<GymTemplateModalProps> = ({
                           {w.exercises?.length || 0} exercises · {w.subtitle || w.focus}
                         </Text>
                       </View>
-                      {isCurrent && <Ionicons name="checkmark" size={18} color="#A599FF" />}
+                      {isCurrent && (
+                        <View style={styles.pickerCheckmarkCircle}>
+                          <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                        </View>
+                      )}
                     </TouchableOpacity>
                   );
                 })}
@@ -468,7 +536,12 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(84, 84, 88, 0.2)',
   },
   navCloseBtn: {
-    padding: 4,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   navBackBtn: {
     flexDirection: 'row',
@@ -640,48 +713,58 @@ const styles = StyleSheet.create({
   },
   presetChip: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
+  presetChipActive: {
+    borderColor: '#6C5CE7',
+  },
   presetChipTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 12.5,
+    fontSize: 13,
     color: '#FFFFFF',
   },
   presetChipSub: {
     fontFamily: FONT_FAMILY.regular,
-    fontSize: 10.5,
+    fontSize: 11,
     color: '#8E8E93',
     marginTop: 2,
   },
   daysSection: {
-    gap: 7,
+    gap: 8,
   },
   dayRowCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   dayColLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+  },
+  dayShortBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   dayShortName: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 11,
-    color: '#A599FF',
-    width: 30,
   },
   dayFullName: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 14,
+    fontSize: 15,
   },
   dayColRight: {
     flexDirection: 'row',
@@ -691,9 +774,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(142, 142, 147, 0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 7,
   },
   restBadgeText: {
     fontFamily: FONT_FAMILY.medium,
@@ -703,10 +786,10 @@ const styles = StyleSheet.create({
   workoutBadgeBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(165, 153, 255, 0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    backgroundColor: 'rgba(108, 92, 231, 0.14)',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 7,
     maxWidth: 180,
   },
   workoutBadgeText: {
@@ -720,10 +803,11 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'android' ? 24 : 16,
     borderTopWidth: 1,
     borderTopColor: 'rgba(84, 84, 88, 0.2)',
-    gap: 8,
+    gap: 10,
   },
   bottomBarSummary: {
     flexDirection: 'row',
@@ -732,7 +816,7 @@ const styles = StyleSheet.create({
   },
   bottomBarCount: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
+    fontSize: 12.5,
     color: '#A599FF',
   },
   bottomBarSplitName: {
@@ -745,7 +829,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#6C5CE7',
-    paddingVertical: 12,
+    paddingVertical: 13,
     borderRadius: 12,
     shadowColor: '#6C5CE7',
     shadowOffset: { width: 0, height: 2 },
@@ -755,7 +839,7 @@ const styles = StyleSheet.create({
   },
   applyFullBtnText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 14,
+    fontSize: 14.5,
     color: '#FFFFFF',
   },
   pickerBackdrop: {
@@ -767,54 +851,83 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 32,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   pickerIndicator: {
-    width: 36,
+    width: 38,
     height: 4,
     borderRadius: 2,
     backgroundColor: '#8E8E93',
     alignSelf: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
+  },
+  pickerHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  pickerCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pickerTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 16,
+    fontSize: 17,
   },
   pickerSub: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 12,
     color: '#8E8E93',
-    marginBottom: 12,
     marginTop: 2,
   },
-  pickerOptionRow: {
+  pickerCardOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 11,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(84, 84, 88, 0.15)',
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  pickerCardOptionActive: {
+    borderColor: '#6C5CE7',
   },
   pickerIconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginRight: 12,
   },
   pickerTextCol: {
     flex: 1,
   },
   pickerOptionTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 14,
+    fontSize: 14.5,
   },
   pickerOptionSub: {
     fontFamily: FONT_FAMILY.regular,
-    fontSize: 11,
+    fontSize: 11.5,
     color: '#8E8E93',
-    marginTop: 1,
+    marginTop: 2,
+  },
+  pickerCheckmarkCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#6C5CE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
   },
 });
