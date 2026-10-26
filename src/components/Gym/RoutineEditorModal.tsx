@@ -10,6 +10,7 @@ import {
   FlatList,
   Pressable,
   Alert,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,7 +22,6 @@ import {
   resolveMuscleColor,
   resolveExerciseTargetMuscle,
 } from '../../utils/gymUtils';
-import { getEquipmentGlyph } from './ExerciseCardItem';
 import { hapticLight, hapticMedium, hapticSuccess } from '../../utils/haptics';
 import { FONT_FAMILY, IOS_DARK, SPACE } from '../../theme/tokens';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -691,7 +691,6 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                 const currentSets = Number(ex.targetSets) || 3;
                 const currentReps = ex.targetReps || '8–12';
                 const currentRest = ex.restTimeSecs || 90;
-                const eq = getEquipmentGlyph(ex.name);
                 const { targetMuscle } = resolveExerciseTargetMuscle(ex.name, ex.muscle);
                 const muscleColor = resolveMuscleColor(targetMuscle);
 
@@ -703,10 +702,10 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                       { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
                     ]}
                   >
-                    {/* Header Row: Equipment Badge, Name, Reorder, Swap & Delete */}
+                    {/* Header Row: Index Badge, Name, Reorder, Swap & Delete */}
                     <View style={styles.exHeaderRow}>
-                      <View style={[styles.eqBadge, { backgroundColor: `${eq.color}15`, borderColor: `${eq.color}35` }]}>
-                        <Text style={[styles.eqBadgeText, { color: eq.color }]}>{eq.glyph}</Text>
+                      <View style={styles.exIndexBadge}>
+                        <Text style={styles.exIndexText}>#{exIdx + 1}</Text>
                       </View>
 
                       <View style={styles.exTitleCol}>
@@ -935,7 +934,6 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
               contentContainerStyle={{ paddingBottom: 110 }}
               renderItem={({ item }) => {
                 const isSelected = selectedVaultExerciseIds.has(item.id);
-                const eq = getEquipmentGlyph(item.name);
                 const muscleColor = resolveMuscleColor(item.muscle);
 
                 return (
@@ -944,7 +942,14 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                     onPress={() => handleToggleVaultExercise(item.id)}
                     style={[
                       styles.vaultExerciseRow,
-                      { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
+                      {
+                        backgroundColor: isSelected
+                          ? (isDark ? 'rgba(108, 92, 231, 0.12)' : 'rgba(108, 92, 231, 0.08)')
+                          : (isDark ? IOS_DARK.bgGroupedCard : colors.surface),
+                        borderColor: isSelected
+                          ? '#6C5CE7'
+                          : (isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)'),
+                      },
                     ]}
                   >
                     {/* Checkbox */}
@@ -954,19 +959,10 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                         isSelected && styles.checkboxCircleSelected,
                       ]}
                     >
-                      {isSelected && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
+                      {isSelected && <Ionicons name="checkmark" size={12} color="#FFFFFF" />}
                     </View>
 
-                    {/* Equipment Glyph */}
-                    <View
-                      style={[
-                        styles.eqBadgeSmall,
-                        { backgroundColor: `${eq.color}15`, borderColor: `${eq.color}35` },
-                      ]}
-                    >
-                      <Text style={[styles.eqBadgeSmallText, { color: eq.color }]}>{eq.glyph}</Text>
-                    </View>
-
+                    {/* Exercise Details */}
                     <View style={styles.vaultExDetailsCol}>
                       <Text
                         style={[styles.vaultExName, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
@@ -984,13 +980,21 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                       <View
                         style={[
                           styles.vaultTierBadge,
-                          item.tier === 'S Tier' ? styles.sTierBadge : styles.aTierBadge,
+                          item.tier === 'S Tier'
+                            ? styles.sTierBadge
+                            : item.tier === 'A+ Tier'
+                            ? styles.aPlusTierBadge
+                            : styles.aTierBadge,
                         ]}
                       >
                         <Text
                           style={[
                             styles.vaultTierText,
-                            item.tier === 'S Tier' ? styles.sTierText : styles.aTierText,
+                            item.tier === 'S Tier'
+                              ? styles.sTierText
+                              : item.tier === 'A+ Tier'
+                              ? styles.aPlusTierText
+                              : styles.aTierText,
                           ]}
                         >
                           {item.tier}
@@ -1004,25 +1008,35 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
 
             {/* Sticky Bottom Multi-Select Confirm Bar */}
             <View style={[styles.stickyBottomBar, { backgroundColor: isDark ? '#141418' : '#FFFFFF' }]}>
-              <View style={styles.selectedCountWrap}>
-                <Text style={styles.selectedCountText}>
-                  {selectedVaultExerciseIds.size} Selected
-                </Text>
-              </View>
-
               <TouchableOpacity
-                activeOpacity={0.8}
+                activeOpacity={selectedVaultExerciseIds.size > 0 ? 0.85 : 1}
                 disabled={selectedVaultExerciseIds.size === 0}
                 onPress={handleConfirmVaultExercises}
                 style={[
-                  styles.confirmAddBtn,
-                  selectedVaultExerciseIds.size === 0 && styles.confirmAddBtnDisabled,
+                  styles.confirmAddBtnFull,
+                  selectedVaultExerciseIds.size > 0 ? styles.confirmAddBtnActive : styles.confirmAddBtnDisabled,
                 ]}
               >
-                <Ionicons name="add" size={18} color="#FFFFFF" style={{ marginRight: 4 }} />
-                <Text style={styles.confirmAddBtnText}>
-                  Add to Routine ({selectedVaultExerciseIds.size})
-                </Text>
+                {selectedVaultExerciseIds.size > 0 ? (
+                  <>
+                    <View style={styles.confirmBadgeBubble}>
+                      <Text style={styles.confirmBadgeBubbleText}>
+                        {selectedVaultExerciseIds.size}
+                      </Text>
+                    </View>
+                    <Text style={styles.confirmAddBtnText}>
+                      Add {selectedVaultExerciseIds.size === 1 ? 'Movement' : 'Movements'} to Routine
+                    </Text>
+                    <Ionicons name="arrow-forward" size={16} color="#FFFFFF" style={{ marginLeft: 4 }} />
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="add-circle-outline" size={18} color="#8E8E93" style={{ marginRight: 6 }} />
+                    <Text style={styles.confirmAddBtnDisabledText}>
+                      Select Exercises to Add
+                    </Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -1296,17 +1310,18 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 10,
   },
-  eqBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
+  exIndexBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  eqBadgeText: {
+  exIndexText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
+    fontSize: 12,
+    color: '#A599FF',
   },
   exTitleCol: {
     flex: 1,
@@ -1455,9 +1470,9 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   filterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   filterChipSelected: {
@@ -1465,7 +1480,7 @@ const styles = StyleSheet.create({
   },
   filterChipText: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 12,
+    fontSize: 12.5,
     color: '#8E8E93',
   },
   filterChipTextSelected: {
@@ -1476,17 +1491,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: 16,
-    marginBottom: 6,
-    borderRadius: 12,
-    padding: 10,
-    gap: 10,
+    marginBottom: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    gap: 12,
   },
   checkboxCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 1.5,
-    borderColor: '#636366',
+    borderColor: '#48484A',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1494,56 +1511,59 @@ const styles = StyleSheet.create({
     backgroundColor: '#6C5CE7',
     borderColor: '#6C5CE7',
   },
-  eqBadgeSmall: {
-    width: 26,
-    height: 26,
-    borderRadius: 6,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  eqBadgeSmallText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 9,
-  },
   vaultExDetailsCol: {
     flex: 1,
+    justifyContent: 'center',
   },
   vaultExName: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
+    fontSize: 14.5,
+    lineHeight: 19,
+    letterSpacing: -0.2,
   },
   vaultExMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 2,
+    gap: 5,
+    marginTop: 3,
   },
   vaultExSub: {
     fontFamily: FONT_FAMILY.regular,
-    fontSize: 11,
+    fontSize: 12,
     color: '#8E8E93',
   },
   vaultTierBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignSelf: 'center',
   },
   sTierBadge: {
-    backgroundColor: 'rgba(255, 215, 0, 0.15)',
+    backgroundColor: 'rgba(255, 215, 0, 0.12)',
   },
   sTierText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 9.5,
+    fontSize: 10,
     color: '#FFD700',
+    letterSpacing: 0.2,
   },
   aTierBadge: {
-    backgroundColor: 'rgba(165, 153, 255, 0.15)',
+    backgroundColor: 'rgba(165, 153, 255, 0.12)',
   },
   aTierText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 9.5,
+    fontSize: 10,
     color: '#A599FF',
+    letterSpacing: 0.2,
+  },
+  aPlusTierBadge: {
+    backgroundColor: 'rgba(0, 229, 255, 0.12)',
+  },
+  aPlusTierText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 10,
+    color: '#00E5FF',
+    letterSpacing: 0.2,
   },
   vaultTierText: {},
   stickyBottomBar: {
@@ -1551,35 +1571,57 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 16,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(84, 84, 88, 0.2)',
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
   },
-  selectedCountWrap: {},
-  selectedCountText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-    color: '#A599FF',
-  },
-  confirmAddBtn: {
+  confirmAddBtnFull: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 14,
+    gap: 8,
+  },
+  confirmAddBtnActive: {
     backgroundColor: '#6C5CE7',
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 10,
+    shadowColor: '#6C5CE7',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 4,
   },
   confirmAddBtnDisabled: {
-    opacity: 0.4,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  confirmBadgeBubble: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmBadgeBubbleText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 12,
+    color: '#FFFFFF',
   },
   confirmAddBtnText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
+    fontSize: 15,
     color: '#FFFFFF',
+    letterSpacing: -0.2,
+  },
+  confirmAddBtnDisabledText: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 14,
+    color: '#8E8E93',
   },
   modalBackdrop: {
     flex: 1,

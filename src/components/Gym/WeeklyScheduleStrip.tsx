@@ -12,7 +12,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { GymPlanDay, GymPlanExercise, GymRoutine } from '../../types/gym.types';
 import { EXERCISE_DATABASE } from '../../data/exerciseDatabase';
 import { normalizeExerciseKey, resolveMuscleColor, resolveExerciseTargetMuscle } from '../../utils/gymUtils';
-import { getEquipmentGlyph } from './ExerciseCardItem';
 import { hapticLight, hapticSuccess } from '../../utils/haptics';
 import { FONT_FAMILY, IOS_DARK, SPACE } from '../../theme/tokens';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -333,7 +332,6 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
                   </TouchableOpacity>
                 ) : (
                   activeDayExercises.map((ex, idx) => {
-                    const eq = getEquipmentGlyph(ex.name);
                     const { targetMuscle } = resolveExerciseTargetMuscle(ex.name, ex.muscle);
                     const muscleColor = resolveMuscleColor(targetMuscle);
                     const tier = EXERCISE_TIER_MAP.get(normalizeExerciseKey(ex.name));
@@ -352,14 +350,9 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
                         ]}
                       >
                         <View style={styles.directExLeft}>
-                          {/* Equipment Glyph */}
-                          <View
-                            style={[
-                              styles.eqBadge,
-                              { backgroundColor: `${eq.color}15`, borderColor: `${eq.color}35` },
-                            ]}
-                          >
-                            <Text style={[styles.eqBadgeText, { color: eq.color }]}>{eq.glyph}</Text>
+                          {/* Exercise Index Badge */}
+                          <View style={styles.directExIndexBadge}>
+                            <Text style={styles.directExIndexText}>{idx + 1}</Text>
                           </View>
 
                           {/* Exercise Name & Muscle / Tier */}
@@ -824,18 +817,18 @@ const styles = StyleSheet.create({
     paddingRight: 10,
     gap: 10,
   },
-  eqBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
+  directExIndexBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  eqBadgeText: {
+  directExIndexText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    letterSpacing: 0.2,
+    fontSize: 11,
+    color: '#8E8E93',
   },
   directExTextCol: {
     flex: 1,
