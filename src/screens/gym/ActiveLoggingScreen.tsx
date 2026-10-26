@@ -1865,7 +1865,7 @@ export default function ActiveLoggingScreen() {
           setNumber={activeKeypad ? (exercise?.setsLog?.[activeKeypad.setIndex]?.setNumber || activeKeypad.setIndex + 1) : 1}
           stepSize={
             activeKeypad?.field === 'weight'
-              ? (overloadSuggestion?.inferredMeta?.incrementKg || 2.5)
+              ? 2.5
               : 1
           }
           selectedRir={

@@ -79,12 +79,12 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(({
 
   const handlePlus = () => {
     hapticLight();
-    onStepAdjust(effectiveStep);
+    onStepAdjust(isWeight ? 2.5 : 1);
   };
 
   const handleMinus = () => {
     hapticLight();
-    onStepAdjust(-effectiveStep);
+    onStepAdjust(isWeight ? -2.5 : -1);
   };
 
   return (
@@ -108,7 +108,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(({
           </TouchableOpacity>
         </View>
 
-        {/* Quick Stepper Buttons */}
+        {/* Quick Stepper Buttons: +-2.5 kg on Weight, +-1 on Reps */}
         <View style={keypadStyles.stepperPills}>
           <TouchableOpacity
             onPress={handleMinus}
@@ -116,7 +116,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(({
             activeOpacity={0.65}
           >
             <Text style={keypadStyles.stepBtnText}>
-              −{effectiveStep}{isWeight ? 'k' : ''}
+              {isWeight ? '−2.5 kg' : '−1'}
             </Text>
           </TouchableOpacity>
 
@@ -126,7 +126,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(({
             activeOpacity={0.65}
           >
             <Text style={[keypadStyles.stepBtnText, { color: '#30D158' }]}>
-              +{effectiveStep}{isWeight ? 'k' : ''}
+              {isWeight ? '+2.5 kg' : '+1'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -246,7 +246,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(({
             style={keypadStyles.blueNextKey}
             activeOpacity={0.7}
           >
-            <Ionicons name="arrow-forward" size={26} color="#FFFFFF" />
+            <Ionicons name="arrow-forward" size={26} color="#000000" />
           </TouchableOpacity>
         </View>
       </View>
@@ -283,12 +283,12 @@ const keypadStyles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 6,
-    backgroundColor: '#28282E',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   setNumberBadgeText: {
     fontSize: 11,
     fontFamily: FONT_FAMILY.bold,
-    color: '#0A84FF',
+    color: '#FFFFFF',
     letterSpacing: 0.4,
   },
   fieldSwitchBtn: {
@@ -313,9 +313,9 @@ const keypadStyles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: 8,
-    backgroundColor: '#28282E',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   stepBtnPlus: {
     backgroundColor: 'rgba(48, 209, 88, 0.12)',
@@ -333,7 +333,7 @@ const keypadStyles = StyleSheet.create({
   doneBtnText: {
     fontSize: 13,
     fontFamily: FONT_FAMILY.bold,
-    color: '#0A84FF',
+    color: '#FFFFFF',
   },
   rirStrip: {
     flexDirection: 'row',
@@ -351,25 +351,25 @@ const keypadStyles = StyleSheet.create({
   },
   rirPill: {
     flex: 1,
-    paddingVertical: 4,
-    borderRadius: 7,
-    backgroundColor: '#28282E',
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   rirPillActive: {
-    backgroundColor: '#0A84FF',
-    borderColor: '#0A84FF',
+    backgroundColor: '#FFFFFF',
+    borderColor: '#FFFFFF',
   },
   rirPillText: {
     fontSize: 11,
     fontFamily: FONT_FAMILY.bold,
-    color: '#D1D1D6',
+    color: '#8E8E93',
   },
   rirPillTextActive: {
-    color: '#FFFFFF',
+    color: '#000000',
   },
   keysContainer: {
     paddingHorizontal: 8,
@@ -403,13 +403,13 @@ const keypadStyles = StyleSheet.create({
   blueNextKey: {
     flex: 1,
     height: 50,
-    backgroundColor: '#0A84FF',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#0A84FF',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.25,
     shadowRadius: 6,
     elevation: 4,
   },
