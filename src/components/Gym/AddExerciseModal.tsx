@@ -43,7 +43,7 @@ import { hapticLight, hapticSuccess, hapticMedium } from '../../utils/haptics';
 // Subcomponents & Styles
 import { makeAddExerciseStyles } from './addExerciseStyles';
 import { ExerciseCatalogEntry } from './ExerciseSearchDropdown';
-import ExerciseCardItem, { getEquipmentGlyph } from './ExerciseCardItem';
+import ExerciseCardItem, { getEquipmentGlyph, getSecondaryMuscles, TIER_CONFIG } from './ExerciseCardItem';
 import ExerciseCustomFields from './ExerciseCustomFields';
 import {
   getBiomechanicalPrescription,
@@ -797,16 +797,12 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
               <View style={styles.header}>
                 <TouchableOpacity
                   onPress={() => setShowCustomTuning(false)}
-                  style={styles.backBtn}
+                  style={styles.headerLeftBtn}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
-                  <Text style={styles.backBtnText}>Catalogue</Text>
+                  <Ionicons name="chevron-back" size={22} color={colors.textPrimary} style={{ marginRight: 2 }} />
+                  <Text style={styles.title}>Customize</Text>
                 </TouchableOpacity>
-
-                <Text style={styles.title} numberOfLines={1}>
-                  Customize
-                </Text>
 
                 <TouchableOpacity
                   onPress={resetAndClose}
@@ -823,20 +819,51 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
               >
-                {/* Hero Info Card for Exercise */}
-                <View style={styles.customizeHeroCard}>
-                  <Text style={styles.customizeHeroTitle} numberOfLines={2}>
-                    {selectedEntry?.name || searchQuery}
-                  </Text>
-                  <View style={styles.customizeHeroMeta}>
+                {/* Hero Info Card for Exercise (Same design as catalogue ExerciseCard) */}
+                <View style={styles.exerciseCard}>
+                  <View style={styles.cardTopRow}>
+                    <Text style={styles.cardTitle} numberOfLines={1}>
+                      {selectedEntry?.name || searchQuery}
+                    </Text>
+
+                    {selectedEntry?.tier && (selectedEntry.tier === 'S Tier' || selectedEntry.tier === 'A+ Tier') && TIER_CONFIG[selectedEntry.tier] && (
+                      <View
+                        style={[
+                          styles.tierBadge,
+                          {
+                            backgroundColor: TIER_CONFIG[selectedEntry.tier].bg,
+                            borderColor: TIER_CONFIG[selectedEntry.tier].border,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.tierBadgeText, { color: TIER_CONFIG[selectedEntry.tier].text }]}>
+                          {selectedEntry.tier}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.cardMuscleRow}>
                     <View
                       style={[
                         styles.muscleDot,
-                        { backgroundColor: resolveMuscleColor(muscle !== 'None' ? muscle : (selectedEntry?.muscle || 'Mixed')) },
+                        {
+                          backgroundColor: resolveMuscleColor(
+                            muscle !== 'None' ? muscle : (selectedEntry?.muscle || 'Mixed')
+                          ),
+                        },
                       ]}
                     />
-                    <Text style={styles.customizeHeroMuscle}>
-                      {muscle !== 'None' ? muscle : (selectedEntry?.muscle || 'General')}
+                    <Text style={styles.cardMuscleText} numberOfLines={1}>
+                      <Text style={styles.primaryMuscleText}>
+                        {muscle !== 'None' ? muscle : (selectedEntry?.muscle || 'General')}
+                      </Text>{' '}
+                      <Text style={styles.secondaryMuscleText}>
+                        {getSecondaryMuscles(
+                          selectedEntry?.name || searchQuery,
+                          muscle !== 'None' ? muscle : (selectedEntry?.muscle || 'General')
+                        )}
+                      </Text>
                     </Text>
                   </View>
                 </View>
@@ -858,6 +885,7 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                   planDay={planDay}
                   colors={colors}
                   styles={styles}
+                  isDark={isDark}
                 />
 
                 {/* Confirm Action Button */}
@@ -866,7 +894,7 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                   onPress={handleConfirmAddTuned}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="checkmark-sharp" size={17} color={isDark ? '#000000' : '#FFFFFF'} style={{ marginRight: 6 }} />
+                  <Ionicons name="checkmark-sharp" size={17} color={colors.textPrimary} style={{ marginRight: 6 }} />
                   <Text style={styles.submitBtnText}>Add to Workout</Text>
                 </TouchableOpacity>
               </ScrollView>

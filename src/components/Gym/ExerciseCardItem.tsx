@@ -170,7 +170,7 @@ export function getPastPerformanceSnippet(exerciseName: string, gymLogs?: any[])
 }
 
 // ── Tier Badges Theme ───────────────────────────────────────────────────────
-const TIER_CONFIG: Record<string, { bg: string; text: string; border: string }> = {
+export const TIER_CONFIG: Record<string, { bg: string; text: string; border: string }> = {
   'S Tier': { bg: 'rgba(255, 215, 0, 0.14)', text: '#FFD700', border: 'rgba(255, 215, 0, 0.45)' },
   'A+ Tier': { bg: 'rgba(0, 229, 255, 0.14)', text: '#00E5FF', border: 'rgba(0, 229, 255, 0.40)' },
   'A Tier': { bg: 'rgba(0, 229, 255, 0.12)', text: '#00E5FF', border: 'rgba(0, 229, 255, 0.35)' },
