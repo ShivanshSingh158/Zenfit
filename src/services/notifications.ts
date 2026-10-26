@@ -139,7 +139,9 @@ export async function scheduleGymNotifications(params: ScheduleParams): Promise<
     if (status !== 'granted') {
       const granted = await requestNotificationPermissions();
       if (!granted) {
-        console.warn('[Notifications] Permissions not granted. Skipping scheduling.');
+        // Permission denied – silenced to avoid console spam in Expo Go.
+        // Re-enable the warn below when debugging notification issues:
+        // console.warn('[Notifications] Permissions not granted. Skipping scheduling.');
         return;
       }
     }

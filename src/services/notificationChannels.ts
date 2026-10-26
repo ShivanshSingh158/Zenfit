@@ -131,13 +131,15 @@ export async function requestNotificationPermissions(): Promise<boolean> {
     ]);
 
     if (final !== 'granted') {
-      console.warn('[Notifications] Notification permission not granted:', final);
+      // Permission denied – silenced to avoid console spam in Expo Go.
+      // console.warn('[Notifications] Notification permission not granted:', final);
       return false;
     }
 
     return true;
   } catch (err: any) {
-    console.warn('[Notifications] Setup warning:', err?.message);
+    // Silenced channel setup errors to keep console clean during Expo Go dev:
+    // console.warn('[Notifications] Setup warning:', err?.message);
     return false;
   }
 }
