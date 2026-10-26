@@ -701,8 +701,8 @@ export default function GymSplitsScreen() {
       <GymTemplateModal
         visible={showTemplateModal}
         onClose={() => setShowTemplateModal(false)}
-        onApply={(templateId, pattern) => {
-          applyMasterTemplate(templateId as any, pattern as any);
+        onApply={(customDays, templateId, templateName) => {
+          updateFullMasterPlan(customDays);
         }}
       />
     </SafeAreaView>
