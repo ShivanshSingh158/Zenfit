@@ -21,6 +21,7 @@ import {
   getExerciseSwapAlternatives,
   resolveMuscleColor,
   resolveExerciseTargetMuscle,
+  canonicalizeMuscle,
 } from '../../utils/gymUtils';
 import { hapticLight, hapticMedium, hapticSuccess } from '../../utils/haptics';
 import { FONT_FAMILY, IOS_DARK, SPACE } from '../../theme/tokens';
@@ -88,25 +89,15 @@ export function generateSmartRoutineMeta(exercises: GymPlanExercise[]): {
   if (has('Chest') && has('Back') && !has('Quads') && !has('Hamstrings')) {
     if (has('Biceps') || has('Triceps')) {
       return {
-        suggestedName: 'Chest & Back (Upper Torso)',
+        suggestedName: 'Chest & Back',
         suggestedFocus: 'Antagonist push/pull supersets with arms finisher',
-        nameOptions: [
-          'Chest & Back (Upper Torso)',
-          'Upper Push & Pull',
-          'Torso & Arms Hypertrophy',
-          'Arnold Chest & Back',
-        ],
+        nameOptions: ['Chest & Back', 'Torso & Arms'],
       };
     }
     return {
-      suggestedName: 'Chest & Back (Thickness)',
+      suggestedName: 'Chest & Back',
       suggestedFocus: 'Antagonist supersets focusing on chest thickness and lat width',
-      nameOptions: [
-        'Chest & Back (Thickness)',
-        'Upper Body Push & Pull',
-        'Chest & Back Power',
-        'Torso Hypertrophy',
-      ],
+      nameOptions: ['Chest & Back', 'Upper Push/Pull'],
     };
   }
 
@@ -115,28 +106,18 @@ export function generateSmartRoutineMeta(exercises: GymPlanExercise[]): {
     const hasDelt = has('Shoulders');
     const hasTri = has('Triceps');
     return {
-      suggestedName: hasDelt && hasTri ? 'Push (Chest, Delts & Triceps)' : hasDelt ? 'Chest & Shoulders Power' : 'Chest & Triceps Hypertrophy',
+      suggestedName: hasDelt && hasTri ? 'Push Day' : hasDelt ? 'Chest & Delts' : 'Chest & Triceps',
       suggestedFocus: 'Horizontal and overhead pressing with triceps lockout overload',
-      nameOptions: [
-        'Push: Chest & Delts',
-        'Chest & Triceps Power',
-        'Upper Push Hypertrophy',
-        'Push Day Focus',
-      ],
+      nameOptions: ['Push (Chest & Delts)', 'Chest & Triceps'],
     };
   }
 
   // 3. Pull: Back + Biceps (+ Delts/Traps)
   if (has('Back') && (has('Biceps') || has('Shoulders')) && !has('Chest') && !has('Quads')) {
     return {
-      suggestedName: has('Biceps') ? 'Pull (Back & Biceps)' : 'Pull (Back & Rear Delts)',
+      suggestedName: 'Pull Day',
       suggestedFocus: 'Vertical & horizontal pulling with elbow flexion overload',
-      nameOptions: [
-        'Pull: Back & Biceps',
-        'Lats & Biceps Hypertrophy',
-        'Upper Pull Dominance',
-        'Back Width & Arm Sculpt',
-      ],
+      nameOptions: ['Pull (Back & Biceps)', 'Back & Lats Power'],
     };
   }
 
@@ -144,75 +125,49 @@ export function generateSmartRoutineMeta(exercises: GymPlanExercise[]): {
   if (has('Quads') || has('Hamstrings')) {
     if (has('Quads') && has('Hamstrings')) {
       return {
-        suggestedName: 'Leg Day (Quads & Posterior Chain)',
+        suggestedName: 'Leg Day',
         suggestedFocus: 'Compound knee extension and hip hinge mechanics',
-        nameOptions: [
-          'Leg Day (Quads & Posterior Chain)',
-          'Lower Body Hypertrophy',
-          'Squat & Hinge Power',
-          'Complete Leg Overload',
-        ],
+        nameOptions: ['Leg Day (Quads & Hams)', 'Lower Body Power'],
       };
     }
     if (has('Quads')) {
       return {
-        suggestedName: 'Quad Hypertrophy Focus',
+        suggestedName: 'Quad Hypertrophy',
         suggestedFocus: 'Knee extension overload and VMO quad development',
-        nameOptions: [
-          'Quad Hypertrophy Focus',
-          'Anterior Chain Power',
-          'Squats & Quad Burn',
-        ],
+        nameOptions: ['Quad Hypertrophy', 'Quad Power'],
       };
     }
     return {
-      suggestedName: 'Posterior Chain (Hamstrings & Glutes)',
+      suggestedName: 'Hamstrings & Glutes',
       suggestedFocus: 'Hip hinge mechanics and hamstring stretch stimulus',
-      nameOptions: [
-        'Posterior Chain (Hams & Glutes)',
-        'Hamstring & Glute Power',
-        'Posterior Hypertrophy',
-      ],
+      nameOptions: ['Hamstrings & Glutes', 'Posterior Chain'],
     };
   }
 
   // 5. Arms & Shoulders (The Gunsmith)
   if ((has('Biceps') || has('Triceps')) && has('Shoulders') && !has('Chest') && !has('Back')) {
     return {
-      suggestedName: 'Shoulders & Arms (The Gunsmith)',
+      suggestedName: 'Shoulders & Arms',
       suggestedFocus: '3D deltoid capping and bicep/tricep antagonistic pump',
-      nameOptions: [
-        'Shoulders & Arms (The Gunsmith)',
-        'Delts & Arms Hypertrophy',
-        'Upper Arm Sculpt',
-        'Arms & Shoulders Day',
-      ],
+      nameOptions: ['Shoulders & Arms', 'Delts & Arms Pump'],
     };
   }
 
   // 6. Chest + Biceps
   if (has('Chest') && has('Biceps') && !has('Back')) {
     return {
-      suggestedName: 'Chest & Biceps Pump',
+      suggestedName: 'Chest & Biceps',
       suggestedFocus: 'Pressing volume with elbow flexion supersets',
-      nameOptions: [
-        'Chest & Biceps Pump',
-        'Chest & Bicep Hypertrophy',
-        'Upper Body Sculpt',
-      ],
+      nameOptions: ['Chest & Biceps', 'Chest & Arm Pump'],
     };
   }
 
   // 7. Back + Triceps
   if (has('Back') && has('Triceps') && !has('Chest')) {
     return {
-      suggestedName: 'Back & Triceps Power',
+      suggestedName: 'Back & Triceps',
       suggestedFocus: 'Lat width compound movements with tricep isolation',
-      nameOptions: [
-        'Back & Triceps Power',
-        'Lat Width & Tricep Hypertrophy',
-        'Back & Arm Day',
-      ],
+      nameOptions: ['Back & Triceps', 'Back & Arm Power'],
     };
   }
 
@@ -221,34 +176,25 @@ export function generateSmartRoutineMeta(exercises: GymPlanExercise[]): {
     const m1 = sortedMuscles[0];
     const m2 = sortedMuscles[1];
     return {
-      suggestedName: `${m1} & ${m2} Hypertrophy`,
+      suggestedName: `${m1} & ${m2}`,
       suggestedFocus: `Targeting ${m1} and ${m2} with progressive overload`,
-      nameOptions: [
-        `${m1} & ${m2} Hypertrophy`,
-        `${m1} & ${m2} Power`,
-        `${m1} & ${m2} Sculpt`,
-        'Custom Focus Session',
-      ],
+      nameOptions: [`${m1} & ${m2}`, `${m1} & ${m2} Power`],
     };
   }
 
   if (sortedMuscles.length === 1) {
     const m = sortedMuscles[0];
     return {
-      suggestedName: `${m} Hypertrophy Day`,
+      suggestedName: `${m} Focus`,
       suggestedFocus: `High volume targeted stimulus for ${m}`,
-      nameOptions: [
-        `${m} Hypertrophy Day`,
-        `${m} Power Session`,
-        `${m} Blast`,
-      ],
+      nameOptions: [`${m} Hypertrophy`, `${m} Power`],
     };
   }
 
   return {
     suggestedName: 'Custom Routine',
     suggestedFocus: 'Targeted strength & hypertrophy',
-    nameOptions: ['Custom Routine', 'Full Body Power', 'Hypertrophy Day'],
+    nameOptions: ['Custom Routine', 'Full Body Power'],
   };
 }
 
@@ -412,11 +358,46 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   // ── Exercise Vault Filtering ─────────────────────────────────────────────────
   const filteredVaultExercises = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
+    const filter = selectedMuscleFilter.toLowerCase();
+
     return EXERCISE_DATABASE.filter(ex => {
       if (selectedMuscleFilter !== 'All') {
-        const m = (ex.muscle || '').toLowerCase();
-        if (!m.includes(selectedMuscleFilter.toLowerCase())) return false;
+        const rawMuscle = (ex.muscle || '').toLowerCase();
+        const canonical = canonicalizeMuscle(ex.muscle).toLowerCase();
+        const targetCanonical = resolveExerciseTargetMuscle(ex.name, ex.muscle).canonicalGroup.toLowerCase();
+
+        let matchesMuscle = (
+          canonical === filter ||
+          targetCanonical === filter ||
+          rawMuscle.includes(filter)
+        );
+
+        // Comprehensive group coverage for sub-muscles (e.g. Delts -> Shoulders, Lats -> Back)
+        if (!matchesMuscle) {
+          if (filter === 'shoulders') {
+            matchesMuscle = rawMuscle.includes('delt') || rawMuscle.includes('shoulder') || rawMuscle.includes('overhead');
+          } else if (filter === 'back') {
+            matchesMuscle = rawMuscle.includes('lat') || rawMuscle.includes('back') || rawMuscle.includes('trap') || rawMuscle.includes('rhomboid') || rawMuscle.includes('row');
+          } else if (filter === 'chest') {
+            matchesMuscle = rawMuscle.includes('chest') || rawMuscle.includes('pec');
+          } else if (filter === 'biceps') {
+            matchesMuscle = rawMuscle.includes('bicep') || rawMuscle.includes('brachio') || rawMuscle.includes('curl');
+          } else if (filter === 'triceps') {
+            matchesMuscle = rawMuscle.includes('tricep') || rawMuscle.includes('pushdown') || rawMuscle.includes('dip');
+          } else if (filter === 'quads') {
+            matchesMuscle = rawMuscle.includes('quad') || rawMuscle.includes('squat') || rawMuscle.includes('leg ext');
+          } else if (filter === 'hamstrings') {
+            matchesMuscle = rawMuscle.includes('ham') || rawMuscle.includes('hinge') || rawMuscle.includes('ghr') || rawMuscle.includes('rdl') || rawMuscle.includes('deadlift');
+          } else if (filter === 'calves') {
+            matchesMuscle = rawMuscle.includes('calv') || rawMuscle.includes('soleus') || rawMuscle.includes('gastro');
+          } else if (filter === 'abs') {
+            matchesMuscle = rawMuscle.includes('ab') || rawMuscle.includes('core') || rawMuscle.includes('oblique') || rawMuscle.includes('crunch') || rawMuscle.includes('plank');
+          }
+        }
+
+        if (!matchesMuscle) return false;
       }
+
       if (query) {
         const nameMatch = ex.name.toLowerCase().includes(query);
         const aliasMatch = ex.aliases?.some(a => a.toLowerCase().includes(query));
@@ -617,10 +598,10 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                   returnKeyType="done"
                 />
 
-                {/* Quick Permutation Name Chips */}
+                {/* Quick Permutation Name Chips (Strictly 2 Suggestions on 1 Line) */}
                 {nameOptions.length > 0 && (
                   <View style={styles.suggestionChipsWrap}>
-                    {nameOptions.map(optName => (
+                    {nameOptions.slice(0, 2).map(optName => (
                       <TouchableOpacity
                         key={`name-opt-${optName}`}
                         activeOpacity={0.7}
@@ -638,6 +619,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                             styles.nameOptionChipText,
                             routineName === optName && styles.nameOptionChipTextActive,
                           ]}
+                          numberOfLines={1}
                         >
                           {optName}
                         </Text>
@@ -893,38 +875,40 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
             </View>
 
             {/* Muscle Filter Strip */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filterStrip}
-            >
-              {MUSCLE_FILTERS.map(m => {
-                const isSelected = selectedMuscleFilter === m;
-                return (
-                  <TouchableOpacity
-                    key={`m-filter-${m}`}
-                    onPress={() => {
-                      hapticLight();
-                      setSelectedMuscleFilter(m);
-                    }}
-                    style={[
-                      styles.filterChip,
-                      isSelected && styles.filterChipSelected,
-                    ]}
-                    activeOpacity={0.7}
-                  >
-                    <Text
+            <View style={styles.filterStripContainer}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.filterStrip}
+              >
+                {MUSCLE_FILTERS.map(m => {
+                  const isSelected = selectedMuscleFilter === m;
+                  return (
+                    <TouchableOpacity
+                      key={`m-filter-${m}`}
+                      onPress={() => {
+                        hapticLight();
+                        setSelectedMuscleFilter(m);
+                      }}
                       style={[
-                        styles.filterChipText,
-                        isSelected && styles.filterChipTextSelected,
+                        styles.filterChip,
+                        isSelected && styles.filterChipSelected,
                       ]}
+                      activeOpacity={0.7}
                     >
-                      {m}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          isSelected && styles.filterChipTextSelected,
+                        ]}
+                      >
+                        {m}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
 
             {/* Exercises List with Multi-Select Checkboxes */}
             <FlatList
@@ -1216,20 +1200,22 @@ const styles = StyleSheet.create({
   },
   suggestionChipsWrap: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
+    gap: 8,
     marginTop: 10,
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.06)',
   },
   nameOptionChip: {
+    flex: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingVertical: 7,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   nameOptionChipActive: {
     backgroundColor: 'rgba(165, 153, 255, 0.15)',
@@ -1237,8 +1223,9 @@ const styles = StyleSheet.create({
   },
   nameOptionChipText: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 11,
+    fontSize: 11.5,
     color: '#8E8E93',
+    textAlign: 'center',
   },
   nameOptionChipTextActive: {
     color: '#A599FF',
@@ -1464,16 +1451,24 @@ const styles = StyleSheet.create({
     fontFamily: FONT_FAMILY.regular,
     fontSize: 14,
   },
+  filterStripContainer: {
+    height: 42,
+    marginBottom: 8,
+  },
   filterStrip: {
     paddingHorizontal: 16,
-    gap: 6,
-    paddingBottom: 8,
+    gap: 8,
+    alignItems: 'center',
+    flexDirection: 'row',
   },
   filterChip: {
+    height: 32,
     paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
   },
   filterChipSelected: {
     backgroundColor: '#FFFFFF',
