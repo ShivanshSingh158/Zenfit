@@ -188,18 +188,23 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
   }
 
   // ─── 3. NOT STARTED: UNIFIED HERO WORKOUT SURFACE ──────────────────────────
-  const routineHeader = `${routineTitle.toUpperCase()}${routineFocus ? ` · ${routineFocus.toUpperCase()}` : ''}`;
-  const metaText = `${exerciseCount} Exercises · ${setsCount} Working Sets · ~${estimatedMinutes} min`;
+  // Clean up the title: strip parenthetical suffixes like "(Thickness)" from name display
+  const cleanTitle = routineTitle.replace(/\s*\(.*?\)\s*/g, '').trim() || 'Workout Day';
+  // Focus is shown as-is (not screaming caps)
+  const cleanFocus = routineFocus || '';
 
   return (
     <View style={[styles.heroCard, { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface }]}>
+      {/* Top row: Focus label + streak */}
       <View style={styles.topRow}>
-        <Text
-          numberOfLines={1}
-          style={[styles.heroOverline, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}
-        >
-          {routineHeader}
-        </Text>
+        {cleanFocus ? (
+          <View style={styles.focusPill}>
+            <Ionicons name="barbell-outline" size={10} color={isDark ? IOS_DARK.labelSecondary : colors.textMuted} />
+            <Text style={[styles.focusPillText, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}>
+              {cleanFocus}
+            </Text>
+          </View>
+        ) : <View />}
 
         {currentStreak > 0 && (
           <View style={styles.streakBadge}>
@@ -209,14 +214,39 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
         )}
       </View>
 
+      {/* Main workout title */}
       <Text
         numberOfLines={1}
-        style={[styles.heroMeta, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}
+        style={[styles.heroTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
       >
-        {metaText}
+        {cleanTitle}
       </Text>
 
-      {/* Solid Apple iOS Action Button (Radius 12, High Contrast) */}
+      {/* 3-Stat chip row */}
+      <View style={styles.statChipRow}>
+        <View style={styles.statChip}>
+          <Ionicons name="layers-outline" size={12} color={isDark ? IOS_DARK.labelSecondary : colors.textMuted} />
+          <Text style={[styles.statChipText, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}>
+            {exerciseCount} exercises
+          </Text>
+        </View>
+        <View style={styles.statChipDot} />
+        <View style={styles.statChip}>
+          <Ionicons name="repeat-outline" size={12} color={isDark ? IOS_DARK.labelSecondary : colors.textMuted} />
+          <Text style={[styles.statChipText, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}>
+            {setsCount} sets
+          </Text>
+        </View>
+        <View style={styles.statChipDot} />
+        <View style={styles.statChip}>
+          <Ionicons name="time-outline" size={12} color={isDark ? IOS_DARK.labelSecondary : colors.textMuted} />
+          <Text style={[styles.statChipText, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}>
+            ~{estimatedMinutes} min
+          </Text>
+        </View>
+      </View>
+
+      {/* Solid Apple iOS Action Button */}
       <TouchableOpacity
         style={[styles.primarySolidBtn, { backgroundColor: isDark ? IOS_DARK.accent : '#6C5CE7' }]}
         onPress={onStartWorkout}
@@ -253,13 +283,45 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   heroTitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontFamily: FONT_FAMILY.bold,
-    letterSpacing: -0.2,
+    letterSpacing: -0.3,
   },
   heroMeta: {
     fontSize: 12,
     fontFamily: FONT_FAMILY.body,
+  },
+  focusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flex: 1,
+  },
+  focusPillText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+    letterSpacing: 0.1,
+    flexShrink: 1,
+  },
+  statChipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  statChipText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+  },
+  statChipDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: 'rgba(255,255,255,0.2)',
   },
   streakBadge: {
     flexDirection: 'row',
