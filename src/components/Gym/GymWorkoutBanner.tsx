@@ -174,11 +174,11 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
 
           <TouchableOpacity
             onPress={onResumeWorkout}
-            style={[styles.primarySolidBtn, { flex: 1, backgroundColor: IOS_DARK.accent }]}
+            style={[styles.primarySolidBtn, { flex: 1, backgroundColor: isDark ? '#FFFFFF' : '#000000' }]}
             activeOpacity={0.8}
           >
-            <Ionicons name="play" size={16} color="#000000" style={{ marginRight: 6 }} />
-            <Text style={[styles.primarySolidBtnText, { color: '#000000' }]}>
+            <Ionicons name="play" size={16} color={isDark ? '#000000' : '#FFFFFF'} style={{ marginRight: 6 }} />
+            <Text style={[styles.primarySolidBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>
               Resume Workout
             </Text>
           </TouchableOpacity>
@@ -236,7 +236,7 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
 
       {/* Solid Apple iOS Action Button */}
       <TouchableOpacity
-        style={[styles.primarySolidBtn, { backgroundColor: isDark ? IOS_DARK.accent : '#6C5CE7' }]}
+        style={[styles.primarySolidBtn, { backgroundColor: isDark ? '#FFFFFF' : '#000000' }]}
         onPress={onStartWorkout}
         activeOpacity={0.85}
       >

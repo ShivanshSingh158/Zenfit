@@ -25,6 +25,7 @@ import { dismissActiveWorkoutNotification } from '../services/activeWorkoutNotif
 import { safeWrite } from '../utils/safeWrite';
 import { buildLiveWorkoutWidgetData, saveCachedLiveWorkoutData, updateLiveWorkoutWidget } from '../services/widgetSyncService';
 import { setActiveWorkoutFlag } from '../components/BackgroundNotificationWatcher';
+import { setWorkoutActiveGlobal } from '../contexts/domains/WellnessContext';
 import { isAutoTimerEnabledSync } from './useGymProfile';
 import { generateDatasetFingerprint } from '../utils/hotCacheStore';
 import { writeWellnessCache, flushDomainCache } from '../utils/domainCache';
@@ -650,15 +651,20 @@ export function useGymLog(dateStr: string) {
     } else {
       const logWithId: GymDayLog = { ...updatedLog, id: logId, userId: effectiveUid };
 
-      // GHOST SESSION GUARD: If workoutStartTime is set but NO sets have been completed,
-      // this is a ghost session (auto-started without user intent). Strip workoutStartTime
-      // so it doesn't persist to AsyncStorage draft and re-appear on next focus/boot.
+      // GHOST SESSION GUARD & AUTO-START ON ANY LOGGED SET:
+      // If workoutStartTime is set but NO sets have been completed, strip it (ghost session).
+      // Conversely, if any set IS completed and workoutStartTime is not yet set, automatically start the session!
       const hasAnyCompletedSet = (logWithId.exercises || []).some((ex: any) =>
         (ex.setsLog || []).some((s: any) => s.completed)
       );
       if (logWithId.workoutStartTime && !hasAnyCompletedSet) {
         (logWithId as any).workoutStartTime = undefined;
         logRef.current = logWithId;
+      } else if (hasAnyCompletedSet && !logWithId.workoutStartTime && !logWithId.completed) {
+        logWithId.workoutStartTime = Date.now();
+        logRef.current = logWithId;
+        setActiveWorkoutFlag(true);
+        setWorkoutActiveGlobal(true);
       }
 
       // Synchronously update in-memory gymLogsRef & L1 cache
@@ -811,7 +817,13 @@ export function useGymLog(dateStr: string) {
         const setsLog = ex.setsLog.map((s, si) => si === setIndex ? set : s);
         return { ...ex, setsLog };
       });
-      const updated = { ...prev, exercises, updatedAt: Date.now() };
+      const hasAnyCompleted = exercises.some(e => e.setsLog?.some(s => s.completed));
+      const workoutStartTime = prev.workoutStartTime || (hasAnyCompleted && !prev.completed ? Date.now() : undefined);
+      if (hasAnyCompleted && !prev.workoutStartTime && !prev.completed) {
+        setActiveWorkoutFlag(true);
+        setWorkoutActiveGlobal(true);
+      }
+      const updated = { ...prev, exercises, workoutStartTime, updatedAt: Date.now() };
       saveLog(updated);
       return updated;
     });
@@ -836,7 +848,13 @@ export function useGymLog(dateStr: string) {
       if (newlyCompleted) {
         awardXP('GYM_SET').catch(() => {});
       }
-      const updated = { ...prev, exercises, updatedAt: Date.now() };
+      const hasAnyCompleted = exercises.some(e => e.setsLog?.some(s => s.completed));
+      const workoutStartTime = prev.workoutStartTime || (hasAnyCompleted && !prev.completed ? Date.now() : undefined);
+      if (hasAnyCompleted && !prev.workoutStartTime && !prev.completed) {
+        setActiveWorkoutFlag(true);
+        setWorkoutActiveGlobal(true);
+      }
+      const updated = { ...prev, exercises, workoutStartTime, updatedAt: Date.now() };
       saveLog(updated);
       return updated;
     });
@@ -1036,10 +1054,17 @@ export function useGymLog(dateStr: string) {
       const exercises = base.exercises.map((ex, i) =>
         i === targetIdx ? { ...updatedExercise, _idx: i } : ex
       );
+      const hasAnyCompleted = exercises.some((e: any) => e.setsLog?.some((s: any) => s.completed));
+      const workoutStartTime = base.workoutStartTime || (hasAnyCompleted && !base.completed ? Date.now() : undefined);
+      if (hasAnyCompleted && !base.workoutStartTime && !base.completed) {
+        setActiveWorkoutFlag(true);
+        setWorkoutActiveGlobal(true);
+      }
       const updated = {
         ...base,
         id: base.id || (user?.uid ? `${user.uid}_${dateStr}` : undefined),
         exercises,
+        workoutStartTime,
         updatedAt: Date.now(),
       };
       recordExerciseToLedger(updatedExercise.name, updatedExercise.setsLog, dateStr);
@@ -1084,9 +1109,17 @@ export function useGymLog(dateStr: string) {
         });
       }
 
+      const hasAnyCompleted = exercises.some((e: any) => e.setsLog?.some((s: any) => s.completed));
+      const workoutStartTime = prev.workoutStartTime || (hasAnyCompleted && !prev.completed ? Date.now() : undefined);
+      if (hasAnyCompleted && !prev.workoutStartTime && !prev.completed) {
+        setActiveWorkoutFlag(true);
+        setWorkoutActiveGlobal(true);
+      }
+
       const updated = {
         ...prev,
         exercises,
+        workoutStartTime,
         updatedAt: getMonotonicTimestamp(prev?.updatedAt),
       };
       saveLog(updated);

@@ -77,6 +77,7 @@ export default function ActiveLoggingScreen() {
     makeSwapPermanent,
     logSetAndStartTimer,
     endWorkout,
+    startWorkout,
   } = useGymLog(date);
 
   if (log?.date && lockedSessionDateRef.current !== log.date) {
@@ -715,6 +716,9 @@ export default function ActiveLoggingScreen() {
     const nextJumpIdx = findNextSupersetExerciseIndex(allExs, curActiveIdx, exercise.supersetGroup);
     const restSecs = nextJumpIdx !== -1 ? 30 : getRestDuration(exercise);
 
+    if (!log?.workoutStartTime) {
+      startWorkout();
+    }
     logSetAndStartTimer(curRealIdx, newEx, restSecs, exercise.name);
 
     if (resolved.weight && resolved.reps && resolved.weight > 0 && resolved.reps > 0) {
@@ -1124,6 +1128,9 @@ export default function ActiveLoggingScreen() {
       const nextJumpIdx = findNextSupersetExerciseIndex(allExs, curActiveIdx, exercise.supersetGroup);
       const restSecs = curSet.setType === 'drop' ? 15 : (nextJumpIdx !== -1 ? 30 : getRestDuration(exercise));
 
+      if (!log?.workoutStartTime) {
+        startWorkout();
+      }
       logSetAndStartTimer(curRealIdx, newEx, restSecs, exercise.name);
 
       if (resolved.weight && resolved.reps && resolved.weight > 0 && resolved.reps > 0) {
