@@ -36,7 +36,6 @@ import { KNOWN_EXERCISE_VIDEOS, sanitizeName } from '../../services/exerciseVide
 import { aiResolveExercise, AIExerciseInfo } from '../../services/geminiProxy';
 import { GYM_PLAN } from '../../data/gymPlan';
 import { EXERCISE_DATABASE } from '../../data/exerciseDatabase';
-import { searchExercises } from '../../services/exerciseMediaService';
 import { handleSyncError } from '../../utils/errorUtils';
 import { hapticLight, hapticSuccess, hapticMedium } from '../../utils/haptics';
 
@@ -67,21 +66,32 @@ export const MUSCLE_FILTER_CHIPS: {
   { id: 'Cardio', label: 'Cardio' },
 ];
 
-// ── Ultra-Lightweight Pre-defined Staples (Rendered in 0ms when DB is idle) ──
-const POPULAR_STAPLE_EXERCISES: ExerciseCatalogEntry[] = [
-  { id: 'staple_inc_db_press', name: 'Incline Bench Press (Dumbbell)', muscle: 'Upper Chest', tier: 'S Tier', targetSets: 3, targetReps: '8–12', restTimeSecs: 90, videoId: '', isCurated: true },
-  { id: 'staple_lat_pulldown', name: 'Lat Pulldown (Cable)', muscle: 'Lats', tier: 'S Tier', targetSets: 3, targetReps: '10–12', restTimeSecs: 75, videoId: '', isCurated: true },
-  { id: 'staple_squat_bb', name: 'Squat (Barbell)', muscle: 'Quads', tier: 'S Tier', targetSets: 3, targetReps: '6–10', restTimeSecs: 120, videoId: '', isCurated: true },
-  { id: 'staple_cable_lat_raise', name: 'Lateral Raise (Cable)', muscle: 'Side Delts', tier: 'S Tier', targetSets: 3, targetReps: '12–15', restTimeSecs: 60, videoId: '', isCurated: true },
-  { id: 'staple_flat_bb_press', name: 'Flat Bench Press (Barbell)', muscle: 'Mid Chest', tier: 'A+ Tier', targetSets: 3, targetReps: '6–8', restTimeSecs: 120, videoId: '', isCurated: true },
-  { id: 'staple_rdl_db', name: 'Romanian Deadlift (Dumbbell)', muscle: 'Hamstrings', tier: 'S Tier', targetSets: 3, targetReps: '8–12', restTimeSecs: 90, videoId: '', isCurated: true },
-  { id: 'staple_tri_pushdown', name: 'Triceps Pushdown (Cable)', muscle: 'Triceps', tier: 'A+ Tier', targetSets: 3, targetReps: '10–12', restTimeSecs: 60, videoId: '', isCurated: true },
-  { id: 'staple_bicep_curl_db', name: 'Incline Bicep Curl (Dumbbell)', muscle: 'Biceps', tier: 'S Tier', targetSets: 3, targetReps: '10–12', restTimeSecs: 60, videoId: '', isCurated: true },
-  { id: 'staple_cable_row', name: 'Seated Cable Row', muscle: 'Upper Back', tier: 'A+ Tier', targetSets: 3, targetReps: '8–12', restTimeSecs: 75, videoId: '', isCurated: true },
-  { id: 'staple_leg_ext', name: 'Leg Extension (Machine)', muscle: 'Quads', tier: 'A Tier', targetSets: 3, targetReps: '12–15', restTimeSecs: 60, videoId: '', isCurated: true },
+const STAPLE_NAMES = [
+  'incline bench press (dumbbell)',
+  'lat pulldown (cable)',
+  'squat (barbell)',
+  'lateral raise (cable)',
+  'flat bench press (barbell)',
+  'bench press (barbell)',
+  'romanian deadlift (dumbbell)',
+  'triceps pushdown (cable)',
+  'incline bicep curl (dumbbell)',
+  'seated cable row',
+  'leg extension (machine)',
+  'leg curl (seated machine)',
+  'leg curl (lying machine)',
+  'hamstring curl (seated machine)',
+  'overhead press (barbell)',
+  'shoulder press (dumbbell)',
+  'cable chest fly',
+  'face pull (cable)',
+  'standing calf raise',
+  'bulgarian split squat',
+  'pull-up',
+  'dips',
 ];
 
-/** Build a full deduplicated exercise catalogue from our database + plan + dataset. */
+/** Build a full deduplicated exercise catalogue from our curated 45+ exercise database + plan. */
 function buildCatalogue(): ExerciseCatalogEntry[] {
   const seen = new Set<string>();
   const result: ExerciseCatalogEntry[] = [];
@@ -107,7 +117,7 @@ function buildCatalogue(): ExerciseCatalogEntry[] {
       id: dbEntry.id,
       name: dbEntry.name,
       muscle: dbEntry.muscle,
-      tier: dbEntry.tier || 'C Tier',
+      tier: dbEntry.tier || 'A Tier',
       targetSets: rx.targetSets,
       targetReps: rx.targetReps,
       restTimeSecs: rx.restTimeSecs,
@@ -133,24 +143,17 @@ function buildCatalogue(): ExerciseCatalogEntry[] {
     }
   }
 
-  // 3. 1,324 Exercises Dataset integration
-  const datasetExercises = searchExercises('', 'all', 2000);
-  for (const ex of datasetExercises) {
-    const rawMuscle = ex.target || ex.bodyPart || 'Mixed';
-    const cleanMuscle = rawMuscle.charAt(0).toUpperCase() + rawMuscle.slice(1);
-    const rx = getBiomechanicalPrescription(ex.name, cleanMuscle);
-
-    add({
-      id: ex.id,
-      name: ex.name,
-      muscle: cleanMuscle,
-      tier: 'C Tier',
-      targetSets: rx.targetSets,
-      targetReps: rx.targetReps,
-      restTimeSecs: rx.restTimeSecs,
-      videoId: '',
-    }, false);
-  }
+  // Pre-sort so standard staples appear at the top, then alphabetically
+  result.sort((a, b) => {
+    const aName = a.name.toLowerCase();
+    const bName = b.name.toLowerCase();
+    const aIdx = STAPLE_NAMES.findIndex(s => aName.includes(s));
+    const bIdx = STAPLE_NAMES.findIndex(s => bName.includes(s));
+    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+    if (aIdx !== -1) return -1;
+    if (bIdx !== -1) return 1;
+    return a.name.localeCompare(b.name);
+  });
 
   return result;
 }
@@ -504,18 +507,8 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
     };
   }, [searchQuery]);
 
-  // ── Database Activation Guard ─────────────────────────────────────────────
-  // The database is ONLY active when the user has typed a query or selected a specific muscle!
-  // If idle, it remains completely inactive/off so closing and opening feel instant!
-  const isDatabaseActive = Boolean(debouncedQuery.length > 0 || (selectedMuscle && selectedMuscle !== 'all'));
-
   // Filtered Results Calculation
   const results = useMemo(() => {
-    if (!isDatabaseActive) {
-      // Idle mode: Return static popular staples instantly with zero compute
-      return POPULAR_STAPLE_EXERCISES;
-    }
-
     const catalogue = getExerciseCatalogue();
     const categoryMap = getCategoryMap();
     const q = debouncedQuery;
@@ -544,7 +537,7 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
         normQuery,
         selectedMuscle
       );
-      if (score > (entry.isCurated ? 1500 : 0)) {
+      if (score > 0) {
         scored.push({ item: entry, score });
       }
     }
@@ -558,7 +551,7 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
     });
 
     return scored.map(s => s.item);
-  }, [debouncedQuery, selectedMuscle, isDatabaseActive]);
+  }, [debouncedQuery, selectedMuscle]);
 
   // 1-Tap Auto-Categorization for Instant Custom Exercise Creation
   const autoResolvedForQuery = useMemo(() => {
@@ -952,7 +945,11 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
               {/* Database Notice Header */}
               <View style={styles.statusNotice}>
                 <Text style={styles.statusNoticeText}>
-                  {isDatabaseActive ? 'Exercises' : 'Popular Exercises'}
+                  {selectedMuscle && selectedMuscle !== 'all'
+                    ? `${selectedMuscle} Exercises`
+                    : searchQuery.trim()
+                    ? 'Matching Exercises'
+                    : 'All Exercises'}
                 </Text>
               </View>
 
@@ -962,14 +959,13 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                   data={results}
                   keyExtractor={(item, idx) => `${item.id || item.name}_${idx}`}
                   renderItem={renderExerciseCard}
-                  contentContainerStyle={styles.cardList}
-                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={[styles.cardList, { paddingBottom: 60 }]}
+                  showsVerticalScrollIndicator={true}
                   keyboardShouldPersistTaps="handled"
-                  initialNumToRender={10}
-                  maxToRenderPerBatch={10}
-                  windowSize={5}
-                  removeClippedSubviews={Platform.OS === 'android'}
-                  style={{ maxHeight: 460 }}
+                  initialNumToRender={20}
+                  maxToRenderPerBatch={20}
+                  windowSize={11}
+                  style={{ maxHeight: 520 }}
                 />
               ) : (
                 /* Instant "Create Custom Exercise" Card */
