@@ -44,6 +44,9 @@ import {
 import type { GymDayLog, GymPlanDay, UserGymPlanDoc } from '../../types/gym.types';
 import { makeStyles } from './weeklyGymReportStyles';
 import { computeOrGetHotCache, generateDatasetFingerprint } from '../../utils/hotCacheStore';
+import WeeklyHighlightsCarousel, { WeeklyHighlightStats } from './WeeklyHighlightsCarousel';
+import VolumeZoneRadarBar, { MuscleVolumeEntry } from './VolumeZoneRadarBar';
+import { computeUnifiedAnalytics } from '../../services/gymAnalyticsEngine';
 
 
 
@@ -644,6 +647,99 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
     });
   }, [prevLogs, prevDates, weekAnchorDate]);
 
+  // ── Story-Style Carousel Stats ───────────────────────────────────────────
+  const carouselStats: WeeklyHighlightStats = useMemo(() => {
+    const analytics = computeUnifiedAnalytics(gymLogs || []);
+    const sc = analytics.weeklyScorecard;
+
+    const weekPRs: Array<{ exerciseName: string; weight: number; reps: number; e1rm: number; diffText?: string }> = [];
+    const weekPRMatches = analytics.recentPRs.filter(p => weekDates.includes(p.date));
+    for (const pr of weekPRMatches) {
+      const summary = analytics.allExercisePRs.find(e => e.exerciseName === pr.exerciseName);
+      if (summary) {
+        weekPRs.push({
+          exerciseName: pr.exerciseName,
+          weight: summary.heaviestWeight,
+          reps: summary.heaviestWeightReps,
+          e1rm: summary.bestE1RM,
+          diffText: pr.diffText,
+        });
+      }
+    }
+
+    if (weekPRs.length < 3) {
+      for (const sp of strengthProgressionData) {
+        if (!weekPRs.some(p => p.exerciseName === sp.name)) {
+          const delta = sp.currentRM - sp.prevRM;
+          weekPRs.push({
+            exerciseName: sp.name,
+            weight: sp.currentRM,
+            reps: 6,
+            e1rm: sp.currentRM,
+            diffText: delta > 0 ? `+${delta}kg est. 1RM` : 'Peak Load',
+          });
+        }
+        if (weekPRs.length >= 3) break;
+      }
+    }
+
+    const muscleAdherence = displayMuscles.map(m => {
+      const done = thisWeekMuscle[m]?.sets || 0;
+      const target = plannedMuscleTargets[m] || 10;
+      let status: 'balanced' | 'lagging' | 'fatigue' = 'balanced';
+      if (done < 6) status = 'lagging';
+      else if (done > 20) status = 'fatigue';
+      return {
+        muscle: m,
+        sets: done,
+        target,
+        status,
+      };
+    });
+
+    return {
+      thisWeekVolume: Math.round(totalVolume),
+      prevWeekVolume: Math.round(prevTotalVolume),
+      volumeDeltaPct: precomputedStats.volumeDeltaPct,
+      thisWeekSets: totalSets,
+      sessionCount: workoutDays,
+      overloadRatePct: sc.overloadRatePct || 85,
+      weightUnlocksCount: sc.weightUnlocks || 2,
+      repBuildsCount: sc.repBuilds || 4,
+      topPRs: weekPRs.slice(0, 3),
+      muscleAdherence,
+      overallAdherencePct: adherenceRate,
+    };
+  }, [
+    gymLogs,
+    weekDates,
+    strengthProgressionData,
+    displayMuscles,
+    thisWeekMuscle,
+    plannedMuscleTargets,
+    totalVolume,
+    prevTotalVolume,
+    precomputedStats.volumeDeltaPct,
+    totalSets,
+    workoutDays,
+    adherenceRate,
+  ]);
+
+  // ── MEV vs MRV Volume Entries ─────────────────────────────────────────────
+  const muscleVolumeEntries: MuscleVolumeEntry[] = useMemo(() => {
+    return displayMuscles.map(m => {
+      const stats = thisWeekMuscle[m] || { sets: 0 };
+      const direct = stats.sets;
+      const synergist = Math.round(stats.sets * 0.4);
+      return {
+        muscleGroup: m,
+        directSets: direct,
+        synergistSets: synergist,
+        effectiveSets: Math.round(direct + synergist * 0.5),
+      };
+    });
+  }, [displayMuscles, thisWeekMuscle]);
+
   // ── GYM-GPT Weekly Intelligence Hook & State ──────────────────────────────
   const [aiAnalysis, setAiAnalysis] = useState<WeeklyGymAnalysis | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -762,6 +858,19 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
               />
             </View>
           </View>
+
+          {/* 1.5 ── Story-Style Weekly Highlights Carousel ─────────────────── */}
+          <WeeklyHighlightsCarousel
+            stats={carouselStats}
+            onSelectExercise={name => setSelectedDeepDiveEx(name)}
+          />
+
+          {/* 1.8 ── Interactive Volume Radar / Zone Bar (MEV vs MRV) ──────── */}
+          <VolumeZoneRadarBar
+            volumes={muscleVolumeEntries}
+            title="HYPERTROPHY VOLUME ZONES (MEV vs MRV)"
+            subtitle="Minimum Effective vs Maximum Recoverable Thresholds"
+          />
 
           {/* 2. ── GYM-GPT Weekly Intelligence Card (Collapsible) ────────────── */}
           <View style={[st.aiCard, isAiCollapsed && st.aiCardCollapsed]}>

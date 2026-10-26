@@ -46,6 +46,7 @@ import {
 // Existing Charts & Sheets
 import ConsistencyHeatmap from '../../components/Gym/Charts/ConsistencyHeatmap';
 import WeeklyGymReport from '../../components/Gym/WeeklyGymReport';
+import VolumeZoneRadarBar from '../../components/Gym/VolumeZoneRadarBar';
 
 type AnalyticsSubTab = 'trends' | 'logs' | 'trophy';
 type TimeRange = '7d' | '30d' | '90d' | '1y' | 'all';
@@ -505,62 +506,12 @@ export default function GymHistoryScreen() {
             </View>
           </View>
 
-          {/* Card 3: Effective Weekly Muscle Volume Zone Bars */}
-          <View style={[styles.iosCard, { backgroundColor: cardBg }]}>
-            <View style={styles.cardHeaderRow}>
-              <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={styles.cardSectionLabel}>EFFECTIVE HYPERTROPHY VOLUME</Text>
-                <Text style={styles.cardSubLabel}>Direct (1.0) + Synergist (0.5) sets per week</Text>
-              </View>
-              <Text style={styles.volumeLandmarkGuide}>Target: 6–16 sets</Text>
-            </View>
-
-            <View style={{ gap: 11, marginTop: 6 }}>
-              {analyticsData.effectiveMuscleVolumes.map(mv => {
-                const percent = Math.min(100, Math.round((mv.effectiveSets / 18) * 100));
-                const isOptimal = mv.status === 'optimal';
-                const isLow = mv.status === 'low';
-                return (
-                  <View key={mv.muscleGroup}>
-                    <View style={styles.muscleBarHeader}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <View style={[styles.muscleDot, { backgroundColor: mv.color }]} />
-                        <Text style={[styles.muscleNameText, { color: colors.textPrimary }]}>
-                          {mv.muscleGroup}
-                        </Text>
-                      </View>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={styles.muscleDetailSub}>
-                          {mv.directSets}d + {mv.synergistSets}s
-                        </Text>
-                        <Text style={[styles.muscleSetCount, isOptimal && { color: '#30D158' }]}>
-                          {mv.effectiveSets} sets
-                        </Text>
-                        <View style={[styles.statusTag, isOptimal ? styles.statusOptimal : isLow ? styles.statusLow : styles.statusHigh]}>
-                          <Text style={[styles.statusTagText, isOptimal ? { color: '#30D158' } : isLow ? { color: '#FF9F0A' } : { color: '#FF453A' }]}>
-                            {isOptimal ? 'Optimal' : isLow ? 'Low' : 'Fatigue'}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-
-                    {/* Zone Progress Bar */}
-                    <View style={styles.zoneTrack}>
-                      <View
-                        style={[
-                          styles.zoneFill,
-                          {
-                            width: `${Math.max(6, percent)}%`,
-                            backgroundColor: isOptimal ? '#30D158' : isLow ? '#FF9F0A' : '#FF453A',
-                          },
-                        ]}
-                      />
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
+          {/* Card 3: Interactive Volume Radar & MEV vs MRV Zones */}
+          <VolumeZoneRadarBar
+            volumes={analyticsData.effectiveMuscleVolumes}
+            title="HYPERTROPHY VOLUME ZONES (MEV vs MRV)"
+            subtitle="Minimum Effective Volume vs Maximum Recoverable Thresholds"
+          />
 
           {/* Card 4: Effort Quality (Hypertrophy Tension vs Submaximal) */}
           <View style={[styles.iosCard, { backgroundColor: cardBg }]}>
@@ -778,12 +729,13 @@ export default function GymHistoryScreen() {
               </View>
             </View>
 
-            {/* 3 Spacious Full-Width Rows (No More Cramped Columns!) */}
+            {/* 3 Spacious Full-Width Podium Rows with Golden Trophy Badges */}
             <View style={styles.anchorListContainer}>
-              {/* Push Anchor */}
-              <View style={[styles.anchorRowItem, { backgroundColor: elevatedBg }]}>
-                <View style={[styles.anchorCategoryPill, { backgroundColor: 'rgba(10, 132, 255, 0.15)' }]}>
-                  <Text style={[styles.anchorCategoryPillText, { color: '#0A84FF' }]}>PUSH</Text>
+              {/* Push Anchor - Gold Podium */}
+              <View style={[styles.anchorRowItem, styles.podiumGoldCard]}>
+                <View style={styles.trophyRankBadgeGold}>
+                  <Text style={styles.trophyRankEmoji}>🥇</Text>
+                  <Text style={styles.trophyRankTextGold}>PUSH</Text>
                 </View>
                 <View style={{ flex: 1, marginHorizontal: 10 }}>
                   <Text style={[styles.anchorRowExName, { color: colors.textPrimary }]} numberOfLines={1}>
@@ -794,16 +746,17 @@ export default function GymHistoryScreen() {
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.anchorRowSetText}>
+                  <Text style={styles.anchorRowSetTextGold}>
                     {analyticsData.anchorLifts.push?.formattedSet || '—'}
                   </Text>
                 </View>
               </View>
 
-              {/* Pull Anchor */}
-              <View style={[styles.anchorRowItem, { backgroundColor: elevatedBg }]}>
-                <View style={[styles.anchorCategoryPill, { backgroundColor: 'rgba(165, 153, 255, 0.15)' }]}>
-                  <Text style={[styles.anchorCategoryPillText, { color: '#A599FF' }]}>PULL</Text>
+              {/* Pull Anchor - Silver Podium */}
+              <View style={[styles.anchorRowItem, styles.podiumSilverCard]}>
+                <View style={styles.trophyRankBadgeSilver}>
+                  <Text style={styles.trophyRankEmoji}>🥈</Text>
+                  <Text style={styles.trophyRankTextSilver}>PULL</Text>
                 </View>
                 <View style={{ flex: 1, marginHorizontal: 10 }}>
                   <Text style={[styles.anchorRowExName, { color: colors.textPrimary }]} numberOfLines={1}>
@@ -814,16 +767,17 @@ export default function GymHistoryScreen() {
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.anchorRowSetText}>
+                  <Text style={styles.anchorRowSetTextSilver}>
                     {analyticsData.anchorLifts.pull?.formattedSet || '—'}
                   </Text>
                 </View>
               </View>
 
-              {/* Legs Anchor */}
-              <View style={[styles.anchorRowItem, { backgroundColor: elevatedBg }]}>
-                <View style={[styles.anchorCategoryPill, { backgroundColor: 'rgba(255, 159, 10, 0.15)' }]}>
-                  <Text style={[styles.anchorCategoryPillText, { color: '#FF9F0A' }]}>LEGS</Text>
+              {/* Legs Anchor - Bronze Podium */}
+              <View style={[styles.anchorRowItem, styles.podiumBronzeCard]}>
+                <View style={styles.trophyRankBadgeBronze}>
+                  <Text style={styles.trophyRankEmoji}>🥉</Text>
+                  <Text style={styles.trophyRankTextBronze}>LEGS</Text>
                 </View>
                 <View style={{ flex: 1, marginHorizontal: 10 }}>
                   <Text style={[styles.anchorRowExName, { color: colors.textPrimary }]} numberOfLines={1}>
@@ -834,7 +788,7 @@ export default function GymHistoryScreen() {
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.anchorRowSetText}>
+                  <Text style={styles.anchorRowSetTextBronze}>
                     {analyticsData.anchorLifts.legs?.formattedSet || '—'}
                   </Text>
                 </View>
@@ -842,46 +796,57 @@ export default function GymHistoryScreen() {
             </View>
           </View>
 
-          {/* Recent PR Feed (Last 30 Days) */}
+          {/* Recent PR Feed (Last 30 Days) with Golden Trophy & Milestone Badges */}
           <View style={[styles.iosCard, { backgroundColor: cardBg }]}>
             <View style={styles.cardHeaderRow}>
               <View style={{ flex: 1, paddingRight: 8 }}>
                 <Text style={styles.cardSectionLabel}>RECENT PR FEED (LAST 30 DAYS)</Text>
                 <Text style={styles.cardSubLabel}>Heaviest loads, rep records, and e1RM milestones</Text>
               </View>
-              <Text style={styles.prCountHeaderBadge}>{analyticsData.recentPRs.length} Records</Text>
+              <View style={styles.prHeaderGoldBadge}>
+                <Ionicons name="trophy" size={12} color="#FFD700" />
+                <Text style={styles.prCountHeaderBadge}>{analyticsData.recentPRs.length} PRs Unlocked</Text>
+              </View>
             </View>
 
             {analyticsData.recentPRs.length === 0 ? (
               <Text style={styles.emptyHintText}>Log sets in your workouts to trigger personal record unlocks!</Text>
             ) : (
               <View style={{ gap: 8, marginTop: 4 }}>
-                {analyticsData.recentPRs.slice(0, 8).map(pr => (
-                  <View key={pr.id} style={[styles.prFeedRow, { backgroundColor: elevatedBg }]}>
-                    <View style={styles.prFeedIconBox}>
-                      <Ionicons
-                        name={pr.type === 'weight' ? 'flame' : pr.type === 'rep' ? 'repeat' : 'flash'}
-                        size={16}
-                        color={pr.type === 'weight' ? '#FF9F0A' : pr.type === 'rep' ? '#30D158' : '#A599FF'}
-                      />
-                    </View>
+                {analyticsData.recentPRs.slice(0, 8).map(pr => {
+                  const isWeightPR = pr.type === 'weight';
+                  const isRepPR = pr.type === 'rep';
+                  const badgeIcon = isWeightPR ? 'trophy' : isRepPR ? 'repeat' : 'flash';
+                  const badgeColor = isWeightPR ? '#FFD700' : isRepPR ? '#30D158' : '#A599FF';
 
-                    <View style={{ flex: 1, marginHorizontal: 6 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Text style={[styles.prFeedExercise, { color: colors.textPrimary }]} numberOfLines={1}>
-                          {pr.exerciseName}
-                        </Text>
-                        <Text style={styles.prFeedDate}>{formatIndianDatePretty(pr.date)}</Text>
+                  return (
+                    <View key={pr.id} style={[styles.prFeedRow, { backgroundColor: elevatedBg, borderColor: `${badgeColor}30` }]}>
+                      {/* Golden Trophy / Milestone Badge Icon */}
+                      <View style={[styles.prFeedIconBox, { backgroundColor: `${badgeColor}18`, borderColor: `${badgeColor}40` }]}>
+                        <Ionicons
+                          name={badgeIcon}
+                          size={15}
+                          color={badgeColor}
+                        />
                       </View>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                        <Text style={styles.prFeedValText}>{pr.currentValueText}</Text>
-                        <View style={styles.prDiffPill}>
-                          <Text style={styles.prDiffPillText}>{pr.diffText}</Text>
+
+                      <View style={{ flex: 1, marginHorizontal: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <Text style={[styles.prFeedExercise, { color: colors.textPrimary }]} numberOfLines={1}>
+                            {pr.exerciseName}
+                          </Text>
+                          <Text style={styles.prFeedDate}>{formatIndianDatePretty(pr.date)}</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                          <Text style={styles.prFeedValText}>{pr.currentValueText}</Text>
+                          <View style={[styles.prDiffPill, { backgroundColor: `${badgeColor}18`, borderColor: `${badgeColor}35` }]}>
+                            <Text style={[styles.prDiffPillText, { color: badgeColor }]}>{pr.diffText}</Text>
+                          </View>
                         </View>
                       </View>
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             )}
           </View>
@@ -1502,6 +1467,75 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 12,
   },
+  podiumGoldCard: {
+    backgroundColor: 'rgba(255, 215, 0, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.35)',
+  },
+  podiumSilverCard: {
+    backgroundColor: 'rgba(224, 224, 224, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(224, 224, 224, 0.25)',
+  },
+  podiumBronzeCard: {
+    backgroundColor: 'rgba(205, 127, 50, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(205, 127, 50, 0.25)',
+  },
+  trophyRankBadgeGold: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255, 215, 0, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.4)',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  trophyRankBadgeSilver: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(224, 224, 224, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(224, 224, 224, 0.35)',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  trophyRankBadgeBronze: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(205, 127, 50, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(205, 127, 50, 0.35)',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  trophyRankEmoji: {
+    fontSize: 11,
+  },
+  trophyRankTextGold: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 10,
+    color: '#FFD700',
+    letterSpacing: 0.6,
+  },
+  trophyRankTextSilver: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 10,
+    color: '#E0E0E0',
+    letterSpacing: 0.6,
+  },
+  trophyRankTextBronze: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 10,
+    color: '#CD7F32',
+    letterSpacing: 0.6,
+  },
   anchorCategoryPill: {
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -1527,15 +1561,46 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#FFD700',
   },
+  anchorRowSetTextGold: {
+    fontFamily: FONT_FAMILY.mono,
+    fontSize: 13,
+    color: '#FFD700',
+    fontWeight: '700',
+  },
+  anchorRowSetTextSilver: {
+    fontFamily: FONT_FAMILY.mono,
+    fontSize: 13,
+    color: '#E0E0E0',
+    fontWeight: '700',
+  },
+  anchorRowSetTextBronze: {
+    fontFamily: FONT_FAMILY.mono,
+    fontSize: 13,
+    color: '#CD7F32',
+    fontWeight: '700',
+  },
+  prHeaderGoldBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255, 215, 0, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.3)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
   prCountHeaderBadge: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    color: '#FF9F0A',
+    fontSize: 11,
+    color: '#FFD700',
   },
   prFeedRow: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
     borderRadius: 11,
   },
   prFeedIconBox: {
