@@ -140,6 +140,43 @@ export const resolveMuscleColor = (m: string | undefined | null) => {
   return MUSCLE_COLORS_LOWER.get(m.trim().toLowerCase()) ?? '#a855f7';
 };
 
+export type ExerciseEquipmentType = 'barbell' | 'dumbbell' | 'cable' | 'machine' | 'bodyweight' | 'smith' | 'ez_bar' | 'other';
+
+export interface ExerciseEquipmentInfo {
+  type: ExerciseEquipmentType;
+  label: string;
+  iconName: string;
+}
+
+export function resolveExerciseEquipment(exerciseName?: string | null): ExerciseEquipmentInfo {
+  if (!exerciseName) {
+    return { type: 'other', label: 'Weight', iconName: 'barbell-outline' };
+  }
+  const n = exerciseName.toLowerCase();
+  if (n.includes('smith')) {
+    return { type: 'smith', label: 'Smith Machine', iconName: 'git-compare-outline' };
+  }
+  if (n.includes('dumbbell') || n.includes('db ') || n.includes('db-') || n.includes('(db)')) {
+    return { type: 'dumbbell', label: 'Dumbbell', iconName: 'fitness-outline' };
+  }
+  if (n.includes('barbell') || n.includes('bb ') || n.includes('deadlift') || (n.includes('squat') && !n.includes('hack') && !n.includes('goblet')) || (n.includes('bench press') && !n.includes('dumbbell') && !n.includes('machine') && !n.includes('smith'))) {
+    return { type: 'barbell', label: 'Barbell', iconName: 'barbell-outline' };
+  }
+  if (n.includes('cable') || n.includes('pulley') || n.includes('pushdown') || n.includes('pulldown') || n.includes('face pull') || n.includes('crossover')) {
+    return { type: 'cable', label: 'Cable', iconName: 'swap-vertical-outline' };
+  }
+  if (n.includes('machine') || n.includes('leg press') || n.includes('hack') || n.includes('pec deck') || n.includes('chest press') || n.includes('extension') || n.includes('curl machine') || n.includes('seated row')) {
+    return { type: 'machine', label: 'Machine', iconName: 'hardware-chip-outline' };
+  }
+  if (n.includes('pull-up') || n.includes('pullup') || n.includes('chin-up') || n.includes('chinup') || n.includes('dip') || n.includes('push-up') || n.includes('pushup') || n.includes('crunch') || n.includes('plank') || n.includes('hanging leg') || n.includes('bodyweight') || n.includes('calisthenic')) {
+    return { type: 'bodyweight', label: 'Bodyweight', iconName: 'body-outline' };
+  }
+  if (n.includes('ez bar') || n.includes('ez-bar') || n.includes('ez curl')) {
+    return { type: 'ez_bar', label: 'EZ Bar', iconName: 'barbell-outline' };
+  }
+  return { type: 'other', label: 'Exercise', iconName: 'barbell-outline' };
+}
+
 /**
  * Formats date into Indian Standard Date format: 'DD/MM/YYYY'
  * Example: '2026-07-22' -> '22/07/2026'

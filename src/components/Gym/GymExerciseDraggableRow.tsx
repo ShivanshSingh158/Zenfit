@@ -3,7 +3,8 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import type { RenderItemParams } from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
 import { IOS_DARK, FONT_FAMILY } from '../../theme/tokens';
-import { hapticLight, hapticMedium } from '../../utils/haptics';
+import { hapticLight, hapticMedium, hapticSuccess } from '../../utils/haptics';
+import { resolveMuscleColor, canonicalizeMuscle, resolveExerciseEquipment } from '../../utils/gymUtils';
 
 export interface GymExerciseDraggableRowProps {
   itemParams?: RenderItemParams<any>;
@@ -40,127 +41,147 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
   const isActive = itemParams?.isActive || false;
   const originalIndex = index ?? ex.originalIndex ?? 0;
 
-  const setsLog = ex.setsLog || [];
+  const setsLog: any[] = ex.setsLog || [];
+  const totalSets = setsLog.length || Number(ex.targetSets) || 3;
   const isDone = setsLog.length > 0 && setsLog.every((set: any) => set.completed);
-  const totalSets = setsLog.length;
-  const completedSets = setsLog.filter((s: any) => s.completed);
 
-  let subText = '';
-  if (completedSets.length > 0) {
-    const avgReps = Math.round(completedSets.reduce((sum: number, s: any) => sum + (Number(s.reps) || 0), 0) / completedSets.length) || 0;
-    const weights = completedSets.map((s: any) => Number(s.weight ?? s.weightKg) || 0);
-    const maxWeight = weights.length > 0 ? Math.max(0, ...weights) : 0;
-    subText = `${completedSets.length}/${totalSets} sets · ~${avgReps} reps${maxWeight > 0 ? ` · Last: ${maxWeight}kg` : ''}`;
-  } else {
-    subText = `${totalSets} sets × ${ex.targetReps || '8-10'} reps`;
-  }
-
-  const isPartnerWithPrevious = propIsPartner ?? ex.isPartnerWithPrevious ?? (
-    Boolean(ex.supersetGroup && logExercises && logExercises[originalIndex - 1]?.supersetGroup === ex.supersetGroup)
-  );
+  // Muscle and Equipment metadata
+  const muscleName = canonicalizeMuscle(ex.muscle);
+  const muscleColor = resolveMuscleColor(ex.muscle);
+  const equipment = resolveExerciseEquipment(ex.name);
 
   return (
     <View style={s.rowWrapper}>
-      <TouchableOpacity
+      <View
         style={[
           s.row,
-          ex.supersetGroup && {
-            backgroundColor: 'rgba(255,159,10,0.06)',
-          },
-          isActive && {
-            backgroundColor: IOS_DARK.bgElevatedInput,
-          },
+          isActive && { backgroundColor: IOS_DARK.bgElevatedInput },
         ]}
-        activeOpacity={0.7}
-        onPress={() => {
-          if (isActive) return;
-          hapticLight();
-          onResumeWorkout(ex.originalIndex);
-        }}
-        onLongPress={() => {
-          hapticMedium();
-          if (drag && typeof drag === 'function') {
-            drag();
-          }
-          if (onShowMenu) {
-            onShowMenu(ex);
-          }
-        }}
-        delayLongPress={200}
       >
-        {isPartnerWithPrevious && (
-          <View
-            style={{
-              position: 'absolute',
-              top: -6,
-              left: 25,
-              width: 2,
-              height: 12,
-              backgroundColor: IOS_DARK.orange,
-              zIndex: 1,
-            }}
-          />
-        )}
-
-        {/* Circular Checkbox (Apple HIG style) - Now directly tappable */}
+        {/* ── ZONE 1: Left 80% Touch Zone (Opens Workout / Deep Dive) ── */}
         <TouchableOpacity
-          style={[s.checkboxCircle, isDone && s.checkboxCircleDone]}
-          onPress={(e) => {
-            e.stopPropagation?.();
-            if (onToggleComplete) {
-              onToggleComplete(ex, ex.originalIndex ?? 0);
-            } else {
-              onResumeWorkout(ex.originalIndex);
+          style={s.heroLeftTouchZone}
+          activeOpacity={0.7}
+          onPress={() => {
+            if (isActive) return;
+            hapticLight();
+            onResumeWorkout(originalIndex);
+          }}
+          onLongPress={() => {
+            hapticMedium();
+            if (drag && typeof drag === 'function') {
+              drag();
+            } else if (onShowMenu) {
+              onShowMenu(ex);
             }
           }}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          activeOpacity={0.7}
+          delayLongPress={220}
         >
-          {isDone ? (
-            <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+          {/* Header Meta Row: Muscle Micro-Indicator + Equipment */}
+          <View style={s.heroMetaRow}>
+            <View style={[s.heroMuscleDot, { backgroundColor: muscleColor }]} />
+            <Text style={s.heroMuscleText} numberOfLines={1}>{muscleName}</Text>
+            <Text style={s.heroMetaDivider}>•</Text>
+            <View style={s.heroEquipmentWrap}>
+              <Ionicons name={equipment.iconName as any} size={11} color={IOS_DARK.labelSecondary} />
+              <Text style={s.heroEquipmentText}>{equipment.label}</Text>
+            </View>
+          </View>
+
+          {/* Exercise Title */}
+          <Text
+            style={[
+              s.rowTitle,
+              isDone && s.textStrikethrough,
+              isActive && { color: IOS_DARK.accent, fontWeight: '700' },
+            ]}
+            numberOfLines={2}
+          >
+            {ex.name}
+          </Text>
+
+          {/* Set Completion Micro-Pills / Ticks */}
+          {setsLog.length > 0 ? (
+            <View style={s.heroSetPillsRow}>
+              {setsLog.map((set: any, sIdx: number) => {
+                const isSetDone = set.completed;
+                const weightVal = set.weight != null ? set.weight : (set.weightKg != null ? set.weightKg : null);
+                const repsVal = set.reps != null ? set.reps : null;
+
+                return (
+                  <View
+                    key={sIdx}
+                    style={[
+                      s.heroSetPill,
+                      isSetDone ? s.heroSetPillCompleted : s.heroSetPillPending,
+                    ]}
+                  >
+                    <Text
+                      style={
+                        isSetDone ? s.heroSetPillTextCompleted : s.heroSetPillTextPending
+                      }
+                      numberOfLines={1}
+                    >
+                      {weightVal !== null ? `${weightVal}k` : '—'} × {repsVal !== null ? repsVal : (ex.targetReps || '10')}
+                    </Text>
+                    {isSetDone ? (
+                      <Ionicons name="checkmark" size={10} color="#30D158" />
+                    ) : (
+                      <Text style={s.heroSetPillTextPending}>·</Text>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
           ) : (
-            <View style={s.checkboxHollow} />
+            <Text style={s.rowSubtitle}>
+              {totalSets} sets × {ex.targetReps || '8–12'} reps
+              {ex.restTimeSecs ? ` · ⏱ ${ex.restTimeSecs}s` : ''}
+            </Text>
           )}
         </TouchableOpacity>
 
-        {/* Exercise Info */}
-        <View style={s.rowTextCol}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, paddingRight: 4 }}>
-            <Text
-              style={[
-                s.rowTitle,
-                isDone && s.textStrikethrough,
-                isActive && { color: IOS_DARK.accent, fontWeight: '700' },
-              ]}
-            >
-              {ex.name}
-            </Text>
-            {ex.supersetGroup && (
-              <View style={s.supersetTag}>
-                <Text style={s.supersetTagText}>
-                  SUPER-{ex.supersetGroup}
-                </Text>
-              </View>
-            )}
-          </View>
-          <Text style={s.rowSubtitle}>{subText}</Text>
-        </View>
-
-        {/* Right Action / Chevron */}
-        <View style={s.rowActions}>
+        {/* ── ZONE 2: Right 20% Fast-Action Zone ── */}
+        <View style={s.heroRightActionZone}>
+          {/* Fast Kebab Menu (···) */}
           <TouchableOpacity
-            style={s.actionBtn}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={s.heroKebabBtn}
+            hitSlop={{ top: 12, bottom: 8, left: 12, right: 12 }}
+            activeOpacity={0.7}
             onPress={() => {
               hapticMedium();
               onShowMenu(ex);
             }}
           >
-            <Ionicons name="ellipsis-horizontal" size={18} color={IOS_DARK.labelSecondary} />
+            <Ionicons name="ellipsis-horizontal" size={17} color={IOS_DARK.labelSecondary} />
           </TouchableOpacity>
-          <Ionicons name="chevron-forward" size={14} color={IOS_DARK.labelTertiary} style={{ marginLeft: 2 }} />
+
+          {/* Dedicated Checkmark Completion Button */}
+          <TouchableOpacity
+            style={[
+              s.heroCheckmarkBtn,
+              isDone && s.heroCheckmarkBtnCompleted,
+            ]}
+            hitSlop={{ top: 8, bottom: 12, left: 12, right: 12 }}
+            activeOpacity={0.7}
+            onPress={(e) => {
+              e.stopPropagation?.();
+              if (onToggleComplete) {
+                onToggleComplete(ex, originalIndex);
+              } else {
+                hapticLight();
+                onResumeWorkout(originalIndex);
+              }
+            }}
+          >
+            {isDone ? (
+              <Ionicons name="checkmark" size={15} color="#FFFFFF" />
+            ) : (
+              <View style={s.heroCheckmarkHollow} />
+            )}
+          </TouchableOpacity>
         </View>
-      </TouchableOpacity>
+      </View>
     </View>
   );
 }, (prev, next) => {

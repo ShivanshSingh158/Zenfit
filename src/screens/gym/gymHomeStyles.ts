@@ -168,33 +168,225 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
   hairlineDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: isDark ? IOS_DARK.separator : 'rgba(0,0,0,0.1)',
-    marginLeft: 52, // Indented to align with text
+    marginLeft: 14,
+    marginRight: 14,
   },
 
-  // ── Exercise Row (Inside Inset Grouped Card) ──────────────────────────────
+  // ── Hero Exercise Card & Fused Superset Containers ────────────────────────
+  exerciseCardContainer: {
+    backgroundColor: isDark ? '#1C1C1E' : colors.surface,
+    borderRadius: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(255,255,255,0.06)' : colors.border,
+    overflow: 'hidden',
+  },
+  supersetCardContainer: {
+    backgroundColor: isDark ? '#1C1C1E' : colors.surface,
+    borderRadius: 16,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(255,159,10,0.22)' : 'rgba(217,119,6,0.2)',
+    borderLeftWidth: 3.5,
+    borderLeftColor: '#FF9F0A',
+    overflow: 'hidden',
+  },
+  supersetHeaderBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    backgroundColor: isDark ? 'rgba(255,159,10,0.07)' : 'rgba(255,159,10,0.05)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: isDark ? 'rgba(255,159,10,0.18)' : 'rgba(217,119,6,0.15)',
+  },
+  supersetHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  supersetHeaderTitle: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FF9F0A',
+    letterSpacing: 0.6,
+  },
+  supersetHeaderSubtitle: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.medium,
+    color: isDark ? 'rgba(255,159,10,0.7)' : 'rgba(180,83,9,0.7)',
+    letterSpacing: 0.3,
+  },
+  supersetConnectorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 14,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0.01)',
+  },
+  supersetConnectorLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: isDark ? 'rgba(255,159,10,0.18)' : 'rgba(217,119,6,0.18)',
+  },
+  supersetConnectorBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: isDark ? 'rgba(255,159,10,0.1)' : 'rgba(255,159,10,0.08)',
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(255,159,10,0.22)' : 'rgba(217,119,6,0.18)',
+    marginHorizontal: 8,
+  },
+  supersetConnectorText: {
+    fontSize: 9,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FF9F0A',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+
+  // ── Two-Zone Hero Row ─────────────────────────────────────────────────────
   rowWrapper: {
     width: '100%',
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    alignItems: 'stretch',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     backgroundColor: 'transparent',
   },
-  checkboxCircle: {
-    width: 22,
+  heroLeftTouchZone: {
+    flex: 1,
+    paddingRight: 10,
+    justifyContent: 'center',
+  },
+  heroMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 4,
+  },
+  heroMuscleDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  heroMuscleText: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.medium,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textSecondary,
+    letterSpacing: 0.1,
+  },
+  heroMetaDivider: {
+    fontSize: 10,
+    color: isDark ? IOS_DARK.labelTertiary : colors.textTertiary,
+  },
+  heroEquipmentWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  heroEquipmentText: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.medium,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textSecondary,
+  },
+  rowTitle: {
+    fontSize: 15.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
+    letterSpacing: -0.2,
+  },
+  heroSetPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 5,
+    marginTop: 6,
+  },
+  heroSetPill: {
     height: 22,
-    borderRadius: 11,
+    paddingHorizontal: 7,
+    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  heroSetPillCompleted: {
+    backgroundColor: isDark ? 'rgba(48,209,88,0.11)' : 'rgba(52,199,89,0.08)',
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(48,209,88,0.26)' : 'rgba(52,199,89,0.2)',
+  },
+  heroSetPillPending: {
+    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)',
+  },
+  heroSetPillTextCompleted: {
+    fontSize: 10.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#30D158',
+  },
+  heroSetPillTextPending: {
+    fontSize: 10.5,
+    fontFamily: FONT_FAMILY.medium,
+    color: isDark ? IOS_DARK.labelTertiary : colors.textTertiary,
+  },
+  rowSubtitle: {
+    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.medium,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textMuted,
+    marginTop: 3,
+  },
+
+  // ── Two-Zone Right Action Area ────────────────────────────────────────────
+  heroRightActionZone: {
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 2,
+  },
+  heroKebabBtn: {
+    padding: 4,
+  },
+  heroCheckmarkBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: isDark ? '#38383A' : '#C7C7CC',
+    borderColor: isDark ? 'rgba(255,255,255,0.22)' : '#C7C7CC',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
+    backgroundColor: 'transparent',
+    marginTop: 4,
+  },
+  heroCheckmarkBtnCompleted: {
+    backgroundColor: '#30D158',
+    borderColor: '#30D158',
+  },
+  heroCheckmarkHollow: {
+    width: 0,
+    height: 0,
+  },
+
+  // Legacy compatibility
+  checkboxCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: isDark ? 'rgba(255,255,255,0.22)' : '#C7C7CC',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   checkboxCircleDone: {
-    backgroundColor: IOS_DARK.green,
-    borderColor: IOS_DARK.green,
+    backgroundColor: '#30D158',
+    borderColor: '#30D158',
   },
   checkboxHollow: {
     width: 0,
@@ -203,17 +395,6 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
   rowTextCol: {
     flex: 1,
     gap: 2,
-  },
-  rowTitle: {
-    fontSize: 16,
-    fontFamily: FONT_FAMILY.bold,
-    color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
-    letterSpacing: -0.2,
-  },
-  rowSubtitle: {
-    fontSize: 13,
-    fontFamily: FONT_FAMILY.body,
-    color: isDark ? IOS_DARK.labelSecondary : colors.textMuted,
   },
   supersetTag: {
     backgroundColor: 'rgba(255,159,10,0.12)',

@@ -250,12 +250,59 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     return map;
   }, [activeExercises, gymLogs, selectedDate]);
 
+  // Group adjacent exercises with matching supersetGroup into fused superset containers
+  const exerciseCardGroups = useMemo(() => {
+    const groups: Array<{
+      id: string;
+      isSuperset: boolean;
+      supersetGroup?: string;
+      items: Array<{ exercise: any; index: number }>;
+    }> = [];
+    let currentGroup: {
+      id: string;
+      isSuperset: boolean;
+      supersetGroup?: string;
+      items: Array<{ exercise: any; index: number }>;
+    } | null = null;
+
+    activeExercises.forEach((ex: any, idx: number) => {
+      const sGroup = ex.supersetGroup ? String(ex.supersetGroup).trim() : null;
+      if (sGroup) {
+        if (currentGroup && currentGroup.isSuperset && currentGroup.supersetGroup === sGroup) {
+          currentGroup.items.push({ exercise: ex, index: idx });
+        } else {
+          currentGroup = {
+            id: `superset_${sGroup}_${idx}`,
+            isSuperset: true,
+            supersetGroup: sGroup,
+            items: [{ exercise: ex, index: idx }],
+          };
+          groups.push(currentGroup);
+        }
+      } else {
+        currentGroup = {
+          id: `single_${ex.exerciseId || ex.name || idx}`,
+          isSuperset: false,
+          items: [{ exercise: ex, index: idx }],
+        };
+        groups.push(currentGroup);
+      }
+    });
+
+    return groups;
+  }, [activeExercises]);
+
   // Direct toggle on GymHome list: allows user to mark an exercise done/undone without opening active logger
   const handleToggleExerciseComplete = useCallback((ex: any, idx: number) => {
-    hapticMedium();
     const setsLog = ex.setsLog || [];
     const isCurrentlyDone = setsLog.length > 0 && setsLog.every((s: any) => s.completed);
     const targetCompleted = !isCurrentlyDone;
+
+    if (targetCompleted) {
+      hapticSuccess();
+    } else {
+      hapticLight();
+    }
 
     const prevSession = previousSessionMap.get(ex.name);
     const lastSets = prevSession?.sets || [];
@@ -580,18 +627,67 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
                   </Text>
                 </View>
               ) : (
-                <View style={s.insetGroupedCard}>
-                  {activeExercises.map((ex: any, idx: number) => {
-                    const prevEx = idx > 0 ? (activeExercises[idx - 1] as any) : null;
-                    const isPartner = Boolean(ex.supersetGroup && prevEx?.supersetGroup === ex.supersetGroup);
+                <View>
+                  {exerciseCardGroups.map((group) => {
+                    if (group.isSuperset && group.items.length > 1) {
+                      const superLetter = group.supersetGroup
+                        ? group.supersetGroup.replace(/^SUPER-?/i, '')
+                        : 'A';
 
-                    return (
-                      <React.Fragment key={ex.exerciseId || ex.name || idx}>
-                        {idx > 0 && <View style={s.hairlineDivider} />}
+                      return (
+                        <View key={group.id} style={s.supersetCardContainer}>
+                          <View style={s.supersetHeaderBar}>
+                            <View style={s.supersetHeaderLeft}>
+                              <Ionicons name="flash" size={12} color="#FF9F0A" />
+                              <Text style={s.supersetHeaderTitle}>
+                                SUPERSET {superLetter}
+                              </Text>
+                            </View>
+                            <Text style={s.supersetHeaderSubtitle}>NO REST BETWEEN</Text>
+                          </View>
+
+                          {group.items.map((item, itemIdx) => (
+                            <React.Fragment key={item.exercise.exerciseId || item.exercise.name || item.index}>
+                              {itemIdx > 0 && (
+                                <View style={s.supersetConnectorRow}>
+                                  <View style={s.supersetConnectorLine} />
+                                  <View style={s.supersetConnectorBadge}>
+                                    <Ionicons name="swap-vertical" size={10} color="#FF9F0A" />
+                                    <Text style={s.supersetConnectorText}>BACK-TO-BACK</Text>
+                                  </View>
+                                  <View style={s.supersetConnectorLine} />
+                                </View>
+                              )}
+                              <GymExerciseDraggableRow
+                                exercise={item.exercise}
+                                index={item.index}
+                                isPartnerWithPrevious={itemIdx > 0}
+                                logCompleted={isWorkoutCompleted}
+                                logWorkoutStartTime={log?.workoutStartTime || null}
+                                s={s}
+                                selectedDate={selectedDate}
+                                navigation={navigation}
+                                onResumeWorkout={handleExercisePress}
+                                onShowHistory={handleShowHistory}
+                                onShowMenu={setExerciseMenuFor}
+                                onToggleComplete={handleToggleExerciseComplete}
+                              />
+                            </React.Fragment>
+                          ))}
+                        </View>
+                      );
+                    }
+
+                    // Standalone Hero Exercise Card
+                    return group.items.map((item) => (
+                      <View
+                        key={item.exercise.exerciseId || item.exercise.name || item.index}
+                        style={s.exerciseCardContainer}
+                      >
                         <GymExerciseDraggableRow
-                          exercise={ex}
-                          index={idx}
-                          isPartnerWithPrevious={isPartner}
+                          exercise={item.exercise}
+                          index={item.index}
+                          isPartnerWithPrevious={false}
                           logCompleted={isWorkoutCompleted}
                           logWorkoutStartTime={log?.workoutStartTime || null}
                           s={s}
@@ -602,8 +698,8 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
                           onShowMenu={setExerciseMenuFor}
                           onToggleComplete={handleToggleExerciseComplete}
                         />
-                      </React.Fragment>
-                    );
+                      </View>
+                    ));
                   })}
                 </View>
               )}
