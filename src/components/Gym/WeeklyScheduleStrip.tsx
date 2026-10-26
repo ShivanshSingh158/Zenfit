@@ -295,7 +295,7 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
                   </View>
                   <Text
                     style={[styles.dayCardTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
-                    numberOfLines={1}
+                    numberOfLines={2}
                   >
                     {activeDay.planDay.name}
                   </Text>
@@ -305,7 +305,7 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
                   </Text>
                 </View>
 
-                {/* 1-Tap Primary Action */}
+                {/* 1-Tap Subtle Secondary Action */}
                 <TouchableOpacity
                   activeOpacity={0.8}
                   onPress={() => {
@@ -314,7 +314,7 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
                   }}
                   style={styles.customizeBtn}
                 >
-                  <Ionicons name="create-outline" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
+                  <Ionicons name="create-outline" size={13} color="#A599FF" style={{ marginRight: 4 }} />
                   <Text style={styles.customizeBtnText}>Customize</Text>
                 </TouchableOpacity>
               </View>
@@ -350,11 +350,6 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
                         ]}
                       >
                         <View style={styles.directExLeft}>
-                          {/* Exercise Index Badge */}
-                          <View style={styles.directExIndexBadge}>
-                            <Text style={styles.directExIndexText}>{idx + 1}</Text>
-                          </View>
-
                           {/* Exercise Name & Muscle / Tier */}
                           <View style={styles.directExTextCol}>
                             <Text
@@ -379,13 +374,13 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
                           </View>
                         </View>
 
-                        {/* Sets × Reps Pill */}
+                        {/* Sets × Reps - Natural Subtle Typography (NO PILL) */}
                         <View style={styles.directExRight}>
-                          <View style={styles.setsRepsPill}>
-                            <Text style={styles.setsRepsText}>
-                              {ex.targetSets || 3} × {ex.targetReps || '8–12'}
-                            </Text>
-                          </View>
+                          <Text style={[styles.setsRepsNaturalText, { color: isDark ? '#E5E5EA' : colors.textPrimary }]}>
+                            {ex.targetSets || 3}
+                            <Text style={styles.setsRepsCross}> × </Text>
+                            {ex.targetReps || '8–12'}
+                          </Text>
                         </View>
                       </TouchableOpacity>
                     );
@@ -767,20 +762,17 @@ const styles = StyleSheet.create({
   customizeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#6C5CE7',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 10,
-    shadowColor: '#6C5CE7',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 5,
-    elevation: 3,
+    backgroundColor: 'rgba(108, 92, 231, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 92, 231, 0.25)',
   },
   customizeBtnText: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 12,
-    color: '#FFFFFF',
+    color: '#A599FF',
   },
   directExerciseList: {
     marginTop: 12,
@@ -811,32 +803,17 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255, 255, 255, 0.04)',
   },
   directExLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
     flex: 1,
     paddingRight: 10,
-    gap: 10,
-  },
-  directExIndexBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  directExIndexText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-    color: '#8E8E93',
   },
   directExTextCol: {
     flex: 1,
   },
   directExName: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 13.5,
+    lineHeight: 18,
+    letterSpacing: -0.2,
   },
   directExMetaRow: {
     flexDirection: 'row',
@@ -845,53 +822,52 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   muscleDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   directExMuscle: {
     fontFamily: FONT_FAMILY.regular,
-    fontSize: 11,
+    fontSize: 11.5,
     color: '#8E8E93',
   },
   tierTag: {
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 3,
-    marginLeft: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+    marginLeft: 3,
   },
   sTierTag: {
-    backgroundColor: 'rgba(255, 215, 0, 0.15)',
+    backgroundColor: 'rgba(255, 215, 0, 0.12)',
   },
   sTierText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 9,
+    fontSize: 9.5,
     color: '#FFD700',
   },
   aTierTag: {
-    backgroundColor: 'rgba(165, 153, 255, 0.15)',
+    backgroundColor: 'rgba(165, 153, 255, 0.12)',
   },
   aTierText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 9,
+    fontSize: 9.5,
     color: '#A599FF',
   },
   tierTagText: {},
   directExRight: {
     alignItems: 'flex-end',
+    justifyContent: 'center',
+    paddingLeft: 8,
   },
-  setsRepsPill: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  setsRepsText: {
+  setsRepsNaturalText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-    color: '#E0E0E6',
+    fontSize: 13,
+    letterSpacing: -0.2,
+  },
+  setsRepsCross: {
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: 11.5,
+    color: '#8E8E93',
   },
   footerChipsRow: {
     flexDirection: 'row',
