@@ -217,13 +217,31 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
   const prevDates = useMemo(() => getPrevWeekRange(weekAnchorDate), [weekAnchorDate]);
 
   const weekLogs = useMemo(
-    () => gymLogs.filter(l => weekDates.includes(l.date)),
+    () => (gymLogs || []).filter(l => l?.date && weekDates.includes(l.date.slice(0, 10))),
     [gymLogs, weekDates],
   );
   const prevLogs = useMemo(
-    () => gymLogs.filter(l => prevDates.includes(l.date)),
+    () => (gymLogs || []).filter(l => l?.date && prevDates.includes(l.date.slice(0, 10))),
     [gymLogs, prevDates],
   );
+
+  const dateRangeStr = useMemo(() => {
+    if (!weekDates.length) return '';
+    try {
+      const [y1, m1, d1] = weekDates[0].split('-').map(Number);
+      const [y2, m2, d2] = weekDates[6].split('-').map(Number);
+      const dt1 = new Date(y1, m1 - 1, d1);
+      const dt2 = new Date(y2, m2 - 1, d2);
+      const month1 = dt1.toLocaleDateString('en-US', { month: 'short' });
+      const month2 = dt2.toLocaleDateString('en-US', { month: 'short' });
+      if (month1 === month2) {
+        return `${month1} ${d1} – ${d2}`;
+      }
+      return `${month1} ${d1} – ${month2} ${d2}`;
+    } catch {
+      return `${weekDates[0]} – ${weekDates[6]}`;
+    }
+  }, [weekDates]);
 
   // ── Compute Weekly Target Sets from Active Routine ─────────────────────────
   const plannedMuscleTargets = useMemo(() => {
@@ -695,7 +713,7 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
         <View>
           <Text style={st.title}>Weekly Recap</Text>
           <Text style={st.subtitle}>
-            {workoutDays}/{plannedWorkoutDaysCount} Days Trained • Full Breakdown
+            {dateRangeStr ? `${dateRangeStr} • ` : ''}{workoutDays}/{plannedWorkoutDaysCount} Days Trained
           </Text>
         </View>
         <View style={st.restBadge}>
@@ -989,10 +1007,10 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
 
           {/* 2.5 ── Anatomical Muscle Heatmap & Recovery BodyMap (Dual-View Vector Engine) ──── */}
           <AnatomicalBodyMapCard
-            gymLogs={gymLogs}
+            gymLogs={weekLogs}
             weekAnchorDate={weekAnchorDate}
             variant="weekly"
-            defaultMode="fatigue"
+            defaultMode="volume"
           />
 
           {/* 2.8 ── Effort & Intensity Intelligence (OpenGym Hypertrophy Stimulus Engine) ──── */}
@@ -1258,8 +1276,6 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
             </View>
           )}
 
-          {/* 8. ── 90-Day Consistency Heatmap (Clean Bottom Foundation) ───── */}
-          <ConsistencyHeatmap data={heatmapData} />
 
           {/* ── Single-Exercise Deep-Dive Inspector Modal ────────────────────── */}
           <ExerciseDeepDiveModal

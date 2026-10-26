@@ -36,21 +36,21 @@ function buildCatalogue(): ExerciseCatalogEntry[] {
   const seen = new Set<string>();
   const result: ExerciseCatalogEntry[] = [];
 
-  const add = (e: ExerciseCatalogEntry) => {
-    const key = normalizeExerciseKey(e.name);
+  const add = (e: ExerciseCatalogEntry, isCurated: boolean) => {
+    const key = (e.name || '').toLowerCase().trim();
     if (!key) return;
     if (seen.has(key)) {
-      const existing = result.find(r => normalizeExerciseKey(r.name) === key);
+      const existing = result.find(r => (r.name || '').toLowerCase().trim() === key);
       if (existing && e.aliases && e.aliases.length > 0) {
         existing.aliases = Array.from(new Set([...(existing.aliases || []), ...e.aliases]));
       }
       return;
     }
     seen.add(key);
-    result.push(e);
+    result.push({ ...e, isCurated });
   };
 
-  // 1. EXERCISE_DATABASE (Primary source with scientifically audited entries, unified aliases & tiers)
+  // 1. EXERCISE_DATABASE (Curated master library with scientifically audited entries, unified aliases & calibrated tiers)
   for (const dbEntry of EXERCISE_DATABASE) {
     const rx = getBiomechanicalPrescription(dbEntry.name, dbEntry.muscle);
     add({
@@ -63,10 +63,10 @@ function buildCatalogue(): ExerciseCatalogEntry[] {
       restTimeSecs: rx.restTimeSecs,
       videoId: (dbEntry as any).videoId || '',
       aliases: dbEntry.aliases,
-    });
+    }, true);
   }
 
-  // 2. GYM_PLAN exercises
+  // 2. GYM_PLAN exercises (if any user custom additions)
   for (const day of GYM_PLAN) {
     for (const ex of day.exercises) {
       const rx = getBiomechanicalPrescription(ex.name, ex.muscle);
@@ -79,11 +79,11 @@ function buildCatalogue(): ExerciseCatalogEntry[] {
         targetReps: ex.targetReps ?? rx.targetReps,
         restTimeSecs: (ex as any).restTimeSecs ?? rx.restTimeSecs,
         videoId: ex.videoId ?? '',
-      });
+      }, true);
     }
   }
 
-  // 3. 1,324 Exercises Dataset integration (only appends genuinely new exercises)
+  // 3. 1,324 Exercises Dataset integration (appends only secondary dataset entries)
   const datasetExercises = searchExercises('', 'all', 2000);
   for (const ex of datasetExercises) {
     const rawMuscle = ex.target || ex.bodyPart || 'Mixed';
@@ -99,7 +99,7 @@ function buildCatalogue(): ExerciseCatalogEntry[] {
       targetReps: rx.targetReps,
       restTimeSecs: rx.restTimeSecs,
       videoId: '',
-    });
+    }, false);
   }
 
   return result;
@@ -129,6 +129,7 @@ export function getCategoryMap(): Record<string, ExerciseCatalogEntry[]> {
       Shoulders: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Shoulders'))),
       Arms:      sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Arms'))),
       Abs:       sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Abs'))),
+      Cardio:    sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Cardio'))),
     };
   }
   return _categoryMap;
@@ -223,14 +224,26 @@ function checkCategoryMatch(m: string, category: string): boolean {
   const l = (m || '').toLowerCase();
   const cat = category.toLowerCase();
 
+  if (cat === 'cardio') {
+    return (
+      l.includes('cardio') ||
+      l.includes('conditioning') ||
+      l.includes('hiit') ||
+      l.includes('sport') ||
+      l.includes('plyometric') ||
+      l.includes('mobility') ||
+      l.includes('warmup') ||
+      l.includes('olympic')
+    );
+  }
   if (cat === 'back') {
     if (l.includes('tricep') || l.includes('bicep') || l.includes('brach') || l.includes('delt')) return false;
     return (
       l.includes('back') ||
-      l.includes('lat width') ||
-      l.includes('latissimus') ||
-      l.includes('lats') ||
+      l.includes('lat') ||
+      l.includes('wing') ||
       l.includes('rhomboid') ||
+      l.includes('trap') ||
       l.includes('erector')
     );
   }
@@ -240,7 +253,8 @@ function checkCategoryMatch(m: string, category: string): boolean {
       l.includes('tricep') ||
       l.includes('brach') ||
       l.includes('forearm') ||
-      l.includes('wrist')
+      l.includes('wrist') ||
+      l.includes('grip')
     );
   }
   if (cat === 'legs') {
@@ -262,7 +276,7 @@ function checkCategoryMatch(m: string, category: string): boolean {
     return l.includes('chest') || l.includes('pec') || l.includes('serratus');
   }
   if (cat === 'shoulders') {
-    return l.includes('delt') || l.includes('shoulder') || l.includes('upper trap');
+    return l.includes('delt') || l.includes('shoulder');
   }
   if (cat === 'abs') {
     return l.includes('abs') || l.includes('oblique') || l.includes('core') || l.includes('transverse') || l.includes('vacuum');
@@ -360,27 +374,32 @@ function scoreExerciseMatch(
 
   let score = 0;
 
+  // Curated database bonus: curated exercises should ALWAYS be preferred over raw datasets
+  if (entry.isCurated) {
+    score += 1500;
+  }
+
   // 1. Exact full name or alias match
   if (normName === normQuery) {
-    score += 3000;
+    score += 5000;
   } else if (normAliases.includes(normQuery)) {
-    score += 2600;
+    score += 5000;
   }
 
   // 2. Starts with query
   if (nameLower.startsWith(rawQuery) || normName.startsWith(normQuery)) {
-    score += 1500;
+    score += 2000;
   } else if (aliases.some(a => a.startsWith(rawQuery))) {
-    score += 1200;
+    score += 1800;
   }
 
   // 3. Substring match
   if (nameLower.includes(rawQuery) || normName.includes(normQuery)) {
-    score += 1000;
+    score += 1200;
   } else if (cleanedQuery !== rawQuery && nameLower.includes(cleanedQuery)) {
-    score += 900;
+    score += 1000;
   } else if (aliases.some(a => a.includes(rawQuery) || a.includes(cleanedQuery))) {
-    score += 800;
+    score += 900;
   }
 
   // 4. Token-level matching & coverage
@@ -389,37 +408,37 @@ function scoreExerciseMatch(
     for (const qt of queryTokens) {
       if (nameTokens.includes(qt)) {
         matchedTokenCount += 1;
-        score += 160;
+        score += 250;
       } else if (nameTokens.some(nt => nt.includes(qt) || qt.includes(nt))) {
         matchedTokenCount += 0.8;
-        score += 100;
+        score += 150;
       } else if (aliases.some(a => a.includes(qt))) {
-        matchedTokenCount += 0.6;
-        score += 70;
+        matchedTokenCount += 0.7;
+        score += 120;
       }
     }
 
     if (matchedTokenCount >= queryTokens.length) {
-      score += 650;
+      score += 1200;
     } else if (matchedTokenCount > 0) {
-      score += (matchedTokenCount / queryTokens.length) * 300;
+      score += (matchedTokenCount / queryTokens.length) * 400;
     }
   }
 
   // 5. Category boost if muscleSearchFilter is active
   if (categoryFilter) {
     if (checkCategoryMatch(entry.muscle, categoryFilter)) {
-      score += 250;
+      score += 800;
     }
   }
 
-  // 6. Tier weighting
+  // 6. Tier weighting (S and A+ Tier outrank lower tiers cleanly)
   const tierWeights: Record<string, number> = {
-    'S Tier': 50,
-    'A+ Tier': 40,
-    'A Tier': 30,
-    'B Tier': 15,
-    'C Tier': 5,
+    'S Tier': 500,
+    'A+ Tier': 400,
+    'A Tier': 300,
+    'B Tier': 150,
+    'C Tier': 50,
   };
   score += tierWeights[entry.tier || ''] || 0;
 
@@ -496,7 +515,8 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
         normQuery,
         muscleSearchFilter
       );
-      if (score > 0) {
+      // Require actual text match beyond just the isCurated baseline (1500)
+      if (score > (entry.isCurated ? 1500 : 0)) {
         scored.push({ item: entry, score });
       }
     }
@@ -753,7 +773,7 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
               contentContainerStyle={{ gap: 6, paddingBottom: 8 }}
               style={{ marginBottom: 8 }}
             >
-              {['Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Abs'].map(m => {
+              {['Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Abs', 'Cardio'].map(m => {
                 const isActive = muscleSearchFilter === m;
                 return (
                   <TouchableOpacity

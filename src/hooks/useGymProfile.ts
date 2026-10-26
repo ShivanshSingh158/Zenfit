@@ -15,6 +15,8 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useCoreData } from '../contexts/domains/CoreDataContext';
 import { GymProfile } from '../types/gym.types';
+import { getL1Sync, setL1Sync } from '../utils/bootManifest';
+import { COLLECTION } from '../config/constants';
 
 export { GymProfile };
 
@@ -24,6 +26,42 @@ let memoryProfile: GymProfile | null = null;
 
 export function clearGymProfileMemory() {
   memoryProfile = null;
+}
+
+let memoryAutoTimerOverride: boolean | null = null;
+
+export function setAutoTimerEnabledGlobal(enabled: boolean) {
+  memoryAutoTimerOverride = enabled;
+  if (memoryProfile) {
+    memoryProfile = { ...memoryProfile, autoTimer: enabled };
+  }
+  DeviceEventEmitter.emit('auto_timer_setting_changed', enabled);
+}
+
+export function isHapticsEnabledSync(): boolean {
+  if (memoryProfile && typeof memoryProfile.hapticsEnabled === 'boolean') {
+    return memoryProfile.hapticsEnabled;
+  }
+  const l1 = getL1Sync<GymProfile>(PROFILE_KEY, DEFAULT_PROFILE);
+  return l1?.hapticsEnabled ?? true;
+}
+
+export function isAutoTimerEnabledSync(): boolean {
+  if (memoryAutoTimerOverride !== null) {
+    return memoryAutoTimerOverride;
+  }
+  if (memoryProfile && typeof memoryProfile.autoTimer === 'boolean') {
+    return memoryProfile.autoTimer;
+  }
+  const l1 = getL1Sync<GymProfile>(PROFILE_KEY, DEFAULT_PROFILE);
+  if (l1 && typeof l1.autoTimer === 'boolean') {
+    return l1.autoTimer;
+  }
+  return true;
+}
+
+export function getGymProfileSync(): GymProfile {
+  return memoryProfile || getL1Sync<GymProfile>(PROFILE_KEY, DEFAULT_PROFILE) || DEFAULT_PROFILE;
 }
 
 export const DEFAULT_PROFILE: GymProfile = {
@@ -51,9 +89,10 @@ export const DEFAULT_PROFILE: GymProfile = {
 
 export function useGymProfile() {
   const { user } = useCoreData();
-  const [gymProfile, setGymProfile] = useState<GymProfile>(memoryProfile || DEFAULT_PROFILE);
-  const [profileLoaded, setProfileLoaded] = useState(!!memoryProfile);
-  const profileRef = useRef<GymProfile>(memoryProfile || DEFAULT_PROFILE);
+  const initial = memoryProfile || getL1Sync<GymProfile>(PROFILE_KEY, DEFAULT_PROFILE);
+  const [gymProfile, setGymProfile] = useState<GymProfile>(initial);
+  const [profileLoaded, setProfileLoaded] = useState(true);
+  const profileRef = useRef<GymProfile>(initial);
 
   // 1. Initial fast local load from AsyncStorage
   useEffect(() => {
@@ -82,11 +121,11 @@ export function useGymProfile() {
 
   // 2. Cloud Firestore real-time synchronization
   useEffect(() => {
-    if (!user?.uid) return;
-    const docRef = doc(db, 'gym_profiles', user.uid);
+    if (!user?.uid || (user as any).isAnonymous) return;
+    const docRef = doc(db, COLLECTION.USER_PROFILES, user.uid);
     const unsub = onSnapshot(docRef, snap => {
       if (snap.exists()) {
-        const cloudData = snap.data() as Partial<GymProfile>;
+        const cloudData = (snap.data()?.gymProfile || snap.data()) as Partial<GymProfile>;
         const merged: GymProfile = {
           ...DEFAULT_PROFILE,
           ...(profileRef.current || {}),
@@ -97,8 +136,8 @@ export function useGymProfile() {
         setGymProfile(merged);
         AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(merged)).catch(() => {});
       }
-    }, err => {
-      console.warn('[useGymProfile] Cloud sync listener notice:', err.message);
+    }, _err => {
+      // Silently ignore guest/transient sync errors
     });
     return () => unsub();
   }, [user?.uid]);
@@ -124,14 +163,19 @@ export function useGymProfile() {
     memoryProfile = next;
     profileRef.current = next;
     setGymProfile(next);
+    setL1Sync(PROFILE_KEY, next);
     DeviceEventEmitter.emit('gym_profile_updated', next);
+    if (profile.hapticsEnabled !== undefined) {
+      DeviceEventEmitter.emit('haptics_setting_changed', profile.hapticsEnabled);
+    }
+    if (profile.autoTimer !== undefined) {
+      DeviceEventEmitter.emit('auto_timer_setting_changed', profile.autoTimer);
+    }
     await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(next));
 
-    // Also persist to Cloud Firestore if user is authenticated
-    if (user?.uid) {
-      setDoc(doc(db, 'gym_profiles', user.uid), next, { merge: true }).catch(err => {
-        console.warn('[useGymProfile] Firestore save notice:', err.message);
-      });
+    // Also persist to Cloud Firestore if user is authenticated and not anonymous
+    if (user?.uid && !(user as any).isAnonymous) {
+      setDoc(doc(db, COLLECTION.USER_PROFILES, user.uid), { gymProfile: next }, { merge: true }).catch(() => {});
     }
   }, [user?.uid]);
 

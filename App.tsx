@@ -1,7 +1,7 @@
 import 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import React, { useState } from 'react';
-import { View, LogBox, StatusBar } from 'react-native';
+import { View, LogBox, StatusBar, InteractionManager } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
@@ -21,6 +21,9 @@ enableFreeze(true);
 import { loadBootManifest } from './src/utils/bootManifest';
 loadBootManifest().catch(() => {});
 
+import { registerDeferredOtaSync } from './src/services/otaUpdateService';
+import { ensureNotificationChannels, requestNotificationPermissions } from './src/services/notifications';
+
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { PortalProvider } from './src/contexts/PortalContext';
 import { CoreDataProvider, useCoreData } from './src/contexts/domains/CoreDataContext';
@@ -35,6 +38,7 @@ LogBox.ignoreLogs([
   'setLayoutAnimationEnabledExperimental',
   'Could not reach Cloud Firestore backend',
   '[Reanimated] Property "opacity"',
+  'Require cycle:',
 ]);
 
 const ZEN_DARK_THEME = {
@@ -64,9 +68,16 @@ function MainNavigator() {
   const { isDark, colors } = useTheme();
   const [authStep, setAuthStep] = useState<'welcome' | 'signin'>('welcome');
 
+  // Dismiss splash screen the exact moment real UI (either GymStack or AuthScreen) is ready
+  React.useEffect(() => {
+    if (!loading) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [loading]);
+
   // Instant 0ms transition: if cached user or guest exists, this never renders.
-  // If fresh install, this holds for <5ms while local storage checks.
-  if (loading && !user && !isGuest) {
+  // If fresh install, this holds under the native splash for <5ms while local storage checks.
+  if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: '#000000' }} />
     );
@@ -90,17 +101,24 @@ function MainNavigator() {
     <View style={{ flex: 1, backgroundColor: isDark ? '#000000' : colors.background }}>
       <WellnessProvider user={user}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000000' : colors.background} />
-        <NavigationContainer
-          theme={isDark ? ZEN_DARK_THEME : ZEN_LIGHT_THEME}
-          onReady={() => {
-            // Dismiss splash screen the exact millisecond the UI paints
-            SplashScreen.hideAsync().catch(() => {});
-          }}
-        >
-          <GymStack />
-        </NavigationContainer>
+        <GymStack />
       </WellnessProvider>
     </View>
+  );
+}
+
+function MainRoot() {
+  const { isDark } = useTheme();
+
+  return (
+    <NavigationContainer
+      theme={isDark ? ZEN_DARK_THEME : ZEN_LIGHT_THEME}
+      onReady={() => {
+        SplashScreen.hideAsync().catch(() => {});
+      }}
+    >
+      <MainNavigator />
+    </NavigationContainer>
   );
 }
 
@@ -115,13 +133,38 @@ export default function App() {
     PlayfairDisplay_600SemiBold_Italic,
   });
 
+  React.useEffect(() => {
+    // Pre-warm the boot manifest (already initiated at module scope)
+    loadBootManifest().catch(() => {});
+
+    // Ensure notification channels & request permissions on startup
+    InteractionManager.runAfterInteractions(() => {
+      ensureNotificationChannels().catch(() => {});
+      requestNotificationPermissions().catch(() => {});
+    });
+
+    // Tier-1 Silent Background OTA Update Sync (ZenTrack WhatsApp / Discord Pattern):
+    // 0ms startup delay; silently downloads new bundles in the background, ready on next launch
+    const unsubscribeOta = registerDeferredOtaSync();
+
+    // Safety fallback: guaranteed splash dismissal under any unexpected edge case (<400ms)
+    const safetyTimer = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => {});
+    }, 400);
+
+    return () => {
+      clearTimeout(safetyTimer);
+      unsubscribeOta?.();
+    };
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000000' }}>
       <SafeAreaProvider style={{ flex: 1, backgroundColor: '#000000' }}>
         <ThemeProvider>
           <PortalProvider>
             <CoreDataProvider>
-              <MainNavigator />
+              <MainRoot />
             </CoreDataProvider>
           </PortalProvider>
         </ThemeProvider>

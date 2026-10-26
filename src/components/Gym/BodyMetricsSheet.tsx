@@ -12,12 +12,13 @@ import {
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { impactAsync, notificationAsync, selectionAsync } from "../../utils/haptics";
 import * as ImagePicker from "expo-image-picker";
 import { serverTimestamp } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useCoreData } from "../../contexts/domains/CoreDataContext";
-import { useWellnessData } from "../../contexts/domains/WellnessContext";
+import { useBodyMetrics } from "../../contexts/domains/WellnessContext";
 import { useGymProfile } from "../../hooks/useGymProfile";
 import { COLLECTION } from "../../config/constants";
 import { SPACE } from "../../theme/tokens";
@@ -57,12 +58,13 @@ export default function BodyMetricsSheet({ visible, onClose }: Props) {
   const { colors, isDark } = useTheme();
   const s = useMemo(() => makeBodyMetricsStyles(colors, isDark), [colors, isDark]);
   const { user } = useCoreData();
-  const { weightLogs: contextWeightLogs } = useWellnessData();
+  const { weightLogs: contextWeightLogs } = useBodyMetrics();
   const { gymProfile, saveGymProfile } = useGymProfile();
 
   const [showLogWeight, setShowLogWeight] = useState(false);
   const [weightInput, setWeightInput] = useState("");
   const [heightInput, setHeightInput] = useState("");
+  const [targetInput, setTargetInput] = useState("");
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [localLogs, setLocalLogs] = useState<WeightEntry[]>([]);
@@ -108,8 +110,8 @@ export default function BodyMetricsSheet({ visible, onClose }: Props) {
     : null;
   const bmiClass = bmi ? classifyBMI(bmi) : null;
 
-  // Target weight calculation
-  const targetWeight = (gymProfile as any).targetWeightKg ?? null;
+  // Target weight calculation (Standardized to targetBodyweightKg)
+  const targetWeight = gymProfile.targetBodyweightKg ?? (gymProfile as any).targetWeightKg ?? null;
   const startWeight = chronoLogs[0]?.weight ?? latestWeight;
   const currentWeight = combinedLogs[0]?.weight ?? latestWeight;
   const weightDelta = (currentWeight && startWeight) ? parseFloat((currentWeight - startWeight).toFixed(1)) : 0;
@@ -133,7 +135,7 @@ export default function BodyMetricsSheet({ visible, onClose }: Props) {
     });
     if (!result.canceled) {
       setPhotoUri(result.assets[0].uri);
-      Haptics.selectionAsync();
+      selectionAsync();
     }
   };
 
@@ -142,7 +144,7 @@ export default function BodyMetricsSheet({ visible, onClose }: Props) {
     const w = parseFloat(weightInput);
     if (!w || w <= 0) return;
     setSaving(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     const today = formatLocalDateStr(new Date());
     const existingToday = combinedLogs.find(l => l.date === today);
@@ -166,9 +168,14 @@ export default function BodyMetricsSheet({ visible, onClose }: Props) {
       setLocalLogs(updatedLocal);
       await AsyncStorage.setItem(WEIGHT_LOGS_KEY, JSON.stringify(updatedLocal));
 
-      // Update gym profile height/weight
+      // Update gym profile height/weight/target
       const heightVal = heightInput ? parseFloat(heightInput) : gymProfile.heightCm;
-      await saveGymProfile({ weightKg: w, heightCm: heightVal || gymProfile.heightCm });
+      const targetVal = targetInput ? parseFloat(targetInput) : gymProfile.targetBodyweightKg;
+      await saveGymProfile({
+        weightKg: w,
+        heightCm: heightVal || gymProfile.heightCm,
+        ...(targetVal ? { targetBodyweightKg: targetVal } : {}),
+      });
 
       // Sync to Firestore background queue with deterministic ID to prevent duplicates
       if (user?.uid) {
@@ -185,9 +192,10 @@ export default function BodyMetricsSheet({ visible, onClose }: Props) {
 
       setWeightInput("");
       setHeightInput("");
+      setTargetInput("");
       setPhotoUri(null);
       setShowLogWeight(false);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
       console.error("Weight logging error:", err);
     } finally {
@@ -291,6 +299,18 @@ export default function BodyMetricsSheet({ visible, onClose }: Props) {
                     value={weightInput}
                     onChangeText={setWeightInput}
                     autoFocus
+                  />
+                </View>
+
+                <View style={[s.inputGroup, { flex: 1 }]}>
+                  <Text style={s.inputLabel}>Target (kg)</Text>
+                  <TextInput
+                    style={s.weightInput}
+                    placeholder={targetWeight ? String(targetWeight) : "e.g. 70.0"}
+                    placeholderTextColor="#71717A"
+                    keyboardType="decimal-pad"
+                    value={targetInput}
+                    onChangeText={setTargetInput}
                   />
                 </View>
 

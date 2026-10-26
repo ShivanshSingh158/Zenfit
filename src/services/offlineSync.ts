@@ -1,13 +1,38 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { doc, setDoc, addDoc, updateDoc, deleteDoc, collection, serverTimestamp, writeBatch, increment } from 'firebase/firestore';
+import { doc, setDoc, addDoc, updateDoc, deleteDoc, collection, serverTimestamp, writeBatch, increment, deleteField } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from './firebase';
 import NetInfo from '@react-native-community/netinfo';
+import { InteractionManager } from 'react-native';
 import { COLLECTION } from '../config/constants';
+import { touchServerSyncMeta } from '../utils/syncMeta';
+
+function unflattenDotNotation(obj: any): any {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+  const result: Record<string, any> = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (key.includes('.')) {
+      const parts = key.split('.');
+      let curr = result;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i];
+        if (!curr[part] || typeof curr[part] !== 'object' || Array.isArray(curr[part])) {
+          curr[part] = {};
+        }
+        curr = curr[part];
+      }
+      curr[parts[parts.length - 1]] = unflattenDotNotation(val);
+    } else {
+      result[key] = typeof val === 'object' ? unflattenDotNotation(val) : val;
+    }
+  }
+  return result;
+}
 
 function restoreFirestoreSentinels(obj: any): any {
   if (!obj || typeof obj !== 'object') return obj;
-  const clone: Record<string, any> = Array.isArray(obj) ? [...obj] : { ...obj };
+  const expanded = unflattenDotNotation(obj);
+  const clone: Record<string, any> = Array.isArray(expanded) ? [...expanded] : { ...expanded };
   for (const key of Object.keys(clone)) {
     const val = clone[key];
     if (val && typeof val === 'object') {
@@ -15,6 +40,8 @@ function restoreFirestoreSentinels(obj: any): any {
         clone[key] = increment(val.__zentrackIncrement);
       } else if (val._methodName === 'increment' && typeof val._operand === 'number') {
         clone[key] = increment(val._operand);
+      } else if (val._methodName === 'deleteField' || val.__zentrackDeleteField === true) {
+        clone[key] = deleteField();
       } else if (
         val._methodName === 'serverTimestamp' ||
         val.__zentrackServerTimestamp === true ||
@@ -34,6 +61,27 @@ const OFFLINE_QUEUE_KEY = '@zentrack_offline_write_queue';
 
 // Synchronous In-Memory Write-Ahead Log (WAL) to prevent snapshot rollback
 let _memoryQueue: OfflineQueueItem[] | null = null;
+let _queueDiskFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function persistMemoryQueueToDisk(): Promise<void> {
+  if (_queueDiskFlushTimer) {
+    clearTimeout(_queueDiskFlushTimer);
+    _queueDiskFlushTimer = null;
+  }
+  const q = _memoryQueue || [];
+  if (q.length > 0) {
+    await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q));
+  } else {
+    await AsyncStorage.removeItem(OFFLINE_QUEUE_KEY);
+  }
+}
+
+function scheduleQueueDiskFlush(): void {
+  if (_queueDiskFlushTimer) clearTimeout(_queueDiskFlushTimer);
+  _queueDiskFlushTimer = setTimeout(() => {
+    persistMemoryQueueToDisk().catch(() => {});
+  }, 200);
+}
 
 export async function initMemoryQueue(): Promise<OfflineQueueItem[]> {
   try {
@@ -75,6 +123,10 @@ export function applyPendingQueueOverlay<T extends { id?: string }>(
     const merged = { ...baseDoc };
     for (const [k, v] of Object.entries(patch || {})) {
       if (v && typeof v === 'object') {
+        if (v._methodName === 'deleteField' || v.__zentrackDeleteField === true) {
+          delete merged[k];
+          continue;
+        }
         if (typeof v.__zentrackIncrement === 'number') {
           merged[k] = Math.max(0, (Number(merged[k]) || 0) + v.__zentrackIncrement);
           continue;
@@ -170,10 +222,12 @@ function notifySyncComplete(syncedCount: number) {
 
 /** Returns the current number of pending offline write operations. */
 export async function getQueueCount(): Promise<number> {
+  if (_memoryQueue !== null) return _memoryQueue.length;
   try {
     const raw = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
     if (!raw) return 0;
     const queue: OfflineQueueItem[] = JSON.parse(raw);
+    _memoryQueue = queue;
     return queue.length;
   } catch {
     return 0;
@@ -194,11 +248,11 @@ export async function queueWrite(
   collectionName: string,
   operation: 'add' | 'update' | 'delete' | 'set',
   data: any,
-  docId?: string
+  docId?: string,
+  triggerImmediateSync: boolean = false
 ) {
   try {
-    const existingStr = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
-    let queue: OfflineQueueItem[] = existingStr ? JSON.parse(existingStr) : [];
+    let queue = _memoryQueue ?? (await initMemoryQueue());
 
     const now = Date.now();
     const currentUser = auth.currentUser;
@@ -226,7 +280,7 @@ export async function queueWrite(
           // Document was created offline and never synced; delete simply cancels it!
           queue.splice(existingIndex, 1);
           _memoryQueue = queue;
-          await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+          scheduleQueueDiskFlush();
           console.log(`[OfflineSync] Coalesced and cancelled offline creation for ${collectionName}/${docId}. Queue size: ${queue.length}`);
           await notifyQueueChange();
           return;
@@ -241,10 +295,10 @@ export async function queueWrite(
             retryCount: 0,
           };
           _memoryQueue = queue;
-          await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+          scheduleQueueDiskFlush();
           console.log(`[OfflineSync] Coalesced update -> delete for ${collectionName}/${docId}. Queue size: ${queue.length}`);
           await notifyQueueChange();
-          if (auth.currentUser) syncOfflineQueue(true);
+          if (triggerImmediateSync && auth.currentUser) syncOfflineQueue(true);
           return;
         } else if (prev.operation === 'delete') {
           return;
@@ -292,10 +346,10 @@ export async function queueWrite(
         };
 
         _memoryQueue = queue;
-        await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+        scheduleQueueDiskFlush();
         console.log(`[OfflineSync] Coalesced update for ${collectionName}/${docId}. Queue size: ${queue.length}`);
         await notifyQueueChange();
-        if (auth.currentUser) syncOfflineQueue(true);
+        if (triggerImmediateSync && auth.currentUser) syncOfflineQueue(true);
         return;
       }
     }
@@ -312,14 +366,14 @@ export async function queueWrite(
     });
 
     _memoryQueue = queue;
-    await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+    scheduleQueueDiskFlush();
     console.log(`[OfflineSync] Queued ${operation} in ${collectionName}. Queue size: ${queue.length}`);
 
     // Notify all subscribers (e.g. OfflineIndicator) that the count changed
     await notifyQueueChange();
 
-    // Attempt to sync immediately if online & authenticated (no-op if offline/guest)
-    if (auth.currentUser) {
+    // Attempt to sync immediately if explicitly requested & online & authenticated
+    if (triggerImmediateSync && auth.currentUser) {
       syncOfflineQueue(true);
     }
   } catch (e) {
@@ -452,13 +506,45 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
 
     console.log(`[OfflineSync] Draining ${queue.length} operations to Firestore for ${uid}…`);
 
-    // High-Performance Fast Path: Chunk into batches of 400 and only remove the exact items that were synced
+    // High-Performance Fast Path: Deduplicate mutations targeting the same document
+    // (e.g. 15 sets logged offline for 1 workout collapse into the single latest workout document state)
     const BATCH_LIMIT = 400;
     if (queue.length >= 1) {
       try {
+        await new Promise<void>(resolve => {
+          InteractionManager.runAfterInteractions(() => resolve());
+        });
+
+        const dedupedMap = new Map<string, OfflineQueueItem>();
+        const nonDedupeQueue: OfflineQueueItem[] = [];
+
+        for (const item of queue) {
+          if (item.docId && (item.operation === 'set' || item.operation === 'update' || item.operation === 'delete')) {
+            const key = `${item.collection}/${item.docId}`;
+            const existing = dedupedMap.get(key);
+            if (!existing || (item.clientUpdatedAt || item.createdAt) >= (existing.clientUpdatedAt || existing.createdAt)) {
+              dedupedMap.set(key, item);
+            }
+          } else {
+            nonDedupeQueue.push(item);
+          }
+        }
+
+        const queueToProcess = [...Array.from(dedupedMap.values()), ...nonDedupeQueue];
         const syncedItemSignatures = new Set<string>();
-        for (let i = 0; i < queue.length; i += BATCH_LIMIT) {
-          const chunk = queue.slice(i, i + BATCH_LIMIT);
+
+        // Mark all original queue items that were merged into deduped items as synced
+        for (const orig of queue) {
+          if (orig.docId) {
+            const key = `${orig.collection}/${orig.docId}`;
+            if (dedupedMap.has(key)) {
+              syncedItemSignatures.add(`${orig.id}_${orig.clientUpdatedAt}`);
+            }
+          }
+        }
+
+        for (let i = 0; i < queueToProcess.length; i += BATCH_LIMIT) {
+          const chunk = queueToProcess.slice(i, i + BATCH_LIMIT);
           const batch = writeBatch(db);
           for (const item of chunk) {
             let dataToWrite = item.data && typeof item.data === 'object' ? { ...item.data } : item.data;
@@ -492,9 +578,13 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
           await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remaining));
         } else {
           await AsyncStorage.removeItem(OFFLINE_QUEUE_KEY);
+          wasOfflineInSession = false;
         }
         await notifyQueueChange();
-        if (syncedCount > 0 && !silent) notifySyncComplete(syncedCount);
+        if (syncedCount > 0) {
+          touchServerSyncMeta();
+          if (!silent) notifySyncComplete(syncedCount);
+        }
         return syncedCount;
       } catch (batchErr) {
         console.warn('[OfflineSync] Batch commit failed, falling back to sequential item drain:', batchErr);
@@ -556,13 +646,23 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
         console.log(`[OfflineSync] ✓ Synced ${item.operation} on ${item.collection} (id: ${item.id})`);
       } catch (e: any) {
         console.warn(`[OfflineSync] ✗ Write failed for item ${item.id} in ${item.collection}:`, e?.message || e);
-        const isPermissionError = e?.message?.includes('permission') || e?.code?.includes('permission');
+        const code = String(e?.code || e?.message || '').toLowerCase();
+        const isPermanentFailure = code.includes('permission-denied') || code.includes('invalid-argument') || code.includes('permission');
         const retryCount = (item.retryCount || 0) + 1;
-        // Keep in queue for transient network drops; discard persistent authorization errors or corrupted items (>3 retries)
-        if (!isPermissionError && retryCount < 4) {
+
+        if (!isPermanentFailure) {
+          // Network timeout, unavailable, or captive portal: NEVER discard user data!
+          // Keep in queue with capped exponential backoff.
           failedQueue.push({ ...item, retryCount, lastAttemptAt: Date.now() });
         } else {
-          console.warn(`[OfflineSync] Discarding un-syncable queue item ${item.id} (${item.collection}) to prevent queue lock.`);
+          // Archive to dead-letter vault so data is never permanently lost
+          try {
+            const rawVault = await AsyncStorage.getItem('@zentrack_dead_letter_vault');
+            const vault = rawVault ? JSON.parse(rawVault) : [];
+            vault.push({ ...item, failedAt: Date.now(), error: code });
+            await AsyncStorage.setItem('@zentrack_dead_letter_vault', JSON.stringify(vault.slice(-100)));
+            console.warn(`[OfflineSync] Moved permanently failing item ${item.id} to dead-letter vault.`);
+          } catch {}
         }
       }
     }
@@ -579,13 +679,17 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
       await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remaining));
     } else {
       await AsyncStorage.removeItem(OFFLINE_QUEUE_KEY);
+      wasOfflineInSession = false;
       console.log('[OfflineSync] Queue cleared. All writes synced.');
     }
 
     // Notify listeners: queue count dropped + sync completed
     await notifyQueueChange();
-    if (syncedCount > 0 && !silent) {
-      notifySyncComplete(syncedCount);
+    if (syncedCount > 0) {
+      touchServerSyncMeta();
+      if (!silent) {
+        notifySyncComplete(syncedCount);
+      }
     }
   } catch (e) {
     console.warn('[OfflineSync] Error during sync drain', e);

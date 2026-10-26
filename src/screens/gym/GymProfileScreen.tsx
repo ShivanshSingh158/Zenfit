@@ -1,4 +1,15 @@
-import React, { useState } from 'react';
+/**
+ * GymProfileScreen.tsx — ZenFit
+ *
+ * Settings & Athlete Profile Hub
+ * Clean Apple iOS Inset Grouped Settings Table architecture.
+ * - Section 1: Athlete & Body (Profile & Goals, Bodyweight & Photos)
+ * - Section 2: Workout Configuration (Weight Unit, Auto-Timer, Audio Beeps, Haptics)
+ * - Section 3: Cloud & Diagnostics (Firebase Sync Status)
+ * - Connected to persistent AsyncStorage & useGymProfile state.
+ */
+
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,346 +18,603 @@ import {
   ScrollView,
   Switch,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
+import { setHapticsEnabledGlobal, impactAsync, notificationAsync, selectionAsync } from '../../utils/haptics';
 
 import { useTheme } from '../../contexts/ThemeContext';
 import { useCoreData } from '../../contexts/domains/CoreDataContext';
-import { useGymProfile } from '../../hooks/useGymProfile';
+import { useGymProfile, setAutoTimerEnabledGlobal } from '../../hooks/useGymProfile';
+import { setAudioCuesEnabledGlobal } from '../../services/gymSoundSynthesizer';
 import { GymProfileModal } from '../../components/Gym/GymProfileModal';
-import { hapticLight, hapticMedium, hapticSuccess } from '../../utils/haptics';
+import BodyMetricsSheet from '../../components/Gym/BodyMetricsSheet';
 import { FONT_FAMILY } from '../../theme/tokens';
+import { checkAndApplyOTAUpdate, getOTAUpdateInfo } from '../../services/otaUpdateService';
+import { useGymLogs, useGymPlan } from '../../contexts/domains/WellnessContext';
+import {
+  sendTestGymNotification,
+  scheduleGymNotifications,
+  clearScheduleCache,
+  GYM_NOTIF_ENABLED_KEY,
+  GYM_NOTIF_TIME_KEY,
+  GYM_REST_DAY_NOTIF_KEY,
+  requestNotificationPermissions,
+} from '../../services/notifications';
+
+const SETTINGS_PREFS_KEY = 'zentrack_gym_settings_prefs_v1';
 
 export default function GymProfileScreen() {
   const { colors, isDark } = useTheme();
-  const { user, performGoogleSignIn, performSignOut } = useCoreData();
+  const navigation = useNavigation<any>();
+  const { user, performSignOut } = useCoreData();
   const { gymProfile, saveGymProfile } = useGymProfile();
 
   const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [bodyMetricsVisible, setBodyMetricsVisible] = useState(false);
 
-  const unitIsLbs = gymProfile?.unitIsLbs ?? false;
-  const autoTimer = gymProfile?.autoTimer ?? true;
-  const hapticsEnabled = gymProfile?.hapticsEnabled ?? true;
-  const audioCues = gymProfile?.audioCues ?? true;
+  const handleLogout = () => {
+    impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert(
+      'Log Out',
+      'Are you sure you want to log out? You will return to the welcome screen.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Log Out',
+          style: 'destructive',
+          onPress: async () => {
+            notificationAsync(Haptics.NotificationFeedbackType.Success);
+            try {
+              if (navigation?.canGoBack?.()) {
+                navigation.popToTop();
+              }
+            } catch (_) {}
+            await performSignOut();
+          },
+        },
+      ]
+    );
+  };
 
-  const cardBg = isDark ? '#0f0e13' : '#ffffff';
-  const cardBorder = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)';
+  // Persistent Preferences State
+  const [unitIsLbs, setUnitIsLbs] = useState(gymProfile?.unitIsLbs ?? false);
+  const [autoTimer, setAutoTimer] = useState(gymProfile?.autoTimer ?? true);
+  const [hapticsEnabled, setHapticsEnabled] = useState(gymProfile?.hapticsEnabled ?? true);
+  const [audioCues, setAudioCues] = useState(gymProfile?.audioCues ?? true);
+
+  // Gym Notification Preferences
+  const { gymLogs } = useGymLogs();
+  const { userGymPlan } = useGymPlan();
+  const [workoutNotifs, setWorkoutNotifs] = useState(true);
+  const [notifTime, setNotifTime] = useState('18:00');
+  const [restDayNotifs, setRestDayNotifs] = useState(true);
+  const [testingNotif, setTestingNotif] = useState(false);
+
+  // OTA Update State
+  const [otaStatus, setOtaStatus] = useState<'idle' | 'checking' | 'downloading' | 'ready'>('idle');
+  const otaInfo = useMemo(() => getOTAUpdateInfo(), []);
+
+  const handleCheckUpdate = async () => {
+    impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const result = await checkAndApplyOTAUpdate((status) => {
+      setOtaStatus(status);
+    });
+
+    if (!result.updated) {
+      Alert.alert('ZenFit Updates', result.message);
+    }
+  };
+
+  const prefsRef = useRef<Record<string, any>>({});
+
+  // Load preferences on mount
+  useEffect(() => {
+    AsyncStorage.getItem(SETTINGS_PREFS_KEY).then(raw => {
+      if (!raw) return;
+      try {
+        const p = JSON.parse(raw);
+        prefsRef.current = p || {};
+        if (typeof p.unitIsLbs === 'boolean') setUnitIsLbs(p.unitIsLbs);
+        if (typeof p.autoTimer === 'boolean') {
+          setAutoTimer(p.autoTimer);
+          setAutoTimerEnabledGlobal(p.autoTimer);
+        }
+        if (typeof p.hapticsEnabled === 'boolean') {
+          setHapticsEnabled(p.hapticsEnabled);
+          setHapticsEnabledGlobal(p.hapticsEnabled);
+        }
+        if (typeof p.audioCues === 'boolean') {
+          setAudioCues(p.audioCues);
+          setAudioCuesEnabledGlobal(p.audioCues);
+        }
+      } catch (_) {}
+    });
+
+    AsyncStorage.multiGet([GYM_NOTIF_ENABLED_KEY, GYM_NOTIF_TIME_KEY, GYM_REST_DAY_NOTIF_KEY]).then(entries => {
+      const enabled = entries[0][1];
+      const time = entries[1][1];
+      const restDay = entries[2][1];
+      if (enabled !== null) setWorkoutNotifs(enabled !== 'false');
+      if (time) setNotifTime(time);
+      if (restDay !== null) setRestDayNotifs(restDay !== 'false');
+    }).catch(() => {});
+  }, []);
+
+  const TIME_OPTIONS = useMemo(() => [
+    { value: '06:00', label: '6:00 AM' },
+    { value: '07:00', label: '7:00 AM' },
+    { value: '08:00', label: '8:00 AM' },
+    { value: '09:00', label: '9:00 AM' },
+    { value: '17:00', label: '5:00 PM' },
+    { value: '18:00', label: '6:00 PM' },
+    { value: '19:00', label: '7:00 PM' },
+    { value: '20:00', label: '8:00 PM' },
+  ], []);
+
+  const handleToggleWorkoutNotifs = async (v: boolean) => {
+    selectionAsync();
+    if (v) {
+      const granted = await requestNotificationPermissions();
+      if (!granted) {
+        Alert.alert(
+          'Permission Required',
+          'Please allow notifications in phone settings to receive workout reminders.'
+        );
+      }
+    }
+    setWorkoutNotifs(v);
+    await AsyncStorage.setItem(GYM_NOTIF_ENABLED_KEY, v ? 'true' : 'false');
+    clearScheduleCache();
+    scheduleGymNotifications({ gymLogs, userGymPlan }).catch(() => {});
+  };
+
+  const handleToggleRestDayNotifs = async (v: boolean) => {
+    selectionAsync();
+    setRestDayNotifs(v);
+    await AsyncStorage.setItem(GYM_REST_DAY_NOTIF_KEY, v ? 'true' : 'false');
+    clearScheduleCache();
+    scheduleGymNotifications({ gymLogs, userGymPlan }).catch(() => {});
+  };
+
+  const handleCycleNotifTime = async () => {
+    selectionAsync();
+    const currIdx = TIME_OPTIONS.findIndex(t => t.value === notifTime);
+    const nextIdx = (currIdx + 1) % TIME_OPTIONS.length;
+    const nextVal = TIME_OPTIONS[nextIdx].value;
+    setNotifTime(nextVal);
+    await AsyncStorage.setItem(GYM_NOTIF_TIME_KEY, nextVal);
+    clearScheduleCache();
+    scheduleGymNotifications({ gymLogs, userGymPlan }).catch(() => {});
+  };
+
+  const handleSendTestNotification = async () => {
+    impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setTestingNotif(true);
+    try {
+      const ok = await sendTestGymNotification();
+      if (ok) {
+        notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert(
+          'Test Notification Fired! 🏋️',
+          'A workout reminder is scheduled for 2 seconds from now. Lock your phone or check your notification shade!'
+        );
+      } else {
+        Alert.alert(
+          'Notification Blocked',
+          'Permission not granted. Please allow notifications in device Settings.'
+        );
+      }
+    } finally {
+      setTestingNotif(false);
+    }
+  };
+
+  const savePref = useCallback((key: string, val: boolean | string) => {
+    try {
+      // 1. Update in useGymProfile & sync across app
+      saveGymProfile({ [key]: val } as any);
+
+      // 2. Persist synchronously in ref + AsyncStorage without read-modify-write race
+      prefsRef.current = { ...prefsRef.current, [key]: val };
+      AsyncStorage.setItem(SETTINGS_PREFS_KEY, JSON.stringify(prefsRef.current)).catch(() => {});
+    } catch (_) {}
+  }, [saveGymProfile]);
+
+  const cardBg = isDark ? '#1C1C1E' : '#FFFFFF';
+  const elevatedBg = isDark ? '#2C2C2E' : '#E5E5EA';
+  const separatorColor = isDark ? 'rgba(84, 84, 88, 0.36)' : 'rgba(60, 60, 67, 0.18)';
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background || '#060509' }]} edges={['top']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000000' : colors.background }]} edges={['top']}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
+      {/* ── Native Apple iOS Header ── */}
+      <View style={styles.header}>
+        <View style={styles.headerTopRow}>
+          {navigation.canGoBack() && (
+            <TouchableOpacity
+              onPress={() => {
+                impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                navigation.goBack();
+              }}
+              style={styles.backBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+            </TouchableOpacity>
+          )}
+          <Text style={[styles.largeTitle, { color: colors.textPrimary }]}>Settings</Text>
+        </View>
+        <Text style={styles.subTitle}>Athlete profile, lifting configuration & preferences</Text>
+      </View>
+
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={[styles.screenTitle, { color: colors.textPrimary || '#ffffff' }]}>
-            Profile & Settings
-          </Text>
-          <Text style={styles.subTitle}>
-            Manage lifting preferences, hardware cues & athlete data
-          </Text>
+        
+        {/* ── SECTION 1: ATHLETE & BODY ── */}
+        <Text style={styles.sectionHeader}>ATHLETE & BODY</Text>
+        <View style={[styles.iosGroupedCard, { backgroundColor: cardBg }]}>
+          {/* Athlete Profile Row */}
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={() => {
+              selectionAsync();
+              setProfileModalVisible(true);
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={styles.settingIconText}>
+              <View style={[styles.iconBox, { backgroundColor: 'rgba(165,153,255,0.15)' }]}>
+                <Ionicons name="fitness" size={17} color="#A599FF" />
+              </View>
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>Athlete Profile & Goals</Text>
+                <Text style={styles.settingSub} numberOfLines={1}>
+                  {gymProfile?.goal ? `${gymProfile.goal.toUpperCase()} · ${gymProfile.experience || 'Intermediate'}` : 'Configure GYM-GPT coaching'}
+                </Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={17} color="#8E8E93" />
+          </TouchableOpacity>
+
+          <View style={[styles.indentedHairline, { backgroundColor: separatorColor }]} />
+
+          {/* Bodyweight & Photos Row */}
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={() => {
+              selectionAsync();
+              setBodyMetricsVisible(true);
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={styles.settingIconText}>
+              <View style={[styles.iconBox, { backgroundColor: 'rgba(48,209,88,0.15)' }]}>
+                <Ionicons name="scale-outline" size={17} color="#30D158" />
+              </View>
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>Bodyweight & Check-In Photos</Text>
+                <Text style={styles.settingSub}>
+                  {gymProfile?.weightKg ? `${gymProfile.weightKg} kg tracked` : 'Log weight & BMI'}
+                </Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={17} color="#8E8E93" />
+          </TouchableOpacity>
         </View>
 
-        {/* Athlete Overview Card */}
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={() => { hapticLight(); setProfileModalVisible(true); }}
-          style={[styles.athleteCard, { backgroundColor: cardBg, borderColor: cardBorder }]}
-        >
-          <View style={styles.avatarRow}>
-            <View style={[styles.avatarCircle, { backgroundColor: colors.accentPrimary || '#a599ff' }]}>
-              <Ionicons name="barbell" size={24} color="#000000" />
+        {/* ── SECTION 2: WORKOUT PREFERENCES ── */}
+        <Text style={styles.sectionHeader}>WORKOUT CONFIGURATION</Text>
+        <View style={[styles.iosGroupedCard, { backgroundColor: cardBg }]}>
+          {/* Weight Unit Toggle */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingIconText}>
+              <View style={[styles.iconBox, { backgroundColor: 'rgba(255,159,77,0.15)' }]}>
+                <Ionicons name="options-outline" size={17} color="#FF9F0A" />
+              </View>
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>Weight Unit</Text>
+                <Text style={styles.settingSub}>Kilograms (KG) vs Pounds (LBS)</Text>
+              </View>
             </View>
-            <View style={{ flex: 1, paddingLeft: 12 }}>
-              <Text style={[styles.athleteName, { color: colors.textPrimary || '#ffffff' }]}>
-                {gymProfile?.goal ? `${gymProfile.goal.toUpperCase()} ATHLETE` : 'ZENFIT ATHLETE'}
-              </Text>
-              <Text style={styles.athleteEmail}>
-                {user && !user.isAnonymous ? (user.displayName ? `${user.displayName} • ${user.email}` : user.email) : 'Offline Guest Lifter'}
-              </Text>
-            </View>
-            <View style={styles.editBadge}>
-              <Text style={[styles.editBadgeText, { color: colors.accentPrimary || '#a599ff' }]}>
-                Edit
-              </Text>
-              <Ionicons name="chevron-forward" size={14} color={colors.accentPrimary || '#a599ff'} />
-            </View>
+            <TouchableOpacity
+              onPress={() => {
+                selectionAsync();
+                const next = !unitIsLbs;
+                setUnitIsLbs(next);
+                savePref('unitIsLbs', next);
+              }}
+              style={[styles.unitToggleBtn, { backgroundColor: elevatedBg }]}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.unitToggleText}>{unitIsLbs ? 'LBS' : 'KG'}</Text>
+            </TouchableOpacity>
           </View>
 
-          {/* Key Stat Chips */}
-          <View style={styles.chipsRow}>
-            <View style={[styles.statChip, { backgroundColor: isDark ? '#191820' : '#f2f2f7' }]}>
-              <Text style={styles.chipLabel}>Experience</Text>
-              <Text style={[styles.chipValue, { color: colors.textPrimary || '#ffffff' }]}>
-                {gymProfile?.experience || 'Intermediate'}
-              </Text>
-            </View>
+          <View style={[styles.indentedHairline, { backgroundColor: separatorColor }]} />
 
-            <View style={[styles.statChip, { backgroundColor: isDark ? '#191820' : '#f2f2f7' }]}>
-              <Text style={styles.chipLabel}>Frequency</Text>
-              <Text style={[styles.chipValue, { color: colors.textPrimary || '#ffffff' }]}>
-                {gymProfile?.daysPerWeek ? `${gymProfile.daysPerWeek} Days/Wk` : '5 Days/Wk'}
-              </Text>
+          {/* Auto Rest Timer Switch */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingIconText}>
+              <View style={[styles.iconBox, { backgroundColor: 'rgba(100,210,255,0.15)' }]}>
+                <Ionicons name="timer-outline" size={17} color="#64D2FF" />
+              </View>
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>Auto-Start Rest Timer</Text>
+                <Text style={styles.settingSub}>Launch timer on set checkmark</Text>
+              </View>
             </View>
-
-            <View style={[styles.statChip, { backgroundColor: isDark ? '#191820' : '#f2f2f7' }]}>
-              <Text style={styles.chipLabel}>Bodyweight</Text>
-              <Text style={[styles.chipValue, { color: colors.textPrimary || '#ffffff' }]}>
-                {gymProfile?.weightKg ? `${gymProfile.weightKg} kg` : '75 kg'}
-              </Text>
-            </View>
+            <Switch
+              value={autoTimer}
+              onValueChange={v => {
+                selectionAsync();
+                setAutoTimerEnabledGlobal(v);
+                setAutoTimer(v);
+                savePref('autoTimer', v);
+              }}
+              trackColor={{ false: '#3A3A3C', true: '#30D158' }}
+              thumbColor="#FFFFFF"
+            />
           </View>
-        </TouchableOpacity>
 
-        {/* Section: Workout Configuration */}
-        <View style={styles.section}>
-          <Text style={styles.sectionHeader}>WORKOUT CONFIGURATION</Text>
+          <View style={[styles.indentedHairline, { backgroundColor: separatorColor }]} />
 
-          <View style={[styles.settingsGroup, { backgroundColor: cardBg, borderColor: cardBorder }]}>
-            {/* Weight Unit */}
-            <View style={styles.settingRow}>
-              <View style={styles.settingIconText}>
-                <Ionicons name="scale-outline" size={20} color={colors.accentPrimary || '#a599ff'} />
-                <View style={{ marginLeft: 12 }}>
-                  <Text style={[styles.settingLabel, { color: colors.textPrimary || '#ffffff' }]}>
-                    Weight Unit
-                  </Text>
-                  <Text style={styles.settingSub}>
-                    Toggle between Kilograms (KG) and Pounds (LBS)
-                  </Text>
-                </View>
+          {/* Audio Beeps Switch */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingIconText}>
+              <View style={[styles.iconBox, { backgroundColor: 'rgba(191,90,242,0.15)' }]}>
+                <Ionicons name="volume-medium-outline" size={17} color="#BF5AF2" />
               </View>
-              <TouchableOpacity
-                onPress={() => { hapticLight(); saveGymProfile({ unitIsLbs: !unitIsLbs }); }}
-                style={[styles.unitToggle, { backgroundColor: isDark ? '#23222a' : '#e5e5ea' }]}
-              >
-                <Text style={[styles.unitText, { color: colors.accentPrimary || '#a599ff' }]}>
-                  {unitIsLbs ? 'LBS' : 'KG'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.rowDivider} />
-
-            {/* Auto Rest Timer */}
-            <View style={styles.settingRow}>
-              <View style={styles.settingIconText}>
-                <Ionicons name="timer-outline" size={20} color={colors.accentPrimary || '#a599ff'} />
-                <View style={{ marginLeft: 12 }}>
-                  <Text style={[styles.settingLabel, { color: colors.textPrimary || '#ffffff' }]}>
-                    Auto-Start Rest Timer
-                  </Text>
-                  <Text style={styles.settingSub}>
-                    Start countdown immediately upon set checkmark
-                  </Text>
-                </View>
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>Audio Countdown Beeps</Text>
+                <Text style={styles.settingSub}>Sound cue at 3, 2, 1s rest expiry</Text>
               </View>
-              <Switch
-                value={autoTimer}
-                onValueChange={v => { hapticLight(); saveGymProfile({ autoTimer: v }); }}
-                thumbColor="#ffffff"
-                trackColor={{ false: '#3a3a3c', true: colors.accentPrimary || '#a599ff' }}
-              />
             </View>
+            <Switch
+              value={audioCues}
+              onValueChange={v => {
+                selectionAsync();
+                setAudioCues(v);
+                setAudioCuesEnabledGlobal(v);
+                savePref('audioCues', v);
+              }}
+              trackColor={{ false: '#3A3A3C', true: '#30D158' }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
 
-            <View style={styles.rowDivider} />
+          <View style={[styles.indentedHairline, { backgroundColor: separatorColor }]} />
 
-            {/* Audio & Beeps */}
-            <View style={styles.settingRow}>
-              <View style={styles.settingIconText}>
-                <Ionicons name="volume-medium-outline" size={20} color={colors.accentPrimary || '#a599ff'} />
-                <View style={{ marginLeft: 12 }}>
-                  <Text style={[styles.settingLabel, { color: colors.textPrimary || '#ffffff' }]}>
-                    Audio Countdown Beeps
-                  </Text>
-                  <Text style={styles.settingSub}>
-                    Sound cue at 3, 2, 1s rest expiry
-                  </Text>
-                </View>
+          {/* Haptics Switch */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingIconText}>
+              <View style={[styles.iconBox, { backgroundColor: 'rgba(255,69,58,0.15)' }]}>
+                <Ionicons name="phone-portrait-outline" size={17} color="#FF453A" />
               </View>
-              <Switch
-                value={audioCues}
-                onValueChange={v => { hapticLight(); saveGymProfile({ audioCues: v }); }}
-                thumbColor="#ffffff"
-                trackColor={{ false: '#3a3a3c', true: colors.accentPrimary || '#a599ff' }}
-              />
-            </View>
-
-            <View style={styles.rowDivider} />
-
-            {/* Haptics */}
-            <View style={styles.settingRow}>
-              <View style={styles.settingIconText}>
-                <Ionicons name="phone-portrait-outline" size={20} color={colors.accentPrimary || '#a599ff'} />
-                <View style={{ marginLeft: 12 }}>
-                  <Text style={[styles.settingLabel, { color: colors.textPrimary || '#ffffff' }]}>
-                    Tactile Haptics
-                  </Text>
-                  <Text style={styles.settingSub}>
-                    Tactile clicks for buttons and completed sets
-                  </Text>
-                </View>
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>Tactile Haptics</Text>
+                <Text style={styles.settingSub}>Vibration feedback for buttons & sets</Text>
               </View>
-              <Switch
-                value={hapticsEnabled}
-                onValueChange={v => { hapticLight(); saveGymProfile({ hapticsEnabled: v }); }}
-                thumbColor="#ffffff"
-                trackColor={{ false: '#3a3a3c', true: colors.accentPrimary || '#a599ff' }}
-              />
             </View>
+            <Switch
+              value={hapticsEnabled}
+              onValueChange={v => {
+                setHapticsEnabledGlobal(v);
+                if (v) notificationAsync(Haptics.NotificationFeedbackType.Success);
+                setHapticsEnabled(v);
+                savePref('hapticsEnabled', v);
+              }}
+              trackColor={{ false: '#3A3A3C', true: '#30D158' }}
+              thumbColor="#FFFFFF"
+            />
           </View>
         </View>
 
-        {/* Section: Cloud & Athlete Account */}
-        <View style={styles.section}>
-          <Text style={styles.sectionHeader}>GOOGLE CLOUD SYNC & ACCOUNT</Text>
+        {/* ── SECTION: WORKOUT REMINDERS & NOTIFICATIONS ── */}
+        <Text style={styles.sectionHeader}>WORKOUT REMINDERS</Text>
+        <View style={[styles.iosGroupedCard, { backgroundColor: cardBg }]}>
+          {/* Daily Workout Reminder Toggle */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingIconText}>
+              <View style={[styles.iconBox, { backgroundColor: 'rgba(165,153,255,0.15)' }]}>
+                <Ionicons name="notifications-outline" size={17} color="#A599FF" />
+              </View>
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>Daily Workout Reminder</Text>
+                <Text style={styles.settingSub}>Scheduled alert for today's training split</Text>
+              </View>
+            </View>
+            <Switch
+              value={workoutNotifs}
+              onValueChange={handleToggleWorkoutNotifs}
+              trackColor={{ false: '#3A3A3C', true: '#30D158' }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
 
-          <View style={[styles.settingsGroup, { backgroundColor: cardBg, borderColor: cardBorder, padding: 16 }]}>
-            {user && !user.isAnonymous ? (
-              <View style={{ gap: 12 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, paddingRight: 8 }}>
-                    <View style={{
-                      width: 42,
-                      height: 42,
-                      borderRadius: 21,
-                      backgroundColor: 'rgba(94, 218, 158, 0.15)',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      <Ionicons name="logo-google" size={20} color="#5eda9e" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 15, fontFamily: FONT_FAMILY.bold, color: colors.textPrimary || '#ffffff' }} numberOfLines={1}>
-                        {user.displayName || 'Google Athlete'}
-                      </Text>
-                      <Text style={{ fontSize: 12, color: '#8e8e93', marginTop: 1 }} numberOfLines={1}>
-                        {user.email}
-                      </Text>
-                    </View>
+          {workoutNotifs && (
+            <>
+              <View style={[styles.indentedHairline, { backgroundColor: separatorColor }]} />
+              {/* Reminder Time Selector */}
+              <View style={styles.settingRow}>
+                <View style={styles.settingIconText}>
+                  <View style={[styles.iconBox, { backgroundColor: 'rgba(255,159,10,0.15)' }]}>
+                    <Ionicons name="time-outline" size={17} color="#FF9F0A" />
                   </View>
-
-                  <View style={{
-                    paddingHorizontal: 8,
-                    paddingVertical: 4,
-                    borderRadius: 8,
-                    backgroundColor: 'rgba(94, 218, 158, 0.15)',
-                  }}>
-                    <Text style={{ fontSize: 11, fontFamily: FONT_FAMILY.bold, color: '#5eda9e' }}>
-                      Synced
-                    </Text>
+                  <View style={{ flex: 1, paddingLeft: 12 }}>
+                    <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>Reminder Time</Text>
+                    <Text style={styles.settingSub}>Tap to cycle daily notification time</Text>
                   </View>
                 </View>
-
-                <Text style={{ fontSize: 11.5, color: '#8e8e93', lineHeight: 16 }}>
-                  Workouts, PRs, bodyweight and routines are continuously synced with your Google account in Firestore.
-                </Text>
-
                 <TouchableOpacity
-                  onPress={async () => {
-                    hapticLight();
-                    Alert.alert(
-                      'Sign Out',
-                      'Are you sure you want to sign out from Google?',
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        {
-                          text: 'Sign Out',
-                          style: 'destructive',
-                          onPress: async () => {
-                            await performSignOut();
-                          },
-                        },
-                      ]
-                    );
-                  }}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                    paddingVertical: 10,
-                    borderRadius: 10,
-                    backgroundColor: isDark ? 'rgba(255, 107, 107, 0.1)' : 'rgba(235, 77, 75, 0.08)',
-                    borderWidth: 1,
-                    borderColor: isDark ? 'rgba(255, 107, 107, 0.25)' : 'rgba(235, 77, 75, 0.2)',
-                  }}
+                  onPress={handleCycleNotifTime}
+                  style={[styles.unitToggleBtn, { backgroundColor: elevatedBg }]}
+                  activeOpacity={0.7}
                 >
-                  <Ionicons name="log-out-outline" size={16} color="#FF6B6B" />
-                  <Text style={{ fontSize: 13, fontFamily: FONT_FAMILY.bold, color: '#FF6B6B' }}>
-                    Sign Out from Google
+                  <Text style={styles.unitToggleText}>
+                    {TIME_OPTIONS.find(t => t.value === notifTime)?.label || notifTime}
                   </Text>
                 </TouchableOpacity>
               </View>
+            </>
+          )}
+
+          <View style={[styles.indentedHairline, { backgroundColor: separatorColor }]} />
+
+          {/* Rest Day Recovery Tips Toggle */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingIconText}>
+              <View style={[styles.iconBox, { backgroundColor: 'rgba(100,210,255,0.15)' }]}>
+                <Ionicons name="battery-charging-outline" size={17} color="#64D2FF" />
+              </View>
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>Rest Day Reminders</Text>
+                <Text style={styles.settingSub}>Recovery, hydration & rebuild alerts</Text>
+              </View>
+            </View>
+            <Switch
+              value={restDayNotifs}
+              onValueChange={handleToggleRestDayNotifs}
+              trackColor={{ false: '#3A3A3C', true: '#30D158' }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+
+          <View style={[styles.indentedHairline, { backgroundColor: separatorColor }]} />
+
+          {/* Test Notification Row */}
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={handleSendTestNotification}
+            disabled={testingNotif}
+            activeOpacity={0.7}
+          >
+            <View style={styles.settingIconText}>
+              <View style={[styles.iconBox, { backgroundColor: 'rgba(48,209,88,0.15)' }]}>
+                <Ionicons name="paper-plane-outline" size={17} color="#30D158" />
+              </View>
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>Send Test Notification</Text>
+                <Text style={styles.settingSub}>Rings in 2s to test sound & banner</Text>
+              </View>
+            </View>
+            {testingNotif ? (
+              <ActivityIndicator size="small" color="#30D158" />
             ) : (
-              <View style={{ gap: 12 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <View style={{
-                    width: 42,
-                    height: 42,
-                    borderRadius: 21,
-                    backgroundColor: 'rgba(255, 209, 102, 0.12)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    <Ionicons name="cloud-offline-outline" size={20} color="#FFD166" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 15, fontFamily: FONT_FAMILY.bold, color: colors.textPrimary || '#ffffff' }}>
-                      Offline Guest Mode
-                    </Text>
-                    <Text style={{ fontSize: 12, color: '#8e8e93', marginTop: 1 }}>
-                      Data stored locally on this device
-                    </Text>
-                  </View>
-                </View>
-
-                <Text style={{ fontSize: 12, color: '#8e8e93', lineHeight: 17 }}>
-                  Sign in with your Google account to restore and sync your full workout history, PRs, and custom splits across all your devices.
-                </Text>
-
-                <TouchableOpacity
-                  onPress={async () => {
-                    hapticMedium();
-                    const res = await performGoogleSignIn();
-                    if (!res.success && !res.cancelled) {
-                      Alert.alert('Google Sign-In', res.error || 'Failed to sign in with Google.');
-                    }
-                  }}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                    paddingVertical: 12,
-                    borderRadius: 12,
-                    backgroundColor: isDark ? '#ffffff' : '#1c1b22',
-                  }}
-                >
-                  <Ionicons name="logo-google" size={16} color={isDark ? '#000000' : '#ffffff'} />
-                  <Text style={{ fontSize: 13, fontFamily: FONT_FAMILY.bold, color: isDark ? '#000000' : '#ffffff' }}>
-                    Sign In with Google to Sync Data
-                  </Text>
-                </TouchableOpacity>
+              <View style={styles.activePillBadge}>
+                <Text style={styles.activePillText}>Test</Text>
               </View>
             )}
+          </TouchableOpacity>
+        </View>
+
+        {/* ── SECTION 3: CLOUD & DIAGNOSTICS ── */}
+        <Text style={styles.sectionHeader}>CLOUD & DIAGNOSTICS</Text>
+        <View style={[styles.iosGroupedCard, { backgroundColor: cardBg }]}>
+          <View style={styles.settingRow}>
+            <View style={styles.settingIconText}>
+              <View style={[styles.iconBox, { backgroundColor: 'rgba(48,209,88,0.15)' }]}>
+                <Ionicons name="cloud-done-outline" size={17} color="#30D158" />
+              </View>
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>Firebase Sync</Text>
+                <Text style={styles.settingSub}>{user?.email || 'Anonymous Cloud Sync Active'}</Text>
+              </View>
+            </View>
+            <View style={styles.activePillBadge}>
+              <Text style={styles.activePillText}>Synced</Text>
+            </View>
           </View>
         </View>
 
-        {/* App Version Info */}
+        {/* ── SECTION 4: SYSTEM & OVER-THE-AIR UPDATES ── */}
+        <Text style={styles.sectionHeader}>UPDATES & SYSTEM</Text>
+        <View style={[styles.iosGroupedCard, { backgroundColor: cardBg }]}>
+          {/* Check for Updates Row */}
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={handleCheckUpdate}
+            disabled={otaStatus === 'checking' || otaStatus === 'downloading'}
+            activeOpacity={0.7}
+          >
+            <View style={styles.settingIconText}>
+              <View style={[styles.iconBox, { backgroundColor: 'rgba(56,189,248,0.15)' }]}>
+                {otaStatus === 'checking' || otaStatus === 'downloading' ? (
+                  <ActivityIndicator size="small" color="#38BDF8" />
+                ) : (
+                  <Ionicons name="cloud-download-outline" size={17} color="#38BDF8" />
+                )}
+              </View>
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={[styles.settingLabel, { color: colors.textPrimary }]}>
+                  {otaStatus === 'checking'
+                    ? 'Checking for Updates...'
+                    : otaStatus === 'downloading'
+                    ? 'Downloading Update...'
+                    : 'Check for Updates'}
+                </Text>
+                <Text style={styles.settingSub}>
+                  {otaStatus === 'downloading'
+                    ? 'Fetching newest bundle via EAS'
+                    : otaInfo.channel
+                    ? `Channel: ${otaInfo.channel} • OTA Enabled`
+                    : 'Over-The-Air Instant Updates'}
+                </Text>
+              </View>
+            </View>
+            <View style={[styles.activePillBadge, { backgroundColor: 'rgba(56,189,248,0.12)' }]}>
+              <Text style={[styles.activePillText, { color: '#38BDF8' }]}>
+                {otaStatus === 'checking' ? 'Checking' : otaStatus === 'downloading' ? 'Fetching' : 'Check'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── SECTION 5: ACCOUNT ── */}
+        <Text style={styles.sectionHeader}>ACCOUNT</Text>
+        <View style={[styles.iosGroupedCard, { backgroundColor: cardBg }]}>
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={handleLogout}
+            activeOpacity={0.7}
+          >
+            <View style={styles.settingIconText}>
+              <View style={[styles.iconBox, { backgroundColor: 'rgba(255, 69, 58, 0.15)' }]}>
+                <Ionicons name="log-out-outline" size={17} color="#FF453A" />
+              </View>
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <Text style={[styles.settingLabel, { color: '#FF453A' }]}>Log Out</Text>
+                <Text style={styles.settingSub}>Sign out of ZenFit & return to start</Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={17} color="#8E8E93" />
+          </TouchableOpacity>
+        </View>
+
+        {/* App Version Footer */}
         <View style={styles.footer}>
-          <Text style={styles.versionText}>ZenFit Pro • v1.0.0 (Expo Go Build)</Text>
-          <Text style={styles.poweredText}>Powered by Obsidian Cosmos & GYM-GPT</Text>
+          <Text style={styles.versionText}>ZenFit Pro • v1.0.0 (Native Build)</Text>
+          <Text style={styles.poweredText}>Powered by Obsidian Cosmos & Apple HIG</Text>
         </View>
       </ScrollView>
 
-      {/* Athlete Profile Edit Modal */}
+      {/* Modals */}
       {profileModalVisible && (
         <GymProfileModal
           visible={profileModalVisible}
           onClose={() => setProfileModalVisible(false)}
+        />
+      )}
+
+      {bodyMetricsVisible && (
+        <BodyMetricsSheet
+          visible={bodyMetricsVisible}
+          onClose={() => setBodyMetricsVisible(false)}
         />
       )}
     </SafeAreaView>
@@ -357,107 +625,54 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 110,
-  },
   header: {
-    marginBottom: 16,
+    paddingHorizontal: 6,
+    paddingTop: 8,
+    paddingBottom: 12,
   },
-  screenTitle: {
-    fontSize: 26,
-    fontWeight: '800',
-    letterSpacing: -0.5,
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  backBtn: {
+    paddingRight: 4,
+  },
+  largeTitle: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 32,
+    letterSpacing: -0.6,
   },
   subTitle: {
+    fontFamily: FONT_FAMILY.regular,
     fontSize: 13,
-    color: '#8e8e93',
+    color: '#8E8E93',
     marginTop: 2,
+    marginLeft: 2,
   },
-  athleteCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    marginBottom: 20,
-  },
-  avatarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  avatarCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  athleteName: {
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  athleteEmail: {
-    fontSize: 12,
-    color: '#8e8e93',
-    marginTop: 1,
-  },
-  editBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: 'rgba(165, 153, 255, 0.12)',
-  },
-  editBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  chipsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 14,
-  },
-  statChip: {
-    flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  chipLabel: {
-    fontSize: 10,
-    color: '#8e8e93',
-    marginBottom: 2,
-  },
-  chipValue: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  section: {
-    marginBottom: 20,
+  scrollContent: {
+    paddingHorizontal: 6,
+    paddingBottom: 110,
   },
   sectionHeader: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#8e8e93',
-    letterSpacing: 0.8,
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 12,
+    color: '#8E8E93',
+    letterSpacing: 0.6,
     marginBottom: 8,
+    marginTop: 14,
     marginLeft: 4,
   },
-  settingsGroup: {
+  iosGroupedCard: {
     borderRadius: 16,
-    borderWidth: 1,
+    paddingHorizontal: 16,
     overflow: 'hidden',
   },
   settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingVertical: 13,
   },
   settingIconText: {
     flexDirection: 'row',
@@ -465,51 +680,63 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingRight: 12,
   },
+  iconBox: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   settingLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 14.5,
+    letterSpacing: -0.2,
   },
   settingSub: {
-    fontSize: 11,
-    color: '#8e8e93',
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: 11.5,
+    color: '#8E8E93',
     marginTop: 1,
   },
-  rowDivider: {
+  indentedHairline: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    marginLeft: 46,
+    marginLeft: 42,
   },
-  unitToggle: {
-    paddingHorizontal: 12,
+  unitToggleBtn: {
+    paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 8,
   },
-  unitText: {
+  unitToggleText: {
+    fontFamily: FONT_FAMILY.bold,
     fontSize: 13,
-    fontWeight: '800',
+    color: '#A599FF',
   },
-  statusBadge: {
+  activePillBadge: {
+    backgroundColor: 'rgba(48,209,88,0.15)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
   },
-  statusText: {
+  activePillText: {
+    fontFamily: FONT_FAMILY.bold,
     fontSize: 11,
-    fontWeight: '800',
+    color: '#30D158',
   },
   footer: {
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 24,
     paddingBottom: 16,
   },
   versionText: {
+    fontFamily: FONT_FAMILY.medium,
     fontSize: 12,
     color: '#636366',
-    fontWeight: '600',
   },
   poweredText: {
+    fontFamily: FONT_FAMILY.regular,
     fontSize: 10,
-    color: '#48484a',
+    color: '#48484A',
     marginTop: 2,
   },
 });

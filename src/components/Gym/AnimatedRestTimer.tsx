@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, Animated, PanResponder, InteractionManager,
+  View, Text, TouchableOpacity, Animated, PanResponder, InteractionManager, Platform, Keyboard, DeviceEventEmitter,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Svg, Circle } from 'react-native-svg';
-import { hapticLight, hapticMedium } from '../../utils/haptics';
+import { hapticLight, hapticMedium, hapticHeavy } from '../../utils/haptics';
 import { useTheme } from "../../contexts/ThemeContext";
 
 // Extracted Styles
@@ -30,7 +30,19 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(fu
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeAnimatedRestTimerStyles(colors, isDark), [colors, isDark]);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const lastBeepSecRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setIsKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setIsKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Gentle breathing pulse animation for the floating rest pill
   const breatheAnim = useRef(new Animated.Value(1)).current;
@@ -136,7 +148,12 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(fu
         skipped = true;
         if (lastBeepSecRef.current !== 0) {
           lastBeepSecRef.current = 0;
-          playTimerFinishChime();
+          // Guard: Only chime and flash if timer expired while app was open (within 2s), preventing delayed blasts on phone unlock
+          if (elapsed - durationSecs <= 2) {
+            playTimerFinishChime();
+            hapticHeavy();
+            DeviceEventEmitter.emit('gym_rest_timer_flash');
+          }
         }
         timeoutId = setTimeout(() => {
           InteractionManager.runAfterInteractions(() => {
@@ -166,6 +183,8 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(fu
   const progress = durationSecs > 0 ? Math.max(0, Math.min(1, remSecs / durationSecs)) : 0;
   const circumference = 53.4; // 2 * Math.PI * 8.5
   const strokeDashoffset = circumference * (1 - progress);
+
+  if (isKeyboardVisible) return null;
 
   return (
     <Animated.View

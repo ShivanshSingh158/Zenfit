@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { InteractionManager, DeviceEventEmitter, unstable_batchedUpdates, AppState } from 'react-native';
+import { InteractionManager, DeviceEventEmitter, AppState } from 'react-native';
 import { collection, doc, setDoc, updateDoc, serverTimestamp, deleteField } from 'firebase/firestore';
-import { db } from '../services/firebase';
-import { useWellnessData } from '../contexts/domains/WellnessContext';
+import { db, auth } from '../services/firebase';
+import { useWellnessData, getWorkoutActiveGlobal } from '../contexts/domains/WellnessContext';
 import { useCoreData } from '../contexts/domains/CoreDataContext';
 import { GYM_PLAN, GYM_PLAN_ARNOLD, WEEKDAY_TO_PLAN } from '../data/gymPlan';
 import { GymDayLog, GymExerciseLog, GymSet, GymCardioLog, GymPlanDay } from '../types/gym.types';
@@ -17,60 +17,64 @@ function debounce<T extends (...args: any[]) => any>(fn: T, ms: number) {
 import * as Notifications from 'expo-notifications';
 import * as Haptics from 'expo-haptics';
 import { COLLECTION } from '../config/constants';
-import { deepSanitize } from '../utils/firebaseUtils';
+import { deepSanitize, getMonotonicTimestamp } from '../utils/firebaseUtils';
 import { awardXP } from '../services/xpSystem';
-import { getPreviousExerciseSession, buildExerciseHistoryIndex, normalizeExerciseKey, resolveExerciseTargetMuscle } from '../utils/gymUtils';
+import { getPreviousExerciseSession, buildExerciseHistoryIndex, normalizeExerciseKey, resolveExerciseTargetMuscle, mergeGymLogMonotonic, getCanonicalExerciseName } from '../utils/gymUtils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { dismissActiveWorkoutNotification } from '../services/activeWorkoutNotificationService';
 import { safeWrite } from '../utils/safeWrite';
 import { buildLiveWorkoutWidgetData, saveCachedLiveWorkoutData, updateLiveWorkoutWidget } from '../services/widgetSyncService';
 import { setActiveWorkoutFlag } from '../components/BackgroundNotificationWatcher';
+import { isAutoTimerEnabledSync } from './useGymProfile';
+import { generateDatasetFingerprint } from '../utils/hotCacheStore';
+import { writeWellnessCache, flushDomainCache } from '../utils/domainCache';
+import { updateL1Cache } from '../utils/bootManifest';
+import { recordExerciseToLedger } from '../utils/exerciseLedger';
 
 
 let currentRestTimerNotifId: string | null = null;
+let notifScheduleTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Issue 4: Module-scope debounce queue keyed by logId so all useGymLog instances share a single write queue
 const globalPendingFirestoreWrites = new Map<string, { log: GymDayLog; timer: ReturnType<typeof setTimeout> | null }>();
 
 async function executeFirestoreLogWrite(logId: string, updatedLog: GymDayLog) {
-  InteractionManager.runAfterInteractions(async () => {
-    try {
-      const docRef = doc(db, COLLECTION.GYM_LOGS, logId);
-      const sanitizedLog: any = { id: logId };
-      Object.keys(updatedLog).forEach(key => {
-        if (key === '_idx') return;
-        const val = (updatedLog as any)[key];
-        if (val === undefined || val === null) {
-          sanitizedLog[key] = deleteField();
-        } else {
-          sanitizedLog[key] = deepSanitize(val);
-        }
+  try {
+    const docRef = doc(db, COLLECTION.GYM_LOGS, logId);
+    const sanitizedLog: any = { id: logId };
+    Object.keys(updatedLog).forEach(key => {
+      if (key === '_idx') return;
+      const val = (updatedLog as any)[key];
+      if (val !== undefined && val !== null) {
+        sanitizedLog[key] = deepSanitize(val);
+      }
+    });
+    if (Array.isArray(sanitizedLog.exercises)) {
+      sanitizedLog.exercises = sanitizedLog.exercises.map((ex: any) => {
+        const cleanEx = { ...ex };
+        delete cleanEx._idx;
+        delete cleanEx.lastSessionSets;
+        return cleanEx;
       });
-      if (Array.isArray(sanitizedLog.exercises)) {
-        sanitizedLog.exercises = sanitizedLog.exercises.map((ex: any) => {
-          const cleanEx = { ...ex };
-          delete cleanEx._idx;
-          delete cleanEx.lastSessionSets;
-          return cleanEx;
-        });
-      }
-      if (updatedLog.completed) {
-        sanitizedLog.workoutStartTime = deleteField();
-        sanitizedLog.restTimerStartTime = deleteField();
-        sanitizedLog.restTimerDurationSecs = deleteField();
-        sanitizedLog.restTimerExerciseName = deleteField();
-      }
-      await safeWrite(
-        () => setDoc(docRef, sanitizedLog, { merge: true }),
-        COLLECTION.GYM_LOGS,
-        'set',
-        sanitizedLog,
-        logId
-      );
-    } catch (e) {
-      console.error('[Gym] Save error', e);
     }
-  });
+    if (updatedLog.completed) {
+      sanitizedLog.completed = true;
+      sanitizedLog.workoutStartTime = deleteField();
+      sanitizedLog.restTimerStartTime = deleteField();
+      sanitizedLog.restTimerDurationSecs = deleteField();
+      sanitizedLog.restTimerExerciseName = deleteField();
+    }
+    await safeWrite(
+      () => setDoc(docRef, sanitizedLog, { merge: true }),
+      COLLECTION.GYM_LOGS,
+      'set',
+      sanitizedLog,
+      logId,
+      true
+    );
+  } catch (e) {
+    console.error('[Gym] Save error', e);
+  }
 }
 
 export async function flushGlobalPendingFirestoreWrite(targetLogId?: string) {
@@ -125,6 +129,23 @@ export function useGymLog(dateStr: string) {
     gymEnsureSubscribed?.();
   }, [gymEnsureSubscribed]);
 
+  // ── Reset local workout state on sign-out ─────────────────────────────────
+  // When user becomes null (logout), wipe the local log and today's active draft
+  // so no ghost workoutStartTime bleeds into the next login session.
+  useEffect(() => {
+    if (user === null) {
+      setLog(null);
+      logRef.current = null;
+      localWriteAtRef.current = 0;
+      // Purge active draft keys for today and generic key
+      const todayKey = `gym_active_draft_${dateStr}`;
+      AsyncStorage.multiRemove([
+        '@zentrack_active_workout_state',
+        todayKey,
+      ]).catch(() => {});
+    }
+  }, [user, dateStr]);
+
   const userGymPlanRef = useRef(userGymPlan);
   const updateMasterPlanRef = useRef(updateMasterPlan);
   useEffect(() => {
@@ -156,6 +177,11 @@ export function useGymLog(dateStr: string) {
   ).current;
 
   const [log, setLog] = useState<GymDayLog | null>(null);
+  const [restTimerState, setRestTimerState] = useState<{
+    startTime?: number;
+    durationSecs?: number;
+    exerciseName?: string;
+  }>({});
   const [reloadKey, setReloadKey] = useState(0);
   const logRef = useRef<GymDayLog | null>(null);
   // Tracks the most recent local write timestamp so we can skip stale Firestore snapshots
@@ -174,17 +200,17 @@ export function useGymLog(dateStr: string) {
     const pending = pendingOptimisticUpdateLogRef.current;
     if (pending) {
       pendingOptimisticUpdateLogRef.current = null;
-      unstable_batchedUpdates(() => {
-        if (gymLogsRef.current.some(l => l.id === pending.logId || l.date === pending.log.date)) {
-          optimisticUpdateGymLog(pending.logId, pending.log as any);
-        } else {
-          optimisticAddGymLog(pending.log as any);
-        }
-      });
-      DeviceEventEmitter.emit('gym_log_local_mutation', {
-        date: pending.log.date,
-        log: pending.log,
-        senderId: instanceIdRef.current,
+      if (gymLogsRef.current.some(l => l.id === pending.logId || l.date === pending.log.date)) {
+        optimisticUpdateGymLog(pending.logId, pending.log as any);
+      } else {
+        optimisticAddGymLog(pending.log as any);
+      }
+      queueMicrotask(() => {
+        DeviceEventEmitter.emit('gym_log_local_mutation', {
+          date: pending.log.date,
+          log: pending.log,
+          senderId: instanceIdRef.current,
+        });
       });
     }
   }, [optimisticUpdateGymLog, optimisticAddGymLog]);
@@ -195,9 +221,14 @@ export function useGymLog(dateStr: string) {
     await flushGlobalPendingFirestoreWrite(logId);
   }, [user, dateStr]);
 
+  const gymLogsFingerprint = generateDatasetFingerprint(gymLogs);
+  const pastLogsForHistory = useMemo(
+    () => (gymLogs || []).filter(l => l.date < dateStr),
+    [gymLogsFingerprint, dateStr]
+  );
   const historyIndex = useMemo(
-    () => buildExerciseHistoryIndex(gymLogs, dateStr),
-    [gymLogs, dateStr]
+    () => buildExerciseHistoryIndex(pastLogsForHistory, dateStr),
+    [pastLogsForHistory, dateStr]
   );
 
   useEffect(() => {
@@ -208,16 +239,34 @@ export function useGymLog(dateStr: string) {
   const prevPlanUpdatedRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (prevDateStrRef.current !== null && prevDateStrRef.current !== dateStr) {
-      flushPendingFirestoreWrite();
+    const isDateSwitch = prevDateStrRef.current !== null && prevDateStrRef.current !== dateStr;
+    if (isDateSwitch) {
+      const prevDate = prevDateStrRef.current!;
+      const prevLogId = logRef.current?.id || (user?.uid ? `${user.uid}_${prevDate}` : undefined);
+
+      // 1. Synchronously commit any pending optimistic update for the previous date into WellnessContext.gymLogs!
+      flushPendingOptimisticUpdate();
+
+      // 2. Flush any pending draft timer for the previous date immediately
+      if (draftSaveTimerRef.current && logRef.current && !logRef.current.completed && prevLogId) {
+        clearTimeout(draftSaveTimerRef.current);
+        draftSaveTimerRef.current = null;
+        AsyncStorage.setItem(`gym_active_draft_${prevLogId}`, JSON.stringify(logRef.current)).catch(() => {});
+      }
+
+      // 3. Flush Firestore write using the PREVIOUS date's logId (not the new dateStr!)
+      if (prevLogId) {
+        flushGlobalPendingFirestoreWrite(prevLogId);
+      }
+
       setLog(null);
       logRef.current = null;
       localWriteAtRef.current = 0;
     }
     prevDateStrRef.current = dateStr;
 
-    // Skip heavy hydration and mapping if we wrote to this document within the last 5000ms
-    if (logRef.current && (Date.now() - localWriteAtRef.current) < 5000) {
+    // Only skip hydration if we are on the SAME date and wrote within the last 5000ms
+    if (!isDateSwitch && logRef.current && logRef.current.date === dateStr && (Date.now() - localWriteAtRef.current) < 5000) {
       return;
     }
 
@@ -279,10 +328,13 @@ export function useGymLog(dateStr: string) {
       );
       const firestoreIsStale = logRef.current !== null && firestoreCompletedCount < localCompletedCount;
 
-      // ── Active workout protection: completely shield in-progress workouts from server echoes
+      // ── Active workout protection: shield in-progress workouts from older server echoes,
+      // but accept newer snapshots or updates that contain more/equal completed sets
       const isLocalSessionActive = logRef.current !== null && !logRef.current.completed;
       if (isLocalSessionActive) {
-        return;
+        if (firestoreCompletedCount <= localCompletedCount && (localTs >= existingTs || recentLocalWrite)) {
+          return;
+        }
       }
 
       if (logRef.current && (recentLocalWrite || firestoreIsStale || (existingTs <= localTs && (logRef.current.exercises?.length ?? 0) > 0 && (localHasWeights || !firestoreHasWeights)))) {
@@ -292,14 +344,25 @@ export function useGymLog(dateStr: string) {
       let patchedExercises: GymExerciseLog[] = [];
 
       if (existing.exercises && existing.exercises.length > 0) {
+        const isHistorical = !!(
+          existing.completed ||
+          existing.workoutStartTime ||
+          (existing.exercises || []).some((e: any) =>
+            (e.setsLog || []).some(
+              (s: any) => s.completed || (s.weight != null && Number(s.weight) > 0)
+            )
+          )
+        );
+
         patchedExercises = existing.exercises.map((ex, idx) => {
-          const prevSession = historyIndex.get(normalizeExerciseKey(ex.name));
+          const effectiveName = isHistorical ? ex.name : getCanonicalExerciseName(ex.name);
+          const prevSession = historyIndex.get(normalizeExerciseKey(effectiveName));
           const lastSets = prevSession?.sets || null;
           const lastValidSet = lastSets && lastSets.length > 0 ? lastSets[lastSets.length - 1] : null;
 
           let patchedVideoId = ex.videoId;
           if (!patchedVideoId && planDay && Array.isArray(planDay.exercises)) {
-            const planEx = planDay.exercises.find((pe: any) => pe.id === ex.exerciseId || pe.name === ex.name);
+            const planEx = planDay.exercises.find((pe: any) => pe.id === ex.exerciseId || pe.name === effectiveName || pe.name === ex.name);
             if (planEx?.videoId) {
               patchedVideoId = planEx.videoId;
             }
@@ -307,7 +370,7 @@ export function useGymLog(dateStr: string) {
 
           let patchedMuscle = ex.muscle;
           if (!patchedMuscle || ['general', 'unknown', 'none', 'mixed', 'null', 'undefined'].includes(patchedMuscle.trim().toLowerCase())) {
-            patchedMuscle = resolveExerciseTargetMuscle(ex.name, ex.muscle).targetMuscle;
+            patchedMuscle = resolveExerciseTargetMuscle(effectiveName, ex.muscle).targetMuscle;
           }
 
           // Pre-fill unlogged set values with last session's exact set data (Issue 5: preserve explicit 0 weight)
@@ -332,6 +395,7 @@ export function useGymLog(dateStr: string) {
           return {
             ...ex,
             _idx: idx,
+            name: effectiveName,
             muscle: patchedMuscle,
             videoId: patchedVideoId,
             lastSessionSets: lastSets || ex.lastSessionSets || undefined,
@@ -376,14 +440,39 @@ export function useGymLog(dateStr: string) {
 
       let patchedLog = { 
         ...existing, 
+        id: existing.id || (user?.uid ? `${user.uid}_${dateStr}` : undefined),
         dayPlanIndex: existing.dayPlanIndex ?? planIdx,
-        exercises: patchedExercises 
+        exercises: patchedExercises,
+        ...(existing.completed ? { workoutStartTime: undefined } : {}),
       } as GymDayLog;
       if (!patchedLog.cardio) {
         patchedLog.cardio = [];
       }
-      setLog(patchedLog);
+      setLog(prev => {
+        const merged = mergeGymLogMonotonic(prev, patchedLog);
+        if (merged?.completed) {
+          merged.workoutStartTime = undefined;
+        }
+        return merged;
+      });
     } else {
+      // CRITICAL FIX: If local state (logRef.current) already has a started/completed workout
+      // or ANY logged sets/weights for this dateStr, NEVER overwrite it with a blank template!
+      const localHasProgress =
+        logRef.current &&
+        logRef.current.date === dateStr &&
+        (logRef.current.completed ||
+          logRef.current.workoutStartTime ||
+          (logRef.current.exercises || []).some((ex: any) =>
+            (ex.setsLog || []).some(
+              (s: any) => s.completed || (s.weight != null && Number(s.weight) > 0)
+            )
+          ));
+
+      if (localHasProgress) {
+        return;
+      }
+
       // No existing record in Firestore -> create log from planDay
       const newExercises = (planDay && !planDay.isRest && Array.isArray(planDay.exercises)) ? planDay.exercises.map((e: any, idx: number) => {
         const prevSession = historyIndex.get(normalizeExerciseKey(e.name));
@@ -421,14 +510,55 @@ export function useGymLog(dateStr: string) {
 
       const newLog: GymDayLog = {
         userId: user?.uid || '',
+        id: user?.uid ? `${user.uid}_${dateStr}` : undefined,
         date: dateStr,
         dayPlanIndex: planIdx,
         exercises: newExercises,
         cardio: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        createdAt: 0, // <-- Critical: 0 for unstarted template logs so real crash drafts ALWAYS win!
+        updatedAt: 0,
       };
       setLog(newLog);
+    }
+
+    // ── Crash-Recovery Active Draft Hydration ─────────────────────────────
+    const effectiveUid = user?.uid || auth.currentUser?.uid || 'local_user';
+    const primaryKey = `gym_active_draft_${effectiveUid}_${dateStr}`;
+    const altKey = existing?.id ? `gym_active_draft_${existing.id}` : null;
+    const dateKey = `gym_active_draft_${dateStr}`;
+    const keysToFetch = Array.from(new Set([primaryKey, altKey, dateKey].filter(Boolean) as string[]));
+
+    // If the log is already marked completed, never hydrate an active draft, and purge any leftovers
+    if (existing?.completed || logRef.current?.completed) {
+      AsyncStorage.multiRemove(keysToFetch).catch(() => {});
+    } else {
+      AsyncStorage.multiGet(keysToFetch).then(pairs => {
+        if (existing?.completed || logRef.current?.completed) {
+          AsyncStorage.multiRemove(keysToFetch).catch(() => {});
+          return;
+        }
+        const found = pairs.find(([_, val]) => !!val);
+        if (found && found[1]) {
+          try {
+            const draft = JSON.parse(found[1]);
+            if (draft && draft.date === dateStr && !draft.completed) {
+              const draftUpdatedAt = Number(draft.updatedAt) || 0;
+              const currentUpdatedAt = Number(logRef.current?.updatedAt) || 0;
+              const existingUpdatedAt = Number(existing?.updatedAt) || 0;
+              if (existing?.completed) {
+                AsyncStorage.multiRemove(keysToFetch).catch(() => {});
+                return;
+              }
+              const draftCompletedSets = (draft.exercises || []).reduce((acc: number, ex: any) => acc + (ex.setsLog || []).filter((s: any) => s.completed).length, 0);
+              const existingCompletedSets = ((existing?.exercises || []) as any[]).reduce((acc: number, ex: any) => acc + (ex.setsLog || []).filter((s: any) => s.completed).length, 0);
+              if (draftCompletedSets > existingCompletedSets || draftUpdatedAt > Math.max(currentUpdatedAt, existingUpdatedAt) || !existing) {
+                logRef.current = draft;
+                setLog(draft);
+              }
+            }
+          } catch (_) {}
+        }
+      }).catch(() => {});
     }
   }, [gymLogsReady, gymLogs, dateStr, user?.uid, reloadKey, userGymPlan]);
 
@@ -447,82 +577,142 @@ export function useGymLog(dateStr: string) {
   const planDay = resolvePlanDay(userGymPlan, activePlanIdx);
 
   const saveLog = useCallback((updatedLog: GymDayLog) => {
-    if (!user) return;
-    const logId = updatedLog.id || `${user.uid}_${updatedLog.date}`;
+    const effectiveUid = user?.uid || auth.currentUser?.uid || 'local_user';
+    const logId = updatedLog.id || `${effectiveUid}_${updatedLog.date}`;
     const writeAt = Date.now();
     localWriteAtRef.current = writeAt;
 
     if (updatedLog.completed) {
-      // Workout finished: immediate global sync & broadcast
-      AsyncStorage.removeItem(`gym_active_draft_${logId}`).catch(() => {});
+      // 1. Cancel any pending draft save timer so it NEVER writes a stale uncompleted draft after completion
+      if (draftSaveTimerRef.current) {
+        clearTimeout(draftSaveTimerRef.current);
+        draftSaveTimerRef.current = null;
+      }
+
+      // 2. Purge all draft keys from AsyncStorage
+      const draftKeys = [
+        `gym_active_draft_${logId}`,
+        effectiveUid ? `gym_active_draft_${effectiveUid}_${updatedLog.date}` : null,
+        updatedLog.id ? `gym_active_draft_${updatedLog.id}` : null,
+        `@gym_active_session_${updatedLog.date}`,
+        '@zentrack_active_workout_state',
+      ].filter(Boolean) as string[];
+      AsyncStorage.multiRemove(draftKeys).catch(() => {});
+
       if (pendingOptimisticUpdateTimerRef.current) {
         clearTimeout(pendingOptimisticUpdateTimerRef.current);
         pendingOptimisticUpdateTimerRef.current = null;
       }
       pendingOptimisticUpdateLogRef.current = null;
 
-      unstable_batchedUpdates(() => {
-        if (gymLogsRef.current.some(l => l.id === logId || l.date === updatedLog.date)) {
-          optimisticUpdateGymLog(logId, updatedLog as any);
-        } else {
-          optimisticAddGymLog(updatedLog as any);
-        }
-      });
-      DeviceEventEmitter.emit('gym_log_local_mutation', { date: updatedLog.date, log: updatedLog, senderId: instanceIdRef.current });
-    } else {
-      // Active workout in-progress (logging individual sets, stepper taps, etc.):
-      // 1. Debounce local crash-recovery draft write by 1000ms so rapid steppers (+ + +) do zero disk I/O on hot frames
-      if (draftSaveTimerRef.current) {
-        clearTimeout(draftSaveTimerRef.current);
-      }
-      draftSaveTimerRef.current = setTimeout(() => {
-        draftSaveTimerRef.current = null;
-        AsyncStorage.setItem(`gym_active_draft_${logId}`, JSON.stringify(updatedLog)).catch(() => {});
-      }, 1000);
+      // 3. Synchronously write completed log to L1_RAM_CACHE, writeWellnessCache, AND gymLogsRef
+      const cleanCompletedLog: GymDayLog = {
+        ...updatedLog,
+        id: logId,
+        userId: effectiveUid,
+        completed: true,
+        workoutStartTime: undefined,
+      };
+      try {
+        const currentLogs = gymLogsRef.current || [];
+        const exists = currentLogs.some(l => l.id === logId || l.date === updatedLog.date);
+        const nextLogs = exists
+          ? currentLogs.map(l => (l.id === logId || l.date === updatedLog.date) ? cleanCompletedLog : l)
+          : [cleanCompletedLog, ...currentLogs];
+        gymLogsRef.current = nextLogs;
+        updateL1Cache('gymLogs', nextLogs);
+        // Immediate disk write for completed workout durability
+        writeWellnessCache({ gymLogs: nextLogs as any }, true);
+      } catch (_) {}
 
-      // 2. Debounce global context updates and defer to idle
-      // Note: We DO NOT emit gym_log_local_mutation while actively logging sets.
-      // Emitting it mid-workout forces GymHomeScreen (mounted underneath in stack)
-      // to re-render in the background and recalculate overload suggestions across all 150 history logs!
-      pendingOptimisticUpdateLogRef.current = { logId, log: updatedLog };
+      // 4. Immediately update WellnessContext state
+      if ((gymLogsRef.current || []).some(l => l.id === logId || l.date === updatedLog.date)) {
+        optimisticUpdateGymLog(logId, cleanCompletedLog as any);
+      } else {
+        optimisticAddGymLog(cleanCompletedLog as any);
+      }
+      queueMicrotask(() => {
+        DeviceEventEmitter.emit('gym_log_local_mutation', {
+          date: updatedLog.date,
+          log: cleanCompletedLog,
+          senderId: instanceIdRef.current,
+        });
+      });
+
+      const existingEntry = globalPendingFirestoreWrites.get(logId);
+      if (existingEntry?.timer) clearTimeout(existingEntry.timer);
+      globalPendingFirestoreWrites.delete(logId);
+      if (user?.uid || auth.currentUser?.uid) {
+        executeFirestoreLogWrite(logId, cleanCompletedLog);
+      }
+    } else {
+      const logWithId: GymDayLog = { ...updatedLog, id: logId, userId: effectiveUid };
+
+      // GHOST SESSION GUARD: If workoutStartTime is set but NO sets have been completed,
+      // this is a ghost session (auto-started without user intent). Strip workoutStartTime
+      // so it doesn't persist to AsyncStorage draft and re-appear on next focus/boot.
+      const hasAnyCompletedSet = (logWithId.exercises || []).some((ex: any) =>
+        (ex.setsLog || []).some((s: any) => s.completed)
+      );
+      if (logWithId.workoutStartTime && !hasAnyCompletedSet) {
+        (logWithId as any).workoutStartTime = undefined;
+        logRef.current = logWithId;
+      }
+
+      // Synchronously update in-memory gymLogsRef & L1 cache
+      try {
+        const currentLogs = gymLogsRef.current || [];
+        const exists = currentLogs.some(l => l.id === logId || l.date === logWithId.date);
+        const nextLogs = exists
+          ? currentLogs.map(l => (l.id === logId || l.date === logWithId.date) ? logWithId : l)
+          : [logWithId, ...currentLogs];
+        gymLogsRef.current = nextLogs;
+        updateL1Cache('gymLogs', nextLogs);
+      } catch (_) {}
+
+      // Write active draft to AsyncStorage immediately — 0ms delay!
+      // This guarantees that swiping away or closing the app NEVER drops logged sets or exercises!
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+      draftSaveTimerRef.current = null;
+      AsyncStorage.setItem(`gym_active_draft_${logId}`, JSON.stringify(logWithId)).catch(() => {});
+      if (effectiveUid !== 'local_user') {
+        AsyncStorage.setItem(`gym_active_draft_${effectiveUid}_${updatedLog.date}`, JSON.stringify(logWithId)).catch(() => {});
+      }
+      try {
+        // Immediate write to wellness domain disk cache so restart reads fresh data
+        writeWellnessCache({ gymLogs: gymLogsRef.current as any }, true);
+      } catch (_) {}
+
+      // 2. 0ms cross-screen broadcast
+      queueMicrotask(() => {
+        DeviceEventEmitter.emit('gym_log_local_mutation', { date: updatedLog.date, log: logWithId, senderId: instanceIdRef.current });
+      });
+
+      // 3. Stage global context update
+      pendingOptimisticUpdateLogRef.current = { logId, log: logWithId };
       if (pendingOptimisticUpdateTimerRef.current) {
         clearTimeout(pendingOptimisticUpdateTimerRef.current);
       }
       pendingOptimisticUpdateTimerRef.current = setTimeout(() => {
         pendingOptimisticUpdateTimerRef.current = null;
-        const pending = pendingOptimisticUpdateLogRef.current;
-        if (!pending) return;
-        pendingOptimisticUpdateLogRef.current = null;
-        InteractionManager.runAfterInteractions(() => {
-          unstable_batchedUpdates(() => {
-            if (gymLogsRef.current.some(l => l.id === pending.logId || l.date === pending.log.date)) {
-              optimisticUpdateGymLog(pending.logId, pending.log as any);
-            } else {
-              optimisticAddGymLog(pending.log as any);
-            }
-          });
-        });
-      }, 3000);
-    }
+        flushPendingOptimisticUpdate();
+      }, 250);
 
-    // ── STEP 2: Detached Firestore write via module-level shared queue ───
-    const existingEntry = globalPendingFirestoreWrites.get(logId);
-    if (existingEntry?.timer) {
-      clearTimeout(existingEntry.timer);
-    }
+      // 4. Coalesced Cloud Checkpoint (1.5s idle window)
+      // Rapid checkmarks coalesce into ONE Firestore write, but writes complete within 1.5s of finishing an exercise
+      const existingEntry = globalPendingFirestoreWrites.get(logId);
+      if (existingEntry?.timer) clearTimeout(existingEntry.timer);
 
-    if (updatedLog.completed) {
-      globalPendingFirestoreWrites.delete(logId);
-      executeFirestoreLogWrite(logId, updatedLog);
-    } else {
-      // Detached 10s idle debounce: while actively tapping sets/steppers, zero database network or SQLite commits occur
+      const cloudDebounceMs = 1500;
       const timer = setTimeout(() => {
         globalPendingFirestoreWrites.delete(logId);
-        executeFirestoreLogWrite(logId, updatedLog);
-      }, 10000);
-      globalPendingFirestoreWrites.set(logId, { log: updatedLog, timer });
+        if (user?.uid || auth.currentUser?.uid) {
+          executeFirestoreLogWrite(logId, logWithId);
+        }
+      }, cloudDebounceMs);
+      globalPendingFirestoreWrites.set(logId, { log: logWithId, timer });
     }
-  }, [user, optimisticAddGymLog, optimisticUpdateGymLog]);
+  }, [user, optimisticAddGymLog, optimisticUpdateGymLog, flushPendingOptimisticUpdate]);
 
   // ── Flush pending updates on unmount ──────────────────────────────
   useEffect(() => {
@@ -536,15 +726,24 @@ export function useGymLog(dateStr: string) {
   useEffect(() => {
     const sub = AppState.addEventListener('change', nextState => {
       if (nextState === 'background' || nextState === 'inactive') {
+        flushPendingOptimisticUpdate();
         const currentLog = logRef.current;
         if (currentLog) {
-          const logId = currentLog.id || (user ? `${user.uid}_${currentLog.date}` : undefined);
+          const effectiveUid = user?.uid || auth.currentUser?.uid || 'local_user';
+          const logId = currentLog.id || `${effectiveUid}_${currentLog.date}`;
+          if (!currentLog.completed) {
+            AsyncStorage.setItem(`gym_active_draft_${logId}`, JSON.stringify(currentLog)).catch(() => {});
+            if (effectiveUid !== 'local_user') {
+              AsyncStorage.setItem(`gym_active_draft_${effectiveUid}_${currentLog.date}`, JSON.stringify(currentLog)).catch(() => {});
+            }
+          }
           flushGlobalPendingFirestoreWrite(logId);
         }
+        flushDomainCache('wellness').catch(() => {});
       }
     });
     return () => sub.remove();
-  }, [user]);
+  }, [user, flushPendingOptimisticUpdate]);
 
   // Issue 1 & 2: Listen for local mutations across all sibling screens (ExerciseSwap, ExerciseDetail, CardioLog)
   useEffect(() => {
@@ -552,8 +751,15 @@ export function useGymLog(dateStr: string) {
       if (event?.date && event.date !== dateStr) return;
       if (event?.senderId === instanceIdRef.current) return; // Skip self-notification to avoid double-render
       if (event?.log) {
+        // Never allow an uncompleted mutation to overwrite a completed workout!
+        const isCurrentCompleted = Boolean(logRef.current?.completed || (gymLogsRef.current || []).find(l => l.date === dateStr)?.completed);
+        if (isCurrentCompleted && !event.log.completed) {
+          return;
+        }
         logRef.current = event.log;
-        setLog(event.log);
+        queueMicrotask(() => {
+          setLog(event.log);
+        });
       }
     });
     return () => sub.remove();
@@ -567,49 +773,28 @@ export function useGymLog(dateStr: string) {
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('gym_workout_completed', (event: any) => {
       if (event?.date && event.date !== dateStr) return;
-      setLog(prev => {
-        const base = prev || (gymLogsRef.current || []).find(l => l.date === dateStr);
-        if (!base) return prev;
-        if (base.completed && !base.workoutStartTime) return prev;
-        const updated: GymDayLog = {
-          ...base,
-          exercises: (base.exercises as any) || [],
-          cardio: (base.cardio as any) || [],
-          dayPlanIndex: base.dayPlanIndex ?? planIdx,
-          createdAt: (base as any)?.createdAt || Date.now(),
-          completed: true,
-          workoutStartTime: undefined,
-          workoutDurationMinutes: event?.duration ?? base.workoutDurationMinutes,
-          restTimerStartTime: undefined,
-          restTimerDurationSecs: undefined,
-          restTimerExerciseName: undefined,
-          updatedAt: Date.now(),
-        };
-        logRef.current = updated;
-        return updated;
-      });
-    });
-    return () => sub.remove();
-  }, [dateStr]);
-
-  // Autonomous Geofence Departure: if geofence auto-completes workout, update local log immediately
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener('gym_workout_auto_finished', (event: any) => {
-      if (event?.date && event.date !== dateStr) return;
-      setLog(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          completed: true,
-          workoutStartTime: undefined,
-          workoutDurationMinutes: event?.duration ?? prev.workoutDurationMinutes,
-          startTime: prev.startTime || event?.startTime,
-          endTime: prev.endTime || event?.endTime,
-          restTimerStartTime: undefined,
-          restTimerDurationSecs: undefined,
-          restTimerExerciseName: undefined,
-          updatedAt: Date.now(),
-        };
+      queueMicrotask(() => {
+        setLog(prev => {
+          const base = prev || (gymLogsRef.current || []).find(l => l.date === dateStr);
+          if (!base) return prev;
+          if (base.completed && !base.workoutStartTime) return prev;
+          const updated: GymDayLog = {
+            ...base,
+            exercises: (base.exercises as any) || [],
+            cardio: (base.cardio as any) || [],
+            dayPlanIndex: base.dayPlanIndex ?? planIdx,
+            createdAt: (base as any)?.createdAt || Date.now(),
+            completed: true,
+            workoutStartTime: undefined,
+            workoutDurationMinutes: event?.duration ?? base.workoutDurationMinutes,
+            restTimerStartTime: undefined,
+            restTimerDurationSecs: undefined,
+            restTimerExerciseName: undefined,
+            updatedAt: Date.now(),
+          };
+          logRef.current = updated;
+          return updated;
+        });
       });
     });
     return () => sub.remove();
@@ -715,17 +900,17 @@ export function useGymLog(dateStr: string) {
     });
   }, [saveLog]);
 
-  const reorderExercise = useCallback((fromIndex: number, toIndex: number) => {
+  const reorderExercise = useCallback((fromIndex: number, toIndex: number, syncToMasterPlan = false) => {
     setLog(prev => {
       if (!prev || fromIndex < 0 || toIndex < 0 || fromIndex >= prev.exercises.length || toIndex >= prev.exercises.length) return prev;
       const exercises = [...prev.exercises];
       const [moved] = exercises.splice(fromIndex, 1);
       exercises.splice(toIndex, 0, moved);
       const reindexed = exercises.map((ex, i) => ({ ...ex, _idx: i }));
-      const updated = { ...prev, exercises: reindexed, updatedAt: Date.now() };
+      const updated = { ...prev, exercises: reindexed, updatedAt: getMonotonicTimestamp(prev?.updatedAt) };
       saveLog(updated);
       
-      if (updated.dayPlanIndex !== undefined && updated.dayPlanIndex !== null) {
+      if (syncToMasterPlan && updated.dayPlanIndex !== undefined && updated.dayPlanIndex !== null) {
         debouncedSyncMasterPlan(reindexed, updated.dayPlanIndex);
       }
       
@@ -733,14 +918,14 @@ export function useGymLog(dateStr: string) {
     });
   }, [saveLog, debouncedSyncMasterPlan]);
 
-  const reorderExercisesFull = useCallback((newExercisesList: GymExerciseLog[]) => {
+  const reorderExercisesFull = useCallback((newExercisesList: GymExerciseLog[], syncToMasterPlan = false) => {
     setLog(prev => {
       if (!prev) return prev;
       const reindexed = newExercisesList.map((ex, i) => ({ ...ex, _idx: i }));
-      const updated = { ...prev, exercises: reindexed, updatedAt: Date.now() };
+      const updated = { ...prev, exercises: reindexed, updatedAt: getMonotonicTimestamp(prev?.updatedAt) };
       saveLog(updated);
       
-      if (updated.dayPlanIndex !== undefined && updated.dayPlanIndex !== null) {
+      if (syncToMasterPlan && updated.dayPlanIndex !== undefined && updated.dayPlanIndex !== null) {
         debouncedSyncMasterPlan(reindexed, updated.dayPlanIndex);
       }
       
@@ -789,19 +974,77 @@ export function useGymLog(dateStr: string) {
 
   const updateExercise = useCallback((exerciseIndex: number, updatedExercise: GymExerciseLog) => {
     setLog(prev => {
-      if (!prev) return prev;
-      if (exerciseIndex < 0 || exerciseIndex >= prev.exercises.length) {
-        console.warn('[Gym] updateExercise: invalid index', exerciseIndex);
-        return prev;
+      let base = prev;
+      if (!base) {
+        const basePlanDay = planDay || resolvePlanDay(userGymPlan, planIdx);
+        const initialExercises = (basePlanDay && !basePlanDay.isRest && Array.isArray(basePlanDay.exercises))
+          ? basePlanDay.exercises.map((e: any, idx: number) => {
+              const prevSession = historyIndex.get(normalizeExerciseKey(e.name));
+              const lastSets = prevSession?.sets || null;
+              const lastValidSet = lastSets && lastSets.length > 0 ? lastSets[lastSets.length - 1] : null;
+              const defaultTargetReps = parseInt(String(e.targetReps || '8-12').split(/[-–—]/)[0], 10) || 8;
+
+              return {
+                _idx: idx,
+                exerciseId: e.id,
+                name: e.name,
+                targetSets: e.targetSets || 3,
+                targetReps: e.targetReps || '8-12',
+                muscle: e.muscle || 'Mixed',
+                videoId: e.videoId || '',
+                restTimeSecs: e.restTimeSecs || 90,
+                lastSessionSets: lastSets ?? undefined,
+                setsLog: Array.from({ length: e.targetSets || 3 }, (_, i) => {
+                  const lastSet = lastSets?.[i] || lastValidSet;
+                  const setWeight = (lastSet?.weight != null && Number(lastSet.weight) > 0) ? Number(lastSet.weight) : null;
+                  return {
+                    setNumber: i + 1,
+                    reps: lastSet?.reps ? Number(lastSet.reps) : defaultTargetReps,
+                    weight: setWeight,
+                    completed: false,
+                  };
+                }),
+              };
+            })
+          : [];
+        base = {
+          userId: user?.uid || 'local_user',
+          id: user?.uid ? `${user.uid}_${dateStr}` : undefined,
+          date: dateStr,
+          dayPlanIndex: planIdx,
+          exercises: initialExercises,
+          cardio: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
       }
-      const exercises = prev.exercises.map((ex, i) =>
-        i === exerciseIndex ? { ...updatedExercise, _idx: i } : ex
+
+      let targetIdx = exerciseIndex;
+      if (targetIdx < 0 || targetIdx >= base.exercises.length) {
+        targetIdx = base.exercises.findIndex(e =>
+          (e.exerciseId && updatedExercise.exerciseId && e.exerciseId === updatedExercise.exerciseId) ||
+          (e._idx !== undefined && updatedExercise._idx !== undefined && e._idx === updatedExercise._idx) ||
+          e.name === updatedExercise.name
+        );
+      }
+      if (targetIdx < 0 || targetIdx >= base.exercises.length) {
+        targetIdx = 0;
+      }
+
+      const exercises = base.exercises.map((ex, i) =>
+        i === targetIdx ? { ...updatedExercise, _idx: i } : ex
       );
-      const updated = { ...prev, exercises, updatedAt: Date.now() };
+      const updated = {
+        ...base,
+        id: base.id || (user?.uid ? `${user.uid}_${dateStr}` : undefined),
+        exercises,
+        updatedAt: Date.now(),
+      };
+      recordExerciseToLedger(updatedExercise.name, updatedExercise.setsLog, dateStr);
       saveLog(updated);
       return updated;
     });
-  }, [saveLog]);
+  }, [saveLog, planDay, userGymPlan, planIdx, user, dateStr]);
 
   const logSetAndStartTimer = useCallback(async (
     exerciseIndex: number,
@@ -809,46 +1052,82 @@ export function useGymLog(dateStr: string) {
     durationSecs: number,
     exerciseName?: string
   ) => {
-    awardXP('GYM_SET').catch(() => {});
+    InteractionManager.runAfterInteractions(() => {
+      awardXP('GYM_SET').catch(() => {});
+    });
     setLog(prev => {
       if (!prev) return prev;
+      let targetIdx = exerciseIndex;
+      if (targetIdx < 0 || targetIdx >= prev.exercises.length) {
+        targetIdx = prev.exercises.findIndex(e =>
+          (e.exerciseId && updatedExercise.exerciseId && e.exerciseId === updatedExercise.exerciseId) ||
+          (e._idx !== undefined && updatedExercise._idx !== undefined && e._idx === updatedExercise._idx) ||
+          e.name === updatedExercise.name
+        );
+      }
+      if (targetIdx < 0 || targetIdx >= prev.exercises.length) {
+        targetIdx = 0;
+      }
       const exercises = prev.exercises.map((ex, i) =>
-        i === exerciseIndex ? { ...updatedExercise, _idx: i } : ex
+        i === targetIdx ? { ...updatedExercise, _idx: i } : ex
       );
+      const isAutoTimerOn = isAutoTimerEnabledSync();
+      const shouldStartTimer = isAutoTimerOn && durationSecs > 0;
+
+      if (shouldStartTimer) {
+        setRestTimerState({
+          startTime: Date.now(),
+          durationSecs,
+          exerciseName,
+        });
+      }
+
       const updated = {
         ...prev,
         exercises,
-        restTimerStartTime: Date.now(),
-        restTimerDurationSecs: durationSecs,
-        restTimerExerciseName: exerciseName,
-        updatedAt: Date.now(),
+        updatedAt: getMonotonicTimestamp(prev?.updatedAt),
       };
       saveLog(updated);
+      recordExerciseToLedger(updatedExercise.name, updatedExercise.setsLog, dateStr);
       return updated;
     });
 
-    // Schedule notification in the background without blocking the UI frame
-    InteractionManager.runAfterInteractions(async () => {
-      if (currentRestTimerNotifId) {
-        await Notifications.cancelScheduledNotificationAsync(currentRestTimerNotifId).catch(() => {});
-        currentRestTimerNotifId = null;
-      }
-      if (durationSecs > 0) {
-        try {
-          currentRestTimerNotifId = await Notifications.scheduleNotificationAsync({
-            content: {
-              title: 'Rest Timer Complete ⏱️',
-              body: exerciseName ? `Time for your next set of ${exerciseName}!` : 'Time for your next set!',
-              sound: true,
-            },
-            trigger: {
-              type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-              seconds: Math.max(1, Math.round(durationSecs)),
-            },
-          });
-        } catch {}
-      }
-    });
+    // Schedule notification in the background without blocking the UI frame (debounced 400ms for rapid checkmarks)
+    if (notifScheduleTimer) {
+      clearTimeout(notifScheduleTimer);
+      notifScheduleTimer = null;
+    }
+    notifScheduleTimer = setTimeout(() => {
+      InteractionManager.runAfterInteractions(async () => {
+        if (currentRestTimerNotifId) {
+          await Notifications.cancelScheduledNotificationAsync(currentRestTimerNotifId).catch(() => {});
+          currentRestTimerNotifId = null;
+        }
+        const isAutoTimerOn = isAutoTimerEnabledSync();
+        if (isAutoTimerOn && durationSecs > 0) {
+          try {
+            currentRestTimerNotifId = await Notifications.scheduleNotificationAsync({
+              identifier: `rest_timer_${Date.now()}`,
+              content: {
+                title: 'Rest Timer Complete ⏱️',
+                body: exerciseName ? `Time for your next set of ${exerciseName}!` : 'Time for your next set!',
+                sound: 'default',
+                priority: Notifications.AndroidNotificationPriority.MAX,
+                categoryIdentifier: 'active_rest_timer',
+                data: { type: 'active_rest_timer', exerciseName },
+              },
+              trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+                seconds: Math.max(1, Math.round(durationSecs)),
+                channelId: 'active_workout',
+              },
+            });
+          } catch (err) {
+            console.warn('[useGymLog] Failed to schedule rest timer notification:', err);
+          }
+        }
+      });
+    }, 400);
   }, [saveLog]);
 
   const swapExercise = useCallback((exerciseIndex: number, newName: string, newVideoId?: string, newMuscle?: string) => {
@@ -890,8 +1169,11 @@ export function useGymLog(dateStr: string) {
 
     let changed = false;
     const basePlan = userGymPlan.templateId === 'arnold' ? GYM_PLAN_ARNOLD : GYM_PLAN;
+    // Scope swap to active routine day so substituting on Monday does not overwrite Friday
+    const targetDays = basePlan.filter(d => d.dayIndex === planIdx);
+    const daysToProcess = targetDays.length > 0 ? targetDays : basePlan;
 
-    basePlan.forEach(day => {
+    daysToProcess.forEach(day => {
       const dayIndex = day.dayIndex;
       const targetDay = currentCustomDays[dayIndex] ? { ...currentCustomDays[dayIndex] } : { ...day };
       if (targetDay.exercises) {
@@ -923,15 +1205,25 @@ export function useGymLog(dateStr: string) {
       await updateFullMasterPlan(currentCustomDays);
       // Redundant safeWrite removed: updateFullMasterPlan already persists to Firestore!
     }
-  }, [user, userGymPlan, updateFullMasterPlan]);
+  }, [user, userGymPlan, updateFullMasterPlan, planIdx]);
 
   const startWorkout = useCallback(() => {
-    setLog(prev => {
-      let base = prev;
-      if (!base) {
-        const basePlanDay = planDay || resolvePlanDay(userGymPlan, planIdx);
-        const initialExercises = (basePlanDay && !basePlanDay.isRest && Array.isArray(basePlanDay.exercises))
-          ? basePlanDay.exercises.map((e: any, idx: number) => ({
+    // GUARD: Never re-start an already-active or completed workout.
+    // Any accidental second call (e.g., from navigation effects) would otherwise
+    // stamp a fresh workoutStartTime, silently resetting the running timer to 0.
+    if (logRef.current?.workoutStartTime || logRef.current?.completed) return;
+
+    let base = logRef.current;
+    if (!base) {
+      const basePlanDay = planDay || resolvePlanDay(userGymPlan, planIdx);
+      const initialExercises = (basePlanDay && !basePlanDay.isRest && Array.isArray(basePlanDay.exercises))
+        ? basePlanDay.exercises.map((e: any, idx: number) => {
+            const prevSession = historyIndex.get(normalizeExerciseKey(e.name));
+            const lastSets = prevSession?.sets || null;
+            const lastValidSet = lastSets && lastSets.length > 0 ? lastSets[lastSets.length - 1] : null;
+            const defaultTargetReps = parseInt(String(e.targetReps || '8-12').split(/[-–—]/)[0], 10) || 8;
+
+            return {
               _idx: idx,
               exerciseId: e.id,
               name: e.name,
@@ -940,53 +1232,62 @@ export function useGymLog(dateStr: string) {
               muscle: e.muscle || 'Mixed',
               videoId: e.videoId || '',
               restTimeSecs: e.restTimeSecs || 90,
-              setsLog: Array.from({ length: e.targetSets || 3 }, (_, i) => ({
-                setNumber: i + 1,
-                reps: 10,
-                weight: null,
-                completed: false,
-              })),
-            }))
-          : [];
-        base = {
-          userId: user?.uid || 'local_user',
-          date: dateStr,
-          dayPlanIndex: planIdx,
-          exercises: initialExercises,
-          cardio: [],
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-      }
-
-      const updated: GymDayLog = {
-        ...base,
-        completed: false,
-        workoutDurationMinutes: undefined,
-        workoutStartTime: Date.now(),
+              lastSessionSets: lastSets ?? undefined,
+              setsLog: Array.from({ length: e.targetSets || 3 }, (_, i) => {
+                const lastSet = lastSets?.[i] || lastValidSet;
+                const setWeight = (lastSet?.weight != null && Number(lastSet.weight) > 0) ? Number(lastSet.weight) : null;
+                return {
+                  setNumber: i + 1,
+                  reps: lastSet?.reps ? Number(lastSet.reps) : defaultTargetReps,
+                  weight: setWeight,
+                  completed: false,
+                };
+              }),
+            };
+          })
+        : [];
+      base = {
+        userId: user?.uid || 'local_user',
+        id: user?.uid ? `${user.uid}_${dateStr}` : undefined,
+        date: dateStr,
+        dayPlanIndex: planIdx,
+        exercises: initialExercises,
+        cardio: [],
+        createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      saveLog(updated);
+    }
 
-      // PERF FIX: Tell BackgroundNotificationWatcher to block scheduleAllNotifications()
-      // for the duration of this workout. Without this, every set completion triggers a
-      // full notification reschedule (cancel all + schedule 50+ alarms) in the background.
-      setActiveWorkoutFlag(true);
+    const updated: GymDayLog = {
+      ...base,
+      id: base.id || (user?.uid ? `${user.uid}_${dateStr}` : undefined),
+      completed: false,
+      workoutDurationMinutes: undefined,
+      workoutStartTime: Date.now(),
+      updatedAt: Date.now(),
+    };
+    logRef.current = updated;
+    setLog(updated);
+    saveLog(updated);
 
+    // PERF FIX: Tell BackgroundNotificationWatcher to block scheduleAllNotifications()
+    // for the duration of this workout. Without this, every set completion triggers a
+    // full notification reschedule (cancel all + schedule 50+ alarms) in the background.
+    setActiveWorkoutFlag(true);
+
+    InteractionManager.runAfterInteractions(() => {
       try {
-        const today = todayStr();
+        const sessionDate = dateStr;
         const widgetData = buildLiveWorkoutWidgetData({
-          todayStr: today,
-          gymLogs: [updated, ...(gymLogsRef.current || []).filter(l => l.date !== today)],
+          todayStr: sessionDate,
+          gymLogs: [updated, ...(gymLogsRef.current || []).filter(l => l.date !== sessionDate)],
           userGymPlan,
         });
         saveCachedLiveWorkoutData(widgetData).catch(() => {});
         updateLiveWorkoutWidget(widgetData).catch(() => {});
       } catch {}
-
-      return updated;
     });
-  }, [saveLog, userGymPlan]);
+  }, [saveLog, userGymPlan, dateStr, planDay, planIdx, historyIndex, user]);
 
   const endWorkout = useCallback(async (_force?: boolean) => {
     awardXP('GYM_SESSION').catch(() => {});
@@ -1035,17 +1336,19 @@ export function useGymLog(dateStr: string) {
     // 3. Synchronously trigger saveLog (which runs immediate optimistic update & immediate Firestore write)
     saveLog(updated);
 
-    // 4. Update widget data
-    try {
-      const today = todayStr();
-      const widgetData = buildLiveWorkoutWidgetData({
-        todayStr: today,
-        gymLogs: [updated, ...(gymLogsRef.current || []).filter(l => l.date !== today)],
-        userGymPlan,
-      });
-      saveCachedLiveWorkoutData(widgetData).catch(() => {});
-      updateLiveWorkoutWidget(widgetData).catch(() => {});
-    } catch {}
+    // 4. Update widget data deferred after animations
+    InteractionManager.runAfterInteractions(() => {
+      try {
+        const sessionDate = targetDate;
+        const widgetData = buildLiveWorkoutWidgetData({
+          todayStr: sessionDate,
+          gymLogs: [updated, ...(gymLogsRef.current || []).filter(l => l.date !== sessionDate)],
+          userGymPlan,
+        });
+        saveCachedLiveWorkoutData(widgetData).catch(() => {});
+        updateLiveWorkoutWidget(widgetData).catch(() => {});
+      } catch {}
+    });
 
     // 5. Clean up notifications & local session caches
     if (currentRestTimerNotifId) {
@@ -1053,10 +1356,11 @@ export function useGymLog(dateStr: string) {
       currentRestTimerNotifId = null;
     }
 
-    const today = todayStr();
+    const sessionDate = targetDate;
     AsyncStorage.removeItem('@zentrack_active_workout_state').catch(() => {});
-    AsyncStorage.setItem(`@gym_active_session_${today}`, JSON.stringify({
-      date: today,
+    AsyncStorage.removeItem(`@gym_active_session_${sessionDate}`).catch(() => {});
+    AsyncStorage.setItem('@gym_last_completed_session', JSON.stringify({
+      date: sessionDate,
       completed: true,
       updatedAt: Date.now(),
     })).catch(() => {});
@@ -1069,19 +1373,19 @@ export function useGymLog(dateStr: string) {
   }, [user, dateStr, planIdx, saveLog, userGymPlan]);
 
   const resumeWorkout = useCallback(() => {
-    setLog(prev => {
-      if (!prev) return prev;
-      const pastDurationMs = (prev.workoutDurationMinutes || 0) * 60000;
-      const updated: GymDayLog = {
-        ...prev,
-        completed: false,
-        workoutStartTime: prev.workoutStartTime || (Date.now() - pastDurationMs),
-        workoutDurationMinutes: undefined,
-        updatedAt: Date.now(),
-      };
-      saveLog(updated);
-      return updated;
-    });
+    const prev = logRef.current;
+    if (!prev) return;
+    const pastDurationMs = (prev.workoutDurationMinutes || 0) * 60000;
+    const updated: GymDayLog = {
+      ...prev,
+      completed: false,
+      workoutStartTime: prev.workoutStartTime || (Date.now() - pastDurationMs),
+      workoutDurationMinutes: undefined,
+      updatedAt: Date.now(),
+    };
+    logRef.current = updated;
+    setLog(updated);
+    saveLog(updated);
   }, [saveLog]);
 
   const revertWorkout = useCallback(() => {
@@ -1102,10 +1406,10 @@ export function useGymLog(dateStr: string) {
       saveLog(updated);
 
       try {
-        const today = todayStr();
+        const sessionDate = dateStr;
         const widgetData = buildLiveWorkoutWidgetData({
-          todayStr: today,
-          gymLogs: [updated, ...(gymLogsRef.current || []).filter(l => l.date !== today)],
+          todayStr: sessionDate,
+          gymLogs: [updated, ...(gymLogsRef.current || []).filter(l => l.date !== sessionDate)],
           userGymPlan,
         });
         saveCachedLiveWorkoutData(widgetData).catch(() => {});
@@ -1120,24 +1424,18 @@ export function useGymLog(dateStr: string) {
       currentRestTimerNotifId = null;
     }
 
-    const today = todayStr();
+    const sessionDate = dateStr;
     AsyncStorage.removeItem('@zentrack_active_workout_state').catch(() => {});
-    AsyncStorage.removeItem(`@gym_active_session_${today}`).catch(() => {});
+    AsyncStorage.removeItem('@gym_last_completed_session').catch(() => {});
+    AsyncStorage.removeItem(`@gym_active_session_${sessionDate}`).catch(() => {});
     dismissActiveWorkoutNotification().catch(() => {});
-  }, [saveLog, userGymPlan]);
+  }, [saveLog, userGymPlan, dateStr]);
 
   const startRestTimer = useCallback(async (durationSecs: number, exerciseName?: string) => {
-    setLog(prev => {
-      if (!prev) return prev;
-      const updated = {
-        ...prev,
-        restTimerStartTime: Date.now(),
-        restTimerDurationSecs: durationSecs,
-        restTimerExerciseName: exerciseName,
-        updatedAt: Date.now()
-      };
-      saveLog(updated);
-      return updated;
+    setRestTimerState({
+      startTime: Date.now(),
+      durationSecs,
+      exerciseName,
     });
 
     if (currentRestTimerNotifId) {
@@ -1147,39 +1445,35 @@ export function useGymLog(dateStr: string) {
     if (durationSecs > 0) {
       try {
         currentRestTimerNotifId = await Notifications.scheduleNotificationAsync({
+          identifier: `rest_timer_${Date.now()}`,
           content: {
             title: 'Rest Timer Complete ⏱️',
             body: exerciseName ? `Time for your next set of ${exerciseName}!` : 'Time for your next set!',
-            sound: true,
+            sound: 'default',
+            priority: Notifications.AndroidNotificationPriority.MAX,
+            categoryIdentifier: 'active_rest_timer',
+            data: { type: 'active_rest_timer', exerciseName },
           },
           trigger: {
             type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
             seconds: Math.max(1, Math.round(durationSecs)),
+            channelId: 'active_workout',
           },
         });
-      } catch {}
+      } catch (err) {
+        console.warn('[useGymLog] Failed to schedule manual rest timer notification:', err);
+      }
     }
-  }, [saveLog]);
+  }, []);
 
   const clearRestTimer = useCallback(async () => {
-    setLog(prev => {
-      if (!prev) return prev;
-      const updated = {
-        ...prev,
-        restTimerStartTime: undefined,
-        restTimerDurationSecs: undefined,
-        restTimerExerciseName: undefined,
-        updatedAt: Date.now()
-      };
-      saveLog(updated);
-      return updated;
-    });
+    setRestTimerState({});
 
     if (currentRestTimerNotifId) {
       await Notifications.cancelScheduledNotificationAsync(currentRestTimerNotifId).catch(() => {});
       currentRestTimerNotifId = null;
     }
-  }, [saveLog]);
+  }, []);
 
   // Takes an ABSOLUTE duration in seconds (not a delta).
   // ActiveLoggingScreen already computes the absolute value (restTimerInitial ± 30)
@@ -1187,20 +1481,16 @@ export function useGymLog(dateStr: string) {
   const setRestTimerDuration = useCallback(async (absoluteSecs: number) => {
     const newDuration = Math.max(0, absoluteSecs);
 
-    // Update local state and debounce Firestore log write to prevent snapshot overwriting
-    setLog(prev => {
-      if (!prev) return prev;
-      const updated = { ...prev, restTimerDurationSecs: newDuration, updatedAt: Date.now() };
-      logRef.current = updated;
-      saveLog(updated);
-      return updated;
-    });
+    setRestTimerState(prev => ({
+      ...prev,
+      durationSecs: newDuration,
+    }));
 
     if (currentRestTimerNotifId) {
       await Notifications.cancelScheduledNotificationAsync(currentRestTimerNotifId).catch(() => {});
       currentRestTimerNotifId = null;
     }
-  }, [saveLog]);
+  }, []);
 
   const swapDayRoutine = useCallback((targetDayIndex: number) => {
     const targetPlanDay = getCustomPlanDay(userGymPlan?.customDays, targetDayIndex) || GYM_PLAN.find(d => d.dayIndex === targetDayIndex);
@@ -1370,9 +1660,9 @@ export function useGymLog(dateStr: string) {
     startRestTimer,
     clearRestTimer,
     setRestTimerDuration,
-    restTimerStartTime: log?.restTimerStartTime,
-    restTimerDurationSecs: log?.restTimerDurationSecs,
-    restTimerInitial: log?.restTimerDurationSecs || 0,
+    restTimerStartTime: restTimerState.startTime ?? log?.restTimerStartTime,
+    restTimerDurationSecs: restTimerState.durationSecs ?? log?.restTimerDurationSecs,
+    restTimerInitial: restTimerState.durationSecs ?? log?.restTimerDurationSecs ?? 0,
     saveLog,
     planDay,
     swapExercise,

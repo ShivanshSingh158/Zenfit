@@ -11,6 +11,7 @@
 
 import { Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { impactAsync, notificationAsync } from '../utils/haptics';
 
 let webAudioCtx: any = null;
 
@@ -204,13 +205,25 @@ async function playNativeSound(uri: string) {
   }
 }
 
+let audioCuesEnabled = true;
+
+export function setAudioCuesEnabledGlobal(enabled: boolean) {
+  audioCuesEnabled = enabled;
+}
+
+export function isAudioCuesEnabledGlobal(): boolean {
+  return audioCuesEnabled;
+}
+
 /**
  * 3... 2... 1... Countdown Tick (880 Hz High-Pitch Pulse + Medium Haptic)
  */
 export function playCountdownTick() {
   try {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   } catch (e) {}
+
+  if (!audioCuesEnabled) return;
 
   if (Platform.OS === 'web') {
     playWebBeep(880, 85);
@@ -224,8 +237,10 @@ export function playCountdownTick() {
  */
 export function playTimerFinishChime() {
   try {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    notificationAsync(Haptics.NotificationFeedbackType.Success);
   } catch (e) {}
+
+  if (!audioCuesEnabled) return;
 
   if (Platform.OS === 'web') {
     playWebBeep(1320, 240);
@@ -239,8 +254,10 @@ export function playTimerFinishChime() {
  */
 export function playSetCompleteTone() {
   try {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    impactAsync(Haptics.ImpactFeedbackStyle.Light);
   } catch (e) {}
+
+  if (!audioCuesEnabled) return;
 
   if (Platform.OS === 'web') {
     playWebBeep(660, 110);

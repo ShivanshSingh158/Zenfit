@@ -3,34 +3,38 @@
  *
  * The WhatsApp Offline Write Pattern:
  *
- *   ONLINE  → call Firestore directly (fast path, instant confirmation via onSnapshot).
+ *   ONLINE  → call Firestore directly (fast path, non-blocking with 8s fallback safety net).
  *   OFFLINE → call queueWrite() to AsyncStorage + apply optimistic UI update immediately.
- *             On reconnect, offlineSync drains the queue in a single atomic batch.
+ *             On reconnect, offlineSync drains the queue in an atomic batch.
  *
- * WHY NOT rely on Firebase built-in persistentLocalCache alone?
- *   Firebase internal queue is invisible to our OfflineIndicator, does NOT survive a
- *   force-kill (process termination clears in-memory queue before it can flush), and
- *   has no retry/backoff visibility. Our AsyncStorage queue solves all three.
- *
- * USAGE:
- *   await safeWrite(
- *     () => updateDoc(doc(db, 'tasks', id), { status: 'completed' }),
- *     COLLECTION.TASKS, 'update', { status: 'completed' }, id
- *   );
+ * PERFORMANCE:
+ *   - Uses zero-cost synchronous network state cache via NetInfo listener (no bridge lag per set).
+ *   - Non-blocking execution prevents holding up the JS event loop while Firestore network RTT settles.
+ *   - Supports alreadySanitized flag to preserve deleteField() field-deletion sentinels.
  */
 
 import NetInfo from '@react-native-community/netinfo';
 import { queueWrite, removeQueuedFallback } from '../services/offlineSync';
-import { deepSanitize } from './firebaseUtils';
+import { deepSanitize, getMonotonicTimestamp } from './firebaseUtils';
+import { touchServerSyncMeta } from './syncMeta';
 
 export type FirestoreOperation = 'add' | 'update' | 'delete' | 'set';
 
+// Zero-cost synchronous network state cache (eliminates bridge lag on every set log)
+let _isOnlineSync = true;
+NetInfo.fetch().then(s => {
+  _isOnlineSync = s.isConnected === true && s.isInternetReachable !== false;
+}).catch(() => {});
+NetInfo.addEventListener(s => {
+  _isOnlineSync = s.isConnected === true && s.isInternetReachable !== false;
+});
+
 /**
  * Executes a Firestore write safely:
- * - Online: calls firestoreFn() directly (fast path)
+ * - Online: calls firestoreFn() directly with fire-and-forget non-blocking dispatch
  * - Offline: enqueues via queueWrite() for reliable AsyncStorage-backed deferred sync
  *
- * @returns true if online write succeeded, false if queued offline
+ * @returns true if dispatched online, false if queued offline
  */
 export async function safeWrite(
   firestoreFn: (sanitizedPayload?: any) => Promise<any>,
@@ -38,68 +42,56 @@ export async function safeWrite(
   operation: FirestoreOperation,
   data: any,
   docId?: string,
+  alreadySanitized = false,
 ): Promise<boolean> {
-  const now = Date.now();
+  const now = getMonotonicTimestamp(data?.updatedAt || 0);
   const rawPayload = data && typeof data === 'object' ? { ...data } : data;
   if (rawPayload && typeof rawPayload === 'object' && operation !== 'delete') {
     if (!rawPayload.updatedAt) rawPayload.updatedAt = now;
     rawPayload.clientUpdatedAt = now;
   }
-  const payload = rawPayload && typeof rawPayload === 'object' ? deepSanitize(rawPayload) : rawPayload;
+  const payload = (!alreadySanitized && rawPayload && typeof rawPayload === 'object')
+    ? deepSanitize(rawPayload)
+    : rawPayload;
 
-  try {
-    const state = await NetInfo.fetch();
-    const isOnline = state.isConnected === true && state.isInternetReachable !== false;
-
-    if (isOnline) {
-      let timedOut = false;
-      let timer: ReturnType<typeof setTimeout>;
-
-      const onlinePromise = Promise.resolve(firestoreFn(payload));
-
-      // If it times out at 3.5s, we queue a fallback.
-      // If onlinePromise later succeeds in the background, we cancel/remove the queued fallback!
-      onlinePromise
-        .then(async () => {
-          if (timedOut) {
-            await removeQueuedFallback(collectionName, operation, docId);
-          }
-        })
-        .catch(() => {});
-
-      try {
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timer = setTimeout(() => {
-            timedOut = true;
-            reject(new Error('Firestore write timed out (3500ms)'));
-          }, 3500);
-        });
-
-        await Promise.race([
-          onlinePromise.finally(() => clearTimeout(timer)),
-          timeoutPromise,
-        ]);
-        return true;
-      } catch (onlineErr: any) {
-        // Transient network blip or socket hang even though NetInfo said online — queue as safety net
-        console.warn(
-          `[safeWrite] Online write failed or timed out for ${collectionName}/${docId ?? 'new'}, queueing fallback:`,
-          onlineErr?.message,
-        );
-      }
-    }
-
-    // Offline path (or online write failed): enqueue to AsyncStorage
-    await queueWrite(collectionName, operation, payload, docId);
-    return false;
-  } catch {
-    try {
-      await queueWrite(collectionName, operation, payload, docId);
-    } catch {
-      /* silent */
-    }
+  // Offline fast-path: 0ms check, no bridge round-trip
+  if (!_isOnlineSync) {
+    await queueWrite(collectionName, operation, payload, docId, false);
     return false;
   }
+
+  // Online fast-path: fire-and-forget to Firestore SDK with 8s crash-protection fallback
+  let settled = false;
+  let enqueuedFallback = false;
+
+  const fallbackTimer = setTimeout(() => {
+    if (!settled) {
+      enqueuedFallback = true;
+      queueWrite(collectionName, operation, payload, docId, false).catch(() => {});
+    }
+  }, 8000);
+
+  firestoreFn(payload)
+    .then(() => {
+      settled = true;
+      clearTimeout(fallbackTimer);
+      // If the request took >8s and triggered the fallback queue, remove it now so it doesn't double-write!
+      if (enqueuedFallback) {
+        removeQueuedFallback(collectionName, operation, docId).catch(() => {});
+      }
+      touchServerSyncMeta();
+    })
+    .catch((err) => {
+      settled = true;
+      clearTimeout(fallbackTimer);
+      if (!enqueuedFallback) {
+        console.warn(`[safeWrite] Online write failed for ${collectionName}/${docId ?? 'new'}, queueing fallback:`, err?.message);
+        queueWrite(collectionName, operation, payload, docId, false).catch(() => {});
+      }
+    });
+
+  // Return immediately so callers NEVER block the JS thread waiting on network RTT!
+  return true;
 }
 
 /** Convenience: UPDATE */
@@ -108,8 +100,9 @@ export async function safeUpdate(
   collectionName: string,
   data: Record<string, any>,
   firestoreFn: (sanitizedPayload?: any) => Promise<any>,
+  alreadySanitized = false,
 ): Promise<boolean> {
-  return safeWrite(firestoreFn, collectionName, 'update', data, docId);
+  return safeWrite(firestoreFn, collectionName, 'update', data, docId, alreadySanitized);
 }
 
 /** Convenience: ADD (supports optional deterministic docId to prevent duplicate creation on drain) */
@@ -118,8 +111,9 @@ export async function safeAdd(
   data: Record<string, any>,
   firestoreFn: (sanitizedPayload?: any) => Promise<any>,
   docId?: string,
+  alreadySanitized = false,
 ): Promise<boolean> {
-  return safeWrite(firestoreFn, collectionName, 'add', data, docId);
+  return safeWrite(firestoreFn, collectionName, 'add', data, docId, alreadySanitized);
 }
 
 /** Convenience: DELETE */
@@ -130,4 +124,3 @@ export async function safeDelete(
 ): Promise<boolean> {
   return safeWrite(firestoreFn, collectionName, 'delete', null, docId);
 }
-

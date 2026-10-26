@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, useWindowDimensions, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, useWindowDimensions, ScrollView, InteractionManager } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -16,7 +16,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { GymNavigationParamList } from '../../types/gym.types';
-import { calculateExerciseMaxWeight, formatIndianDatePretty, normalizeExerciseKey } from '../../utils/gymUtils';
+import { calculateExerciseMaxWeight, formatIndianDatePretty, normalizeExerciseKey, getVolumeMultiplier } from '../../utils/gymUtils';
 import { dateStrOffset, todayStr } from '../../hooks/useGymLog';
 import { springs } from '../../theme/motion';
 import { feedback } from '../../utils/haptics';
@@ -40,73 +40,72 @@ export default function WorkoutSummaryScreen() {
   const targetDate = route.params?.date;
   const { gymLogs } = useWellnessData();
 
-  const [newPR, setNewPR] = useState<{ name: string; weight: number } | null | undefined>(undefined);
   const [showConfetti, setShowConfetti] = useState(true);
   const [showAllExercises, setShowAllExercises] = useState(false);
+  const [isTransitionComplete, setIsTransitionComplete] = useState(false);
   const hasAwardedPrRef = useRef(false);
 
   useEffect(() => {
-    if (readOnly) { setNewPR(null); return; }
-    const timer = setTimeout(() => {
-      if (!gymLogs || gymLogs.length === 0) { setNewPR(null); return; }
+    const task = InteractionManager.runAfterInteractions(() => {
+      setIsTransitionComplete(true);
+    });
+    return () => task.cancel();
+  }, []);
 
-      let logDate = targetDate;
-      if (!logDate) {
-        const sortedLogs = [...gymLogs].sort((a, b) => b.date.localeCompare(a.date));
-        logDate = sortedLogs[0]?.date;
-      }
-      if (!logDate) { setNewPR(null); return; }
+  // Pre-find the target log once so gymLogs is only searched / sorted a single time
+  const targetLog = useMemo(() => {
+    if (!gymLogs || gymLogs.length === 0) return null;
+    let logDate = targetDate;
+    if (!logDate) {
+      const sortedLogs = [...gymLogs].sort((a, b) => b.date.localeCompare(a.date));
+      logDate = sortedLogs[0]?.date;
+    }
+    if (!logDate) return null;
+    return gymLogs.find(l => l.date === logDate) || null;
+  }, [gymLogs, targetDate]);
 
-      const todayLog = gymLogs.find(l => l.date === logDate);
-      if (!todayLog?.exercises) { setNewPR(null); return; }
+  const detectedPR = useMemo(() => {
+    if (readOnly || !targetLog?.exercises || !gymLogs || gymLogs.length === 0) return null;
+    const logDate = targetLog.date;
+    const pastLogs = gymLogs.filter(l => l.date < logDate);
 
-      const pastLogs = gymLogs.filter(l => l.date < logDate!);
-
-      // O(N×K) pre-indexed Map keyed strictly by normalized exercise name
-      const pastMaxByKey = new Map<string, number>();
-      for (const pl of pastLogs) {
-        for (const ex of (pl.exercises || [])) {
-          const key = normalizeExerciseKey(ex.name);
-          if (!key) continue;
-          const m = calculateExerciseMaxWeight(ex as any);
-          if (m > (pastMaxByKey.get(key) || 0)) pastMaxByKey.set(key, m);
-        }
-      }
-
-      let found: { name: string; weight: number } | null = null;
-      for (const ex of todayLog.exercises) {
-        if (!ex.setsLog) continue;
-        const todayMax = calculateExerciseMaxWeight(ex as any);
-        if (todayMax === 0) continue;
+    // O(N×K) pre-indexed Map keyed strictly by normalized exercise name
+    const pastMaxByKey = new Map<string, number>();
+    for (const pl of pastLogs) {
+      for (const ex of (pl.exercises || [])) {
         const key = normalizeExerciseKey(ex.name);
         if (!key) continue;
-        const pastMax = pastMaxByKey.get(key) || 0;
-        // Require pastMax > 0 so first-time exercises never trigger false PR
-        if (pastMax > 0 && todayMax > pastMax) {
-          found = { name: ex.name, weight: todayMax };
-          break;
-        }
+        const m = calculateExerciseMaxWeight(ex as any);
+        if (m > (pastMaxByKey.get(key) || 0)) pastMaxByKey.set(key, m);
       }
-      if (found && !hasAwardedPrRef.current) {
-        hasAwardedPrRef.current = true;
-        awardXP('GYM_PR').catch(() => {});
-      }
-      setNewPR(found);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [gymLogs, targetDate, readOnly]);
+    }
 
+    let found: { name: string; weight: number } | null = null;
+    for (const ex of targetLog.exercises) {
+      if (!ex.setsLog) continue;
+      const todayMax = calculateExerciseMaxWeight(ex as any);
+      if (todayMax === 0) continue;
+      const key = normalizeExerciseKey(ex.name);
+      if (!key) continue;
+      const pastMax = pastMaxByKey.get(key) || 0;
+      // Require pastMax > 0 so first-time exercises never trigger false PR
+      if (pastMax > 0 && todayMax > pastMax) {
+        found = { name: ex.name, weight: todayMax };
+        break;
+      }
+    }
+    return found;
+  }, [gymLogs, targetLog, readOnly]);
+
+  const newPR = detectedPR;
   const isPR = !!newPR;
 
-  // Pre-find the target log in its own memo so sessionData deps on [targetLog] (stable
-  // once found), not on full [gymLogs] which changes on every unrelated workout update.
-  const targetLog = useMemo(() => {
-    let logDate = targetDate;
-    if (!logDate && gymLogs && gymLogs.length > 0) {
-      logDate = [...gymLogs].sort((a, b) => b.date.localeCompare(a.date))[0]?.date;
+  useEffect(() => {
+    if (detectedPR && !hasAwardedPrRef.current) {
+      hasAwardedPrRef.current = true;
+      awardXP('GYM_PR').catch(() => {});
     }
-    return gymLogs?.find(l => l.date === logDate) || null;
-  }, [gymLogs, targetDate]);
+  }, [detectedPR]);
 
   const sessionData = useMemo(() => {
     const todayLog = targetLog;
@@ -121,6 +120,7 @@ export default function WorkoutSummaryScreen() {
       let exSets = 0;
       let exMaxWeight = 0;
       let exTotalReps = 0;
+      const mult = getVolumeMultiplier(ex.name);
 
       ex.setsLog?.forEach((set: any) => {
         const w = (set?.weight !== null && set?.weight !== undefined && !isNaN(Number(set.weight))) ? Number(set.weight) : (set?.weightKg ? Number(set.weightKg) : 0);
@@ -128,7 +128,7 @@ export default function WorkoutSummaryScreen() {
         if (set.completed === true) {
           exSets++;
           if (w > 0 && r > 0) {
-            totalVolume += w * r;
+            totalVolume += w * r * mult;
             if (w > exMaxWeight) exMaxWeight = w;
             exTotalReps += r;
           } else if (r > 0) {
@@ -225,8 +225,8 @@ export default function WorkoutSummaryScreen() {
           });
           const value = selectedMetric === '1RM' ? max1RM : totalVolume;
           if (value > 0) {
-            const dateObj = new Date(log.date);
-            const formattedDate = `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
+            const parts = (log.date || '').split('-');
+            const formattedDate = parts.length === 3 ? `${Number(parts[1])}/${Number(parts[2])}` : log.date;
             labels.push(formattedDate);
             dataPoints.push(Math.round(value));
           }
@@ -243,10 +243,17 @@ export default function WorkoutSummaryScreen() {
   }, [gymLogs, selectedLift, selectedMetric, isDark]);
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
       <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.background} />
-      {!readOnly && isPR && showConfetti && (
-        <ConfettiCannon count={80} origin={{ x: screenWidth / 2, y: -10 }} autoStart={true} fallSpeed={2500} fadeOut={true} onAnimationEnd={() => setShowConfetti(false)} />
+      {!readOnly && isPR && showConfetti && isTransitionComplete && (
+        <ConfettiCannon
+          count={45}
+          origin={{ x: screenWidth / 2, y: -10 }}
+          autoStart={true}
+          fallSpeed={2500}
+          fadeOut={true}
+          onAnimationEnd={() => setShowConfetti(false)}
+        />
       )}
 
       {readOnly && (
@@ -259,7 +266,7 @@ export default function WorkoutSummaryScreen() {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={[styles.content, { paddingBottom: 160 }]}
+        contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
         {/* Hero Section */}
@@ -348,18 +355,22 @@ export default function WorkoutSummaryScreen() {
           </View>
         )}
 
-        {/* 90-Day Progression Chart Component */}
-        <WorkoutSummaryProgressionChart
-          availableLifts={availableLifts}
-          selectedLift={selectedLift}
-          setSelectedLift={setSelectedLift}
-          selectedMetric={selectedMetric}
-          setSelectedMetric={setSelectedMetric}
-          chartData={chartData}
-          streakStyle={streakStyle}
-          styles={styles}
-          isDark={isDark}
-        />
+        {/* 90-Day Progression Chart Component (Deferred until transition completes for 120fps entry) */}
+        {isTransitionComplete ? (
+          <WorkoutSummaryProgressionChart
+            availableLifts={availableLifts}
+            selectedLift={selectedLift}
+            setSelectedLift={setSelectedLift}
+            selectedMetric={selectedMetric}
+            setSelectedMetric={setSelectedMetric}
+            chartData={chartData}
+            streakStyle={streakStyle}
+            styles={styles}
+            isDark={isDark}
+          />
+        ) : (
+          <View style={[styles.progressionCard, { height: 160, opacity: 0.3 }]} />
+        )}
 
         {/* Session Notes */}
         {sessionData.notes ? (
@@ -371,7 +382,7 @@ export default function WorkoutSummaryScreen() {
       </ScrollView>
 
       {!readOnly && (
-        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom + 70, 85) }]}>
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom + 8, 16) }]}>
           <TouchableOpacity
             style={styles.doneBtn}
             activeOpacity={0.85}

@@ -1,14 +1,12 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import type { RenderItemParams } from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, FONT_FAMILY } from '../../theme/tokens';
+import { IOS_DARK, FONT_FAMILY } from '../../theme/tokens';
 import { hapticLight, hapticMedium } from '../../utils/haptics';
 
 export interface GymExerciseDraggableRowProps {
   itemParams: RenderItemParams<any>;
-  // Stable individual log fields — avoid passing full log object so React.memo
-  // can bail out when unrelated log data (notes, timer, water) changes.
   logCompleted: boolean;
   logWorkoutStartTime: number | null;
   logExercises?: any[];
@@ -18,19 +16,16 @@ export interface GymExerciseDraggableRowProps {
   onResumeWorkout: (originalIndex?: number) => void;
   onShowHistory: (ex: { id: string; name: string }) => void;
   onShowMenu: (ex: any) => void;
+  onToggleComplete?: (ex: any, originalIndex: number) => void;
 }
 
 export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = React.memo(({
   itemParams,
-  logCompleted,
-  logWorkoutStartTime,
   logExercises,
   s,
-  selectedDate,
-  navigation,
   onResumeWorkout,
-  onShowHistory,
   onShowMenu,
+  onToggleComplete,
 }) => {
   const { item: ex, drag, isActive } = itemParams;
   const setsLog = ex.setsLog || [];
@@ -43,45 +38,28 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
     const avgReps = Math.round(completedSets.reduce((sum: number, s: any) => sum + (Number(s.reps) || 0), 0) / completedSets.length) || 0;
     const weights = completedSets.map((s: any) => Number(s.weight ?? s.weightKg) || 0);
     const maxWeight = weights.length > 0 ? Math.max(0, ...weights) : 0;
-    subText = `${completedSets.length}/${totalSets} sets, ~${avgReps} reps ${maxWeight > 0 ? `@ ${maxWeight}kg` : ''}`;
+    subText = `${completedSets.length}/${totalSets} sets · ~${avgReps} reps${maxWeight > 0 ? ` · Last: ${maxWeight}kg` : ''}`;
   } else {
-    subText = `${totalSets} sets, ${ex.targetReps || '0'} reps`;
+    subText = `${totalSets} sets × ${ex.targetReps || '8-10'} reps`;
   }
 
-  let isPartnerWithPrevious = ex.isPartnerWithPrevious ?? false;
-  if (!isPartnerWithPrevious && ex.supersetGroup && logExercises) {
-    for (let i = ex.originalIndex - 1; i >= 0; i--) {
-      const prev = logExercises[i];
-      if (prev && !prev.skipped) {
-        if (prev.supersetGroup === ex.supersetGroup) {
-          isPartnerWithPrevious = true;
-        }
-        break;
-      }
-    }
-  }
+  const isPartnerWithPrevious = ex.isPartnerWithPrevious ?? (
+    Boolean(ex.supersetGroup && logExercises && logExercises[ex.originalIndex - 1]?.supersetGroup === ex.supersetGroup)
+  );
 
   return (
-    <View>
+    <View style={s.rowWrapper}>
       <TouchableOpacity
         style={[
           s.row,
           ex.supersetGroup && {
-            backgroundColor: 'rgba(255,159,77,0.05)',
-            borderColor: 'rgba(255,159,77,0.25)',
-            borderWidth: 1,
+            backgroundColor: 'rgba(255,159,10,0.06)',
           },
           isActive && {
-            borderColor: '#a599ff',
-            borderWidth: 1.5,
-            backgroundColor: '#272338',
-            shadowColor: '#a599ff',
-            shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.4,
-            shadowRadius: 10,
+            backgroundColor: IOS_DARK.bgElevatedInput,
           },
         ]}
-        activeOpacity={0.8}
+        activeOpacity={0.7}
         onPress={() => {
           if (isActive) return;
           hapticLight();
@@ -89,42 +67,65 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
         }}
         onLongPress={() => {
           hapticMedium();
-          drag();
+          if (drag && typeof drag === 'function') {
+            drag();
+          }
+          if (onShowMenu) {
+            onShowMenu(ex);
+          }
         }}
         delayLongPress={200}
       >
         {isPartnerWithPrevious && (
-          <View style={{
-            position: 'absolute',
-            top: -8,
-            left: 25,
-            width: 2,
-            height: 8,
-            backgroundColor: 'rgba(255,159,77,0.6)',
-            zIndex: -1,
-          }} />
+          <View
+            style={{
+              position: 'absolute',
+              top: -6,
+              left: 25,
+              width: 2,
+              height: 12,
+              backgroundColor: IOS_DARK.orange,
+              zIndex: 1,
+            }}
+          />
         )}
 
-        <View style={[s.checkboxCircle, isDone && s.checkboxCircleDone]}>
-          {isDone && <Ionicons name="checkmark" size={14} color={COLORS.background} />}
-        </View>
+        {/* Circular Checkbox (Apple HIG style) - Now directly tappable */}
+        <TouchableOpacity
+          style={[s.checkboxCircle, isDone && s.checkboxCircleDone]}
+          onPress={(e) => {
+            e.stopPropagation?.();
+            if (onToggleComplete) {
+              onToggleComplete(ex, ex.originalIndex ?? 0);
+            } else {
+              onResumeWorkout(ex.originalIndex);
+            }
+          }}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          activeOpacity={0.7}
+        >
+          {isDone ? (
+            <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+          ) : (
+            <View style={s.checkboxHollow} />
+          )}
+        </TouchableOpacity>
 
+        {/* Exercise Info */}
         <View style={s.rowTextCol}>
           <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, paddingRight: 4 }}>
-            <Text style={[s.rowTitle, isDone && s.textStrikethrough, isActive && { color: '#a599ff', fontWeight: '700' }]}>
+            <Text
+              style={[
+                s.rowTitle,
+                isDone && s.textStrikethrough,
+                isActive && { color: IOS_DARK.accent, fontWeight: '700' },
+              ]}
+            >
               {ex.name}
             </Text>
             {ex.supersetGroup && (
-              <View style={{
-                backgroundColor: 'rgba(255,159,77,0.12)',
-                paddingHorizontal: 8,
-                paddingVertical: 3,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: 'rgba(255,159,77,0.25)',
-                marginBottom: 4,
-              }}>
-                <Text style={{ fontSize: 9, fontFamily: FONT_FAMILY.bold, color: '#ff9f4d', letterSpacing: 0.5 }}>
+              <View style={s.supersetTag}>
+                <Text style={s.supersetTagText}>
                   SUPER-{ex.supersetGroup}
                 </Text>
               </View>
@@ -133,6 +134,7 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
           <Text style={s.rowSubtitle}>{subText}</Text>
         </View>
 
+        {/* Right Action / Chevron */}
         <View style={s.rowActions}>
           <TouchableOpacity
             style={s.actionBtn}
@@ -142,14 +144,13 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
               onShowMenu(ex);
             }}
           >
-            <Ionicons name="ellipsis-horizontal" size={20} color={COLORS.textMuted} />
+            <Ionicons name="ellipsis-horizontal" size={18} color={IOS_DARK.labelSecondary} />
           </TouchableOpacity>
+          <Ionicons name="chevron-forward" size={14} color={IOS_DARK.labelTertiary} style={{ marginLeft: 2 }} />
         </View>
       </TouchableOpacity>
     </View>
   );
-// Custom comparator: only re-render if the item's own sets, the exercise selection,
-// or the critical log fields (completed, workoutStartTime) change.
 }, (prev, next) =>
   prev.itemParams.item === next.itemParams.item &&
   prev.itemParams.isActive === next.itemParams.isActive &&
@@ -160,7 +161,8 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
   prev.selectedDate === next.selectedDate &&
   prev.onResumeWorkout === next.onResumeWorkout &&
   prev.onShowHistory === next.onShowHistory &&
-  prev.onShowMenu === next.onShowMenu
+  prev.onShowMenu === next.onShowMenu &&
+  prev.onToggleComplete === next.onToggleComplete
 );
 
 export default GymExerciseDraggableRow;

@@ -97,7 +97,7 @@ export const WorkoutSummaryProgressionChart: React.FC<WorkoutSummaryProgressionC
         <View style={styles.chartWrapper}>
           <LineChart
             data={chartData}
-            width={screenWidth - 48}
+            width={Math.max(280, screenWidth - 40)}
             height={160}
             withDots={true}
             withInnerLines={true}

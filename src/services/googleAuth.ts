@@ -9,15 +9,11 @@ let isErrorWithCode: any = () => false;
 
 try {
   const GSI = require('@react-native-google-signin/google-signin');
-  GoogleSignin = GSI.GoogleSignin;
-  statusCodes = GSI.statusCodes;
-  isErrorWithCode = GSI.isErrorWithCode;
-
-  GoogleSignin.configure({
-    webClientId: WEB_CLIENT_ID,
-  });
+  GoogleSignin = GSI?.GoogleSignin || null;
+  statusCodes = GSI?.statusCodes || {};
+  isErrorWithCode = GSI?.isErrorWithCode || (() => false);
 } catch (e) {
-  console.warn('[GoogleAuth] Google Sign-In native module not found or running in Expo Go.');
+  // Native module is linked in standalone APK build; Expo Go falls back gracefully
 }
 
 export interface GoogleAuthResult {
@@ -31,19 +27,33 @@ export async function signInWithGoogle(): Promise<GoogleAuthResult> {
   if (!GoogleSignin) {
     return {
       success: false,
-      error: 'Google Sign-In requires a standalone APK or EAS Dev Build. It is not supported in Expo Go.',
+      error: 'Google Sign-In is only supported on a standalone Android APK build (not in Expo Go).',
     };
   }
 
   try {
+    // Configure Google Sign In on demand to guarantee native Android Activity is ready
+    await GoogleSignin.configure({
+      webClientId: WEB_CLIENT_ID,
+      offlineAccess: false,
+    });
+
     await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-    const userInfo = await GoogleSignin.signIn();
-    const idToken = userInfo.data?.idToken || (userInfo as any).idToken;
+    
+    // In @react-native-google-signin/google-signin v16:
+    // signIn() returns { type: 'success', data: { idToken, user } } or { type: 'cancelled' }
+    const response = await GoogleSignin.signIn();
+
+    if (response?.type === 'cancelled') {
+      return { success: false, cancelled: true };
+    }
+
+    const idToken = response?.data?.idToken || (response as any)?.idToken;
 
     if (!idToken) {
       return {
         success: false,
-        error: 'No ID Token returned from Google. Please verify OAuth client ID configuration.',
+        error: 'No ID Token returned from Google. Please check network connection.',
       };
     }
 
@@ -57,15 +67,21 @@ export async function signInWithGoogle(): Promise<GoogleAuthResult> {
   } catch (error: any) {
     console.error('[GoogleAuth] Sign-in error:', error);
 
-    if (isErrorWithCode(error)) {
-      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+    if (isErrorWithCode && isErrorWithCode(error)) {
+      if (error.code === statusCodes?.SIGN_IN_CANCELLED) {
         return { success: false, cancelled: true };
       }
-      if (error.code === statusCodes.IN_PROGRESS) {
+      if (error.code === statusCodes?.IN_PROGRESS) {
         return { success: false, error: 'Sign-in is already in progress.' };
       }
-      if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+      if (error.code === statusCodes?.PLAY_SERVICES_NOT_AVAILABLE) {
         return { success: false, error: 'Google Play Services are missing or outdated.' };
+      }
+      if (error.code === '10' || error.message?.includes('DEVELOPER_ERROR')) {
+        return {
+          success: false,
+          error: 'Google Sign-In DEVELOPER_ERROR: Your APK SHA-1 fingerprint must be added to Firebase Console under Project Settings -> Android App.',
+        };
       }
     }
 

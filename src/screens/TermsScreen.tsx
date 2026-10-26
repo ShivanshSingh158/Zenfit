@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Haptics from 'expo-haptics';
+import { hapticLight } from '../utils/haptics';
 import { useTheme } from '../contexts/ThemeContext';
 import { FONT_FAMILY, FONT_SIZE, RADIUS, SPACE, SHADOW } from '../theme/tokens';
 
@@ -19,7 +19,7 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
   const styles = makeStyles(colors, isDark);
 
   const handleClose = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    hapticLight();
     onClose();
   };
 

@@ -12,7 +12,7 @@ try {
 } catch (_) {}
 import { OAuthProvider, signInWithCredential } from 'firebase/auth';
 import { auth } from '../services/firebase';
-import * as Haptics from 'expo-haptics';
+import { hapticLight, hapticMedium } from '../utils/haptics';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import { PlayfairDisplay_600SemiBold, PlayfairDisplay_600SemiBold_Italic } from '@expo-google-fonts/playfair-display';
@@ -95,18 +95,24 @@ export default function AuthScreen({ onBack }: AuthScreenProps) {
   }, []);
 
   const handleSignIn = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    hapticLight();
     setError('');
     setLoading(true);
-    const result = await performGoogleSignIn();
-    if (!result.success && !result.cancelled) {
-      setError(result.error || 'Google sign-in was blocked or misconfigured.');
+    try {
+      const result = await performGoogleSignIn();
+      if (!result.success && !result.cancelled) {
+        setError(result.error || 'Google sign-in was blocked or misconfigured.');
+      }
+    } catch (e: any) {
+      console.warn('[AuthScreen] Sign-in error:', e);
+      setError(e?.message || 'An unexpected error occurred during Google sign-in.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleSkipNow = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    hapticMedium();
     setError('');
     setLoading(true);
     try {
@@ -141,7 +147,7 @@ export default function AuthScreen({ onBack }: AuthScreenProps) {
           {onBack ? (
             <TouchableOpacity
               onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                hapticLight();
                 onBack();
               }}
               style={styles.backBtn}

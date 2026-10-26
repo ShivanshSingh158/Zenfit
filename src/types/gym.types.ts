@@ -1,10 +1,12 @@
 export interface GymSet {
+  id?: string;
   setNumber: number;
   reps: number | null;
   weight: number | null;
   completed: boolean;
   isWarmup?: boolean;
   warmupLabel?: string;
+  setType?: 'normal' | 'warmup' | 'drop' | 'failure';
   rir?: number;
   rpe?: number;
 }
@@ -68,6 +70,7 @@ export interface GymDayLog {
   restTimerExerciseName?: string | null;
   createdAt?: number;
   updatedAt: number;
+  deleted?: boolean;
 }
 
 export interface GymPlanExercise {
@@ -81,8 +84,27 @@ export interface GymPlanExercise {
   isCompound?: boolean;
 }
 
+export interface GymRoutineFolder {
+  id: string;          // e.g., 'folder_ppl', 'folder_custom'
+  name: string;        // e.g., 'My Custom Routines', 'PPL Hypertrophy'
+  order: number;
+}
+
+export interface GymRoutine {
+  id: string;          // e.g., 'rt_1729780000'
+  folderId?: string;   // Groups routines cleanly like Hevy
+  name: string;        // e.g., 'Heavy Chest & Delts'
+  subtitle?: string;   // e.g., 'Upper Chest & Side Delt Focus'
+  focus?: string;
+  exercises: GymPlanExercise[];
+  estimatedDurationMins?: number;
+  lastPerformedAt?: number;
+  updatedAt: number;
+}
+
 export interface GymPlanDay {
-  dayIndex: number;   // 1–7
+  dayIndex: number;    // 1–7
+  routineId?: string;  // NEW: Links day to a modular GymRoutine ID
   name: string;
   subtitle?: string;
   focus: string;
@@ -100,9 +122,11 @@ export interface GymCustomPlanDay {
 export interface UserGymPlanDoc {
   id?: string;
   userId: string;
-  templateId?: 'arnold' | 'ppl';
-  schedulePattern?: 'mon_sun' | 'tue_mon' | 'wed_sun' | 'mon_fri';
+  templateId?: 'arnold' | 'ppl' | string;
+  schedulePattern?: 'mon_sun' | 'tue_mon' | 'wed_sun' | 'mon_fri' | 'custom' | string;
   customDays: Record<number, GymPlanDay>;
+  routines?: Record<string, GymRoutine>;         // NEW: Synced in Firestore + L1/L2 cache!
+  routineFolders?: GymRoutineFolder[];           // NEW: Organizes routines
   updatedAt: number;
 }
 
@@ -112,6 +136,8 @@ export type GymGoal = 'strength' | 'hypertrophy' | 'weightLoss' | 'recomp' | 'ma
 
 export interface GymProfile {
   userId?: string;
+  displayName?: string | null;
+  photoURL?: string | null;
   /** Bodyweight in kg (supports both weightKg and bodyweightKg) */
   weightKg?: number | null;
   bodyweightKg?: number | null;
@@ -216,10 +242,19 @@ export type GymNavigationParamList = {
   Splits: undefined;
   History: undefined;
   GymHome: undefined;
-  ActiveLogging: { date: string; initialIndex?: number };
+  ActiveLogging: { date: string; initialIndex?: number; exerciseIndex?: number };
   WorkoutSummary: { date?: string; readOnly?: boolean } | undefined;
   GymProgress: { date?: string } | undefined;
-  ExerciseDetail: { exerciseId: string; date?: string };
+  ExerciseDetail: {
+    exerciseId: string;
+    date?: string;
+    dayIndex?: number;
+    exerciseName?: string;
+    muscle?: string;
+    targetSets?: number | string;
+    targetReps?: string;
+    restTimeSecs?: number | string;
+  };
   ExerciseSwap: { exerciseIndex?: number; date?: string; currentName?: string; originalExerciseId?: string };
   GymHistory: undefined;
   CardioLog: { date: string; cardioId?: string };

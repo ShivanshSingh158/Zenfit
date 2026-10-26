@@ -1,37 +1,48 @@
 import React, { useMemo } from 'react';
-import { View, Text, TouchableOpacity, Animated, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import WorkoutTimer from './WorkoutTimer';
-import { COLORS } from '../../theme/tokens';
-import { hapticMedium } from '../../utils/haptics';
+import { IOS_DARK, FONT_FAMILY } from '../../theme/tokens';
+import { useTheme } from '../../contexts/ThemeContext';
+import { hapticLight, hapticMedium } from '../../utils/haptics';
 
 export interface GymWorkoutBannerProps {
   log: any;
   s: any;
   currentStreak: number;
   selectedDate: string;
-  animBanner: Animated.Value;
+  animBanner?: any;
   navigation: any;
   onStartWorkout: () => void;
   onResumeWorkout: () => void;
   onEndWorkout: (completed: boolean) => void;
   resumeWorkout: () => void;
   onRevertWorkout?: () => void;
+  routineTitle?: string;
+  routineFocus?: string;
+  exerciseCount?: number;
+  setsCount?: number;
+  estimatedMinutes?: number;
 }
 
 export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
   log,
-  s,
   currentStreak,
   selectedDate,
-  animBanner,
   navigation,
   onStartWorkout,
   onResumeWorkout,
   onEndWorkout,
   resumeWorkout,
   onRevertWorkout,
+  routineTitle = 'Workout Day',
+  routineFocus = 'Hypertrophy Training',
+  exerciseCount = 0,
+  setsCount = 0,
+  estimatedMinutes = 45,
 }) => {
+  const { colors, isDark } = useTheme();
+
   const isCompleted = Boolean(
     (log as any)?.completed ||
     (typeof log?.workoutDurationMinutes === 'number' && log.workoutDurationMinutes > 0 && !log?.workoutStartTime)
@@ -45,26 +56,41 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
     return hasExerciseSet || hasCardio;
   }, [log?.exercises, log?.cardio]);
 
+  // ─── 1. COMPLETED WORKOUT SURFACE ──────────────────────────────────────────
   if (isCompleted) {
     return (
-      <View style={s.completedBanner}>
-        <View style={s.completedBannerLeft}>
-          <Text style={s.completedBannerTitle}>Workout Completed</Text>
-          <Text style={s.completedBannerSub}>
-            {log?.workoutDurationMinutes ? `${log.workoutDurationMinutes} min session` : 'Session completed'}
-          </Text>
+      <View style={[styles.heroCard, { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface }]}>
+        <View style={styles.topRow}>
+          <View style={styles.completedHeader}>
+            <View style={styles.completedIconWrap}>
+              <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+            </View>
+            <View>
+              <Text style={[styles.heroTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}>
+                Workout Completed
+              </Text>
+              <Text style={[styles.heroMeta, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}>
+                {log?.workoutDurationMinutes ? `${log.workoutDurationMinutes} min session logged` : 'Session completed'}
+              </Text>
+            </View>
+          </View>
+
+          {currentStreak > 0 && (
+            <View style={styles.streakBadge}>
+              <Ionicons name="flame" size={14} color={IOS_DARK.orange} />
+              <Text style={styles.streakText}>{currentStreak}d</Text>
+            </View>
+          )}
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          {/* Placed properly in place of Resume:
-              - If 0 sets/exercises logged: Revert button replaces Resume
-              - If at least 1 set logged: Resume button stays as normal */}
+
+        <View style={styles.completedActions}>
           {!hasLoggedAnyWork && onRevertWorkout ? (
             <TouchableOpacity
               onPress={() => {
                 hapticMedium();
                 Alert.alert(
                   'Revert Workout?',
-                  'No sets or exercises were logged. Revert session time to 0 and show Start Workout?',
+                  'No sets were logged. Revert session time and return to Start Workout?',
                   [
                     { text: 'Cancel', style: 'cancel' },
                     {
@@ -78,17 +104,10 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
                   ]
                 );
               }}
-              style={{
-                backgroundColor: 'rgba(255, 159, 77, 0.15)',
-                borderColor: 'rgba(255, 159, 77, 0.35)',
-                borderWidth: 1,
-                paddingHorizontal: 10,
-                paddingVertical: 5,
-                borderRadius: 14,
-              }}
+              style={[styles.outlineBtn, { borderColor: isDark ? 'rgba(255,159,10,0.3)' : 'rgba(255,159,10,0.4)' }]}
               activeOpacity={0.7}
             >
-              <Text style={{ color: '#ff9f4d', fontSize: 12, fontWeight: '700' }}>Revert</Text>
+              <Text style={[styles.outlineBtnText, { color: IOS_DARK.orange }]}>Revert</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
@@ -97,62 +116,231 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
                 resumeWorkout();
                 navigation.navigate('ActiveLogging', { date: selectedDate });
               }}
-              style={{
-                backgroundColor: 'rgba(94,218,158,0.15)',
-                borderColor: 'rgba(94,218,158,0.3)',
-                borderWidth: 1,
-                paddingHorizontal: 10,
-                paddingVertical: 5,
-                borderRadius: 14,
-              }}
+              style={[styles.outlineBtn, { borderColor: isDark ? 'rgba(48,209,88,0.35)' : 'rgba(48,209,88,0.4)' }]}
               activeOpacity={0.7}
             >
-              <Text style={{ color: '#5eda9e', fontSize: 12, fontWeight: '700' }}>Resume</Text>
+              <Text style={[styles.outlineBtnText, { color: IOS_DARK.green }]}>Resume Workout</Text>
             </TouchableOpacity>
           )}
 
-          {currentStreak > 0 && (
-            <View style={s.streakBadgeInline}>
-              <Ionicons name="flame" size={14} color={COLORS.accentAmber} />
-              <Text style={s.streakBadgeInlineText}>{currentStreak} Day</Text>
-            </View>
-          )}
+          <TouchableOpacity
+            onPress={() => {
+              hapticLight();
+              navigation.navigate('WorkoutSummary', { date: selectedDate });
+            }}
+            style={[styles.primarySolidBtn, { flex: 1, backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7' }]}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.primarySolidBtnText, { color: isDark ? '#FFFFFF' : '#000000' }]}>
+              View Summary
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
   }
 
+  // ─── 2. ACTIVE / IN-PROGRESS SURFACE ───────────────────────────────────────
   if (log?.workoutStartTime) {
     return (
-      <View style={s.activeBanner}>
-        <View style={s.activeBannerLeft}>
-          <View style={s.activeIndicator} />
-          <Text style={s.activeBannerTitle}>IN PROGRESS • </Text>
-          <WorkoutTimer startTime={log.workoutStartTime} />
+      <View style={[styles.heroCard, { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface }]}>
+        <View style={styles.topRow}>
+          <View style={{ flex: 1 }}>
+            <View style={styles.activeLivePill}>
+              <View style={styles.livePulseDot} />
+              <Text style={styles.activeLiveText}>WORKOUT IN PROGRESS</Text>
+            </View>
+            <Text style={[styles.heroTitle, { marginTop: 2, color: isDark ? '#FFFFFF' : colors.textPrimary }]}>
+              {routineTitle}
+            </Text>
+          </View>
+          <View style={styles.timerWrap}>
+            <WorkoutTimer startTime={log.workoutStartTime} />
+          </View>
         </View>
-        <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
-          <TouchableOpacity onPress={() => {
-            hapticMedium();
-            onEndWorkout(true);
-            navigation.navigate('WorkoutSummary', { date: selectedDate });
-          }}>
-            <Text style={{ color: '#ef4444', fontSize: 14, fontWeight: '600' }}>Finish</Text>
+
+        <View style={styles.completedActions}>
+          <TouchableOpacity
+            onPress={() => {
+              hapticMedium();
+              onEndWorkout(true);
+              navigation.navigate('WorkoutSummary', { date: selectedDate });
+            }}
+            style={[styles.outlineBtn, { borderColor: isDark ? 'rgba(255,69,58,0.3)' : 'rgba(255,69,58,0.4)' }]}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.outlineBtnText, { color: IOS_DARK.red }]}>Finish</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={onResumeWorkout}>
-            <Text style={s.activeBannerResume}>Resume</Text>
+
+          <TouchableOpacity
+            onPress={onResumeWorkout}
+            style={[styles.primarySolidBtn, { flex: 1, backgroundColor: IOS_DARK.accent }]}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="play" size={16} color="#000000" style={{ marginRight: 6 }} />
+            <Text style={[styles.primarySolidBtnText, { color: '#000000' }]}>
+              Resume Workout
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
     );
   }
 
+  // ─── 3. NOT STARTED: UNIFIED HERO WORKOUT SURFACE ──────────────────────────
+  const routineHeader = `${routineTitle.toUpperCase()}${routineFocus ? ` · ${routineFocus.toUpperCase()}` : ''}`;
+  const metaText = `${exerciseCount} Exercises · ${setsCount} Working Sets · ~${estimatedMinutes} min`;
+
   return (
-    <Animated.View style={{ opacity: animBanner, transform: [{ translateY: animBanner.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }] }}>
-      <TouchableOpacity style={s.startBtn} onPress={onStartWorkout} activeOpacity={0.8}>
-        <Text style={s.startBtnText}>START WORKOUT</Text>
+    <View style={[styles.heroCard, { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface }]}>
+      <View style={styles.topRow}>
+        <Text
+          numberOfLines={1}
+          style={[styles.heroOverline, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}
+        >
+          {routineHeader}
+        </Text>
+
+        {currentStreak > 0 && (
+          <View style={styles.streakBadge}>
+            <Ionicons name="flame" size={14} color={IOS_DARK.orange} />
+            <Text style={styles.streakText}>{currentStreak}d</Text>
+          </View>
+        )}
+      </View>
+
+      <Text
+        numberOfLines={1}
+        style={[styles.heroMeta, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}
+      >
+        {metaText}
+      </Text>
+
+      {/* Solid Apple iOS Action Button (Radius 12, High Contrast) */}
+      <TouchableOpacity
+        style={[styles.primarySolidBtn, { backgroundColor: isDark ? IOS_DARK.accent : '#6C5CE7' }]}
+        onPress={onStartWorkout}
+        activeOpacity={0.85}
+      >
+        <Ionicons name="play" size={16} color={isDark ? '#000000' : '#FFFFFF'} style={{ marginRight: 6 }} />
+        <Text style={[styles.primarySolidBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>
+          Start Workout
+        </Text>
       </TouchableOpacity>
-    </Animated.View>
+    </View>
   );
+});
+
+const styles = StyleSheet.create({
+  heroCard: {
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 0, // Apple HIG: Zero outer border on OLED canvas
+    gap: 8,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  heroOverline: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  heroTitle: {
+    fontSize: 16,
+    fontFamily: FONT_FAMILY.bold,
+    letterSpacing: -0.2,
+  },
+  heroMeta: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.body,
+  },
+  streakBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 159, 10, 0.12)',
+  },
+  streakText: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.bold,
+    color: IOS_DARK.orange,
+  },
+  primarySolidBtn: {
+    height: 38,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primarySolidBtnText: {
+    fontSize: 14,
+    fontFamily: FONT_FAMILY.bold,
+    letterSpacing: 0.2,
+  },
+  completedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  completedIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: IOS_DARK.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completedActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
+  },
+  outlineBtn: {
+    paddingHorizontal: 12,
+    height: 38,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outlineBtnText: {
+    fontSize: 13,
+    fontFamily: FONT_FAMILY.bold,
+  },
+  activeLivePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  livePulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: IOS_DARK.orange,
+  },
+  activeLiveText: {
+    fontSize: 10.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: IOS_DARK.orange,
+    letterSpacing: 0.6,
+  },
+  timerWrap: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 159, 10, 0.1)',
+  },
 });
 
 export default GymWorkoutBanner;

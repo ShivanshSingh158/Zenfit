@@ -182,7 +182,6 @@ export default function BottomSheet({
         isOpenedRef.current = true;
         isClosing.value = false;
         setMounted(true);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         // Apple iOS Critically Damped Spring: fluid glide, zero rubber-band bounce
         translateY.value = SCREEN_HEIGHT;
         translateY.value = withSpring(0, {

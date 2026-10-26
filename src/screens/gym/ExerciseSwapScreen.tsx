@@ -71,6 +71,39 @@ function isSubMuscleMatch(exactA: string, exactB: string): boolean {
   return false;
 }
 
+interface SwapExerciseRowProps {
+  item: any;
+  styles: any;
+  onSwap: (item: any) => void;
+}
+
+const SwapExerciseRow = React.memo(function SwapExerciseRow({ item, styles, onSwap }: SwapExerciseRowProps) {
+  return (
+    <TouchableOpacity
+      style={styles.exerciseRow}
+      onPress={() => onSwap(item)}
+      activeOpacity={0.7}
+    >
+      <View style={styles.exInfo}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <Text style={styles.exName}>{item.name}</Text>
+          {item.isFromTemplate && (
+            <View style={styles.templateBadge}>
+              <Ionicons name="calendar-outline" size={10} color="#a599ff" />
+              <Text style={styles.templateBadgeText}>{item.templateDayName || 'Template'}</Text>
+            </View>
+          )}
+        </View>
+        <Text style={styles.exTarget}>{item.targetSets} sets × {item.targetReps} reps</Text>
+      </View>
+      <View style={[styles.musclePill, { backgroundColor: item.muscleBgColor }]}>
+        <View style={[styles.muscleDot, { backgroundColor: item.muscleColor }]} />
+        <Text style={[styles.muscleText, { color: item.muscleColor }]}>{item.muscle}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+});
+
 export default function ExerciseSwapScreen() {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeExerciseSwapStyles(colors, isDark), [colors, isDark]);
@@ -349,7 +382,7 @@ Return ONLY a raw valid JSON array of 6 objects:
   }, [allExercises, search, filterType, origMuscle, canonicalMuscle]);
 
   // ── Handle Swap Execution ───────────────────────────────────────────────────
-  const handleSwap = useCallback(async (newExDef: any) => {
+  const handleSwap = useCallback((newExDef: any) => {
     if (!log || !originalExerciseId) return;
 
     const index = log.exercises.findIndex(e => e.exerciseId === originalExerciseId || e.id === originalExerciseId);
@@ -363,13 +396,10 @@ Return ONLY a raw valid JSON array of 6 objects:
     const targetReps = newExDef.targetReps || existingLog.targetReps || '8-12';
     const restTimeSecs = newExDef.restTimeSecs || existingLog.restTimeSecs || 90;
 
-    let resolvedVideoId = newExDef.videoId;
-    if (!resolvedVideoId) {
-      resolvedVideoId = (await autoResolveExerciseVideoId(newExDef.name)) || '';
-    }
-
     const lastSession = getPreviousExerciseSession(newExDef.name, gymLogs);
     const lastSets = lastSession?.sets;
+    const lastValidSet = lastSets && lastSets.length > 0 ? lastSets[lastSets.length - 1] : undefined;
+    const defaultReps = parseInt(String(targetReps).split(/[-–—]/)[0], 10) || 10;
 
     const targetMuscleResolved = resolveExerciseTargetMuscle(newExDef.name, newExDef.muscle || existingLog.muscle).targetMuscle;
 
@@ -378,16 +408,16 @@ Return ONLY a raw valid JSON array of 6 objects:
       exerciseId: newExDef.id || `swap_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       name: newExDef.name,
       muscle: targetMuscleResolved || newExDef.muscle || existingLog.muscle,
-      videoId: resolvedVideoId,
+      videoId: newExDef.videoId || '',
       targetSets,
       targetReps,
       restTimeSecs,
       lastSessionSets: lastSets ?? undefined,
       setsLog: Array.from({ length: targetSets }, (_, i) => {
-        const prev = lastSets?.[i];
+        const prev = lastSets?.[i] || lastValidSet;
         return {
           setNumber: i + 1,
-          reps: prev?.reps ?? null,
+          reps: prev?.reps ?? defaultReps,
           weight: prev?.weight ?? null,
           completed: false,
         };
@@ -395,7 +425,17 @@ Return ONLY a raw valid JSON array of 6 objects:
       isCustom: false,
     };
 
+    // Update exercise in state immediately (0ms response budget)
     updateExercise(index, updatedExercise);
+
+    // Resolve missing video ID in the background without blocking the UI
+    if (!newExDef.videoId) {
+      autoResolveExerciseVideoId(newExDef.name).then(resolvedVid => {
+        if (resolvedVid) {
+          updateExercise(index, { ...updatedExercise, videoId: resolvedVid });
+        }
+      }).catch(() => {});
+    }
 
     Alert.alert(
       'Exercise Swapped!',
@@ -425,7 +465,7 @@ Return ONLY a raw valid JSON array of 6 objects:
                     targetSets,
                     targetReps,
                     restTimeSecs,
-                    videoId: resolvedVideoId,
+                    videoId: newExDef.videoId || undefined,
                   };
                 } else {
                   updatedExercises.push({
@@ -435,7 +475,7 @@ Return ONLY a raw valid JSON array of 6 objects:
                     targetSets,
                     targetReps,
                     restTimeSecs,
-                    videoId: resolvedVideoId,
+                    videoId: newExDef.videoId || undefined,
                   });
                 }
                 await updateMasterPlan(planIdx, { ...currentMasterDay, exercises: updatedExercises });
@@ -449,7 +489,11 @@ Return ONLY a raw valid JSON array of 6 objects:
         },
       ]
     );
-  }, [log, originalExerciseId, date, userGymPlan, updateMasterPlan, updateExercise, navigation]);
+  }, [log, originalExerciseId, gymLogs, updateExercise, navigation, date, userGymPlan, updateMasterPlan]);
+
+  const renderSwapItem = useCallback(({ item }: { item: any }) => (
+    <SwapExerciseRow item={item} styles={styles} onSwap={handleSwap} />
+  ), [styles, handleSwap]);
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
@@ -574,31 +618,7 @@ Return ONLY a raw valid JSON array of 6 objects:
               windowSize={5}
               contentContainerStyle={styles.list}
               showsVerticalScrollIndicator={false}
-              renderItem={({ item: ex }) => (
-                <TouchableOpacity
-                  key={ex.id}
-                  style={styles.exerciseRow}
-                  onPress={() => handleSwap(ex)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.exInfo}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <Text style={styles.exName}>{ex.name}</Text>
-                      {ex.isFromTemplate && (
-                        <View style={styles.templateBadge}>
-                          <Ionicons name="calendar-outline" size={10} color="#a599ff" />
-                          <Text style={styles.templateBadgeText}>{ex.templateDayName || 'Template'}</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={styles.exTarget}>{ex.targetSets} sets × {ex.targetReps} reps</Text>
-                  </View>
-                  <View style={[styles.musclePill, { backgroundColor: ex.muscleBgColor }]}>
-                    <View style={[styles.muscleDot, { backgroundColor: ex.muscleColor }]} />
-                    <Text style={[styles.muscleText, { color: ex.muscleColor }]}>{ex.muscle}</Text>
-                  </View>
-                </TouchableOpacity>
-              )}
+              renderItem={renderSwapItem}
               ListEmptyComponent={
                 <View style={styles.emptyState}>
                   <Ionicons name="barbell-outline" size={32} color={colors.textMuted} />

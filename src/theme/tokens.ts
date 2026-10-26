@@ -1,76 +1,93 @@
 import { Platform } from 'react-native';
 
 /**
- * ZenTrack Mobile — Design Tokens v2
+ * ZenTrack Mobile — Unified Apple iOS Design System
  *
- * Theme: "Obsidian Cosmos"
- * Philosophy: Absolute #000000 backgrounds and #1c1c1d surfaces, using the signature 
- * purple (#a599ff) for all interactive accents to provide a clean, hyper-responsive, 
- * and familiar feel.
+ * Strict 3-layer OLED hierarchy matching Apple iOS Human Interface Guidelines (HIG):
+ * Canvas (#000000) -> GroupedCard (#1C1C1E) -> ElevatedInput (#2C2C2E)
  */
 
-// ─── Colors ───────────────────────────────────────────────────────────────────
+// ── Unified Apple iOS Dark Theme ──────────────────────────────────────────────
+export const IOS_DARK = {
+  // 1. THREE STRICT SURFACES (Never invent another grey)
+  bgCanvas:        '#000000', // Pure OLED black root background everywhere
+  bgGroupedCard:   '#1C1C1E', // iOS systemSecondaryBackground (All cards & grouped lists)
+  bgElevatedInput: '#2C2C2E', // iOS systemTertiaryBackground (Inputs, segmented controls, active pills)
 
-// ── Dark Theme: "Obsidian Cosmos" ────────────────────────────────────────────
+  // 2. HAIRLINE SEPARATOR (No 1px outer borders on cards!)
+  separator:       'rgba(84, 84, 88, 0.36)', // iOS native hairline divider (#38383A)
+
+  // 3. TYPOGRAPHY HIERARCHY
+  labelPrimary:    '#FFFFFF',
+  labelSecondary:  '#8E8E93', // iOS systemGray
+  labelTertiary:   '#48484A', // iOS systemGray3
+
+  // 4. SEMANTIC ACCENTS (Used sparingly—text & icons, not giant backgrounds)
+  accent:          '#A599FF', // Brand Indigo/Violet
+  green:           '#30D158', // iOS systemGreen (Completed sets, PRs, Fresh muscle)
+  orange:          '#FF9F0A', // iOS systemOrange (Active workout, Warmup, Recovering)
+  red:             '#FF453A', // iOS systemRed (Fatigued, Delete, Failure 0 RIR)
+};
+
+// ── Dark Theme: "Obsidian Cosmos" (Aligned with IOS_DARK) ─────────────────────
 export const DARK_COLORS = {
 
   // ── Backgrounds ─────────────────────────────────────────────────────────────
-  background:    '#000000',              // true OLED pitch black canvas
-  surface:       '#000000',              // true OLED pitch black surface for cards & rows
-  surface2:      '#0d0d10',              // secondary elevated deep black for chips & inner sections
-  surfaceRaised: '#000000',              // elevated modals, sheets & action cards (pure OLED black)
+  background:    IOS_DARK.bgCanvas,        // Pure OLED pitch black canvas
+  surface:       IOS_DARK.bgGroupedCard,   // iOS systemSecondaryBackground for cards & rows (#1C1C1E)
+  surface2:      IOS_DARK.bgElevatedInput, // iOS systemTertiaryBackground (#2C2C2E)
+  surfaceRaised: IOS_DARK.bgGroupedCard,   // Elevated modals, sheets & action cards (#1C1C1E)
 
   // ── Borders ─────────────────────────────────────────────────────────────────
-  border:        '#1c1c20',              // 1px sleek hairline dark border
-  borderHover:   '#28282e',              // Interactive hover state
-  borderGlow:    'rgba(165,153,255,0.40)', // Focus / active glow
+  border:        IOS_DARK.separator,       // iOS native hairline divider
+  borderHover:   '#3A3A3C',
+  borderGlow:    'rgba(165,153,255,0.40)',
 
   // ── Text ────────────────────────────────────────────────────────────────────
-  textPrimary:   '#ffffff',              // headings, key numbers
-  textSecondary: '#f2f2f7',              // body text on cards (primary soft)
-  textMuted:     '#8e8e93',              // labels, subtitles (secondary)
-  textTertiary:  '#636366',              // timestamps, least important text
+  textPrimary:   IOS_DARK.labelPrimary,    // '#FFFFFF'
+  textSecondary: '#F2F2F7',                // Body text on cards
+  textMuted:     IOS_DARK.labelSecondary,  // iOS systemGray (#8E8E93)
+  textTertiary:  IOS_DARK.labelTertiary,   // iOS systemGray3 (#48484A)
 
-  // ── Accent — Purple ────────────────────────────────────────────────
-  accentPrimary:  '#a599ff',             // Signature purple
-  accentLight:    '#b8afff',             // Lighter hover state
-  accentDim:      'rgba(165,153,255,0.15)', // Tinted backgrounds
-  accentGlow:     'rgba(165,153,255,0.24)', // Ambient glow effect
+  // ── Accent — Purple ─────────────────────────────────────────────────────────
+  accentPrimary:  IOS_DARK.accent,         // #A599FF
+  accentLight:    '#B8AFFF',
+  accentDim:      'rgba(165,153,255,0.15)',
+  accentGlow:     'rgba(165,153,255,0.24)',
 
   // ── Success / Present — Green ───────────────────────────────────────────────
-  accentGreen:     '#5eda9e',            // present, safe attendance %, completed
-  accentGreenDim:  'rgba(94,218,158,0.12)',
-  accentGreenGlow: 'rgba(94,218,158,0.28)',
+  accentGreen:     IOS_DARK.green,         // #30D158
+  accentGreenDim:  'rgba(48,209,88,0.12)',
+  accentGreenGlow: 'rgba(48,209,88,0.28)',
 
   // ── Warning / At Risk — Orange ──────────────────────────────────────────────
-  accentAmber:    '#ff9f4d',             // at-risk states, borderline values
-  accentAmberDim: 'rgba(255,159,77,0.1)',
+  accentAmber:    IOS_DARK.orange,         // #FF9F0A
+  accentAmberDim: 'rgba(255,159,10,0.12)',
 
-  // ── Sky Blue — Calendar / Schedule (Keeping from old theme for other screens)
-  accentBlue:      '#89dceb',
-  accentBlueDim:   'rgba(137, 220, 235, 0.14)',
-  // Alias: Analytics and chart code references accentSecondary; maps to the same sky blue
-  accentSecondary: '#89dceb',
+  // ── Sky Blue — Calendar / Schedule ──────────────────────────────────────────
+  accentBlue:      '#64D2FF',              // iOS systemTeal / sky blue
+  accentBlueDim:   'rgba(100,210,255,0.14)',
+  accentSecondary: '#64D2FF',
 
   // ── Danger / Absent — Red ───────────────────────────────────────────────────
-  error:    '#ff6961',                   // absent, below attendance threshold, overdue
-  errorBg:  'rgba(255,105,97,0.12)',
+  error:    IOS_DARK.red,                  // #FF453A
+  errorBg:  'rgba(255,69,58,0.12)',
 
   // ── Priority Colors ─────────────────────────────────────────────────────────
-  priorityHigh:   '#ff6961',  // Danger (red)
-  priorityMed:    '#ff9f4d',  // Warning (orange)
-  priorityLow:    '#5eda9e',  // Success (green)
-  success:        '#5eda9e',  // Alias for accentGreen (back-compat)
+  priorityHigh:   IOS_DARK.red,
+  priorityMed:    IOS_DARK.orange,
+  priorityLow:    IOS_DARK.green,
+  success:        IOS_DARK.green,
 
   // ── S.A.R.A Agent Colors ────────────────────────────────────────────────────
   agents: {
-    ORACLE:      '#a599ff',
-    HERMES:      '#ff9f4d',
-    CHRONOS:     '#89dceb',
-    TITAN:       '#5eda9e',
-    AEGIS:       '#94e2d5',
-    HEPHAESTUS:  '#fab387',
-    GAINS:       '#ff6961',
+    ORACLE:      '#A599FF',
+    HERMES:      '#FF9F0A',
+    CHRONOS:     '#64D2FF',
+    TITAN:       '#30D158',
+    AEGIS:       '#63E6E2',
+    HEPHAESTUS:  '#FF9F0A',
+    GAINS:       '#FF453A',
   },
 };
 
@@ -235,3 +252,6 @@ export const SHADOW = {
     elevation: IS_ANDROID ? 4 : 10,
   }),
 };
+
+// ── Layout Metrics ────────────────────────────────────────────────────────────
+export const TAB_BAR_HEIGHT = 49;

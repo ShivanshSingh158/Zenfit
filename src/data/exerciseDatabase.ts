@@ -9,7 +9,7 @@ export interface ExerciseDBEntry {
 export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
   {
     "id": "upper_chest_incline_dumbbell_press",
-    "name": "Incline Dumbbell Press",
+    "name": "Incline Bench Press (Dumbbell)",
     "muscle": "Upper Chest",
     "tier": "S Tier",
     "aliases": [
@@ -18,12 +18,13 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Incline Dumbbell Chest Press",
       "DB Incline Press",
       "Dumbbell Incline Bench Press",
-      "Incline DB Bench Press"
+      "Incline DB Bench Press",
+      "Incline Dumbbell Press"
     ]
   },
   {
     "id": "upper_chest_incline_barbell_bench_press",
-    "name": "Incline Barbell Bench Press",
+    "name": "Incline Bench Press (Barbell)",
     "muscle": "Upper Chest",
     "tier": "A+ Tier",
     "aliases": [
@@ -31,12 +32,13 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Incline Bench Press",
       "Barbell Incline Bench Press",
       "Incline Chest Press",
-      "Incline Barbell"
+      "Incline Barbell",
+      "Incline Barbell Bench Press"
     ]
   },
   {
     "id": "upper_chest_incline_machine_press",
-    "name": "Incline Machine Press",
+    "name": "Incline Chest Press (Machine)",
     "muscle": "Upper Chest",
     "tier": "A+ Tier",
     "aliases": [
@@ -44,12 +46,13 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Smith Machine Incline Press",
       "Machine Incline Chest Press",
       "Converging Incline Machine Press",
-      "Incline Chest Machine Press"
+      "Incline Chest Machine Press",
+      "Incline Machine Press"
     ]
   },
   {
     "id": "upper_chest_low_to_high_cable_fly",
-    "name": "Low To High Cable Fly",
+    "name": "Low Cable Fly Crossovers",
     "muscle": "Upper Chest",
     "tier": "S Tier",
     "aliases": [
@@ -58,33 +61,36 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Low Cable Crossover",
       "Incline Cable Fly",
       "Incline Cable Flyes",
-      "Low-to-High Cable Crossovers"
+      "Low-to-High Cable Crossovers",
+      "Low To High Cable Fly"
     ]
   },
   {
     "id": "upper_chest_incline_dumbbell_fly",
-    "name": "Incline Dumbbell Fly",
+    "name": "Incline Chest Fly (Dumbbell)",
     "muscle": "Upper Chest",
     "tier": "A Tier",
     "aliases": [
       "Incline Dumbbell Flyes",
       "Incline DB Fly",
-      "Incline DB Flyes"
+      "Incline DB Flyes",
+      "Incline Dumbbell Fly"
     ]
   },
   {
     "id": "upper_chest_landmine_chest_press",
-    "name": "Landmine Chest Press",
+    "name": "Single Arm Landmine Press (Barbell)",
     "muscle": "Upper Chest",
     "tier": "B Tier",
     "aliases": [
       "Single Arm Landmine Press",
-      "Landmine Incline Press"
+      "Landmine Incline Press",
+      "Landmine Chest Press"
     ]
   },
   {
     "id": "mid_chest_flat_barbell_bench_press",
-    "name": "Flat Barbell Bench Press",
+    "name": "Bench Press (Barbell)",
     "muscle": "Mid Chest",
     "tier": "A+ Tier",
     "aliases": [
@@ -92,24 +98,26 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Flat Barbell Press",
       "Bench Press",
       "Flat Bench Press",
-      "Smith Machine Bench Press"
+      "Smith Machine Bench Press",
+      "Flat Barbell Bench Press"
     ]
   },
   {
     "id": "mid_chest_barbell_floor_press",
-    "name": "Barbell Floor Press",
+    "name": "Floor Press (Barbell)",
     "muscle": "Mid Chest",
     "tier": "B Tier",
     "aliases": [
       "Floor Press",
       "BB Floor Press",
       "Dumbbell Floor Press",
-      "DB Floor Press"
+      "DB Floor Press",
+      "Barbell Floor Press"
     ]
   },
   {
     "id": "mid_chest_flat_dumbbell_press",
-    "name": "Flat Dumbbell Press",
+    "name": "Bench Press (Dumbbell)",
     "muscle": "Mid Chest",
     "tier": "S Tier",
     "aliases": [
@@ -117,12 +125,13 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Dumbbell Bench Press",
       "Dumbbell Press",
       "Flat DB Press",
-      "DB Bench Press"
+      "DB Bench Press",
+      "Flat Dumbbell Press"
     ]
   },
   {
     "id": "mid_chest_pec_deck_fly",
-    "name": "Pec Deck Fly",
+    "name": "Butterfly (Pec Deck)",
     "muscle": "Mid Chest",
     "tier": "A+ Tier",
     "aliases": [
@@ -135,77 +144,77 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Machine Pec Deck Fly",
       "Seated Machine Fly",
       "Pec Deck Machine",
-      "Machine Fly"
+      "Machine Fly",
+      "Pec Deck Fly"
     ]
   },
   {
     "id": "mid_chest_cable_crossovers",
-    "name": "Cable Crossovers",
+    "name": "Cable Fly Crossovers",
     "muscle": "Mid Chest",
-    "tier": "A Tier",
+    "tier": "A+ Tier",
     "aliases": [
       "Cable Crossover",
       "Middle Cable Chest Fly",
       "Standing Cable Chest Fly",
       "Standing Cable Fly",
       "Cable Chest Fly",
-      "Middle Cable Fly"
-    ]
-  },
-  {
-    "id": "mid_chest_flat_dumbbell_fly",
-    "name": "Flat Dumbbell Fly",
-    "muscle": "Mid Chest",
-    "tier": "C Tier",
-    "aliases": [
-      "Flat Dumbbell Flyes",
-      "Dumbbell Chest Fly",
-      "DB Flyes"
-    ]
-  },
-  {
-    "id": "mid_chest_pushups",
-    "name": "Push Ups",
-    "muscle": "Mid Chest",
-    "tier": "A Tier",
-    "aliases": [
-      "Pushups",
-      "Bodyweight Push Ups",
-      "Incline Push Ups",
-      "Decline Push Ups",
-      "Weighted Push Ups",
-      "Diamond Pushups",
-      "Push-ups"
-    ]
-  },
-  {
-    "id": "mid_chest_seated_machine_chest_press",
-    "name": "Seated Machine Chest Press",
-    "muscle": "Mid Chest",
-    "tier": "A Tier",
-    "aliases": [
-      "Machine Chest Press",
-      "Chest Press Machine",
-      "Hammer Strength Flat Press"
-    ]
-  },
-  {
-    "id": "lower_chest_high_to_low_cable_crossovers",
-    "name": "High-to-Low Cable Crossovers",
-    "muscle": "Lower Chest",
-    "tier": "A+ Tier",
-    "aliases": [
+      "Middle Cable Fly",
+      "Cable Crossovers",
       "High-to-Low Cable Crossover",
       "High to Low Cable Fly",
       "High to Low Cable Flyes",
       "Decline Cable Fly",
       "Decline Cable Crossover",
-      "High To Low Cable Fly"
+      "High To Low Cable Fly",
+      "High-to-Low Cable Crossovers",
+      "standing cable chest fly",
+      "Cable Fly with Constant Tension",
+      "high to low standing cable fly",
+      "Decline Standing Cable Crossover"
+    ]
+  },
+  {
+    "id": "mid_chest_flat_dumbbell_fly",
+    "name": "Chest Fly (Dumbbell)",
+    "muscle": "Mid Chest",
+    "tier": "C Tier",
+    "aliases": [
+      "Flat Dumbbell Flyes",
+      "Dumbbell Chest Fly",
+      "DB Flyes",
+      "Flat Dumbbell Fly"
+    ]
+  },
+  {
+    "id": "mid_chest_pushups",
+    "name": "Push Up",
+    "muscle": "Mid Chest",
+    "tier": "A Tier",
+    "aliases": [
+      "Pushups",
+      "Bodyweight Push Ups",
+      "Weighted Push Ups",
+      "Diamond Pushups",
+      "Push-ups",
+      "Push Ups"
+    ]
+  },
+  {
+    "id": "mid_chest_seated_machine_chest_press",
+    "name": "Chest Press (Machine)",
+    "muscle": "Mid Chest",
+    "tier": "A Tier",
+    "aliases": [
+      "Machine Chest Press",
+      "Chest Press Machine",
+      "Hammer Strength Flat Press",
+      "Seated Machine Chest Press"
     ]
   },
   {
     "id": "lower_chest_chest_dips",
-    "name": "Chest Dips",
+    "name": "Chest Dip",
     "muscle": "Lower Chest",
     "tier": "S Tier",
     "aliases": [
@@ -215,45 +224,49 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Weighted Chest Dips",
       "Bodyweight Dips",
       "Weighted Dips",
-      "Dip"
+      "Dip",
+      "Chest Dips"
     ]
   },
   {
     "id": "lower_chest_decline_barbell_bench_press",
-    "name": "Decline Barbell Bench Press",
+    "name": "Decline Bench Press (Barbell)",
     "muscle": "Lower Chest",
     "tier": "A+ Tier",
     "aliases": [
       "Decline Barbell Press",
       "Decline Bench Press",
-      "Barbell Decline Bench Press"
+      "Barbell Decline Bench Press",
+      "Decline Barbell Bench Press"
     ]
   },
   {
     "id": "lower_chest_decline_dumbbell_press",
-    "name": "Decline Dumbbell Press",
+    "name": "Decline Bench Press (Dumbbell)",
     "muscle": "Lower Chest",
     "tier": "A Tier",
     "aliases": [
       "Decline Dumbbell Bench Press",
       "Decline DB Press",
-      "DB Decline Press"
+      "DB Decline Press",
+      "Decline Dumbbell Press"
     ]
   },
   {
     "id": "lower_chest_decline_dumbbell_flyes",
-    "name": "Decline Dumbbell Flyes",
+    "name": "Decline Chest Fly (Dumbbell)",
     "muscle": "Lower Chest",
     "tier": "B Tier",
     "aliases": [
       "Decline DB Fly",
       "Decline Dumbbell Fly",
-      "Decline DB Flyes"
+      "Decline DB Flyes",
+      "Decline Dumbbell Flyes"
     ]
   },
   {
     "id": "front_delts_standing_overhead_barbell_press",
-    "name": "Standing Overhead Barbell Press",
+    "name": "Standing Military Press (Barbell)",
     "muscle": "Front Delts",
     "tier": "S Tier",
     "aliases": [
@@ -263,25 +276,27 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "OHP",
       "Standing Barbell Military Press",
       "Standing Military Press",
-      "Barbell Overhead Press"
+      "Barbell Overhead Press",
+      "Standing Overhead Barbell Press"
     ]
   },
   {
     "id": "front_delts_seated_dumbbell_shoulder_press",
-    "name": "Seated Dumbbell Shoulder Press",
+    "name": "Shoulder Press (Dumbbell)",
     "muscle": "Front Delts",
-    "tier": "S Tier",
+    "tier": "A+ Tier",
     "aliases": [
       "Dumbbell Shoulder Press",
       "Seated DB Shoulder Press",
       "Dumbbell Overhead Press",
       "Seated Dumbbell Overhead Press",
-      "DB Shoulder Press"
+      "DB Shoulder Press",
+      "Seated Dumbbell Shoulder Press"
     ]
   },
   {
     "id": "front_delts_machine_overhead_press",
-    "name": "Machine Overhead Press",
+    "name": "Seated Shoulder Press (Machine)",
     "muscle": "Front Delts",
     "tier": "A+ Tier",
     "aliases": [
@@ -289,36 +304,39 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Hammer Strength Shoulder Press",
       "Smith Machine Shoulder Press",
       "Seated Machine Shoulder Press",
-      "Shoulder Press Machine"
+      "Shoulder Press Machine",
+      "Machine Overhead Press"
     ]
   },
   {
     "id": "front_delts_arnold_press",
-    "name": "Arnold Press",
+    "name": "Arnold Press (Dumbbell)",
     "muscle": "Front Delts",
     "tier": "A Tier",
     "aliases": [
       "Dumbbell Arnold Press",
       "Seated Arnold Press",
-      "Arnold Dumbbell Press"
+      "Arnold Dumbbell Press",
+      "Arnold Press"
     ]
   },
   {
     "id": "front_delts_dumbbell_front_raise",
-    "name": "Dumbbell Front Raise",
+    "name": "Front Raise (Dumbbell)",
     "muscle": "Front Delts",
     "tier": "B Tier",
     "aliases": [
       "Front Raises",
       "Front Raise",
-      "Barbell Front Raise",
-      "Cable Front Raise",
-      "Plate Front Raise"
+      "Dumbbell Front Raise",
+      "thumbs down front raise",
+      "pronated db front raise",
+      "Dumbbell Front Raise with Pronation"
     ]
   },
   {
     "id": "side_delts_dumbbell_lateral_raises",
-    "name": "Dumbbell Lateral Raises",
+    "name": "Lateral Raise (Dumbbell)",
     "muscle": "Side Delts",
     "tier": "S Tier",
     "aliases": [
@@ -330,12 +348,16 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Side Raises",
       "Incline Dumbbell Lateral Raise",
       "Leaning Lateral Raise",
-      "DB Lateral Raise"
+      "DB Lateral Raise",
+      "Dumbbell Lateral Raises",
+      "slow eccentric lateral raise",
+      "tempo db lateral raise",
+      "Dumbbell Lateral Raise (3s Eccentric)"
     ]
   },
   {
     "id": "side_delts_cable_lateral_raises",
-    "name": "Cable Lateral Raises",
+    "name": "Lateral Raise (Cable)",
     "muscle": "Side Delts",
     "tier": "S Tier",
     "aliases": [
@@ -345,35 +367,38 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Egyptian Cable Lateral Raise",
       "Dual Cable Lateral Raise",
       "Behind The Back Cable Lateral Raise",
-      "Single Arm Cable Lateral Raise"
+      "Single Arm Cable Lateral Raise",
+      "Cable Lateral Raises"
     ]
   },
   {
     "id": "side_delts_machine_lateral_raise",
-    "name": "Machine Lateral Raise",
+    "name": "Lateral Raise (Machine)",
     "muscle": "Side Delts",
     "tier": "A+ Tier",
     "aliases": [
       "Seated Machine Lateral Raise",
       "Side Delt Machine",
-      "Lateral Raise Machine"
+      "Lateral Raise Machine",
+      "Machine Lateral Raise"
     ]
   },
   {
     "id": "side_delts_upright_rows",
-    "name": "Upright Rows",
+    "name": "Upright Row (Dumbbell)",
     "muscle": "Side Delts",
     "tier": "B Tier",
     "aliases": [
       "Barbell Upright Row",
       "Cable Upright Row",
       "Dumbbell Upright Row",
-      "Upright Row"
+      "Upright Row",
+      "Upright Rows"
     ]
   },
   {
     "id": "rear_delts_reverse_pec_deck",
-    "name": "Reverse Pec Deck",
+    "name": "Rear Delt Reverse Fly (Machine)",
     "muscle": "Rear Delts",
     "tier": "S Tier",
     "aliases": [
@@ -382,25 +407,31 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Machine Rear Delt Fly",
       "Reverse Fly Machine",
       "Reverse Pec Deck (Rear Delts)",
-      "Rear Delt Machine"
+      "Rear Delt Machine",
+      "Reverse Pec Deck",
+      "Rear Delt Machine (Mid Back)",
+      "Reverse Fly (Upper Back)",
+      "Reverse Pec Deck (Back Focus)",
+      "Rear Delt Machine Fly",
+      "Reverse Machine Fly"
     ]
   },
   {
     "id": "rear_delts_face_pulls",
-    "name": "Face Pulls",
+    "name": "Face Pull",
     "muscle": "Rear Delts",
     "tier": "S Tier",
     "aliases": [
-      "Face Pull",
       "Rope Face Pulls",
       "Cable Face Pulls",
       "Cable Face Pull",
-      "Seated Face Pulls"
+      "Seated Face Pulls",
+      "Face Pulls"
     ]
   },
   {
     "id": "rear_delts_rear_delt_dumbbell_flyes",
-    "name": "Rear Delt Dumbbell Flyes",
+    "name": "Rear Delt Reverse Fly (Dumbbell)",
     "muscle": "Rear Delts",
     "tier": "A Tier",
     "aliases": [
@@ -408,57 +439,68 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Bent-Over Dumbbell Lateral Raise",
       "Bent Over Rear Delt Fly",
       "Seated Rear Delt Dumbbell Fly",
-      "Rear Delt Fly"
+      "Rear Delt Fly",
+      "Rear Delt Dumbbell Flyes",
+      "Seated Rear Delt Fly"
     ]
   },
   {
     "id": "rear_delts_rear_delt_cable_flyes",
-    "name": "Rear Delt Cable Flyes",
+    "name": "Rear Delt Reverse Fly (Cable)",
     "muscle": "Rear Delts",
     "tier": "A+ Tier",
     "aliases": [
       "Rear Delt Cable Fly",
       "Cable Rear Delt Fly",
       "Cross Cable Rear Delt Fly",
-      "Cable Reverse Fly"
+      "Cable Reverse Fly",
+      "Rear Delt Cable Flyes",
+      "high cable rear delt crossover",
+      "High Cable Rear Delt Fly",
+      "cable rear delt crossover",
+      "cuff rear delt fly",
+      "Cross-Cable Rear Delt Fly (No Handles)"
     ]
   },
   {
     "id": "traps_cable_shrugs",
-    "name": "Cable Shrugs",
+    "name": "Shrug (Cable)",
     "muscle": "Upper Traps",
     "tier": "A+ Tier",
     "aliases": [
       "Cable Shrug",
-      "Dual Cable Shrugs"
+      "Dual Cable Shrugs",
+      "Cable Shrugs"
     ]
   },
   {
     "id": "traps_barbell_shrugs",
-    "name": "Barbell Shrugs",
+    "name": "Shrug (Barbell)",
     "muscle": "Upper Traps",
     "tier": "A Tier",
     "aliases": [
       "Barbell Shrug",
       "Smith Machine Shrugs",
       "Behind the Back Shrugs",
-      "Shrugs"
+      "Shrugs",
+      "Barbell Shrugs"
     ]
   },
   {
     "id": "traps_dumbbell_shrugs",
-    "name": "Dumbbell Shrugs",
+    "name": "Shrug (Dumbbell)",
     "muscle": "Upper Traps",
     "tier": "A Tier",
     "aliases": [
       "Dumbbell Shrug",
       "DB Shrugs",
-      "Seated Dumbbell Shrugs"
+      "Seated Dumbbell Shrugs",
+      "Dumbbell Shrugs"
     ]
   },
   {
     "id": "lat_width_lat_pulldowns_standard",
-    "name": "Lat Pulldowns (Standard)",
+    "name": "Lat Pulldown (Cable)",
     "muscle": "Lat Width",
     "tier": "S Tier",
     "aliases": [
@@ -469,12 +511,13 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Lat Pulldowns",
       "Machine Lat Pulldown",
       "Lat Pull Down",
-      "Wide-grip Lat Pulldown"
+      "Wide-grip Lat Pulldown",
+      "Lat Pulldowns (Standard)"
     ]
   },
   {
     "id": "lat_width_neutral_grip_lat_pulldowns",
-    "name": "Neutral-Grip Lat Pulldowns",
+    "name": "Lat Pulldown - Close Grip (Cable)",
     "muscle": "Lat Width",
     "tier": "S Tier",
     "aliases": [
@@ -484,37 +527,36 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Parallel Grip Lat Pulldown",
       "Neutral Grip Lat Pulldown",
       "Close Grip Lat Pulldown",
-      "V-bar Lat Pulldown"
+      "V-bar Lat Pulldown",
+      "Neutral-Grip Lat Pulldowns",
+      "close grip reverse pulldown",
+      "Neutral Underhand Close-Grip Pulldown"
     ]
   },
   {
     "id": "lat_width_pull_ups_chin_ups",
-    "name": "Pull-Ups / Chin-Ups",
+    "name": "Pull Up",
     "muscle": "Lat Width",
     "tier": "S Tier",
     "aliases": [
       "Pull-Ups",
       "Pull Ups",
       "Pullups",
-      "Chin-Ups",
-      "Chin Ups",
       "Chinups",
       "Assisted Pull-Ups / Chin-Ups",
       "Weighted Pull-Ups",
       "Weighted Chin-Ups",
       "Assisted Pull-Ups",
-      "Pull Up",
-      "Chin Up",
       "Assisted Pull Ups",
-      "Chin-up",
       "Pull-up",
       "Weighted Chin Ups",
-      "Weighted Pull Ups"
+      "Weighted Pull Ups",
+      "Pull-Ups / Chin-Ups"
     ]
   },
   {
     "id": "lat_width_single_arm_cable_rows_low_pull",
-    "name": "Single-Arm Cable Rows (low pull)",
+    "name": "Single Arm Cable Row",
     "muscle": "Lat Width",
     "tier": "S Tier",
     "aliases": [
@@ -522,40 +564,41 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Single Arm Lat Cable Row",
       "Half-Kneeling Cable Row",
       "Low Cable Lat Row",
-      "Single Arm Cable Row"
+      "Single-Arm Cable Rows (low pull)"
     ]
   },
   {
     "id": "lat_width_straight_arm_cable_pulldown",
-    "name": "Straight-Arm Cable Pulldown",
+    "name": "Straight Arm Lat Pulldown (Cable)",
     "muscle": "Lat Width",
     "tier": "A Tier",
     "aliases": [
       "Straight Arm Pulldown",
       "Cable Pullover",
       "Dumbbell Pullover",
-      "Rope Straight Arm Pulldown",
       "Lat Prayer",
       "Straight-Arm Lat Pulldown",
-      "Straight Arm Lat Pulldown"
+      "Straight Arm Lat Pulldown",
+      "Straight-Arm Cable Pulldown",
+      "Cable Lat Pushdown"
     ]
   },
   {
     "id": "lat_width_single_arm_dumbbell_row",
-    "name": "Single-Arm Dumbbell Row",
+    "name": "Dumbbell Row",
     "muscle": "Lat Width",
     "tier": "A+ Tier",
     "aliases": [
-      "Dumbbell Row",
       "One-Arm Dumbbell Row",
       "Single Arm DB Row",
       "Kroc Row",
-      "DB Row"
+      "DB Row",
+      "Single-Arm Dumbbell Row"
     ]
   },
   {
     "id": "mid_back_chest_supported_t_bar_row",
-    "name": "Chest-Supported T-Bar Row",
+    "name": "Chest Supported T Bar Row",
     "muscle": "Mid-Back",
     "tier": "S Tier",
     "aliases": [
@@ -564,28 +607,29 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Machine T-Bar Row",
       "Chest-Supported Row",
       "Chest Supported Machine Row",
-      "T Bar Row",
       "T-bar Row",
-      "Tbar Row"
+      "Tbar Row",
+      "Chest-Supported T-Bar Row",
+      "Chest-supported T-bar"
     ]
   },
   {
     "id": "mid_back_barbell_bent_over_row",
-    "name": "Barbell Bent-Over Row",
+    "name": "Bent Over Row (Barbell)",
     "muscle": "Mid-Back",
     "tier": "S Tier",
     "aliases": [
       "Barbell Row",
       "Bent Over Barbell Row",
-      "Pendlay Row",
       "Underhand Barbell Row",
       "Yates Row",
-      "Bent-Over Row"
+      "Bent-Over Row",
+      "Barbell Bent-Over Row"
     ]
   },
   {
     "id": "mid_back_seated_cable_rows",
-    "name": "Seated Cable Rows",
+    "name": "Seated Cable Row - V Grip (Cable)",
     "muscle": "Mid-Back",
     "tier": "S Tier",
     "aliases": [
@@ -595,37 +639,29 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Seated Cable Rows V-Bar",
       "Close-Grip Cable Row",
       "Wide-Grip Cable Row",
-      "Seated Row"
-    ]
-  },
-  {
-    "id": "mid_back_reverse_pec_deck_back_focus",
-    "name": "Reverse Pec Deck (Back Focus)",
-    "muscle": "Mid-Back",
-    "tier": "A+ Tier",
-    "aliases": [
-      "Rear Delt Machine (Mid Back)",
-      "Reverse Fly (Upper Back)"
+      "Seated Row",
+      "Seated Cable Rows",
+      "V-bar Seated Row"
     ]
   },
   {
     "id": "mid_back_conventional_barbell_deadlift",
-    "name": "Conventional Barbell Deadlift",
+    "name": "Deadlift (Barbell)",
     "muscle": "Mid-Back",
     "tier": "S Tier",
     "aliases": [
       "Deadlift",
       "Barbell Deadlift",
       "Deadlifts",
-      "Sumo Deadlift",
       "Trap Bar Deadlift",
       "Rack Pulls",
-      "Rack Pull"
+      "Conventional Barbell Deadlift",
+      "Standard Barbell Deadlifts"
     ]
   },
   {
     "id": "short_bicep_standing_ez_bar_curls",
-    "name": "Standing EZ-Bar Curls",
+    "name": "EZ Bar Biceps Curl",
     "muscle": "Short Bicep",
     "tier": "S Tier",
     "aliases": [
@@ -635,12 +671,13 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Standing Barbell Curl",
       "EZ Bar Curl",
       "Barbell Bicep Curl",
-      "Ez-bar Curl"
+      "Ez-bar Curl",
+      "Standing EZ-Bar Curls"
     ]
   },
   {
     "id": "short_bicep_alternating_dumbbell_curls_w_supination",
-    "name": "Alternating Dumbbell Curls w/ Supination",
+    "name": "Bicep Curl (Dumbbell)",
     "muscle": "Short Bicep",
     "tier": "S Tier",
     "aliases": [
@@ -649,24 +686,32 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Standing Dumbbell Curl",
       "Seated Dumbbell Curl",
       "Bicep Curls",
-      "Dumbbell Curl"
+      "Dumbbell Curl",
+      "Alternating Dumbbell Curls w/ Supination",
+      "Alternating Dumbbell Curls",
+      "Dumbbell Bicep Curls",
+      "Seated Dumbbell Curls"
     ]
   },
   {
     "id": "long_bicep_incline_dumbbell_curls",
-    "name": "Incline Dumbbell Curls",
+    "name": "Seated Incline Curl (Dumbbell)",
     "muscle": "Long Bicep",
     "tier": "S Tier",
     "aliases": [
       "Incline Dumbbell Curl",
       "Incline DB Curl",
       "Incline Bicep Curl",
-      "Incline Curl"
+      "Incline Curl",
+      "Incline Dumbbell Curls",
+      "Incline Bicep Curls",
+      "incline supinating db curl",
+      "Incline Dumbbell Curl with Supination"
     ]
   },
   {
     "id": "short_bicep_preacher_curl",
-    "name": "Preacher Curl",
+    "name": "Preacher Curl (Barbell)",
     "muscle": "Short Bicep",
     "tier": "A+ Tier",
     "aliases": [
@@ -676,12 +721,13 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Preacher Curls",
       "Scott Curl",
       "One-Arm Preacher Curl",
-      "Ez-bar Preacher Curl"
+      "Ez-bar Preacher Curl",
+      "Preacher Curl"
     ]
   },
   {
     "id": "long_bicep_face_away_cable_curls",
-    "name": "Face-Away Cable Curls",
+    "name": "Behind the Back Curl (Cable)",
     "muscle": "Long Bicep",
     "tier": "S Tier",
     "aliases": [
@@ -690,12 +736,14 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Behind-the-Back Cable Curl",
       "Cable Curl",
       "Dual Cable Curls",
-      "Face Away Cable Curl"
+      "Face Away Cable Curl",
+      "Face-Away Cable Curls",
+      "Bayesian Curls"
     ]
   },
   {
     "id": "brachialis_dumbbell_hammer_curls",
-    "name": "Dumbbell Hammer Curls",
+    "name": "Hammer Curl (Dumbbell)",
     "muscle": "Brachialis",
     "tier": "S Tier",
     "aliases": [
@@ -706,33 +754,35 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Rope Hammer Curl",
       "Cable Hammer Curls",
       "DB Hammer Curl",
-      "Cross Body Hammer Curl"
+      "Dumbbell Hammer Curls"
     ]
   },
   {
     "id": "short_bicep_spider_curls",
-    "name": "Spider Curls",
+    "name": "Spider Curl (Dumbbell)",
     "muscle": "Short Bicep",
     "tier": "A Tier",
     "aliases": [
       "Spider Curl",
       "Dumbbell Spider Curl",
-      "Barbell Spider Curl"
+      "Barbell Spider Curl",
+      "Spider Curls"
     ]
   },
   {
     "id": "short_bicep_concentration_curls",
-    "name": "Concentration Curls",
+    "name": "Concentration Curl",
     "muscle": "Short Bicep",
     "tier": "A Tier",
     "aliases": [
-      "Concentration Curl",
-      "Dumbbell Concentration Curl"
+      "Dumbbell Concentration Curl",
+      "Concentration Curls",
+      "Dumbbell Concentration Curls"
     ]
   },
   {
     "id": "brachioradialis_reverse_cable_curls",
-    "name": "Reverse Cable Curls",
+    "name": "Reverse Curl (Cable)",
     "muscle": "Brachioradialis",
     "tier": "A Tier",
     "aliases": [
@@ -740,23 +790,27 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Reverse EZ-Bar Curl",
       "Reverse Curl",
       "Reverse Curls",
-      "Reverse Ez Bar Curl"
+      "Reverse Ez Bar Curl",
+      "Reverse Cable Curls"
     ]
   },
   {
     "id": "forearm_flexors_standing_behind_back_wrist_curls",
-    "name": "Standing Behind Back Wrist Curls",
+    "name": "Behind the Back Wrist Curl (Barbell)",
     "muscle": "Forearm Flexors",
-    "tier": "A Tier",
+    "tier": "A+ Tier",
     "aliases": [
       "Barbell Wrist Curls Behind Back",
       "Behind-the-Back Wrist Curl",
-      "Behind Back Wrist Curl"
+      "Behind Back Wrist Curl",
+      "Standing Behind Back Wrist Curls",
+      "standing wrist curl",
+      "Behind-the-Back Barbell Wrist Curl"
     ]
   },
   {
     "id": "forearm_flexors_machine_wrist_curls",
-    "name": "Machine Wrist Curls",
+    "name": "Wrist Curl (Machine)",
     "muscle": "Forearm Flexors",
     "tier": "A Tier",
     "aliases": [
@@ -764,24 +818,26 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Seated Wrist Curl",
       "Wrist Curls",
       "Forearm Curls",
-      "Wrist Curl"
+      "Wrist Curl",
+      "Machine Wrist Curls"
     ]
   },
   {
     "id": "forearm_extensors_machine_reverse_wrist_curls",
-    "name": "Machine Reverse Wrist Curls",
+    "name": "Reverse Wrist Curl (Machine)",
     "muscle": "Forearm Extensors",
     "tier": "A Tier",
     "aliases": [
       "Reverse Wrist Curls",
       "Dumbbell Reverse Wrist Curl",
       "Reverse Wrist Curl",
-      "Reverse Forearm Curl"
+      "Reverse Forearm Curl",
+      "Machine Reverse Wrist Curls"
     ]
   },
   {
     "id": "lat_med_tricep_dual_rope_tricep_pushdowns",
-    "name": "Dual-Rope Tricep Pushdowns",
+    "name": "Triceps Rope Pushdown",
     "muscle": "Lat/Med Tricep",
     "tier": "S Tier",
     "aliases": [
@@ -790,24 +846,29 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Tricep Rope Pushdown",
       "Cable Tricep Pushdown",
       "Tricep Pushdowns",
-      "Triceps Pushdown",
-      "Tricep Pushdown"
+      "Tricep Pushdown",
+      "Dual-Rope Tricep Pushdowns",
+      "Rope Pushdowns",
+      "double rope pushdown",
+      "long rope pushdowns",
+      "Dual-Rope Tricep Pushdown"
     ]
   },
   {
     "id": "lat_med_tricep_straight_bar_tricep_pushdown",
-    "name": "Straight-Bar Tricep Pushdown",
+    "name": "Triceps Pushdown",
     "muscle": "Lat/Med Tricep",
     "tier": "A+ Tier",
     "aliases": [
       "V-Bar Tricep Pushdown",
       "Bar Tricep Pushdown",
-      "Cable Bar Pushdown"
+      "Cable Bar Pushdown",
+      "Straight-Bar Tricep Pushdown"
     ]
   },
   {
     "id": "long_tricep_ez_bar_skullcrushers",
-    "name": "EZ-Bar Skullcrushers",
+    "name": "Triceps Extension (Barbell)",
     "muscle": "Long Tricep",
     "tier": "S Tier",
     "aliases": [
@@ -818,12 +879,13 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Dumbbell Skull Crushers",
       "Incline Skull Crushers",
       "Decline Skull Crushers",
-      "Skull Crusher"
+      "Skull Crusher",
+      "EZ-Bar Skullcrushers"
     ]
   },
   {
     "id": "long_tricep_overhead_cable_extensions",
-    "name": "Overhead Cable Extensions",
+    "name": "Overhead Triceps Extension (Cable)",
     "muscle": "Long Tricep",
     "tier": "S Tier",
     "aliases": [
@@ -831,47 +893,54 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Rope Overhead Tricep Extension",
       "Cable Overhead Extension",
       "French Press",
-      "Overhead Tricep Extension"
+      "Overhead Tricep Extension",
+      "Overhead Cable Extensions"
     ]
   },
   {
     "id": "long_tricep_katana_cable_extensions",
-    "name": "Katana Cable Extensions",
+    "name": "Katana Triceps Extension (Cable)",
     "muscle": "Long Tricep",
     "tier": "S Tier",
     "aliases": [
       "Cross-Body Overhead Cable Extension",
       "Katana Tricep Extension",
-      "Dual Arm Katana Extension"
+      "Dual Arm Katana Extension",
+      "Katana Cable Extensions",
+      "katana cable extension",
+      "Katana Extension (Dual Cable Overhead)"
     ]
   },
   {
     "id": "lat_med_tricep_cable_cross_body_tricep_extensions",
-    "name": "Cable Cross-Body Tricep Extensions",
+    "name": "Cross-Body Triceps Extension (Cable)",
     "muscle": "Lat/Med Tricep",
     "tier": "S Tier",
     "aliases": [
       "Cross-Body Cable Pushdown",
       "Single-Arm Cable Tricep Extension",
-      "Cable Cross Body Extension"
+      "Cable Cross Body Extension",
+      "Cable Cross-Body Tricep Extensions",
+      "cuffed cable tricep extension",
+      "Cross-Body Cable Tricep Extension"
     ]
   },
   {
     "id": "lat_med_tricep_close_grip_barbell_bench_press",
-    "name": "Close-Grip Barbell Bench Press",
+    "name": "Bench Press - Close Grip (Barbell)",
     "muscle": "Lat/Med Tricep",
     "tier": "A+ Tier",
     "aliases": [
       "Close Grip Bench Press",
       "Close-Grip Bench",
       "CG Bench Press",
-      "JM Press",
-      "Jm Press"
+      "Close-Grip Barbell Bench Press",
+      "Close Grip Press"
     ]
   },
   {
     "id": "long_tricep_dumbbell_overhead_triceps_extension",
-    "name": "Dumbbell Overhead Triceps Extension",
+    "name": "Triceps Extension (Dumbbell)",
     "muscle": "Long Tricep",
     "tier": "A Tier",
     "aliases": [
@@ -879,12 +948,14 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Single-Arm Dumbbell Overhead Extension",
       "Dumbbell French Press",
       "DB Overhead Extension",
-      "Overhead Dumbbell Triceps Extension"
+      "Overhead Dumbbell Triceps Extension",
+      "Dumbbell Overhead Triceps Extension",
+      "Standing Dumbbell Overhead Extension"
     ]
   },
   {
     "id": "quads_barbell_back_squat",
-    "name": "Barbell Back Squat",
+    "name": "Squat (Barbell)",
     "muscle": "Quads",
     "tier": "S Tier",
     "aliases": [
@@ -894,36 +965,37 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Squat",
       "Barbell Back Squats",
       "Pause Squat",
-      "Front Squat",
-      "Barbell Front Squat"
+      "Barbell Front Squat",
+      "Barbell Back Squat"
     ]
   },
   {
     "id": "quads_hack_squats",
-    "name": "Hack Squats",
+    "name": "Hack Squat (Machine)",
     "muscle": "Quads",
     "tier": "S Tier",
     "aliases": [
-      "Hack Squat",
       "Machine Hack Squat",
-      "Reverse Hack Squat"
+      "Reverse Hack Squat",
+      "Hack Squats"
     ]
   },
   {
     "id": "quads_45_degree_leg_press",
-    "name": "45-Degree Leg Press",
+    "name": "Leg Press (Machine)",
     "muscle": "Quads",
     "tier": "S Tier",
     "aliases": [
       "Leg Press",
       "Incline Leg Press",
       "Machine Leg Press",
-      "Horizontal Leg Press"
+      "Horizontal Leg Press",
+      "45-Degree Leg Press"
     ]
   },
   {
     "id": "quads_leg_extensions",
-    "name": "Leg Extensions",
+    "name": "Leg Extension (Machine)",
     "muscle": "Quads",
     "tier": "S Tier",
     "aliases": [
@@ -931,50 +1003,56 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Machine Leg Extension",
       "Seated Leg Extension",
       "Single-Leg Extension",
-      "Single Leg Extension"
+      "Single Leg Extension",
+      "Leg Extensions",
+      "Seated Leg Extensions"
     ]
   },
   {
     "id": "quads_bulgarian_split_squats",
-    "name": "Bulgarian Split Squats",
-    "muscle": "Quads/Glutes",
+    "name": "Bulgarian Split Squat (Dumbbell)",
+    "muscle": "Quads",
     "tier": "S Tier",
     "aliases": [
       "Bulgarian Split Squat",
       "Dumbbell Split Squat",
       "Rear Foot Elevated Split Squat",
-      "BSS"
+      "BSS",
+      "Bulgarian Split Squats"
     ]
   },
   {
     "id": "quad_teardrop_heel_elevated_goblet_squats",
-    "name": "Heel-Elevated Goblet Squats",
-    "muscle": "Quad Teardrop",
-    "tier": "A+ Tier",
+    "name": "Heel-Elevated Goblet Squat (Dumbbell)",
+    "muscle": "Quads",
+    "tier": "S Tier",
     "aliases": [
-      "Goblet Squat",
       "Heel Elevated Squat",
       "Cyclist Squat",
       "Sissy Squat",
-      "Goblet Squats"
+      "Goblet Squats",
+      "Heel-Elevated Goblet Squats",
+      "atg goblet squat",
+      "Heel-Elevated Goblet Squat"
     ]
   },
   {
     "id": "glutes_quads_dumbbell_walking_reverse_lunges",
-    "name": "Dumbbell Reverse Lunges",
-    "muscle": "Glutes/Quads",
+    "name": "Reverse Lunge (Dumbbell)",
+    "muscle": "Quads",
     "tier": "A+ Tier",
     "aliases": [
       "Walking Lunges",
       "Dumbbell Walking / Reverse Lunges",
       "Lunges",
       "Barbell Lunges",
-      "Reverse Lunges"
+      "Reverse Lunges",
+      "Dumbbell Reverse Lunges"
     ]
   },
   {
     "id": "hamstrings_romanian_deadlifts_rdls",
-    "name": "Romanian Deadlifts (RDLs)",
+    "name": "Romanian Deadlift (Barbell)",
     "muscle": "Hamstrings",
     "tier": "S Tier",
     "aliases": [
@@ -991,12 +1069,13 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Barbell Rdl",
       "Dumbbell Rdl",
       "Rdl",
-      "Stiff Leg Deadlift"
+      "Stiff Leg Deadlift",
+      "Romanian Deadlifts (RDLs)"
     ]
   },
   {
     "id": "hamstrings_seated_leg_curls",
-    "name": "Seated Leg Curls",
+    "name": "Seated Leg Curl (Machine)",
     "muscle": "Hamstrings",
     "tier": "S Tier",
     "aliases": [
@@ -1004,50 +1083,57 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Machine Leg Curl",
       "Hamstring Curl",
       "Leg Curls (Seated)",
-      "Leg Curls"
+      "Leg Curls",
+      "Seated Leg Curls",
+      "forward lean seated leg curl",
+      "Seated Leg Curl with Torso Lean"
     ]
   },
   {
     "id": "hamstrings_lying_leg_curls",
-    "name": "Lying Leg Curls",
+    "name": "Lying Leg Curl (Machine)",
     "muscle": "Hamstrings",
     "tier": "S Tier",
     "aliases": [
       "Lying Leg Curl",
       "Prone Leg Curl",
       "Lying Hamstring Curl",
-      "Single-Leg Lying Curl"
+      "Single-Leg Lying Curl",
+      "Lying Leg Curls"
     ]
   },
   {
     "id": "glutes_barbell_hip_thrust",
-    "name": "Barbell Hip Thrust",
+    "name": "Hip Thrust (Barbell)",
     "muscle": "Glutes",
     "tier": "S Tier",
     "aliases": [
-      "Hip Thrust",
       "Barbell Glute Bridge",
       "Kas Glute Bridge",
       "Machine Hip Thrust",
-      "Dumbbell Hip Thrust"
+      "Dumbbell Hip Thrust",
+      "Barbell Hip Thrust",
+      "Barbell Hip Thrusts"
     ]
   },
   {
     "id": "glutes_abductors_seated_machine_abductions",
-    "name": "Seated Machine Abductions",
+    "name": "Hip Abduction (Machine)",
     "muscle": "Glutes/Abductors",
-    "tier": "A+ Tier",
+    "tier": "S Tier",
     "aliases": [
       "Hip Abduction Machine",
       "Seated Hip Abduction",
       "Cable Hip Abduction",
       "Glute Abduction",
-      "Machine Abductions"
+      "Machine Abductions",
+      "Seated Machine Abductions",
+      "Hip Abductions"
     ]
   },
   {
     "id": "gastrocnemius_standing_machine_calf_raises",
-    "name": "Standing Machine Calf Raises",
+    "name": "Standing Calf Raise (Machine)",
     "muscle": "Gastrocnemius",
     "tier": "S Tier",
     "aliases": [
@@ -1055,76 +1141,84 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
       "Standing Calf Raise",
       "Machine Calf Raise",
       "Smith Machine Calf Raise",
-      "Calf Raises"
+      "Calf Raises",
+      "Standing Machine Calf Raises",
+      "standing machine calf raises",
+      "Standing Machine Calf Raise"
     ]
   },
   {
     "id": "gastrocnemius_donkey_calf_raise",
-    "name": "Donkey Calf Raise",
+    "name": "Donkey Calf Raise (Machine)",
     "muscle": "Gastrocnemius",
     "tier": "B Tier",
     "aliases": [
       "Donkey Calf Raises",
-      "Machine Donkey Calf Raise"
+      "Machine Donkey Calf Raise",
+      "Donkey Calf Raise"
     ]
   },
   {
     "id": "soleus_seated_calf_raises",
-    "name": "Seated Calf Raises",
+    "name": "Seated Calf Raise",
     "muscle": "Soleus",
     "tier": "A+ Tier",
     "aliases": [
-      "Seated Calf Raise",
       "Machine Seated Calf Raise",
-      "Dumbbell Seated Calf Raise"
+      "Dumbbell Seated Calf Raise",
+      "Seated Calf Raises",
+      "Seated Machine Calf Raise"
     ]
   },
   {
     "id": "upper_abs_kneeling_cable_crunches",
-    "name": "Kneeling Cable Crunches",
+    "name": "Cable Crunch",
     "muscle": "Upper Abs",
     "tier": "S Tier",
     "aliases": [
-      "Cable Crunch",
       "Cable Crunches",
       "Rope Cable Crunch",
-      "Kneeling Cable Crunch"
+      "Kneeling Cable Crunch",
+      "Kneeling Cable Crunches",
+      "Cable Ab Crunches"
     ]
   },
   {
     "id": "lower_abs_hanging_knee_raises",
-    "name": "Hanging Knee Raises",
+    "name": "Hanging Knee Raise",
     "muscle": "Lower Abs",
     "tier": "S Tier",
     "aliases": [
       "Hanging Knee / Leg Raises",
-      "Hanging Leg Raise",
       "Hanging Leg Raises",
       "Captain's Chair Leg Raise",
       "Roman Chair Leg Raise",
-      "Hanging Knee Raise"
+      "Hanging Knee Raises"
     ]
   },
   {
     "id": "upper_abs_seated_ab_crunch_machine",
-    "name": "Seated Ab Crunch Machine",
+    "name": "Crunch (Machine)",
     "muscle": "Upper Abs",
-    "tier": "A Tier",
+    "tier": "A+ Tier",
     "aliases": [
       "Machine Crunch",
       "Ab Machine",
       "Ab Crunch Machine",
-      "Abdominal Crunch Machine"
+      "Abdominal Crunch Machine",
+      "Seated Ab Crunch Machine",
+      "Machine Ab Crunch",
+      "Machine Ab Crunches"
     ]
   },
   {
     "id": "lower_abs_reverse_crunches",
-    "name": "Reverse Crunches",
+    "name": "Reverse Crunch",
     "muscle": "Lower Abs",
     "tier": "A Tier",
     "aliases": [
-      "Reverse Crunch",
-      "Decline Reverse Crunch"
+      "Decline Reverse Crunch",
+      "Reverse Crunches"
     ]
   },
   {
@@ -1140,40 +1234,45 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
   },
   {
     "id": "obliques_cable_woodchoppers",
-    "name": "Cable Woodchoppers",
+    "name": "Cable Twist (Up to down)",
     "muscle": "Obliques",
     "tier": "A Tier",
     "aliases": [
       "Woodchoppers",
       "Cable Woodchopper",
       "High to Low Woodchoppers",
-      "Low to High Woodchoppers"
+      "Low to High Woodchoppers",
+      "Cable Woodchoppers",
+      "High To Low Woodchoppers",
+      "woodchoppers",
+      "Woodchopper"
     ]
   },
   {
     "id": "transverse_abs_ab_wheel_rollout",
-    "name": "Ab Wheel Rollout",
-    "muscle": "Transverse Abs (Deep core)",
+    "name": "Ab Wheel",
+    "muscle": "Transverse Abs",
     "tier": "A+ Tier",
     "aliases": [
       "Ab Wheel Rollouts",
       "Ab Rollout",
       "Ab Roller",
       "Wheel Rollout",
-      "Ab Wheel",
-      "Abs Wheel Roller"
+      "Abs Wheel Roller",
+      "Ab Wheel Rollout"
     ]
   },
   {
     "id": "transverse_abs_pallof_press",
-    "name": "Pallof Press",
+    "name": "Cable Core Pallof Press",
     "muscle": "Transverse Abs",
     "tier": "A+ Tier",
     "aliases": [
       "Cable Pallof Press",
       "Band Pallof Press",
       "Pallof Press Hold",
-      "Kneeling Pallof Press"
+      "Kneeling Pallof Press",
+      "Pallof Press"
     ]
   },
   {
@@ -1185,178 +1284,188 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
   },
   {
     "id": "lower_chest_hammer_strength_decline_press",
-    "name": "Hammer Strength Decline Press",
+    "name": "Decline Bench Press (Machine)",
     "muscle": "Lower Chest",
     "tier": "A+ Tier",
-    "aliases": []
-  },
-  {
-    "id": "obliques_high_to_low_woodchoppers",
-    "name": "High To Low Woodchoppers",
-    "muscle": "Obliques",
-    "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Hammer Strength Decline Press",
+      "hammer strength decline chest press",
+      "Decline Hammer Strength Press"
+    ]
   },
   {
     "id": "lower_chest_smith_machine_decline_press",
-    "name": "Smith Machine Decline Press",
+    "name": "Decline Bench Press (Smith Machine)",
     "muscle": "Lower Chest",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Smith Machine Decline Press"
+    ]
   },
   {
     "id": "serratus___pec_minor_barbell_pullover",
-    "name": "Barbell Pullover",
+    "name": "Pullover (Barbell)",
     "muscle": "Serratus / Pec Minor",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Barbell Pullover"
+    ]
   },
   {
     "id": "serratus___pec_minor_machine_pullover",
-    "name": "Machine Pullover",
+    "name": "Pullover (Machine)",
     "muscle": "Serratus / Pec Minor",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Machine Pullover"
+    ]
   },
   {
     "id": "serratus___pec_minor_svend_press",
-    "name": "Svend Press",
+    "name": "Plate Squeeze (Svend Press)",
     "muscle": "Serratus / Pec Minor",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Svend Press"
+    ]
   },
   {
     "id": "lat_width__lats__assisted_chin_ups",
-    "name": "Assisted Chin Ups",
-    "muscle": "Lat Width (Lats)",
+    "name": "Chin Up (Assisted)",
+    "muscle": "Lat Width",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Assisted Chin Ups"
+    ]
   },
   {
     "id": "lat_width__lats__kneeling_cable_lat_pulldown",
-    "name": "Kneeling Cable Lat Pulldown",
-    "muscle": "Lat Width (Lats)",
+    "name": "Kneeling Lat Pulldown (Cable)",
+    "muscle": "Lat Width",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Kneeling Cable Lat Pulldown"
+    ]
   },
   {
     "id": "lat_width__lats__reverse_grip_lat_pulldown",
-    "name": "Reverse Grip Lat Pulldown",
-    "muscle": "Lat Width (Lats)",
+    "name": "Reverse Grip Lat Pulldown (Cable)",
+    "muscle": "Lat Width",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Reverse Grip Lat Pulldown",
+      "Underhand Lat Pulldown"
+    ]
   },
   {
     "id": "lat_width__lats__single_arm_lat_pulldown",
     "name": "Single Arm Lat Pulldown",
-    "muscle": "Lat Width (Lats)",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "lat_width__lats__underhand_lat_pulldown",
-    "name": "Underhand Lat Pulldown",
-    "muscle": "Lat Width (Lats)",
+    "muscle": "Lat Width",
     "tier": "C Tier",
     "aliases": []
   },
   {
     "id": "lat_width__lats__wide_grip_pull_ups",
-    "name": "Wide Grip Pull Ups",
-    "muscle": "Lat Width (Lats)",
+    "name": "Wide Pull Up",
+    "muscle": "Lat Width",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Wide Grip Pull Ups"
+    ]
   },
   {
     "id": "mid_back_chest_supported_dumbbell_row",
-    "name": "Chest Supported Dumbbell Row",
+    "name": "Chest Supported Incline Row (Dumbbell)",
     "muscle": "Mid-Back",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "mid_back_chest_supported_t_bar",
-    "name": "Chest-supported T-bar",
-    "muscle": "Mid-Back",
-    "tier": "C Tier",
-    "aliases": []
+    "tier": "A Tier",
+    "aliases": [
+      "Chest Supported Dumbbell Row",
+      "Incline Dumbbell Row",
+      "incline db row 45 degrees",
+      "flared incline row",
+      "Chest-Supported Incline Row (45° Elbows)"
+    ]
   },
   {
     "id": "mid_back_hammer_strength_row",
-    "name": "Hammer Strength Row",
+    "name": "Iso-Lateral Row (Machine)",
     "muscle": "Mid-Back",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "mid_back_incline_dumbbell_row",
-    "name": "Incline Dumbbell Row",
-    "muscle": "Mid-Back",
-    "tier": "A Tier",
-    "aliases": []
+    "tier": "A+ Tier",
+    "aliases": [
+      "Hammer Strength Row"
+    ]
   },
   {
     "id": "mid_back_landmine_t_bar_row",
-    "name": "Landmine T-bar Row",
+    "name": "Landmine Row",
     "muscle": "Mid-Back",
     "tier": "B Tier",
-    "aliases": []
+    "aliases": [
+      "Landmine T-bar Row"
+    ]
   },
   {
     "id": "mid_back_machine_seated_row",
-    "name": "Machine Seated Row",
+    "name": "Seated Row (Machine)",
     "muscle": "Mid-Back",
-    "tier": "C Tier",
-    "aliases": []
+    "tier": "A+ Tier",
+    "aliases": [
+      "Machine Seated Row"
+    ]
   },
   {
     "id": "mid_back_meadows_row",
-    "name": "Meadows Row",
+    "name": "Meadows Rows (Barbell)",
     "muscle": "Mid-Back",
     "tier": "A Tier",
-    "aliases": []
+    "aliases": [
+      "Meadows Row"
+    ]
   },
   {
     "id": "mid_back_seal_row",
-    "name": "Seal Row",
+    "name": "Seal Row (Barbell)",
     "muscle": "Mid-Back",
-    "tier": "C Tier",
-    "aliases": []
+    "tier": "S Tier",
+    "aliases": [
+      "Seal Row"
+    ]
   },
   {
     "id": "mid_back_two_arm_dumbbell_row",
-    "name": "Two Arm Dumbbell Row",
+    "name": "Bent Over Row (Dumbbell)",
     "muscle": "Mid-Back",
     "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "mid_back_v_bar_seated_row",
-    "name": "V-bar Seated Row",
-    "muscle": "Mid-Back",
-    "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Two Arm Dumbbell Row"
+    ]
   },
   {
     "id": "mid_back_wide_grip_seated_row",
-    "name": "Wide Grip Seated Row",
+    "name": "Seated Cable Row - Bar Grip",
     "muscle": "Mid-Back",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Wide Grip Seated Row"
+    ]
   },
   {
     "id": "front_delts_dumbbell_press_shoulder",
-    "name": "Dumbbell Press Shoulder",
+    "name": "Overhead Press (Dumbbell)",
     "muscle": "Front Delts",
-    "tier": "C Tier",
-    "aliases": []
+    "tier": "A Tier",
+    "aliases": [
+      "Dumbbell Press Shoulder"
+    ]
   },
   {
     "id": "front_delts_landmine_shoulder_press",
-    "name": "Landmine Shoulder Press",
+    "name": "Shoulder Press (Landmine)",
     "muscle": "Front Delts",
     "tier": "B Tier",
-    "aliases": []
+    "aliases": [
+      "Landmine Shoulder Press"
+    ]
   },
   {
     "id": "front_delts_push_press",
@@ -1367,373 +1476,352 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
   },
   {
     "id": "front_delts_seated_barbell_shoulder_press",
-    "name": "Seated Barbell Shoulder Press",
+    "name": "Seated Overhead Press (Barbell)",
     "muscle": "Front Delts",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Seated Barbell Shoulder Press"
+    ]
   },
   {
     "id": "front_delts_seated_machine_press",
-    "name": "Seated Machine Press",
+    "name": "Shoulder Press (Machine Plates)",
     "muscle": "Front Delts",
-    "tier": "C Tier",
-    "aliases": []
+    "tier": "A+ Tier",
+    "aliases": [
+      "Seated Machine Press"
+    ]
   },
   {
     "id": "front_delts_standing_barbell_overhead_press",
-    "name": "Standing Barbell Overhead Press",
+    "name": "Overhead Press (Barbell)",
     "muscle": "Front Delts",
-    "tier": "C Tier",
-    "aliases": []
+    "tier": "A+ Tier",
+    "aliases": [
+      "Standing Barbell Overhead Press"
+    ]
   },
   {
     "id": "side_delts_lean_away_cable_lateral_raise",
-    "name": "Lean-away Cable Lateral Raise",
+    "name": "Lean-Away Lateral Raise (Cable)",
     "muscle": "Side Delts",
     "tier": "S Tier",
-    "aliases": []
+    "aliases": [
+      "Lean-away Cable Lateral Raise"
+    ]
   },
   {
     "id": "side_delts_seated_dumbbell_lateral_raise",
-    "name": "Seated Dumbbell Lateral Raise",
+    "name": "Seated Lateral Raise (Dumbbell)",
     "muscle": "Side Delts",
     "tier": "A Tier",
-    "aliases": []
+    "aliases": [
+      "Seated Dumbbell Lateral Raise"
+    ]
   },
   {
     "id": "side_delts_wide_grip_upright_row",
-    "name": "Wide Grip Upright Row",
+    "name": "Upright Row (Barbell)",
     "muscle": "Side Delts",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Wide Grip Upright Row"
+    ]
   },
   {
     "id": "rear_delts_high_cable_rear_delt_row",
-    "name": "High Cable Rear Delt Row",
+    "name": "High Rear Delt Row (Cable)",
     "muscle": "Rear Delts",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "High Cable Rear Delt Row"
+    ]
   },
   {
     "id": "rear_delts_incline_rear_delt_dumbbell_fly",
-    "name": "Incline Rear Delt Dumbbell Fly",
+    "name": "Chest Supported Reverse Fly (Dumbbell)",
     "muscle": "Rear Delts",
     "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "rear_delts_rear_delt_machine_fly",
-    "name": "Rear Delt Machine Fly",
-    "muscle": "Rear Delts",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "rear_delts_reverse_machine_fly",
-    "name": "Reverse Machine Fly",
-    "muscle": "Rear Delts",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "rear_delts_seated_rear_delt_fly",
-    "name": "Seated Rear Delt Fly",
-    "muscle": "Rear Delts",
-    "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Incline Rear Delt Dumbbell Fly",
+      "incline flared db row",
+      "Incline Bench Rear Delt Row"
+    ]
   },
   {
     "id": "long_tricep__long_head__barbell_skull_crushers",
-    "name": "Barbell Skull Crushers",
-    "muscle": "Long Tricep (Long Head)",
+    "name": "Skullcrusher (Barbell)",
+    "muscle": "Long Tricep",
     "tier": "A+ Tier",
-    "aliases": []
+    "aliases": [
+      "Barbell Skull Crushers"
+    ]
   },
   {
     "id": "long_tricep__long_head__cable_french_press",
-    "name": "Cable French Press",
-    "muscle": "Long Tricep (Long Head)",
+    "name": "Triceps Extension (Cable)",
+    "muscle": "Long Tricep",
     "tier": "A Tier",
-    "aliases": []
+    "aliases": [
+      "Cable French Press"
+    ]
   },
   {
     "id": "long_tricep__long_head__seated_dumbbell_overhead_tricep_extension",
-    "name": "Seated Dumbbell Overhead Tricep Extension",
-    "muscle": "Long Tricep (Long Head)",
+    "name": "Seated Triceps Press",
+    "muscle": "Long Tricep",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Seated Dumbbell Overhead Tricep Extension",
+      "seated two arm db overhead extension",
+      "Two-Handed Overhead DB Extension"
+    ]
   },
   {
     "id": "long_tricep__long_head__single_arm_overhead_cable_extension",
     "name": "Single Arm Overhead Cable Extension",
-    "muscle": "Long Tricep (Long Head)",
+    "muscle": "Long Tricep",
     "tier": "C Tier",
     "aliases": []
   },
   {
     "id": "lat_med_tricep__lateral___medial_head__assisted_tricep_dips",
-    "name": "Assisted Tricep Dips",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
+    "name": "Triceps Dip (Assisted)",
+    "muscle": "Lat/Med Tricep",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Assisted Tricep Dips"
+    ]
   },
   {
     "id": "lat_med_tricep__lateral___medial_head__bench_dips",
-    "name": "Bench Dips",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
+    "name": "Bench Dip",
+    "muscle": "Lat/Med Tricep",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Bench Dips"
+    ]
   },
   {
     "id": "glutes_cable_glute_kickbacks",
-    "name": "Cable Glute Kickbacks",
+    "name": "Standing Cable Glute Kickbacks",
     "muscle": "Glutes",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Cable Glute Kickbacks"
+    ]
   },
   {
     "id": "lat_med_tricep__lateral___medial_head__cable_kickback",
-    "name": "Cable Kickback",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
+    "name": "Triceps Kickback (Cable)",
+    "muscle": "Lat/Med Tricep",
     "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "lat_med_tricep__lateral___medial_head__cable_lat_pushdown",
-    "name": "Cable Lat Pushdown",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "lat_med_tricep__lateral___medial_head__cable_tricep_kickbacks",
-    "name": "Cable Tricep Kickbacks",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "lat_med_tricep__lateral___medial_head__close_grip_press",
-    "name": "Close Grip Press",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
-    "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Cable Kickback",
+      "Cable Tricep Kickbacks"
+    ]
   },
   {
     "id": "lat_med_tricep__lateral___medial_head__dumbbell_tricep_kickbacks",
-    "name": "Dumbbell Tricep Kickbacks",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
+    "name": "Triceps Kickback (Dumbbell)",
+    "muscle": "Lat/Med Tricep",
     "tier": "C Tier",
     "aliases": [
       "Tricep Kickbacks",
       "Dumbbell Kickbacks",
       "Tricep Kickback",
       "Kickbacks",
-      "Dumbbell Tricep Kickback"
+      "Dumbbell Tricep Kickback",
+      "Dumbbell Tricep Kickbacks"
     ]
   },
   {
     "id": "lat_med_tricep__lateral___medial_head__reverse_grip_tricep_pushdown",
-    "name": "Reverse Grip Tricep Pushdown",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
+    "name": "Reverse Grip Triceps Pushdown",
+    "muscle": "Lat/Med Tricep",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Reverse Grip Tricep Pushdown",
+      "one arm underhand tricep pushdown",
+      "Single-Arm Reverse Grip Pushdown"
+    ]
   },
   {
     "id": "lat_med_tricep__lateral___medial_head__rope_lat_pushdown",
-    "name": "Rope Lat Pushdown",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "lat_med_tricep__lateral___medial_head__rope_pushdowns",
-    "name": "Rope Pushdowns",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
-    "tier": "C Tier",
-    "aliases": []
+    "name": "Rope Straight Arm Pulldown",
+    "muscle": "Lat Width",
+    "tier": "A Tier",
+    "aliases": [
+      "Rope Lat Pushdown",
+      "double rope lat pushdown",
+      "long rope pullover",
+      "Dual-Rope Straight-Arm Lat Pushdown"
+    ]
   },
   {
     "id": "lat_med_tricep__lateral___medial_head__single_arm_tricep_pushdown",
-    "name": "Single Arm Tricep Pushdown",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
+    "name": "Single Arm Triceps Pushdown (Cable)",
+    "muscle": "Lat/Med Tricep",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Single Arm Tricep Pushdown"
+    ]
   },
   {
     "id": "lat_med_tricep__lateral___medial_head__tate_press",
-    "name": "Tate Press",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
+    "name": "Tate Press (Dumbbell)",
+    "muscle": "Lat/Med Tricep",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Tate Press",
+      "dumbbell tate press",
+      "Tate Press on Flat Bench"
+    ]
   },
   {
     "id": "lat_med_tricep__lateral___medial_head__tricep_dips",
-    "name": "Tricep Dips",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
+    "name": "Triceps Dip",
+    "muscle": "Lat/Med Tricep",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Tricep Dips"
+    ]
   },
   {
     "id": "lat_med_tricep__lateral___medial_head__v_bar_cable_pushdowns",
-    "name": "V-bar Cable Pushdowns",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "lat_med_tricep__lateral___medial_head__v_bar_pushdown",
-    "name": "V-bar Pushdown",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
-    "tier": "C Tier",
-    "aliases": []
+    "name": "Triceps Pressdown",
+    "muscle": "Lat/Med Tricep",
+    "tier": "A Tier",
+    "aliases": [
+      "V-bar Cable Pushdowns",
+      "V-bar Pushdown"
+    ]
   },
   {
     "id": "lat_med_tricep__lateral___medial_head__weighted_tricep_dips",
-    "name": "Weighted Tricep Dips",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
+    "name": "Triceps Dip (Weighted)",
+    "muscle": "Lat/Med Tricep",
     "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "short_bicep__inner_head__dumbbell_concentration_curls",
-    "name": "Dumbbell Concentration Curls",
-    "muscle": "Short Bicep (Inner head)",
-    "tier": "B Tier",
-    "aliases": []
+    "aliases": [
+      "Weighted Tricep Dips"
+    ]
   },
   {
     "id": "short_bicep__inner_head__machine_preacher_curls",
-    "name": "Machine Preacher Curls",
-    "muscle": "Short Bicep (Inner head)",
+    "name": "Preacher Curl (Machine)",
+    "muscle": "Short Bicep",
     "tier": "S Tier",
-    "aliases": []
+    "aliases": [
+      "Machine Preacher Curls"
+    ]
   },
   {
     "id": "short_bicep__inner_head__rope_cable_curl",
     "name": "Rope Cable Curl",
-    "muscle": "Short Bicep (Inner head)",
+    "muscle": "Short Bicep",
     "tier": "C Tier",
     "aliases": []
   },
   {
     "id": "short_bicep__inner_head__single_arm_preacher_curl",
-    "name": "Single Arm Preacher Curl",
-    "muscle": "Short Bicep (Inner head)",
+    "name": "Preacher Curl (Dumbbell)",
+    "muscle": "Short Bicep",
     "tier": "S Tier",
-    "aliases": []
+    "aliases": [
+      "Single Arm Preacher Curl"
+    ]
   },
   {
     "id": "short_bicep__inner_head__standing_barbell_curls",
-    "name": "Standing Barbell Curls",
-    "muscle": "Short Bicep (Inner head)",
-    "tier": "C Tier",
-    "aliases": []
+    "name": "Bicep Curl (Barbell)",
+    "muscle": "Short Bicep",
+    "tier": "A Tier",
+    "aliases": [
+      "Standing Barbell Curls"
+    ]
   },
   {
     "id": "short_bicep__inner_head__standing_cable_curls",
-    "name": "Standing Cable Curls",
-    "muscle": "Short Bicep (Inner head)",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "long_bicep__outer_peak__alternating_dumbbell_curls",
-    "name": "Alternating Dumbbell Curls",
-    "muscle": "Short Bicep (Inner head)",
+    "name": "Bicep Curl (Cable)",
+    "muscle": "Short Bicep",
     "tier": "A Tier",
-    "aliases": []
-  },
-  {
-    "id": "long_bicep__outer_peak__bayesian_curls",
-    "name": "Bayesian Curls",
-    "muscle": "Long Bicep (Outer peak)",
-    "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Standing Cable Curls"
+    ]
   },
   {
     "id": "long_bicep__outer_peak__drag_curls",
-    "name": "Drag Curls",
-    "muscle": "Long Bicep (Outer peak)",
+    "name": "Drag Curl",
+    "muscle": "Long Bicep",
     "tier": "A Tier",
-    "aliases": []
-  },
-  {
-    "id": "long_bicep__outer_peak__dumbbell_bicep_curls",
-    "name": "Dumbbell Bicep Curls",
-    "muscle": "Short Bicep (Inner head)",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "long_bicep__outer_peak__incline_bicep_curls",
-    "name": "Incline Bicep Curls",
-    "muscle": "Short Bicep (Inner head)",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "long_bicep__outer_peak__seated_dumbbell_curls",
-    "name": "Seated Dumbbell Curls",
-    "muscle": "Short Bicep (Inner head)",
-    "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Drag Curls"
+    ]
   },
   {
     "id": "brachialis_cable_hammer_curl",
-    "name": "Cable Hammer Curl",
+    "name": "Hammer Curl (Cable)",
     "muscle": "Brachialis",
-    "tier": "C Tier",
-    "aliases": []
+    "tier": "A Tier",
+    "aliases": [
+      "Cable Hammer Curl",
+      "rope hammer curl",
+      "Cable Rope Hammer Curl"
+    ]
   },
   {
     "id": "quad_teardrop__vmo__pendulum_squat",
-    "name": "Pendulum Squat",
+    "name": "Pendulum Squat (Machine)",
     "muscle": "Quads",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "quad_teardrop__vmo__seated_leg_extensions",
-    "name": "Seated Leg Extensions",
-    "muscle": "Quads",
-    "tier": "A Tier",
-    "aliases": []
+    "tier": "S Tier",
+    "aliases": [
+      "Pendulum Squat"
+    ]
   },
   {
     "id": "quads_glutes__compound_leg_focus__barbell_reverse_lunge",
-    "name": "Barbell Reverse Lunge",
+    "name": "Reverse Lunge (Barbell)",
     "muscle": "Quads",
     "tier": "B Tier",
-    "aliases": []
+    "aliases": [
+      "Barbell Reverse Lunge"
+    ]
   },
   {
     "id": "quads_glutes__compound_leg_focus__dumbbell_goblet_squat",
-    "name": "Dumbbell Goblet Squat",
+    "name": "Goblet Squat",
     "muscle": "Quads",
     "tier": "B Tier",
-    "aliases": []
+    "aliases": [
+      "Dumbbell Goblet Squat"
+    ]
   },
   {
     "id": "quads_glutes__compound_leg_focus__dumbbell_step_ups",
-    "name": "Dumbbell Step Ups",
+    "name": "Dumbbell Step Up",
     "muscle": "Quads",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Dumbbell Step Ups"
+    ]
   },
   {
     "id": "quads_glutes__compound_leg_focus__dumbbell_walking_lunges",
-    "name": "Dumbbell Walking Lunges",
+    "name": "Walking Lunge (Dumbbell)",
     "muscle": "Quads",
     "tier": "B Tier",
-    "aliases": []
+    "aliases": [
+      "Dumbbell Walking Lunges"
+    ]
   },
   {
     "id": "quads_glutes__compound_leg_focus__forward_lunges",
-    "name": "Forward Lunges",
+    "name": "Lunge",
     "muscle": "Quads",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Forward Lunges"
+    ]
   },
   {
     "id": "quads_glutes__compound_leg_focus__kettlebell_goblet_squat",
@@ -1753,40 +1841,51 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
   },
   {
     "id": "quads_glutes__compound_leg_focus__single_leg_press",
-    "name": "Single Leg Press",
+    "name": "Single Leg Press (Machine)",
     "muscle": "Quads",
     "tier": "A+ Tier",
-    "aliases": []
+    "aliases": [
+      "Single Leg Press"
+    ]
   },
   {
     "id": "quads_glutes__compound_leg_focus__smith_machine_squat",
-    "name": "Smith Machine Squat",
+    "name": "Squat (Smith Machine)",
     "muscle": "Quads",
     "tier": "C Tier",
     "aliases": [
-      "smith machine squats"
+      "smith machine squats",
+      "Smith Machine Squat"
     ]
   },
   {
     "id": "quads_glutes__compound_leg_focus__spanish_squat",
-    "name": "Spanish Squat",
+    "name": "Spanish Squat (Band)",
     "muscle": "Quads",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Spanish Squat",
+      "banded spanish squat",
+      "Spanish Squat (Band Behind Knees)"
+    ]
   },
   {
     "id": "quads_glutes__compound_leg_focus__split_squat",
-    "name": "Split Squat",
+    "name": "Split Squat (Dumbbell)",
     "muscle": "Quads",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Split Squat"
+    ]
   },
   {
     "id": "quads_glutes__compound_leg_focus__step_ups",
-    "name": "Step Ups",
+    "name": "Step Up",
     "muscle": "Quads",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Step Ups"
+    ]
   },
   {
     "id": "quads_glutes__compound_leg_focus__walking_lunge",
@@ -1806,70 +1905,67 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
   },
   {
     "id": "glutes_hams_45_degree_weighted_back_extensions",
-    "name": "45-degree Weighted Back Extensions",
+    "name": "Back Extension (Weighted Hyperextension)",
     "muscle": "Lower Back",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "45-degree Weighted Back Extensions",
+      "weighted back extension",
+      "barbell back extension",
+      "45-Degree Barbell Hyperextension"
+    ]
   },
   {
     "id": "glutes_hams_american_kettlebell_swing",
-    "name": "American Kettlebell Swing",
-    "muscle": "Glutes/Hams",
+    "name": "Kettlebell Swing",
+    "muscle": "Glutes",
     "tier": "B Tier",
-    "aliases": []
+    "aliases": [
+      "American Kettlebell Swing",
+      "Kb Swing",
+      "kettlebell swings",
+      "Russian Kettlebell Swing"
+    ]
   },
   {
     "id": "glutes_hams_back_extensions",
-    "name": "Back Extensions",
+    "name": "Back Extension (Hyperextension)",
     "muscle": "Lower Back",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Back Extensions",
+      "Hyperextensions"
+    ]
   },
   {
     "id": "glutes_hams_barbell_good_morning",
-    "name": "Barbell Good Morning",
+    "name": "Good Morning (Barbell)",
     "muscle": "Hamstrings",
     "tier": "B Tier",
     "aliases": [
-      "barbell good mornings"
+      "barbell good mornings",
+      "Barbell Good Morning",
+      "good mornings",
+      "Good Morning"
     ]
   },
   {
     "id": "glutes_hams_deficit_deadlift",
-    "name": "Deficit Deadlift",
+    "name": "Deficit Deadlift (Barbell)",
     "muscle": "Lower Back",
     "tier": "B Tier",
-    "aliases": []
-  },
-  {
-    "id": "glutes_hams_good_morning",
-    "name": "Good Morning",
-    "muscle": "Hamstrings",
-    "tier": "B Tier",
     "aliases": [
-      "good mornings"
+      "Deficit Deadlift"
     ]
   },
   {
     "id": "glutes_hams_hex_bar_deadlift",
-    "name": "Hex Bar Deadlift",
+    "name": "Deadlift (Trap bar)",
     "muscle": "Lower Back",
     "tier": "B Tier",
-    "aliases": []
-  },
-  {
-    "id": "glutes_hams_hyperextensions",
-    "name": "Hyperextensions",
-    "muscle": "Lower Back",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "glutes_hams_kb_swing",
-    "name": "Kb Swing",
-    "muscle": "Glutes/Hams",
-    "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Hex Bar Deadlift"
+    ]
   },
   {
     "id": "glutes_hams_kettlebell_deadlift",
@@ -1879,62 +1975,43 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
     "aliases": []
   },
   {
-    "id": "glutes_hams_kettlebell_swing",
-    "name": "Kettlebell Swing",
-    "muscle": "Glutes/Hams",
-    "tier": "B Tier",
+    "id": "glutes_hams_nordic_hamstring_curls",
+    "name": "Nordic Hamstrings Curls",
+    "muscle": "Hamstrings",
+    "tier": "C Tier",
     "aliases": [
-      "kettlebell swings"
+      "Nordic Hamstring Curls",
+      "nordic curl",
+      "natural glute ham raise",
+      "Nordic Hamstring Curl"
     ]
   },
   {
-    "id": "glutes_hams_nordic_hamstring_curls",
-    "name": "Nordic Hamstring Curls",
-    "muscle": "Hamstrings",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "glutes_hams_russian_kettlebell_swing",
-    "name": "Russian Kettlebell Swing",
-    "muscle": "Glutes/Hams",
-    "tier": "B Tier",
-    "aliases": []
-  },
-  {
     "id": "glutes_hams_single_leg_rdl",
-    "name": "Single Leg Rdl",
+    "name": "Single Leg Romanian Deadlift (Dumbbell)",
     "muscle": "Hamstrings",
     "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "glutes_hams_standard_barbell_deadlifts",
-    "name": "Standard Barbell Deadlifts",
-    "muscle": "Lower Back",
-    "tier": "B Tier",
-    "aliases": []
+    "aliases": [
+      "Single Leg Rdl"
+    ]
   },
   {
     "id": "glutes_hams_standing_leg_curl",
-    "name": "Standing Leg Curl",
+    "name": "Standing Leg Curls",
     "muscle": "Hamstrings",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Standing Leg Curl"
+    ]
   },
   {
     "id": "glutes_hams_stiff_leg_barbell_deadlift",
-    "name": "Stiff-leg Barbell Deadlift",
+    "name": "Straight Leg Deadlift",
     "muscle": "Hamstrings",
     "tier": "B Tier",
-    "aliases": []
-  },
-  {
-    "id": "glutes_abductors__outer_glutes__barbell_hip_thrusts",
-    "name": "Barbell Hip Thrusts",
-    "muscle": "Glutes",
-    "tier": "S Tier",
-    "aliases": []
+    "aliases": [
+      "Stiff-leg Barbell Deadlift"
+    ]
   },
   {
     "id": "glutes_abductors__outer_glutes__glute_bridge",
@@ -1944,18 +2021,13 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
     "aliases": []
   },
   {
-    "id": "glutes_abductors__outer_glutes__hip_abductions",
-    "name": "Hip Abductions",
-    "muscle": "Glutes/Abductors (Outer glutes)",
-    "tier": "S Tier",
-    "aliases": []
-  },
-  {
     "id": "glutes_abductors__outer_glutes__machine_adductions",
-    "name": "Machine Adductions",
-    "muscle": "Glutes/Abductors (Outer glutes)",
+    "name": "Hip Adduction (Machine)",
+    "muscle": "Adductors",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Machine Adductions"
+    ]
   },
   {
     "id": "glutes_abductors__outer_glutes__single_leg_hip_thrust",
@@ -1975,39 +2047,29 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
   },
   {
     "id": "soleus__lower_calf__barbell_calf_raise",
-    "name": "Barbell Calf Raise",
-    "muscle": "Gastrocnemius (Upper calf)",
+    "name": "Standing Calf Raise (Barbell)",
+    "muscle": "Gastrocnemius",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Barbell Calf Raise"
+    ]
   },
   {
     "id": "soleus__lower_calf__dumbbell_calf_raise",
-    "name": "Dumbbell Calf Raise",
-    "muscle": "Gastrocnemius (Upper calf)",
+    "name": "Standing Calf Raise (Dumbbell)",
+    "muscle": "Gastrocnemius",
     "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "soleus__lower_calf__seated_machine_calf_raise",
-    "name": "Seated Machine Calf Raise",
-    "muscle": "Soleus (Lower calf)",
-    "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Dumbbell Calf Raise"
+    ]
   },
   {
     "id": "soleus__lower_calf__single_leg_calf_raise",
-    "name": "Single Leg Calf Raise",
-    "muscle": "Gastrocnemius (Upper calf)",
+    "name": "Single Leg Standing Calf Raise",
+    "muscle": "Gastrocnemius",
     "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "soleus__lower_calf__standing_machine_calf_raise",
-    "name": "Standing Machine Calf Raise",
-    "muscle": "Gastrocnemius (Upper calf)",
-    "tier": "S Tier",
     "aliases": [
-      "standing machine calf raises"
+      "Single Leg Calf Raise"
     ]
   },
   {
@@ -2020,39 +2082,25 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
     ]
   },
   {
-    "id": "upper_abs_cable_ab_crunches",
-    "name": "Cable Ab Crunches",
-    "muscle": "Upper Abs",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "upper_abs_machine_ab_crunch",
-    "name": "Machine Ab Crunch",
-    "muscle": "Upper Abs",
-    "tier": "A+ Tier",
-    "aliases": []
-  },
-  {
-    "id": "upper_abs_machine_ab_crunches",
-    "name": "Machine Ab Crunches",
-    "muscle": "Upper Abs",
-    "tier": "A+ Tier",
-    "aliases": []
-  },
-  {
     "id": "lower_abs_captain_chair_leg_raise",
-    "name": "Captain Chair Leg Raise",
+    "name": "Leg Raise Parallel Bars",
     "muscle": "Lower Abs",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Captain Chair Leg Raise"
+    ]
   },
   {
     "id": "lower_abs_dragon_flags",
-    "name": "Dragon Flags",
+    "name": "Dragon Flag",
     "muscle": "Upper Abs",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Dragon Flags",
+      "bruce lee dragon flag",
+      "dragon flag on decline",
+      "Decline Bench Dragon Flag"
+    ]
   },
   {
     "id": "lower_abs_hanging_oblique_knee_raise",
@@ -2060,49 +2108,40 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
     "muscle": "Obliques",
     "tier": "A Tier",
     "aliases": [
-      "hanging oblique knee raises"
+      "hanging oblique knee raises",
+      "Oblique Knee Raise"
     ]
   },
   {
-    "id": "lower_abs_oblique_knee_raise",
-    "name": "Oblique Knee Raise",
-    "muscle": "Obliques",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "transverse_abs__deep_core__ab_roller",
-    "name": "Ab Roller",
-    "muscle": "Transverse Abs (Deep core)",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
     "id": "transverse_abs__deep_core__bodyweight_plank",
-    "name": "Bodyweight Plank",
-    "muscle": "Transverse Abs (Deep core)",
+    "name": "Plank",
+    "muscle": "Transverse Abs",
     "tier": "B Tier",
     "aliases": [
-      "Plank",
       "Planks",
       "Front Plank",
-      "Standard Plank"
+      "Standard Plank",
+      "Bodyweight Plank"
     ]
   },
   {
     "id": "transverse_abs__deep_core__wrist_roller",
     "name": "Wrist Roller",
-    "muscle": "Transverse Abs (Deep core)",
+    "muscle": "Forearms",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "wrist roller extension",
+      "Wrist Roller (Plate on Rope)"
+    ]
   },
   {
     "id": "obliques_dumbbell_side_bend",
-    "name": "Dumbbell Side Bend",
+    "name": "Side Bend (Dumbbell)",
     "muscle": "Obliques",
     "tier": "C Tier",
     "aliases": [
-      "dumbbell side bends"
+      "dumbbell side bends",
+      "Dumbbell Side Bend"
     ]
   },
   {
@@ -2116,135 +2155,98 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
   },
   {
     "id": "obliques_weighted_russian_twist",
-    "name": "Weighted Russian Twist",
+    "name": "Russian Twist (Weighted)",
     "muscle": "Obliques",
     "tier": "B Tier",
     "aliases": [
       "Russian Twists",
       "Russian Twist",
-      "Weighted Russian Twists"
-    ]
-  },
-  {
-    "id": "obliques_woodchopper",
-    "name": "Woodchopper",
-    "muscle": "Obliques",
-    "tier": "C Tier",
-    "aliases": [
-      "woodchoppers"
+      "Weighted Russian Twists",
+      "Weighted Russian Twist"
     ]
   },
   {
     "id": "forearm_flexors__inside__dumbbell_wrist_curl",
-    "name": "Dumbbell Wrist Curl",
-    "muscle": "Forearm Flexors (Inside)",
+    "name": "Seated Palms Up Wrist Curl",
+    "muscle": "Forearm Flexors",
     "tier": "A Tier",
     "aliases": [
-      "dumbbell wrist curls"
+      "dumbbell wrist curls",
+      "Dumbbell Wrist Curl",
+      "Seated Dumbbell Wrist Curls"
     ]
   },
   {
-    "id": "forearm_flexors__inside__seated_dumbbell_wrist_curls",
-    "name": "Seated Dumbbell Wrist Curls",
-    "muscle": "Forearm Flexors (Inside)",
-    "tier": "A Tier",
-    "aliases": []
-  },
-  {
     "id": "forearm_extensors__outside__bar_hang",
-    "name": "Bar Hang",
-    "muscle": "Forearm Extensors (Outside)",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "forearm_extensors__outside__dead_hang",
     "name": "Dead Hang",
-    "muscle": "Brachioradialis (Upper forearm)",
+    "muscle": "Forearms",
     "tier": "B Tier",
     "aliases": [
+      "Bar Hang",
       "dead hangs"
     ]
   },
   {
     "id": "forearm_extensors__outside__dumbbell_farmer_carry",
-    "name": "Dumbbell Farmer Carry",
-    "muscle": "Brachioradialis (Upper forearm)",
-    "tier": "B Tier",
-    "aliases": []
-  },
-  {
-    "id": "forearm_extensors__outside__farmer_carry",
-    "name": "Farmer Carry",
-    "muscle": "Brachioradialis (Upper forearm)",
-    "tier": "B Tier",
-    "aliases": []
-  },
-  {
-    "id": "forearm_extensors__outside__farmer_walk",
-    "name": "Farmer Walk",
-    "muscle": "Brachioradialis (Upper forearm)",
+    "name": "Farmers Walk",
+    "muscle": "Brachioradialis",
     "tier": "B Tier",
     "aliases": [
+      "Dumbbell Farmer Carry",
+      "Farmer Carry",
       "farmer walks",
-      "farmers walk"
+      "Farmer Walk",
+      "farmers carry",
+      "farmer's carry",
+      "Farmer's Walk"
     ]
   },
   {
     "id": "forearm_extensors__outside__pinch_hold",
-    "name": "Pinch Hold",
-    "muscle": "Forearm Extensors (Outside)",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "forearm_extensors__outside__plate_pinch",
     "name": "Plate Pinch",
-    "muscle": "Brachioradialis (Upper forearm)",
+    "muscle": "Forearms",
     "tier": "B Tier",
-    "aliases": []
-  },
-  {
-    "id": "forearm_extensors__outside__plate_pinches",
-    "name": "Plate Pinches",
-    "muscle": "Brachioradialis (Upper forearm)",
-    "tier": "B Tier",
-    "aliases": []
+    "aliases": [
+      "Pinch Hold",
+      "Plate Pinches",
+      "plate pinch hold",
+      "Pinch-Grip Plate Hold"
+    ]
   },
   {
     "id": "brachioradialis__upper_forearm__reverse_dumbbell_curl",
-    "name": "Reverse Dumbbell Curl",
+    "name": "Reverse Curl (Dumbbell)",
     "muscle": "Brachioradialis",
     "tier": "C Tier",
-    "aliases": []
+    "aliases": [
+      "Reverse Dumbbell Curl"
+    ]
   },
   {
     "id": "brachioradialis__upper_forearm__zottman_curl",
-    "name": "Zottman Curl",
+    "name": "Zottman Curl (Dumbbell)",
     "muscle": "Brachialis",
     "tier": "B Tier",
     "aliases": [
-      "zottman curls"
+      "zottman curls",
+      "Zottman Curl"
     ]
   },
   {
     "id": "uncategorized_hammer_strength_chest_press",
-    "name": "Hammer Strength Chest Press",
+    "name": "Iso-Lateral Chest Press (Machine)",
     "muscle": "Mid Chest",
-    "tier": "C Tier",
-    "aliases": []
-  },
-  {
-    "id": "uncategorized_standing_dumbbell_overhead_extension",
-    "name": "Standing Dumbbell Overhead Extension",
-    "muscle": "Long Tricep",
-    "tier": "C Tier",
-    "aliases": []
+    "tier": "A+ Tier",
+    "aliases": [
+      "Hammer Strength Chest Press",
+      "converging chest press",
+      "Plate-Loaded Chest Press"
+    ]
   },
   {
     "id": "transverse_abs_deep_core_stomach_vacuum",
     "name": "Stomach Vacuum",
-    "muscle": "Transverse Abs (Deep core)",
+    "muscle": "Transverse Abs",
     "tier": "B Tier",
     "aliases": [
       "vacuums",
@@ -2254,16 +2256,18 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
   {
     "id": "transverse_abs_deep_core_bird_dog",
     "name": "Bird Dog",
-    "muscle": "Transverse Abs (Deep core)",
+    "muscle": "Transverse Abs",
     "tier": "C Tier",
     "aliases": [
-      "bird dogs"
+      "bird dogs",
+      "banded bird dog",
+      "Bird Dog on Bench with Resistance Band"
     ]
   },
   {
     "id": "transverse_abs_deep_core_dead_bug",
     "name": "Dead Bug",
-    "muscle": "Transverse Abs (Deep core)",
+    "muscle": "Transverse Abs",
     "tier": "C Tier",
     "aliases": [
       "dead bugs"
@@ -2271,935 +2275,728 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
   },
   {
     "id": "transverse_abs_deep_core_hollow_body_hold",
-    "name": "Hollow Body Hold",
-    "muscle": "Transverse Abs (Deep core)",
+    "name": "Hollow Rock",
+    "muscle": "Transverse Abs",
     "tier": "C Tier",
     "aliases": [
-      "hollow hold"
-    ]
-  },
-  {
-    "id": "upper_traps_farmers_walk",
-    "name": "Farmer's Walk",
-    "muscle": "Brachioradialis (Upper forearm)",
-    "tier": "B Tier",
-    "aliases": [
-      "farmers carry",
-      "farmer's carry"
+      "hollow hold",
+      "Hollow Body Hold",
+      "gymnastic hollow rock",
+      "Hollow Body Rock"
     ]
   },
   {
     "id": "neck_flexors_neck_curl",
-    "name": "Neck Curl",
+    "name": "Lying Neck Curls (Weighted)",
     "muscle": "Upper Traps",
     "tier": "C Tier",
     "aliases": [
       "neck flexion",
-      "weight plate neck curl"
+      "weight plate neck curl",
+      "Neck Curl"
     ]
   },
   {
     "id": "neck_extensors_neck_extension",
-    "name": "Neck Extension",
+    "name": "Lying Neck Extension (Weighted)",
     "muscle": "Upper Traps",
     "tier": "C Tier",
     "aliases": [
-      "neck harness extension"
+      "neck harness extension",
+      "Neck Extension"
     ]
   },
   {
     "id": "hip_flexors_cable_hip_flexion",
-    "name": "Cable Hip Flexion",
-    "muscle": "Hip Flexors",
+    "name": "Hip Flexion (Cable)",
+    "muscle": "Lower Abs",
     "tier": "C Tier",
     "aliases": [
-      "cable knee raise"
+      "cable knee raise",
+      "Cable Hip Flexion"
     ]
   },
   {
     "id": "serratus_anterior_scapular_pushup",
-    "name": "Scapular Pushup",
-    "muscle": "Serratus / Pec Minor",
+    "name": "Scapular Push Up",
+    "muscle": "Mid Chest",
     "tier": "C Tier",
     "aliases": [
       "scap pushups",
-      "scap pushup"
+      "scap pushup",
+      "Scapular Pushup"
     ]
   },
   {
     "id": "upper_chest_converging_incline_chest_press",
-    "name": "Converging Incline Chest Press",
+    "name": "Converging Incline Chest Press (Plate Loaded)",
     "muscle": "Upper Chest",
     "tier": "S Tier",
     "aliases": [
-      "plate loaded incline press"
-    ]
-  },
-  {
-    "id": "mid_chest_plate_loaded_chest_press",
-    "name": "Plate-Loaded Chest Press",
-    "muscle": "Mid Chest",
-    "tier": "C Tier",
-    "aliases": [
-      "converging chest press"
+      "plate loaded incline press",
+      "Converging Incline Chest Press"
     ]
   },
   {
     "id": "mid_chest_deficit_pushup",
-    "name": "Deficit Pushup",
+    "name": "Deficit Push Up",
     "muscle": "Mid Chest",
     "tier": "C Tier",
     "aliases": [
-      "deficit push-ups"
+      "deficit push-ups",
+      "Deficit Pushup"
     ]
   },
   {
     "id": "lat_width_single_arm_iliac_lat_pulldown",
-    "name": "Single Arm Iliac Lat Pulldown",
-    "muscle": "Lat Width (Lats)",
+    "name": "Iliac Lat Pulldown (Cable)",
+    "muscle": "Lat Width",
     "tier": "C Tier",
     "aliases": [
-      "iliac lat pulldown"
+      "iliac lat pulldown",
+      "Single Arm Iliac Lat Pulldown"
     ]
   },
   {
     "id": "lat_width_lat_prayer_cable_pullover",
-    "name": "Lat Prayer (Kneeling Cable Pullover)",
-    "muscle": "Serratus / Pec Minor",
+    "name": "Lat Prayer (Cable)",
+    "muscle": "Lat Width",
     "tier": "C Tier",
     "aliases": [
       "lat prayer",
-      "cable lat pullover"
+      "cable lat pullover",
+      "Lat Prayer (Kneeling Cable Pullover)"
     ]
   },
   {
     "id": "mid_back_kelso_shrug",
-    "name": "Kelso Shrug",
+    "name": "Kelso Shrug (Dumbbell)",
     "muscle": "Upper Traps",
     "tier": "C Tier",
     "aliases": [
-      "scapular retraction row"
+      "scapular retraction row",
+      "Kelso Shrug"
     ]
   },
   {
     "id": "mid_back_chest_supported_y_raise",
-    "name": "Chest Supported Incline Y-Raise",
+    "name": "Chest Supported Y Raise (Dumbbell)",
     "muscle": "Side Delts",
     "tier": "A Tier",
     "aliases": [
       "incline y raise",
-      "lower trap y raise"
+      "lower trap y raise",
+      "Chest Supported Incline Y-Raise"
     ]
   },
   {
     "id": "side_delts_dual_cable_cross_body_lateral_raise",
-    "name": "Dual Cable Cross-Body Lateral Raise",
+    "name": "Cross-Body Lateral Raise (Cable)",
     "muscle": "Side Delts",
     "tier": "C Tier",
     "aliases": [
-      "cross body cable lateral raise"
+      "cross body cable lateral raise",
+      "Dual Cable Cross-Body Lateral Raise"
     ]
   },
   {
     "id": "side_delts_lu_raise",
-    "name": "Lu Raise",
+    "name": "Lu Lateral Raise (Dumbbell)",
     "muscle": "Side Delts",
     "tier": "A Tier",
     "aliases": [
-      "olympic lateral raise"
-    ]
-  },
-  {
-    "id": "rear_delts_high_cable_rear_delt_fly",
-    "name": "High Cable Rear Delt Fly",
-    "muscle": "Rear Delts",
-    "tier": "C Tier",
-    "aliases": [
-      "high cable rear delt crossover"
+      "olympic lateral raise",
+      "Lu Raise"
     ]
   },
   {
     "id": "brachialis_preacher_hammer_curl",
-    "name": "Preacher Hammer Curl",
+    "name": "Preacher Hammer Curl (Dumbbell)",
     "muscle": "Brachialis",
     "tier": "B Tier",
     "aliases": [
-      "dumbbell preacher hammer curl"
-    ]
-  },
-  {
-    "id": "long_tricep_katana_extension",
-    "name": "Katana Extension (Dual Cable Overhead)",
-    "muscle": "Long Tricep (Long Head)",
-    "tier": "C Tier",
-    "aliases": [
-      "katana cable extension"
-    ]
-  },
-  {
-    "id": "lat_med_tricep_cross_body_cable_tricep_extension",
-    "name": "Cross-Body Cable Tricep Extension",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
-    "tier": "C Tier",
-    "aliases": [
-      "cuffed cable tricep extension"
+      "dumbbell preacher hammer curl",
+      "Preacher Hammer Curl"
     ]
   },
   {
     "id": "quads_belt_squat",
-    "name": "Belt Squat",
+    "name": "Belt Squat (Machine)",
     "muscle": "Quads",
-    "tier": "C Tier",
+    "tier": "A+ Tier",
     "aliases": [
-      "pit shark belt squat"
-    ]
-  },
-  {
-    "id": "quads_heel_elevated_goblet_squat",
-    "name": "Heel-Elevated Goblet Squat",
-    "muscle": "Quad Teardrop (VMO)",
-    "tier": "S Tier",
-    "aliases": [
-      "atg goblet squat"
-    ]
-  },
-  {
-    "id": "hamstrings_nordic_hamstring_curl",
-    "name": "Nordic Hamstring Curl",
-    "muscle": "Hamstrings",
-    "tier": "C Tier",
-    "aliases": [
-      "nordic curl",
-      "natural glute ham raise"
+      "pit shark belt squat",
+      "Belt Squat"
     ]
   },
   {
     "id": "hamstrings_b_stance_romanian_deadlift",
-    "name": "B-Stance Romanian Deadlift",
+    "name": "B-Stance Romanian Deadlift (Dumbbell)",
     "muscle": "Hamstrings",
     "tier": "B Tier",
     "aliases": [
-      "b-stance rdl"
-    ]
-  },
-  {
-    "id": "abs_dragon_flag",
-    "name": "Dragon Flag",
-    "muscle": "Upper Abs",
-    "tier": "C Tier",
-    "aliases": [
-      "bruce lee dragon flag"
+      "b-stance rdl",
+      "B-Stance Romanian Deadlift"
     ]
   },
   {
     "id": "upper_chest_incline_hex_press",
-    "name": "Incline Hex Press",
+    "name": "Hex Press (Dumbbell)",
     "muscle": "Upper Chest",
     "tier": "C Tier",
     "aliases": [
       "dumbbell hex press",
-      "incline squeeze press"
+      "incline squeeze press",
+      "Incline Hex Press"
     ]
   },
   {
     "id": "upper_chest_reverse_grip_incline_barbell_press",
-    "name": "Reverse-Grip Incline Barbell Press",
+    "name": "Reverse Grip Incline Bench Press (Barbell)",
     "muscle": "Upper Chest",
     "tier": "A Tier",
     "aliases": [
-      "reverse grip incline bench press"
+      "reverse grip incline bench press",
+      "Reverse-Grip Incline Barbell Press"
     ]
   },
   {
     "id": "upper_chest_cable_upper_chest_scoops",
-    "name": "Cable Upper Chest Scoops",
+    "name": "Low Cable Scoop Fly (Cable)",
     "muscle": "Upper Chest",
     "tier": "C Tier",
     "aliases": [
       "low-to-high cable scoops",
-      "cable chest scoops"
+      "cable chest scoops",
+      "Cable Upper Chest Scoops"
     ]
   },
   {
     "id": "upper_chest_smith_machine_guillotine_incline_press",
-    "name": "Smith Machine Guillotine Incline Press",
-    "muscle": "Upper Chest",
+    "name": "Guillotine Press (Smith Machine)",
+    "muscle": "Mid Chest",
     "tier": "C Tier",
     "aliases": [
-      "incline guillotine press"
+      "incline guillotine press",
+      "Smith Machine Guillotine Incline Press"
     ]
   },
   {
     "id": "upper_chest_single_arm_incline_cable_press",
-    "name": "Single-Arm Incline Cable Press",
+    "name": "Single Arm Cable Crossover",
     "muscle": "Upper Chest",
     "tier": "C Tier",
     "aliases": [
-      "one arm incline cable press"
+      "one arm incline cable press",
+      "Single-Arm Incline Cable Press"
     ]
   },
   {
     "id": "mid_chest_spoto_press",
-    "name": "Spoto Press",
+    "name": "Spoto Bench Press (Barbell)",
     "muscle": "Mid Chest",
     "tier": "C Tier",
     "aliases": [
       "paused bench press",
-      "spoto bench"
+      "spoto bench",
+      "Spoto Press"
     ]
   },
   {
     "id": "mid_chest_floor_dumbbell_flyes",
-    "name": "Floor Dumbbell Flyes",
+    "name": "Floor Chest Fly (Dumbbell)",
     "muscle": "Mid Chest",
     "tier": "C Tier",
     "aliases": [
       "floor db fly",
-      "dumbbell floor fly"
-    ]
-  },
-  {
-    "id": "mid_chest_cable_fly_constant_tension",
-    "name": "Cable Fly with Constant Tension",
-    "muscle": "Mid Chest",
-    "tier": "C Tier",
-    "aliases": [
-      "standing cable chest fly"
+      "dumbbell floor fly",
+      "Floor Dumbbell Flyes"
     ]
   },
   {
     "id": "mid_chest_resistance_band_pushups",
-    "name": "Resistance Band Pushups",
+    "name": "Push Up (Band)",
     "muscle": "Mid Chest",
     "tier": "C Tier",
     "aliases": [
       "banded pushups",
-      "banded push ups"
+      "banded push ups",
+      "Resistance Band Pushups"
     ]
   },
   {
     "id": "mid_chest_isometric_squeeze_machine_fly",
-    "name": "Isometric Squeeze Machine Fly",
+    "name": "Chest Fly (Machine)",
     "muscle": "Mid Chest",
-    "tier": "C Tier",
+    "tier": "A Tier",
     "aliases": [
-      "paused machine chest fly"
+      "paused machine chest fly",
+      "Isometric Squeeze Machine Fly",
+      "seated machine fly",
+      "pec deck fly"
     ]
   },
   {
     "id": "lower_chest_gironda_dips",
-    "name": "Gironda Dips (Flared Elbows)",
+    "name": "Gironda Dip (Chest)",
     "muscle": "Lower Chest",
     "tier": "C Tier",
     "aliases": [
       "vince gironda dips",
-      "pec dips"
-    ]
-  },
-  {
-    "id": "lower_chest_decline_standing_cable_crossover",
-    "name": "Decline Standing Cable Crossover",
-    "muscle": "Lower Chest",
-    "tier": "A Tier",
-    "aliases": [
-      "high to low standing cable fly"
+      "pec dips",
+      "Gironda Dips (Flared Elbows)"
     ]
   },
   {
     "id": "serratus_incline_dumbbell_pullover",
-    "name": "Incline Dumbbell Pullover",
+    "name": "Pullover (Dumbbell)",
     "muscle": "Serratus / Pec Minor",
     "tier": "A Tier",
     "aliases": [
-      "incline db pullover"
+      "incline db pullover",
+      "Incline Dumbbell Pullover"
     ]
   },
   {
     "id": "serratus_cable_serratus_punch",
-    "name": "Cable Serratus Punch",
+    "name": "Serratus Punch (Cable)",
     "muscle": "Serratus / Pec Minor",
     "tier": "C Tier",
     "aliases": [
       "cable punch",
-      "serratus push"
-    ]
-  },
-  {
-    "id": "lower_chest_decline_hammer_strength_press",
-    "name": "Decline Hammer Strength Press",
-    "muscle": "Lower Chest",
-    "tier": "A+ Tier",
-    "aliases": [
-      "hammer strength decline chest press"
+      "serratus push",
+      "Cable Serratus Punch"
     ]
   },
   {
     "id": "lat_width_half_kneeling_single_arm_lat_pulldown",
-    "name": "Half-Kneeling Single-Arm Lat Pulldown",
-    "muscle": "Lat Width (Lats)",
+    "name": "Half-Kneeling Lat Pulldown (Cable)",
+    "muscle": "Lat Width",
     "tier": "B Tier",
     "aliases": [
       "kneeling single arm pulldown",
-      "one arm kneeling pulldown"
+      "one arm kneeling pulldown",
+      "Half-Kneeling Single-Arm Lat Pulldown"
     ]
   },
   {
     "id": "lat_width_meadows_single_arm_lat_pulldown",
-    "name": "Meadows Single-Arm Lat Pulldown",
-    "muscle": "Lat Width (Lats)",
+    "name": "Meadows Lat Pulldown (Cable)",
+    "muscle": "Lat Width",
     "tier": "C Tier",
     "aliases": [
-      "meadows lat pulldown"
-    ]
-  },
-  {
-    "id": "lat_width_dual_rope_straight_arm_lat_pushdown",
-    "name": "Dual-Rope Straight-Arm Lat Pushdown",
-    "muscle": "Lat Width (Lats)",
-    "tier": "A Tier",
-    "aliases": [
-      "double rope lat pushdown",
-      "long rope pullover"
+      "meadows lat pulldown",
+      "Meadows Single-Arm Lat Pulldown"
     ]
   },
   {
     "id": "lat_width_cross_body_cable_lat_extension",
-    "name": "Cross-Body Cable Lat Extension",
-    "muscle": "Lat Width (Lats)",
+    "name": "Cross-Body Lat Extension (Cable)",
+    "muscle": "Lat Width",
     "tier": "C Tier",
     "aliases": [
-      "cross body lat pullover"
-    ]
-  },
-  {
-    "id": "lat_width_neutral_underhand_close_grip_pulldown",
-    "name": "Neutral Underhand Close-Grip Pulldown",
-    "muscle": "Lat Width (Lats)",
-    "tier": "C Tier",
-    "aliases": [
-      "close grip reverse pulldown"
+      "cross body lat pullover",
+      "Cross-Body Cable Lat Extension"
     ]
   },
   {
     "id": "mid_back_seal_row_bench_elevated",
-    "name": "Seal Row (Bench Elevated)",
+    "name": "Seal Row (Dumbbell)",
     "muscle": "Mid-Back",
-    "tier": "C Tier",
+    "tier": "A+ Tier",
     "aliases": [
       "bench seal row",
-      "elevated prone row"
-    ]
-  },
-  {
-    "id": "mid_back_chest_supported_incline_row_45_deg",
-    "name": "Chest-Supported Incline Row (45° Elbows)",
-    "muscle": "Mid-Back",
-    "tier": "C Tier",
-    "aliases": [
-      "incline db row 45 degrees",
-      "flared incline row"
+      "elevated prone row",
+      "Seal Row (Bench Elevated)"
     ]
   },
   {
     "id": "mid_back_fat_gripz_barbell_bent_over_row",
-    "name": "Fat Gripz Barbell Bent-Over Row",
+    "name": "Bent Over Row - Fat Gripz (Barbell)",
     "muscle": "Mid-Back",
     "tier": "A+ Tier",
     "aliases": [
-      "thick bar bent over row"
+      "thick bar bent over row",
+      "Fat Gripz Barbell Bent-Over Row"
     ]
   },
   {
     "id": "mid_back_wide_grip_seated_cable_row_to_sternum",
-    "name": "Wide-Grip Seated Cable Row to Sternum",
+    "name": "Seated Cable Row - Bar Wide Grip",
     "muscle": "Mid-Back",
     "tier": "A+ Tier",
     "aliases": [
       "wide cable row",
-      "scapular retraction cable row"
+      "scapular retraction cable row",
+      "Wide-Grip Seated Cable Row to Sternum"
     ]
   },
   {
     "id": "mid_back_landmine_single_arm_meadows_row",
-    "name": "Landmine Single-Arm Meadows Row",
+    "name": "Meadows Row (Landmine)",
     "muscle": "Mid-Back",
     "tier": "A Tier",
     "aliases": [
       "landmine meadows row",
-      "one arm landmine row"
+      "one arm landmine row",
+      "Landmine Single-Arm Meadows Row"
     ]
   },
   {
     "id": "mid_back_batwing_row",
-    "name": "Batwing Row (Paused on Bench)",
+    "name": "Batwing Row (Dumbbell)",
     "muscle": "Mid-Back",
     "tier": "C Tier",
     "aliases": [
       "batwing db row",
-      "paused prone row"
+      "paused prone row",
+      "Batwing Row (Paused on Bench)"
     ]
   },
   {
     "id": "mid_back_incline_prone_dumbbell_shrug",
-    "name": "Incline Prone Dumbbell Shrug",
+    "name": "Prone Incline Shrug (Dumbbell)",
     "muscle": "Upper Traps",
     "tier": "A Tier",
     "aliases": [
       "prone incline shrug",
-      "lower trap shrug"
+      "lower trap shrug",
+      "Incline Prone Dumbbell Shrug"
     ]
   },
   {
     "id": "upper_traps_behind_the_back_smith_machine_shrug",
-    "name": "Behind-the-Back Smith Machine Shrug",
+    "name": "Shrug (Smith Machine)",
     "muscle": "Upper Traps",
     "tier": "C Tier",
     "aliases": [
       "smith machine rear shrug",
-      "lee haney shrug"
+      "lee haney shrug",
+      "Behind-the-Back Smith Machine Shrug"
     ]
   },
   {
     "id": "upper_traps_trap_bar_farmers_carry",
-    "name": "Trap Bar Farmer's Carry",
-    "muscle": "Brachioradialis (Upper forearm)",
+    "name": "Farmers Walk (Trap Bar)",
+    "muscle": "Forearms",
     "tier": "B Tier",
     "aliases": [
       "trap bar carry",
-      "farmer walk with trap bar"
+      "farmer walk with trap bar",
+      "Trap Bar Farmer's Carry"
     ]
   },
   {
     "id": "upper_traps_cable_rope_face_pull_overhead_reach",
-    "name": "Cable Rope Face Pull with Overhead Reach",
+    "name": "Face Pull with Overhead Reach (Cable)",
     "muscle": "Rear Delts",
     "tier": "A+ Tier",
     "aliases": [
       "face pull overhead press",
-      "face pull y press"
+      "face pull y press",
+      "Cable Rope Face Pull with Overhead Reach"
     ]
   },
   {
     "id": "lower_back_jefferson_curl",
-    "name": "Jefferson Curl",
+    "name": "Jefferson Curl (Barbell)",
     "muscle": "Lower Back",
     "tier": "C Tier",
     "aliases": [
       "jefferson curls",
-      "spinal flexion deadlift"
+      "spinal flexion deadlift",
+      "Jefferson Curl"
     ]
   },
   {
     "id": "lower_back_snatch_grip_romanian_deadlift",
-    "name": "Snatch-Grip Romanian Deadlift",
+    "name": "Snatch Grip Romanian Deadlift (Barbell)",
     "muscle": "Hamstrings",
     "tier": "B Tier",
     "aliases": [
-      "snatch grip rdl"
-    ]
-  },
-  {
-    "id": "lower_back_45_degree_barbell_hyperextension",
-    "name": "45-Degree Barbell Hyperextension",
-    "muscle": "Lower Back",
-    "tier": "C Tier",
-    "aliases": [
-      "weighted back extension",
-      "barbell back extension"
+      "snatch grip rdl",
+      "Snatch-Grip Romanian Deadlift"
     ]
   },
   {
     "id": "lower_back_zercher_good_morning",
-    "name": "Zercher Good Morning",
+    "name": "Good Morning - Zercher (Barbell)",
     "muscle": "Hamstrings",
     "tier": "B Tier",
     "aliases": [
-      "zercher good mornings"
-    ]
-  },
-  {
-    "id": "side_delts_dumbbell_lateral_raise_3s_eccentric",
-    "name": "Dumbbell Lateral Raise (3s Eccentric)",
-    "muscle": "Side Delts",
-    "tier": "A Tier",
-    "aliases": [
-      "slow eccentric lateral raise",
-      "tempo db lateral raise"
+      "zercher good mornings",
+      "Zercher Good Morning"
     ]
   },
   {
     "id": "side_delts_kneeling_cable_lateral_raise",
-    "name": "Kneeling Cable Lateral Raise",
+    "name": "Kneeling Lateral Raise (Cable)",
     "muscle": "Side Delts",
     "tier": "S Tier",
     "aliases": [
-      "half kneeling lateral raise"
+      "half kneeling lateral raise",
+      "Kneeling Cable Lateral Raise"
     ]
   },
   {
     "id": "side_delts_bottoms_up_kettlebell_lateral_raise",
-    "name": "Bottoms-Up Kettlebell Lateral Raise",
+    "name": "Bottoms-Up Lateral Raise (Kettlebell)",
     "muscle": "Side Delts",
     "tier": "B Tier",
     "aliases": [
-      "kettlebell lateral raise"
+      "kettlebell lateral raise",
+      "Bottoms-Up Kettlebell Lateral Raise"
     ]
   },
   {
     "id": "side_delts_seated_chest_supported_lateral_raise",
-    "name": "Seated Chest-Supported Lateral Raise",
+    "name": "Chest Supported Lateral Raise (Dumbbell)",
     "muscle": "Side Delts",
     "tier": "C Tier",
     "aliases": [
       "chest supported lateral raise",
-      "strict seated lateral raise"
+      "strict seated lateral raise",
+      "Seated Chest-Supported Lateral Raise"
     ]
   },
   {
     "id": "rear_delts_prone_incline_rear_delt_w_raise",
-    "name": "Prone Incline Rear Delt W-Raise",
+    "name": "Incline W-Raise (Dumbbell)",
     "muscle": "Rear Delts",
     "tier": "C Tier",
     "aliases": [
       "incline w raise",
-      "rear delt w raise"
-    ]
-  },
-  {
-    "id": "rear_delts_cross_cable_rear_delt_fly_no_handles",
-    "name": "Cross-Cable Rear Delt Fly (No Handles)",
-    "muscle": "Rear Delts",
-    "tier": "C Tier",
-    "aliases": [
-      "cable rear delt crossover",
-      "cuff rear delt fly"
+      "rear delt w raise",
+      "Prone Incline Rear Delt W-Raise"
     ]
   },
   {
     "id": "rear_delts_single_arm_cable_rear_delt_pull",
-    "name": "Single-Arm Cable Rear Delt Pull",
+    "name": "Reverse Fly Single Arm (Cable)",
     "muscle": "Rear Delts",
     "tier": "B Tier",
     "aliases": [
-      "one arm rear delt cable fly"
+      "one arm rear delt cable fly",
+      "Single-Arm Cable Rear Delt Pull"
     ]
   },
   {
     "id": "rear_delts_skiier_rear_delt_swings",
-    "name": "Skiier Rear Delt Swings",
+    "name": "Skier Rear Delt Swing (Dumbbell)",
     "muscle": "Rear Delts",
     "tier": "C Tier",
     "aliases": [
       "rear delt swings",
-      "meadows rear delt swings"
-    ]
-  },
-  {
-    "id": "rear_delts_incline_bench_rear_delt_row",
-    "name": "Incline Bench Rear Delt Row",
-    "muscle": "Rear Delts",
-    "tier": "C Tier",
-    "aliases": [
-      "incline flared db row"
+      "meadows rear delt swings",
+      "Skiier Rear Delt Swings"
     ]
   },
   {
     "id": "front_delts_z_press",
-    "name": "Z-Press (Seated on Floor)",
+    "name": "Z-Press (Barbell)",
     "muscle": "Front Delts",
     "tier": "C Tier",
     "aliases": [
       "seated z press",
-      "floor overhead press"
+      "floor overhead press",
+      "Z-Press (Seated on Floor)"
     ]
   },
   {
     "id": "front_delts_half_kneeling_landmine_shoulder_press",
-    "name": "Half-Kneeling Landmine Shoulder Press",
+    "name": "Half-Kneeling Shoulder Press (Landmine)",
     "muscle": "Front Delts",
     "tier": "B Tier",
     "aliases": [
-      "half kneeling landmine press"
-    ]
-  },
-  {
-    "id": "front_delts_dumbbell_front_raise_with_pronation",
-    "name": "Dumbbell Front Raise with Pronation",
-    "muscle": "Front Delts",
-    "tier": "B Tier",
-    "aliases": [
-      "thumbs down front raise",
-      "pronated db front raise"
+      "half kneeling landmine press",
+      "Half-Kneeling Landmine Shoulder Press"
     ]
   },
   {
     "id": "shoulders_kettlebell_halos",
-    "name": "Kettlebell Halos",
+    "name": "Kettlebell Halo",
     "muscle": "Shoulders",
     "tier": "B Tier",
     "aliases": [
       "kb halos",
-      "shoulder halo"
+      "shoulder halo",
+      "Kettlebell Halos"
     ]
   },
   {
     "id": "shoulders_cable_external_shoulder_rotation",
-    "name": "Cable External Shoulder Rotation",
-    "muscle": "Shoulders",
+    "name": "External Shoulder Rotation (Cable)",
+    "muscle": "Rear Delts",
     "tier": "C Tier",
     "aliases": [
-      "rotator cuff external rotation"
+      "rotator cuff external rotation",
+      "Cable External Shoulder Rotation"
     ]
   },
   {
     "id": "shoulders_cuban_press",
-    "name": "Cuban Press",
-    "muscle": "Shoulders",
+    "name": "Cuban Press (Dumbbell)",
+    "muscle": "Rear Delts",
     "tier": "C Tier",
     "aliases": [
-      "cuban rotation press"
-    ]
-  },
-  {
-    "id": "long_bicep_incline_dumbbell_curl_with_supination",
-    "name": "Incline Dumbbell Curl with Supination",
-    "muscle": "Long Bicep (Outer peak)",
-    "tier": "S Tier",
-    "aliases": [
-      "incline supinating db curl"
-    ]
-  },
-  {
-    "id": "brachialis_cable_rope_hammer_curl",
-    "name": "Cable Rope Hammer Curl",
-    "muscle": "Brachialis",
-    "tier": "A Tier",
-    "aliases": [
-      "rope hammer curl"
+      "cuban rotation press",
+      "Cuban Press"
     ]
   },
   {
     "id": "short_bicep_ez_bar_21s",
-    "name": "EZ-Bar 21s (7-7-7)",
-    "muscle": "Short Bicep (Inner head)",
+    "name": "21s Bicep Curl",
+    "muscle": "Short Bicep",
     "tier": "C Tier",
     "aliases": [
-      "21s bicep curl",
-      "bicep 21s"
+      "bicep 21s",
+      "EZ-Bar 21s (7-7-7)"
     ]
   },
   {
     "id": "short_bicep_hercules_cable_curl",
-    "name": "Hercules Cable Curl (High Pulley)",
-    "muscle": "Short Bicep (Inner head)",
+    "name": "Overhead Curl (Cable)",
+    "muscle": "Short Bicep",
     "tier": "C Tier",
     "aliases": [
       "high cable curl",
-      "overhead bicep cable curl"
+      "overhead bicep cable curl",
+      "Hercules Cable Curl (High Pulley)"
     ]
   },
   {
     "id": "short_bicep_fat_gripz_dumbbell_preacher_curl",
-    "name": "Fat Gripz Dumbbell Preacher Curl",
-    "muscle": "Short Bicep (Inner head)",
+    "name": "Preacher Curl - Fat Gripz (Dumbbell)",
+    "muscle": "Short Bicep",
     "tier": "S Tier",
     "aliases": [
-      "thick bar preacher curl"
+      "thick bar preacher curl",
+      "Fat Gripz Dumbbell Preacher Curl"
     ]
   },
   {
     "id": "brachialis_cross_body_pinwheel_curl",
-    "name": "Cross-Body Pinwheel Curl",
+    "name": "Pinwheel Curl (Dumbbell)",
     "muscle": "Brachialis",
-    "tier": "C Tier",
+    "tier": "A Tier",
     "aliases": [
       "pinwheel curl",
-      "cross body db hammer curl"
-    ]
-  },
-  {
-    "id": "lat_med_tricep_dual_rope_tricep_pushdown",
-    "name": "Dual-Rope Tricep Pushdown",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
-    "tier": "S Tier",
-    "aliases": [
-      "double rope pushdown",
-      "long rope pushdowns"
+      "cross body db hammer curl",
+      "Cross-Body Pinwheel Curl"
     ]
   },
   {
     "id": "long_tricep_floor_ez_bar_skull_crusher_dead_stop",
-    "name": "Floor EZ-Bar Skull Crusher (Dead-Stop)",
-    "muscle": "Long Tricep (Long Head)",
+    "name": "Dead-Stop Skullcrusher (Barbell)",
+    "muscle": "Long Tricep",
     "tier": "A+ Tier",
     "aliases": [
       "dead stop skull crusher",
-      "floor skull crushers"
-    ]
-  },
-  {
-    "id": "lat_med_tricep_single_arm_reverse_grip_pushdown",
-    "name": "Single-Arm Reverse Grip Pushdown",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
-    "tier": "C Tier",
-    "aliases": [
-      "one arm underhand tricep pushdown"
-    ]
-  },
-  {
-    "id": "long_tricep_two_handed_overhead_db_extension",
-    "name": "Two-Handed Overhead DB Extension",
-    "muscle": "Long Tricep (Long Head)",
-    "tier": "C Tier",
-    "aliases": [
-      "seated two arm db overhead extension"
+      "floor skull crushers",
+      "Floor EZ-Bar Skull Crusher (Dead-Stop)"
     ]
   },
   {
     "id": "long_tricep_incline_cable_skull_crusher_30_deg",
-    "name": "Incline Cable Skull Crusher (30° Bench)",
-    "muscle": "Long Tricep (Long Head)",
+    "name": "Incline Skullcrusher (Cable)",
+    "muscle": "Long Tricep",
     "tier": "A+ Tier",
     "aliases": [
-      "incline bench cable skull crusher"
+      "incline bench cable skull crusher",
+      "Incline Cable Skull Crusher (30° Bench)"
     ]
   },
   {
     "id": "lat_med_tricep_barbell_bodyweight_tricep_extension",
-    "name": "Barbell Bodyweight Tricep Extension",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
+    "name": "Bodyweight Triceps Extension (Barbell)",
+    "muscle": "Long Tricep",
     "tier": "C Tier",
     "aliases": [
       "bodyweight skull crusher",
-      "rack tricep extension"
-    ]
-  },
-  {
-    "id": "lat_med_tricep_tate_press_on_flat_bench",
-    "name": "Tate Press on Flat Bench",
-    "muscle": "Lat/Med Tricep (Lateral / Medial Head)",
-    "tier": "C Tier",
-    "aliases": [
-      "dumbbell tate press"
-    ]
-  },
-  {
-    "id": "forearms_behind_the_back_barbell_wrist_curl",
-    "name": "Behind-the-Back Barbell Wrist Curl",
-    "muscle": "Forearm Flexors (Inside)",
-    "tier": "A+ Tier",
-    "aliases": [
-      "standing wrist curl"
+      "rack tricep extension",
+      "Barbell Bodyweight Tricep Extension"
     ]
   },
   {
     "id": "forearms_reverse_barbell_wrist_curl",
-    "name": "Reverse Barbell Wrist Curl",
-    "muscle": "Forearm Flexors (Inside)",
+    "name": "Seated Wrist Extension (Barbell)",
+    "muscle": "Forearm Extensors",
     "tier": "C Tier",
     "aliases": [
-      "overhand wrist curl"
-    ]
-  },
-  {
-    "id": "forearms_wrist_roller",
-    "name": "Wrist Roller (Plate on Rope)",
-    "muscle": "Forearms",
-    "tier": "C Tier",
-    "aliases": [
-      "wrist roller extension"
+      "overhand wrist curl",
+      "Reverse Barbell Wrist Curl"
     ]
   },
   {
     "id": "forearms_dumbbell_finger_curls",
-    "name": "Dumbbell Finger Curls",
-    "muscle": "Forearm Flexors (Inside)",
+    "name": "Finger Curl (Dumbbell)",
+    "muscle": "Forearm Flexors",
     "tier": "C Tier",
     "aliases": [
-      "finger curls"
-    ]
-  },
-  {
-    "id": "forearms_pinch_grip_plate_hold",
-    "name": "Pinch-Grip Plate Hold",
-    "muscle": "Forearms",
-    "tier": "C Tier",
-    "aliases": [
-      "plate pinch hold"
+      "finger curls",
+      "Dumbbell Finger Curls"
     ]
   },
   {
     "id": "forearms_towel_grip_pull_ups",
-    "name": "Towel Grip Pull-ups",
-    "muscle": "Lat Width (Lats)",
+    "name": "Towel Grip Pull Up",
+    "muscle": "Lat Width",
     "tier": "C Tier",
     "aliases": [
-      "towel pullups"
+      "towel pullups",
+      "Towel Grip Pull-ups"
     ]
   },
   {
     "id": "quads_bulgarian_split_squat_front_foot_elevated",
-    "name": "Bulgarian Split Squat (Front Foot Elevated)",
+    "name": "Bulgarian Split Squat (Barbell)",
     "muscle": "Quads",
     "tier": "A Tier",
     "aliases": [
-      "deficit bulgarian split squat"
+      "deficit bulgarian split squat",
+      "Bulgarian Split Squat (Front Foot Elevated)"
     ]
   },
   {
     "id": "quads_cyclist_squat_heels_high_wedge",
-    "name": "Cyclist Squat (Heels High Wedge)",
-    "muscle": "Quad Teardrop (VMO)",
+    "name": "Cyclist Squat (Dumbbell)",
+    "muscle": "Quads",
     "tier": "C Tier",
     "aliases": [
       "cyclist squat",
-      "vmo squat"
+      "vmo squat",
+      "Cyclist Squat (Heels High Wedge)"
     ]
   },
   {
     "id": "quads_high_box_step_up",
-    "name": "High Box Step-Up",
+    "name": "High Box Step Up",
     "muscle": "Quads",
     "tier": "B Tier",
     "aliases": [
       "deficit step up",
-      "weighted high step up"
-    ]
-  },
-  {
-    "id": "quads_spanish_squat_band_behind_knees",
-    "name": "Spanish Squat (Band Behind Knees)",
-    "muscle": "Quads",
-    "tier": "C Tier",
-    "aliases": [
-      "banded spanish squat"
-    ]
-  },
-  {
-    "id": "hamstrings_seated_leg_curl_torso_lean",
-    "name": "Seated Leg Curl with Torso Lean",
-    "muscle": "Hamstrings",
-    "tier": "S Tier",
-    "aliases": [
-      "forward lean seated leg curl"
+      "weighted high step up",
+      "High Box Step-Up"
     ]
   },
   {
     "id": "hamstrings_deficit_romanian_deadlift",
-    "name": "Deficit Romanian Deadlift (Standing on Plate)",
+    "name": "Deficit Romanian Deadlift (Barbell)",
     "muscle": "Hamstrings",
     "tier": "B Tier",
     "aliases": [
-      "deficit rdl"
+      "deficit rdl",
+      "Deficit Romanian Deadlift (Standing on Plate)"
     ]
   },
   {
     "id": "hamstrings_single_leg_kettlebell_rdl",
-    "name": "Single-Leg Kettlebell RDL",
+    "name": "Single Leg Romanian Deadlift (Kettlebell)",
     "muscle": "Hamstrings",
     "tier": "B Tier",
     "aliases": [
-      "one leg kb rdl"
+      "one leg kb rdl",
+      "Single-Leg Kettlebell RDL"
     ]
   },
   {
@@ -3213,105 +3010,116 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
   },
   {
     "id": "hamstrings_glute_ham_raise_ghr",
-    "name": "Glute-Ham Raise (GHR Machine)",
+    "name": "Glute Ham Raise",
     "muscle": "Hamstrings",
     "tier": "A+ Tier",
     "aliases": [
-      "ghr raise"
+      "ghr raise",
+      "Glute-Ham Raise (GHR Machine)"
     ]
   },
   {
     "id": "hamstrings_swiss_ball_leg_curl",
-    "name": "Swiss Ball Leg Curl",
+    "name": "Leg Curl (Swiss Ball)",
     "muscle": "Hamstrings",
     "tier": "C Tier",
     "aliases": [
       "stability ball leg curl",
-      "swiss ball hamstring curl"
+      "swiss ball hamstring curl",
+      "Swiss Ball Leg Curl"
     ]
   },
   {
     "id": "glutes_single_leg_hip_thrust",
-    "name": "Single-Leg Barbell / DB Hip Thrust",
+    "name": "Single Leg Hip Thrust (Dumbbell)",
     "muscle": "Glutes",
     "tier": "C Tier",
     "aliases": [
-      "one leg hip thrust"
+      "one leg hip thrust",
+      "Single-Leg Barbell / DB Hip Thrust"
     ]
   },
   {
     "id": "glutes_cable_pull_through",
-    "name": "Cable Pull-Through",
+    "name": "Cable Pull Through",
     "muscle": "Glutes",
     "tier": "B Tier",
     "aliases": [
-      "rope pull through"
+      "rope pull through",
+      "Cable Pull-Through"
     ]
   },
   {
     "id": "glutes_curtsy_lunge",
-    "name": "Curtsy Lunge",
-    "muscle": "Glutes/Abductors (Outer glutes)",
+    "name": "Curtsy Lunge (Dumbbell)",
+    "muscle": "Glutes/Abductors",
     "tier": "C Tier",
     "aliases": [
-      "dumbbell curtsy lunge"
+      "dumbbell curtsy lunge",
+      "Curtsy Lunge"
     ]
   },
   {
     "id": "glutes_frog_pumps",
-    "name": "Frog Pumps",
+    "name": "Frog Pumps (Dumbbell)",
     "muscle": "Glutes",
     "tier": "C Tier",
     "aliases": [
-      "dumbbell frog pump"
+      "dumbbell frog pump",
+      "Frog Pumps"
     ]
   },
   {
     "id": "glutes_eccentric_step_down",
-    "name": "Eccentric Step-Down",
+    "name": "Eccentric Step Down",
     "muscle": "Glutes",
     "tier": "C Tier",
     "aliases": [
-      "peterson step down"
+      "peterson step down",
+      "Eccentric Step-Down"
     ]
   },
   {
     "id": "calves_single_leg_standing_db_calf_raise",
-    "name": "Single-Leg Standing DB Calf Raise",
-    "muscle": "Gastrocnemius (Upper calf)",
+    "name": "Single Leg Standing Calf Raise (Dumbbell)",
+    "muscle": "Gastrocnemius",
     "tier": "C Tier",
     "aliases": [
-      "one leg standing calf raise"
+      "one leg standing calf raise",
+      "Single-Leg Standing DB Calf Raise"
     ]
   },
   {
     "id": "calves_leg_press_calf_extension",
-    "name": "Leg Press Calf Extension",
-    "muscle": "Gastrocnemius (Upper calf)",
+    "name": "Calf Press (Machine)",
+    "muscle": "Gastrocnemius",
     "tier": "A+ Tier",
     "aliases": [
       "45 degree leg press calf press",
       "Leg Press Calf Raise",
       "Leg Press Calf Raises",
-      "Calf Press on Leg Press"
+      "Calf Press on Leg Press",
+      "Leg Press Calf Extension"
     ]
   },
   {
     "id": "calves_seated_tibialis_bar_raise",
-    "name": "Seated Tibialis Bar Raise",
+    "name": "Tibialis Bar Raise",
     "muscle": "Tibialis Anterior",
     "tier": "B Tier",
     "aliases": [
-      "tib bar raise"
+      "tib bar raise",
+      "Seated Tibialis Bar Raise"
     ]
   },
   {
     "id": "calves_deficit_calf_raise_3s_stretch",
-    "name": "Deficit Calf Raise with 3-Second Stretch Pause",
-    "muscle": "Gastrocnemius (Upper calf)",
+    "name": "Deficit Calf Raise",
+    "muscle": "Gastrocnemius",
     "tier": "C Tier",
     "aliases": [
-      "paused deficit calf raise"
+      "paused deficit calf raise",
+      "Deficit Calf Raise with 3-Second Stretch Pause"
     ]
   },
   {
@@ -3324,84 +3132,63 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
     ]
   },
   {
-    "id": "abs_decline_bench_dragon_flag",
-    "name": "Decline Bench Dragon Flag",
-    "muscle": "Upper Abs",
-    "tier": "C Tier",
-    "aliases": [
-      "dragon flag on decline"
-    ]
-  },
-  {
     "id": "upper_abs_swiss_ball_crunch_extended_stretch",
-    "name": "Swiss Ball Crunch (Extended Stretch)",
+    "name": "Crunch (Swiss Ball)",
     "muscle": "Upper Abs",
     "tier": "C Tier",
     "aliases": [
-      "stability ball crunch"
+      "stability ball crunch",
+      "Swiss Ball Crunch (Extended Stretch)"
     ]
   },
   {
     "id": "lower_abs_l_sit_hold_parallettes",
-    "name": "L-Sit Hold on Parallettes",
+    "name": "L-Sit Hold",
     "muscle": "Lower Abs",
     "tier": "C Tier",
     "aliases": [
-      "parallette l sit hold"
+      "parallette l sit hold",
+      "L-Sit Hold on Parallettes"
     ]
   },
   {
     "id": "abs_ab_wheel_rollout_to_pike",
     "name": "Ab Wheel Rollout to Pike",
-    "muscle": "Transverse Abs (Deep core)",
+    "muscle": "Upper Abs",
     "tier": "A+ Tier",
     "aliases": [
       "rollout pike"
     ]
   },
   {
-    "id": "abs_hollow_body_rock",
-    "name": "Hollow Body Rock",
-    "muscle": "Upper Abs",
-    "tier": "C Tier",
-    "aliases": [
-      "gymnastic hollow rock"
-    ]
-  },
-  {
     "id": "obliques_landmine_180s",
-    "name": "Landmine 180s (Rotations)",
+    "name": "Landmine 180",
     "muscle": "Obliques",
     "tier": "B Tier",
     "aliases": [
       "landmine rotation",
-      "landmine twists"
+      "landmine twists",
+      "Landmine 180s (Rotations)"
     ]
   },
   {
     "id": "obliques_standing_low_to_high_cable_woodchopper",
-    "name": "Standing Low-to-High Cable Woodchopper",
+    "name": "Cable Twist (Down to up)",
     "muscle": "Obliques",
     "tier": "S Tier",
     "aliases": [
-      "diagonal cable woodchopper"
+      "diagonal cable woodchopper",
+      "Standing Low-to-High Cable Woodchopper"
     ]
   },
   {
     "id": "obliques_side_plank_with_hip_dips",
-    "name": "Side Plank with Hip Dips",
-    "muscle": "Obliques",
-    "tier": "B Tier",
-    "aliases": [
-      "side plank hip drops"
-    ]
-  },
-  {
-    "id": "obliques_side_plank",
     "name": "Side Plank",
     "muscle": "Obliques",
     "tier": "B Tier",
     "aliases": [
+      "side plank hip drops",
+      "Side Plank with Hip Dips",
       "Side Planks",
       "Isometric Side Plank",
       "Bodyweight Side Plank"
@@ -3409,29 +3196,2336 @@ export const EXERCISE_DATABASE: ExerciseDBEntry[] = [
   },
   {
     "id": "obliques_heavy_suitcase_carry",
-    "name": "Heavy Suitcase Carry",
+    "name": "Suitcase Carry (Dumbbell)",
     "muscle": "Obliques",
     "tier": "C Tier",
     "aliases": [
-      "single arm farmer walk"
+      "single arm farmer walk",
+      "Heavy Suitcase Carry"
     ]
   },
   {
     "id": "obliques_kettlebell_windmill",
-    "name": "Kettlebell Windmill",
+    "name": "Windmill (Kettlebell)",
     "muscle": "Obliques",
     "tier": "B Tier",
     "aliases": [
-      "kb windmill"
+      "kb windmill",
+      "Kettlebell Windmill"
     ]
   },
   {
-    "id": "abs_bird_dog_on_bench_band",
-    "name": "Bird Dog on Bench with Resistance Band",
+    "id": "mid_chest_around_the_world",
+    "name": "Around The World",
+    "muscle": "Mid Chest",
+    "tier": "C Tier",
+    "aliases": [
+      "dumbbell around the world",
+      "lying chest around the worlds"
+    ]
+  },
+  {
+    "id": "mid_chest_bench_press_cable",
+    "name": "Bench Press (Cable)",
+    "muscle": "Mid Chest",
+    "tier": "A Tier",
+    "aliases": [
+      "lying cable bench press",
+      "dual cable chest press"
+    ]
+  },
+  {
+    "id": "mid_chest_bench_press_smith_machine",
+    "name": "Bench Press (Smith Machine)",
+    "muscle": "Mid Chest",
+    "tier": "A+ Tier",
+    "aliases": [
+      "flat smith machine bench press",
+      "smith bench press"
+    ]
+  },
+  {
+    "id": "mid_chest_bench_press_wide_grip_barbell",
+    "name": "Bench Press - Wide Grip (Barbell)",
+    "muscle": "Mid Chest",
+    "tier": "A Tier",
+    "aliases": [
+      "wide grip barbell bench press",
+      "wide bench press"
+    ]
+  },
+  {
+    "id": "lower_chest_chest_dip_assisted",
+    "name": "Chest Dip (Assisted)",
+    "muscle": "Lower Chest",
+    "tier": "A Tier",
+    "aliases": [
+      "machine assisted chest dips",
+      "band assisted chest dip"
+    ]
+  },
+  {
+    "id": "lower_chest_chest_dip_weighted",
+    "name": "Chest Dip (Weighted)",
+    "muscle": "Lower Chest",
+    "tier": "S Tier",
+    "aliases": [
+      "weighted parallel bar dips",
+      "belt weighted chest dips"
+    ]
+  },
+  {
+    "id": "mid_chest_chest_fly_band",
+    "name": "Chest Fly (Band)",
+    "muscle": "Mid Chest",
+    "tier": "B Tier",
+    "aliases": [
+      "resistance band chest fly",
+      "banded pec fly"
+    ]
+  },
+  {
+    "id": "mid_chest_chest_fly_suspension",
+    "name": "Chest Fly (Suspension)",
+    "muscle": "Mid Chest",
+    "tier": "B Tier",
+    "aliases": [
+      "trx chest fly",
+      "ring chest fly"
+    ]
+  },
+  {
+    "id": "mid_chest_chest_press_band",
+    "name": "Chest Press (Band)",
+    "muscle": "Mid Chest",
+    "tier": "C Tier",
+    "aliases": [
+      "banded chest press",
+      "standing band press"
+    ]
+  },
+  {
+    "id": "mid_chest_clap_push_ups",
+    "name": "Clap Push Ups",
+    "muscle": "Mid Chest",
+    "tier": "C Tier",
+    "aliases": [
+      "plyo push up",
+      "explosive clap pushup"
+    ]
+  },
+  {
+    "id": "upper_chest_decline_push_up",
+    "name": "Decline Push Up",
+    "muscle": "Upper Chest",
+    "tier": "B Tier",
+    "aliases": [
+      "feet elevated push up",
+      "decline bodyweight pushup"
+    ]
+  },
+  {
+    "id": "mid_chest_dumbbell_squeeze_press",
+    "name": "Dumbbell Squeeze Press",
+    "muscle": "Mid Chest",
+    "tier": "B Tier",
+    "aliases": [
+      "flat hex press",
+      "crush grip dumbbell press"
+    ]
+  },
+  {
+    "id": "mid_chest_feet_up_bench_press_barbell",
+    "name": "Feet Up Bench Press (Barbell)",
+    "muscle": "Mid Chest",
+    "tier": "A Tier",
+    "aliases": [
+      "larsen press",
+      "feet elevated barbell bench press"
+    ]
+  },
+  {
+    "id": "mid_chest_floor_press_dumbbell",
+    "name": "Floor Press (Dumbbell)",
+    "muscle": "Mid Chest",
+    "tier": "B Tier",
+    "aliases": [
+      "db floor press",
+      "lying floor dumbbell press"
+    ]
+  },
+  {
+    "id": "lower_chest_incline_push_ups",
+    "name": "Incline Push Ups",
+    "muscle": "Lower Chest",
+    "tier": "C Tier",
+    "aliases": [
+      "hands elevated push up",
+      "bench push ups"
+    ]
+  },
+  {
+    "id": "mid_chest_kneeling_push_up",
+    "name": "Kneeling Push Up",
+    "muscle": "Mid Chest",
+    "tier": "C Tier",
+    "aliases": [
+      "knee push ups",
+      "modified push up"
+    ]
+  },
+  {
+    "id": "mid_chest_one_arm_push_up",
+    "name": "One Arm Push Up",
+    "muscle": "Mid Chest",
+    "tier": "B Tier",
+    "aliases": [
+      "single arm pushup",
+      "unilateral push up"
+    ]
+  },
+  {
+    "id": "mid_chest_plank_pushup",
+    "name": "Plank Pushup",
+    "muscle": "Mid Chest",
+    "tier": "C Tier",
+    "aliases": [
+      "commando planks",
+      "up and down plank"
+    ]
+  },
+  {
+    "id": "mid_chest_push_up_weighted",
+    "name": "Push Up (Weighted)",
+    "muscle": "Mid Chest",
+    "tier": "A Tier",
+    "aliases": [
+      "plate weighted pushup",
+      "vest push ups"
+    ]
+  },
+  {
+    "id": "lower_chest_ring_dips",
+    "name": "Ring Dips",
+    "muscle": "Lower Chest",
+    "tier": "A Tier",
+    "aliases": [
+      "gymnastic ring dips",
+      "bodyweight ring dip"
+    ]
+  },
+  {
+    "id": "mid_chest_ring_push_up",
+    "name": "Ring Push Up",
+    "muscle": "Mid Chest",
+    "tier": "A Tier",
+    "aliases": [
+      "gymnastic ring pushups",
+      "suspended ring push up"
+    ]
+  },
+  {
+    "id": "mid_chest_seated_chest_flys_cable",
+    "name": "Seated Chest Flys (Cable)",
+    "muscle": "Mid Chest",
+    "tier": "S Tier",
+    "aliases": [
+      "seated cable crossover",
+      "bench supported cable fly"
+    ]
+  },
+  {
+    "id": "mid_back_band_pullaparts",
+    "name": "Band Pullaparts",
+    "muscle": "Mid-Back",
+    "tier": "B Tier",
+    "aliases": [
+      "band pull apart",
+      "rear delt band pull-aparts"
+    ]
+  },
+  {
+    "id": "mid_back_bent_over_row_band",
+    "name": "Bent Over Row (Band)",
+    "muscle": "Mid-Back",
+    "tier": "C Tier",
+    "aliases": [
+      "resistance band bent over row"
+    ]
+  },
+  {
+    "id": "mid_back_bent_over_row_smith_machine",
+    "name": "Bent Over Row (Smith Machine)",
+    "muscle": "Mid-Back",
+    "tier": "A Tier",
+    "aliases": [
+      "smith machine barbell row",
+      "smith bent row"
+    ]
+  },
+  {
+    "id": "upper_traps_deadlift_high_pull",
+    "name": "Deadlift High Pull",
+    "muscle": "Upper Traps",
+    "tier": "B Tier",
+    "aliases": [
+      "sumo deadlift high pull",
+      "barbell high pull"
+    ]
+  },
+  {
+    "id": "mid_back_gorilla_row_kettlebell",
+    "name": "Gorilla Row (Kettlebell)",
+    "muscle": "Mid-Back",
+    "tier": "B Tier",
+    "aliases": [
+      "alternating kettlebell gorilla row"
+    ]
+  },
+  {
+    "id": "mid_back_inverted_row",
+    "name": "Inverted Row",
+    "muscle": "Mid-Back",
+    "tier": "A Tier",
+    "aliases": [
+      "australian pull up",
+      "bodyweight barbell row"
+    ]
+  },
+  {
+    "id": "mid_back_iso_lateral_low_row",
+    "name": "Iso-Lateral Low Row",
+    "muscle": "Mid-Back",
+    "tier": "A+ Tier",
+    "aliases": [
+      "hammer strength low row",
+      "unilateral machine row"
+    ]
+  },
+  {
+    "id": "upper_traps_jump_shrug",
+    "name": "Jump Shrug",
+    "muscle": "Upper Traps",
+    "tier": "C Tier",
+    "aliases": [
+      "explosive barbell shrug",
+      "power shrug"
+    ]
+  },
+  {
+    "id": "upper_traps_kettlebell_high_pull",
+    "name": "Kettlebell High Pull",
+    "muscle": "Upper Traps",
+    "tier": "B Tier",
+    "aliases": [
+      "kb high pull",
+      "kettlebell upright pull"
+    ]
+  },
+  {
+    "id": "mid_back_low_row_suspension",
+    "name": "Low Row (Suspension)",
+    "muscle": "Mid-Back",
+    "tier": "B Tier",
+    "aliases": [
+      "trx row",
+      "suspension trainer inverted row"
+    ]
+  },
+  {
+    "id": "upper_traps_lying_neck_curls",
+    "name": "Lying Neck Curls",
+    "muscle": "Upper Traps",
+    "tier": "C Tier",
+    "aliases": [
+      "bodyweight neck flexion",
+      "lying head raise"
+    ]
+  },
+  {
+    "id": "upper_traps_lying_neck_extension",
+    "name": "Lying Neck Extension",
+    "muscle": "Upper Traps",
+    "tier": "C Tier",
+    "aliases": [
+      "bodyweight neck extension",
+      "prone head raise"
+    ]
+  },
+  {
+    "id": "mid_back_pendlay_row_barbell",
+    "name": "Pendlay Row (Barbell)",
+    "muscle": "Mid-Back",
+    "tier": "A+ Tier",
+    "aliases": [
+      "dead stop barbell row",
+      "strict pendlay row"
+    ]
+  },
+  {
+    "id": "mid_back_renegade_row_dumbbell",
+    "name": "Renegade Row (Dumbbell)",
+    "muscle": "Mid-Back",
+    "tier": "C Tier",
+    "aliases": [
+      "plank dumbbell row",
+      "alternating renegade row"
+    ]
+  },
+  {
+    "id": "upper_traps_shrug_machine",
+    "name": "Shrug (Machine)",
+    "muscle": "Upper Traps",
+    "tier": "A+ Tier",
+    "aliases": [
+      "seated/standing machine trap shrug",
+      "hammer strength shrug"
+    ]
+  },
+  {
+    "id": "mid_back_t_bar_row",
+    "name": "T Bar Row",
+    "muscle": "Mid-Back",
+    "tier": "A+ Tier",
+    "aliases": [
+      "standing t-bar row",
+      "landmine v-grip row"
+    ]
+  },
+  {
+    "id": "lat_width_lats_chin_up",
+    "name": "Chin Up",
+    "muscle": "Lat Width",
+    "tier": "A+ Tier",
+    "aliases": [
+      "underhand pull up",
+      "supinated chin up"
+    ]
+  },
+  {
+    "id": "lat_width_lats_chin_up_weighted",
+    "name": "Chin Up (Weighted)",
+    "muscle": "Lat Width",
+    "tier": "S Tier",
+    "aliases": [
+      "belt weighted chin up",
+      "weighted underhand pullup"
+    ]
+  },
+  {
+    "id": "lat_width_lats_front_lever_hold",
+    "name": "Front Lever Hold",
+    "muscle": "Lat Width",
+    "tier": "B Tier",
+    "aliases": [
+      "isometric front lever",
+      "calisthenics front lever"
+    ]
+  },
+  {
+    "id": "lat_width_lats_front_lever_raise",
+    "name": "Front Lever Raise",
+    "muscle": "Lat Width",
+    "tier": "B Tier",
+    "aliases": [
+      "front lever pulls",
+      "straight arm hanging pull"
+    ]
+  },
+  {
+    "id": "lat_width_lats_iso_lateral_high_row_machine",
+    "name": "Iso-Lateral High Row (Machine)",
+    "muscle": "Lat Width",
+    "tier": "S Tier",
+    "aliases": [
+      "hammer strength high row",
+      "plate loaded high row"
+    ]
+  },
+  {
+    "id": "lat_width_lats_kipping_pull_up",
+    "name": "Kipping Pull Up",
+    "muscle": "Lat Width",
+    "tier": "C Tier",
+    "aliases": [
+      "crossfit pull up",
+      "dynamic butterfly pullup"
+    ]
+  },
+  {
+    "id": "lat_width_lats_kneeling_pulldown_band",
+    "name": "Kneeling Pulldown (Band)",
+    "muscle": "Lat Width",
+    "tier": "C Tier",
+    "aliases": [
+      "banded lat pulldown",
+      "kneeling band pulldown"
+    ]
+  },
+  {
+    "id": "lat_width_lats_lat_pulldown_band",
+    "name": "Lat Pulldown (Band)",
+    "muscle": "Lat Width",
+    "tier": "C Tier",
+    "aliases": [
+      "resistance band pulldown"
+    ]
+  },
+  {
+    "id": "lat_width_lats_lat_pulldown_machine",
+    "name": "Lat Pulldown (Machine)",
+    "muscle": "Lat Width",
+    "tier": "A+ Tier",
+    "aliases": [
+      "fixed path lat pulldown machine"
+    ]
+  },
+  {
+    "id": "lat_width_lats_muscle_up",
+    "name": "Muscle Up",
+    "muscle": "Lat Width",
+    "tier": "B Tier",
+    "aliases": [
+      "bar muscle up",
+      "ring muscle up"
+    ]
+  },
+  {
+    "id": "lat_width_lats_negative_pull_up",
+    "name": "Negative Pull Up",
+    "muscle": "Lat Width",
+    "tier": "B Tier",
+    "aliases": [
+      "eccentric pull up",
+      "slow lowering pullup"
+    ]
+  },
+  {
+    "id": "lat_width_lats_pull_up_assisted",
+    "name": "Pull Up (Assisted)",
+    "muscle": "Lat Width",
+    "tier": "A Tier",
+    "aliases": [
+      "gravitron pull up",
+      "machine assisted pullup"
+    ]
+  },
+  {
+    "id": "lat_width_lats_pull_up_band",
+    "name": "Pull Up (Band)",
+    "muscle": "Lat Width",
+    "tier": "B Tier",
+    "aliases": [
+      "band assisted pull up"
+    ]
+  },
+  {
+    "id": "lat_width_lats_pull_up_weighted",
+    "name": "Pull Up (Weighted)",
+    "muscle": "Lat Width",
+    "tier": "S Tier",
+    "aliases": [
+      "dip belt weighted pull up"
+    ]
+  },
+  {
+    "id": "lat_width_lats_ring_pull_up",
+    "name": "Ring Pull Up",
+    "muscle": "Lat Width",
+    "tier": "A Tier",
+    "aliases": [
+      "gymnastic ring pull ups"
+    ]
+  },
+  {
+    "id": "lat_width_lats_scapular_pull_ups",
+    "name": "Scapular Pull Ups",
+    "muscle": "Lat Width",
+    "tier": "B Tier",
+    "aliases": [
+      "scap pull up",
+      "hanging scapular depression"
+    ]
+  },
+  {
+    "id": "lat_width_lats_sternum_pull_up_gironda",
+    "name": "Sternum Pull Up (Gironda)",
+    "muscle": "Lat Width",
+    "tier": "A Tier",
+    "aliases": [
+      "vince gironda sternum chin up",
+      "arched back pullup"
+    ]
+  },
+  {
+    "id": "lat_width_lats_vertical_traction_machine",
+    "name": "Vertical Traction (Machine)",
+    "muscle": "Lat Width",
+    "tier": "A Tier",
+    "aliases": [
+      "technogym vertical traction",
+      "converging machine pulldown"
+    ]
+  },
+  {
+    "id": "front_delts_front_raise_band",
+    "name": "Front Raise (Band)",
+    "muscle": "Front Delts",
+    "tier": "C Tier",
+    "aliases": [
+      "banded front shoulder raise"
+    ]
+  },
+  {
+    "id": "front_delts_front_raise_barbell",
+    "name": "Front Raise (Barbell)",
+    "muscle": "Front Delts",
+    "tier": "B Tier",
+    "aliases": [
+      "standing barbell front raise",
+      "ez-bar front raise"
+    ]
+  },
+  {
+    "id": "front_delts_front_raise_cable",
+    "name": "Front Raise (Cable)",
+    "muscle": "Front Delts",
+    "tier": "A Tier",
+    "aliases": [
+      "low pulley cable front raise",
+      "rope front raise"
+    ]
+  },
+  {
+    "id": "front_delts_front_raise_suspension",
+    "name": "Front Raise (Suspension)",
+    "muscle": "Front Delts",
+    "tier": "C Tier",
+    "aliases": [
+      "trx front raise",
+      "suspension i-raise"
+    ]
+  },
+  {
+    "id": "front_delts_handstand_hold",
+    "name": "Handstand Hold",
+    "muscle": "Front Delts",
+    "tier": "C Tier",
+    "aliases": [
+      "wall handstand isometric hold"
+    ]
+  },
+  {
+    "id": "front_delts_handstand_push_up",
+    "name": "Handstand Push Up",
+    "muscle": "Front Delts",
+    "tier": "A Tier",
+    "aliases": [
+      "hspu",
+      "wall handstand press"
+    ]
+  },
+  {
+    "id": "front_delts_kettlebell_shoulder_press",
+    "name": "Kettlebell Shoulder Press",
+    "muscle": "Front Delts",
+    "tier": "A Tier",
+    "aliases": [
+      "single arm kb overhead press",
+      "kettlebell military press"
+    ]
+  },
+  {
+    "id": "side_delts_lateral_raise_band",
+    "name": "Lateral Raise (Band)",
+    "muscle": "Side Delts",
+    "tier": "B Tier",
+    "aliases": [
+      "resistance band side lateral raise"
+    ]
+  },
+  {
+    "id": "front_delts_overhead_press_smith_machine",
+    "name": "Overhead Press (Smith Machine)",
+    "muscle": "Front Delts",
+    "tier": "A+ Tier",
+    "aliases": [
+      "seated/standing smith machine shoulder press"
+    ]
+  },
+  {
+    "id": "front_delts_pike_pushup",
+    "name": "Pike Pushup",
+    "muscle": "Front Delts",
+    "tier": "B Tier",
+    "aliases": [
+      "bodyweight pike shoulder press"
+    ]
+  },
+  {
+    "id": "front_delts_plate_front_raise",
+    "name": "Plate Front Raise",
+    "muscle": "Front Delts",
+    "tier": "B Tier",
+    "aliases": [
+      "steering wheel raise",
+      "weight plate front raise"
+    ]
+  },
+  {
+    "id": "front_delts_press_under",
+    "name": "Press Under",
+    "muscle": "Front Delts",
+    "tier": "C Tier",
+    "aliases": [
+      "Olympic sotts press",
+      "snatch balance press under"
+    ]
+  },
+  {
+    "id": "front_delts_seated_overhead_press_dumbbell",
+    "name": "Seated Overhead Press (Dumbbell)",
+    "muscle": "Front Delts",
+    "tier": "S Tier",
+    "aliases": [
+      "seated db military press",
+      "dumbbell overhead press"
+    ]
+  },
+  {
+    "id": "front_delts_shoulder_taps",
+    "name": "Shoulder Taps",
+    "muscle": "Front Delts",
+    "tier": "C Tier",
+    "aliases": [
+      "plank alternating shoulder taps"
+    ]
+  },
+  {
+    "id": "side_delts_standing_y_raise_cable",
+    "name": "Standing Y Raise (Cable)",
+    "muscle": "Side Delts",
+    "tier": "A+ Tier",
+    "aliases": [
+      "dual cable y-raise",
+      "lower trap/side delt y-raise"
+    ]
+  },
+  {
+    "id": "side_delts_upright_row_cable",
+    "name": "Upright Row (Cable)",
+    "muscle": "Side Delts",
+    "tier": "A+ Tier",
+    "aliases": [
+      "rope upright row",
+      "cable bar upright row"
+    ]
+  },
+  {
+    "id": "short_bicep_inner_head_bicep_curl_machine",
+    "name": "Bicep Curl (Machine)",
+    "muscle": "Short Bicep",
+    "tier": "A+ Tier",
+    "aliases": [
+      "seated machine bicep curl",
+      "selectorized curl"
+    ]
+  },
+  {
+    "id": "short_bicep_inner_head_bicep_curl_suspension",
+    "name": "Bicep Curl (Suspension)",
+    "muscle": "Short Bicep",
+    "tier": "B Tier",
+    "aliases": [
+      "trx bicep curl",
+      "bodyweight ring curl"
+    ]
+  },
+  {
+    "id": "brachialis_cross_body_hammer_curl",
+    "name": "Cross Body Hammer Curl",
+    "muscle": "Brachialis",
+    "tier": "A Tier",
+    "aliases": [
+      "pinwheel curl",
+      "alternating across chest hammer curl"
+    ]
+  },
+  {
+    "id": "brachialis_hammer_curl_band",
+    "name": "Hammer Curl (Band)",
+    "muscle": "Brachialis",
+    "tier": "C Tier",
+    "aliases": [
+      "neutral grip band bicep curl"
+    ]
+  },
+  {
+    "id": "short_bicep_inner_head_kettlebell_curl",
+    "name": "Kettlebell Curl",
+    "muscle": "Short Bicep",
+    "tier": "B Tier",
+    "aliases": [
+      "standing kettlebell bicep curl"
+    ]
+  },
+  {
+    "id": "brachialis_plate_curl",
+    "name": "Plate Curl",
+    "muscle": "Brachialis",
+    "tier": "C Tier",
+    "aliases": [
+      "weight plate pinch curl"
+    ]
+  },
+  {
+    "id": "brachialis_reverse_grip_concentration_curl",
+    "name": "Reverse Grip Concentration Curl",
+    "muscle": "Brachialis",
+    "tier": "B Tier",
+    "aliases": [
+      "seated pronated concentration curl"
+    ]
+  },
+  {
+    "id": "brachialis_seated_incline_hammer_curl_dumbbell",
+    "name": "Seated Incline Hammer Curl (Dumbbell)",
+    "muscle": "Brachialis",
+    "tier": "A+ Tier",
+    "aliases": [
+      "incline neutral grip dumbbell curl"
+    ]
+  },
+  {
+    "id": "short_bicep_inner_head_single_arm_curl_cable",
+    "name": "Single Arm Curl (Cable)",
+    "muscle": "Short Bicep",
+    "tier": "A+ Tier",
+    "aliases": [
+      "unilateral d-handle cable bicep curl"
+    ]
+  },
+  {
+    "id": "short_bicep_inner_head_waiter_curl_dumbbell",
+    "name": "Waiter Curl (Dumbbell)",
+    "muscle": "Short Bicep",
+    "tier": "B Tier",
+    "aliases": [
+      "cupped palms single dumbbell peak curl"
+    ]
+  },
+  {
+    "id": "lat_med_tricep_lateral_medial_head_diamond_push_up",
+    "name": "Diamond Push Up",
+    "muscle": "Lat/Med Tricep",
+    "tier": "A Tier",
+    "aliases": [
+      "triangle push up",
+      "close hand tricep pushup"
+    ]
+  },
+  {
+    "id": "lat_med_tricep_lateral_medial_head_floor_triceps_dip",
+    "name": "Floor Triceps Dip",
+    "muscle": "Lat/Med Tricep",
+    "tier": "C Tier",
+    "aliases": [
+      "bodyweight crab dips",
+      "floor seated dips"
+    ]
+  },
+  {
+    "id": "lat_med_tricep_lateral_medial_head_jm_press_barbell",
+    "name": "JM Press (Barbell)",
+    "muscle": "Lat/Med Tricep",
+    "tier": "A+ Tier",
+    "aliases": [
+      "jm blakley press",
+      "hybrid close-grip skullcrusher"
+    ]
+  },
+  {
+    "id": "lat_med_tricep_lateral_medial_head_push_up_close_grip",
+    "name": "Push Up - Close Grip",
+    "muscle": "Lat/Med Tricep",
+    "tier": "B Tier",
+    "aliases": [
+      "narrow grip tricep push up",
+      "elbows tucked pushup"
+    ]
+  },
+  {
+    "id": "lat_med_tricep_lateral_medial_head_seated_dip_machine",
+    "name": "Seated Dip Machine",
+    "muscle": "Lat/Med Tricep",
+    "tier": "A+ Tier",
+    "aliases": [
+      "lever tricep dip machine",
+      "selectorized seated dip"
+    ]
+  },
+  {
+    "id": "long_tricep_long_head_single_arm_tricep_extension_dumbbell",
+    "name": "Single Arm Tricep Extension (Dumbbell)",
+    "muscle": "Long Tricep",
+    "tier": "A Tier",
+    "aliases": [
+      "unilateral overhead dumbbell french press"
+    ]
+  },
+  {
+    "id": "long_tricep_long_head_skullcrusher_dumbbell",
+    "name": "Skullcrusher (Dumbbell)",
+    "muscle": "Long Tricep",
+    "tier": "A+ Tier",
+    "aliases": [
+      "lying dumbbell tricep extension",
+      "neutral db skull crushers"
+    ]
+  },
+  {
+    "id": "lat_med_tricep_lateral_medial_head_triceps_extension_machine",
+    "name": "Triceps Extension (Machine)",
+    "muscle": "Lat/Med Tricep",
+    "tier": "A+ Tier",
+    "aliases": [
+      "seated machine tricep extension"
+    ]
+  },
+  {
+    "id": "long_tricep_long_head_triceps_extension_suspension",
+    "name": "Triceps Extension (Suspension)",
+    "muscle": "Long Tricep",
+    "tier": "B Tier",
+    "aliases": [
+      "trx overhead tricep extension",
+      "bodyweight skullcrusher"
+    ]
+  },
+  {
+    "id": "brachioradialis_forearms_biceps_reverse_curl_barbell",
+    "name": "Reverse Curl (Barbell)",
+    "muscle": "Brachioradialis",
+    "tier": "A Tier",
+    "aliases": [
+      "overhand barbell curl",
+      "pronated ez-bar curl"
+    ]
+  },
+  {
+    "id": "short_bicep_biceps_spider_curl_barbell",
+    "name": "Spider Curl (Barbell)",
+    "muscle": "Short Bicep",
+    "tier": "A+ Tier",
+    "aliases": [
+      "prone incline bench barbell curl",
+      "ez-bar spider curl"
+    ]
+  },
+  {
+    "id": "quads_assisted_pistol_squats",
+    "name": "Assisted Pistol Squats",
+    "muscle": "Quads",
+    "tier": "B Tier",
+    "aliases": [
+      "trx pistol squat",
+      "pole-assisted single leg squat"
+    ]
+  },
+  {
+    "id": "quads_box_jump",
+    "name": "Box Jump",
+    "muscle": "Quads",
+    "tier": "B Tier",
+    "aliases": [
+      "plyometric box jump",
+      "explosive jump"
+    ]
+  },
+  {
+    "id": "quads_box_squat_barbell",
+    "name": "Box Squat (Barbell)",
+    "muscle": "Quads",
+    "tier": "B Tier",
+    "aliases": [
+      "westside barbell box squat",
+      "paused seated squat"
+    ]
+  },
+  {
+    "id": "quads_front_squat",
+    "name": "Front Squat",
+    "muscle": "Quads",
+    "tier": "A+ Tier",
+    "aliases": [
+      "olympic barbell front squat",
+      "cross-arm front squat"
+    ]
+  },
+  {
+    "id": "quads_full_squat",
+    "name": "Full Squat",
+    "muscle": "Quads",
+    "tier": "S Tier",
+    "aliases": [
+      "atg barbell squat",
+      "deep olympic high-bar squat"
+    ]
+  },
+  {
+    "id": "quads_hack_squat",
+    "name": "Hack Squat",
+    "muscle": "Quads",
+    "tier": "C Tier",
+    "aliases": [
+      "behind the back barbell hack squat"
+    ]
+  },
+  {
+    "id": "quads_jump_squat",
+    "name": "Jump Squat",
+    "muscle": "Quads",
+    "tier": "C Tier",
+    "aliases": [
+      "bodyweight squat jump",
+      "explosive plyo squat"
+    ]
+  },
+  {
+    "id": "quads_jumping_lunge",
+    "name": "Jumping Lunge",
+    "muscle": "Quads",
+    "tier": "C Tier",
+    "aliases": [
+      "plyometric split squat jump",
+      "alternating jump lunges"
+    ]
+  },
+  {
+    "id": "quads_landmine_squat_and_press",
+    "name": "Landmine Squat and Press",
+    "muscle": "Quads",
+    "tier": "B Tier",
+    "aliases": [
+      "landmine thruster",
+      "t-bar squat to press"
+    ]
+  },
+  {
+    "id": "quads_lateral_box_jump",
+    "name": "Lateral Box Jump",
+    "muscle": "Quads",
+    "tier": "C Tier",
+    "aliases": [
+      "side plyo box jump"
+    ]
+  },
+  {
+    "id": "quads_lateral_lunge",
+    "name": "Lateral Lunge",
+    "muscle": "Quads",
+    "tier": "B Tier",
+    "aliases": [
+      "side lunge",
+      "cossack lunge"
+    ]
+  },
+  {
+    "id": "quads_lateral_squat",
+    "name": "Lateral Squat",
+    "muscle": "Quads",
+    "tier": "B Tier",
+    "aliases": [
+      "cossack squat",
+      "side-to-side squat"
+    ]
+  },
+  {
+    "id": "quads_leg_press_horizontal_machine",
+    "name": "Leg Press Horizontal (Machine)",
+    "muscle": "Quads",
+    "tier": "A Tier",
+    "aliases": [
+      "seated horizontal sled leg press"
+    ]
+  },
+  {
+    "id": "quads_lunge_barbell",
+    "name": "Lunge (Barbell)",
+    "muscle": "Quads",
+    "tier": "A Tier",
+    "aliases": [
+      "standing barbell forward lunge"
+    ]
+  },
+  {
+    "id": "quads_lunge_dumbbell",
+    "name": "Lunge (Dumbbell)",
+    "muscle": "Quads",
+    "tier": "A Tier",
+    "aliases": [
+      "standing dumbbell forward lunge"
+    ]
+  },
+  {
+    "id": "quads_overhead_dumbbell_lunge",
+    "name": "Overhead Dumbbell Lunge",
+    "muscle": "Quads",
+    "tier": "B Tier",
+    "aliases": [
+      "waiter walk lunge",
+      "single/dual arm overhead db lunge"
+    ]
+  },
+  {
+    "id": "quads_overhead_squat",
+    "name": "Overhead Squat",
+    "muscle": "Quads",
+    "tier": "B Tier",
+    "aliases": [
+      "snatch grip barbell overhead squat"
+    ]
+  },
+  {
+    "id": "quads_pause_squat_barbell",
+    "name": "Pause Squat (Barbell)",
+    "muscle": "Quads",
+    "tier": "A+ Tier",
+    "aliases": [
+      "hole-paused barbell back squat",
+      "isometric bottom squat"
+    ]
+  },
+  {
+    "id": "quads_pistol_squat",
+    "name": "Pistol Squat",
+    "muscle": "Quads",
+    "tier": "A Tier",
+    "aliases": [
+      "bodyweight single leg squat"
+    ]
+  },
+  {
+    "id": "quads_single_leg_extensions",
+    "name": "Single Leg Extensions",
+    "muscle": "Quads",
+    "tier": "S Tier",
+    "aliases": [
+      "unilateral machine leg extension",
+      "one leg quad extension"
+    ]
+  },
+  {
+    "id": "quads_sissy_squat_weighted",
+    "name": "Sissy Squat (Weighted)",
+    "muscle": "Quads",
+    "tier": "A+ Tier",
+    "aliases": [
+      "plate weighted sissy squat",
+      "gironda sissy squat"
+    ]
+  },
+  {
+    "id": "quads_sled_pull",
+    "name": "Sled Pull",
+    "muscle": "Quads",
+    "tier": "A Tier",
+    "aliases": [
+      "backward sled drag",
+      "reverse prowler walk"
+    ]
+  },
+  {
+    "id": "quads_sled_push",
+    "name": "Sled Push",
+    "muscle": "Quads",
+    "tier": "A Tier",
+    "aliases": [
+      "prowler push",
+      "heavy turf sled drive"
+    ]
+  },
+  {
+    "id": "quads_squat_band",
+    "name": "Squat (Band)",
+    "muscle": "Quads",
+    "tier": "C Tier",
+    "aliases": [
+      "banded squat",
+      "resistance band front squat"
+    ]
+  },
+  {
+    "id": "quads_squat_bodyweight",
+    "name": "Squat (Bodyweight)",
+    "muscle": "Quads",
+    "tier": "C Tier",
+    "aliases": [
+      "air squat",
+      "prisoner squat"
+    ]
+  },
+  {
+    "id": "quads_squat_dumbbell",
+    "name": "Squat (Dumbbell)",
+    "muscle": "Quads",
+    "tier": "B Tier",
+    "aliases": [
+      "suitcase dumbbell squat",
+      "dual db squat"
+    ]
+  },
+  {
+    "id": "quads_squat_machine",
+    "name": "Squat (Machine)",
+    "muscle": "Quads",
+    "tier": "S Tier",
+    "aliases": [
+      "lever squat machine",
+      "v-squat machine"
+    ]
+  },
+  {
+    "id": "quads_squat_suspension",
+    "name": "Squat (Suspension)",
+    "muscle": "Quads",
+    "tier": "C Tier",
+    "aliases": [
+      "trx assisted squat"
+    ]
+  },
+  {
+    "id": "quads_squat_row",
+    "name": "Squat Row",
+    "muscle": "Quads",
+    "tier": "C Tier",
+    "aliases": [
+      "trx squat to row",
+      "compound cable squat row"
+    ]
+  },
+  {
+    "id": "quads_sumo_squat",
+    "name": "Sumo Squat",
+    "muscle": "Quads",
+    "tier": "C Tier",
+    "aliases": [
+      "wide stance plie bodyweight squat"
+    ]
+  },
+  {
+    "id": "quads_sumo_squat_barbell",
+    "name": "Sumo Squat (Barbell)",
+    "muscle": "Quads",
+    "tier": "A Tier",
+    "aliases": [
+      "wide stance barbell back squat"
+    ]
+  },
+  {
+    "id": "quads_sumo_squat_dumbbell",
+    "name": "Sumo Squat (Dumbbell)",
+    "muscle": "Quads",
+    "tier": "A Tier",
+    "aliases": [
+      "wide stance goblet/hanging single dumbbell squat"
+    ]
+  },
+  {
+    "id": "quads_sumo_squat_kettlebell",
+    "name": "Sumo Squat (Kettlebell)",
+    "muscle": "Quads",
+    "tier": "A Tier",
+    "aliases": [
+      "wide stance kettlebell sumo squat"
+    ]
+  },
+  {
+    "id": "quads_thruster_barbell",
+    "name": "Thruster (Barbell)",
+    "muscle": "Quads",
+    "tier": "B Tier",
+    "aliases": [
+      "front squat to overhead push press"
+    ]
+  },
+  {
+    "id": "quads_thruster_kettlebell",
+    "name": "Thruster (Kettlebell)",
+    "muscle": "Quads",
+    "tier": "B Tier",
+    "aliases": [
+      "dual kettlebell front squat to press"
+    ]
+  },
+  {
+    "id": "quads_walking_lunge_sandbag",
+    "name": "Walking Lunge (Sandbag)",
+    "muscle": "Quads",
+    "tier": "B Tier",
+    "aliases": [
+      "sandbag shouldered walking lunges"
+    ]
+  },
+  {
+    "id": "quads_wall_ball",
+    "name": "Wall Ball",
+    "muscle": "Quads",
+    "tier": "C Tier",
+    "aliases": [
+      "medicine ball squat to target toss"
+    ]
+  },
+  {
+    "id": "quads_wall_sit",
+    "name": "Wall Sit",
+    "muscle": "Quads",
+    "tier": "C Tier",
+    "aliases": [
+      "isometric wall squat hold"
+    ]
+  },
+  {
+    "id": "hamstrings_romanian_deadlift_dumbbell",
+    "name": "Romanian Deadlift (Dumbbell)",
+    "muscle": "Hamstrings",
+    "tier": "S Tier",
+    "aliases": [
+      "db rdl",
+      "dumbbell stiff-legged romanian deadlift"
+    ]
+  },
+  {
+    "id": "hamstrings_romanian_deadlift_smith_machine",
+    "name": "Romanian Deadlift (Smith Machine)",
+    "muscle": "Hamstrings",
+    "tier": "A+ Tier",
+    "aliases": [
+      "smith rdl",
+      "fixed path romanian deadlift"
+    ]
+  },
+  {
+    "id": "hamstrings_single_leg_romanian_deadlift_barbell",
+    "name": "Single Leg Romanian Deadlift (Barbell)",
+    "muscle": "Hamstrings",
+    "tier": "B Tier",
+    "aliases": [
+      "unilateral barbell rdl",
+      "one leg balance rdl"
+    ]
+  },
+  {
+    "id": "hamstrings_sumo_deadlift",
+    "name": "Sumo Deadlift",
+    "muscle": "Hamstrings",
+    "tier": "A+ Tier",
+    "aliases": [
+      "wide stance barbell sumo deadlift"
+    ]
+  },
+  {
+    "id": "glutes_abductors_outer_glutes_clamshell",
+    "name": "Clamshell",
+    "muscle": "Glutes/Abductors",
+    "tier": "C Tier",
+    "aliases": [
+      "side lying banded clamshell",
+      "glute medius opener"
+    ]
+  },
+  {
+    "id": "glutes_abductors_outer_glutes_fire_hydrants",
+    "name": "Fire Hydrants",
+    "muscle": "Glutes/Abductors",
+    "tier": "C Tier",
+    "aliases": [
+      "quadruped hip abduction",
+      "donkey side kick"
+    ]
+  },
+  {
+    "id": "glutes_glute_bridge_barbell",
+    "name": "Glute Bridge (Barbell)",
+    "muscle": "Glutes",
+    "tier": "A Tier",
+    "aliases": [
+      "floor barbell glute bridge",
+      "kas floor bridge"
+    ]
+  },
+  {
+    "id": "glutes_glute_kickback_machine",
+    "name": "Glute Kickback (Machine)",
+    "muscle": "Glutes",
+    "tier": "A+ Tier",
+    "aliases": [
+      "standing/kneeling glute kickback machine"
+    ]
+  },
+  {
+    "id": "glutes_glute_kickback_on_floor",
+    "name": "Glute Kickback on Floor",
+    "muscle": "Glutes",
+    "tier": "C Tier",
+    "aliases": [
+      "quadruped donkey kicks",
+      "bodyweight glute kickback"
+    ]
+  },
+  {
+    "id": "glutes_abductors_outer_glutes_hip_abduction_cable",
+    "name": "Hip Abduction (Cable)",
+    "muscle": "Glutes/Abductors",
+    "tier": "A+ Tier",
+    "aliases": [
+      "standing ankle cuff cable hip abduction"
+    ]
+  },
+  {
+    "id": "adductors_hip_adduction_cable",
+    "name": "Hip Adduction (Cable)",
+    "muscle": "Adductors",
+    "tier": "A Tier",
+    "aliases": [
+      "standing ankle cuff cable inner thigh pull"
+    ]
+  },
+  {
+    "id": "glutes_hip_thrust",
+    "name": "Hip Thrust",
+    "muscle": "Glutes",
+    "tier": "B Tier",
+    "aliases": [
+      "bodyweight bench hip thrust"
+    ]
+  },
+  {
+    "id": "glutes_hip_thrust_dumbbell",
+    "name": "Hip Thrust (Dumbbell)",
+    "muscle": "Glutes",
+    "tier": "A Tier",
+    "aliases": [
+      "lap dumbbell bench hip thrust"
+    ]
+  },
+  {
+    "id": "glutes_hip_thrust_machine",
+    "name": "Hip Thrust (Machine)",
+    "muscle": "Glutes",
+    "tier": "S Tier",
+    "aliases": [
+      "nautilus glute drive",
+      "plate loaded hip thrust machine"
+    ]
+  },
+  {
+    "id": "glutes_hip_thrust_smith_machine",
+    "name": "Hip Thrust (Smith Machine)",
+    "muscle": "Glutes",
+    "tier": "S Tier",
+    "aliases": [
+      "smith machine bench hip thrust"
+    ]
+  },
+  {
+    "id": "glutes_abductors_outer_glutes_lateral_band_walks",
+    "name": "Lateral Band Walks",
+    "muscle": "Glutes/Abductors",
+    "tier": "B Tier",
+    "aliases": [
+      "monster walks",
+      "crab band walks"
+    ]
+  },
+  {
+    "id": "glutes_abductors_outer_glutes_lateral_leg_raises",
+    "name": "Lateral Leg Raises",
+    "muscle": "Glutes/Abductors",
+    "tier": "C Tier",
+    "aliases": [
+      "side lying leg lift",
+      "bodyweight hip abduction"
+    ]
+  },
+  {
+    "id": "glutes_partial_glute_bridge_barbell",
+    "name": "Partial Glute Bridge (Barbell)",
+    "muscle": "Glutes",
+    "tier": "A Tier",
+    "aliases": [
+      "kas glute bridge",
+      "short-ROM top-end hip thrust"
+    ]
+  },
+  {
+    "id": "glutes_rear_kick_machine",
+    "name": "Rear Kick (Machine)",
+    "muscle": "Glutes",
+    "tier": "A Tier",
+    "aliases": [
+      "prone/standing donkey kick machine"
+    ]
+  },
+  {
+    "id": "glutes_single_leg_glute_bridge",
+    "name": "Single Leg Glute Bridge",
+    "muscle": "Glutes",
+    "tier": "B Tier",
+    "aliases": [
+      "unilateral floor glute bridge"
+    ]
+  },
+  {
+    "id": "gastrocnemius_upper_calf_calf_extension_machine",
+    "name": "Calf Extension (Machine)",
+    "muscle": "Gastrocnemius",
+    "tier": "A+ Tier",
+    "aliases": [
+      "seated selectorized calf extension",
+      "rotary calf machine"
+    ]
+  },
+  {
+    "id": "gastrocnemius_upper_calf_single_leg_standing_calf_raise_barbell",
+    "name": "Single Leg Standing Calf Raise (Barbell)",
+    "muscle": "Gastrocnemius",
+    "tier": "B Tier",
+    "aliases": [
+      "unilateral barbell calf raise"
+    ]
+  },
+  {
+    "id": "gastrocnemius_upper_calf_single_leg_standing_calf_raise_machine",
+    "name": "Single Leg Standing Calf Raise (Machine)",
+    "muscle": "Gastrocnemius",
+    "tier": "S Tier",
+    "aliases": [
+      "one leg standing machine calf raise"
+    ]
+  },
+  {
+    "id": "gastrocnemius_upper_calf_standing_calf_raise_smith",
+    "name": "Standing Calf Raise (Smith)",
+    "muscle": "Gastrocnemius",
+    "tier": "S Tier",
+    "aliases": [
+      "smith machine block standing calf raise"
+    ]
+  },
+  {
+    "id": "lower_abs_ab_scissors",
+    "name": "Ab Scissors",
+    "muscle": "Lower Abs",
+    "tier": "C Tier",
+    "aliases": [
+      "lying scissor kicks",
+      "supine leg crossovers"
+    ]
+  },
+  {
+    "id": "obliques_bicycle_crunch_raised_legs",
+    "name": "Bicycle Crunch Raised Legs",
+    "muscle": "Obliques",
+    "tier": "B Tier",
+    "aliases": [
+      "elevated leg alternating bicycle crunch"
+    ]
+  },
+  {
+    "id": "upper_abs_crunch_weighted",
+    "name": "Crunch (Weighted)",
+    "muscle": "Upper Abs",
+    "tier": "A Tier",
+    "aliases": [
+      "plate weighted chest crunch",
+      "dumbbell crunch"
+    ]
+  },
+  {
+    "id": "upper_abs_decline_crunch",
+    "name": "Decline Crunch",
+    "muscle": "Upper Abs",
+    "tier": "B Tier",
+    "aliases": [
+      "decline bench sit up / crunch"
+    ]
+  },
+  {
+    "id": "upper_abs_decline_crunch_weighted",
+    "name": "Decline Crunch (Weighted)",
+    "muscle": "Upper Abs",
+    "tier": "A Tier",
+    "aliases": [
+      "weighted decline bench abdominal crunch"
+    ]
+  },
+  {
+    "id": "lower_abs_dragonfly",
+    "name": "Dragonfly",
+    "muscle": "Lower Abs",
+    "tier": "A Tier",
+    "aliases": [
+      "gymnastic dragon flag progression"
+    ]
+  },
+  {
+    "id": "obliques_elbow_to_knee",
+    "name": "Elbow to Knee",
+    "muscle": "Obliques",
+    "tier": "C Tier",
+    "aliases": [
+      "cross-body supine crunch",
+      "standing elbow-to-knee"
+    ]
+  },
+  {
+    "id": "lower_abs_flutter_kicks",
+    "name": "Flutter Kicks",
+    "muscle": "Lower Abs",
+    "tier": "C Tier",
+    "aliases": [
+      "lying leg flutter kicks"
+    ]
+  },
+  {
+    "id": "lower_abs_hanging_leg_raise",
+    "name": "Hanging Leg Raise",
+    "muscle": "Lower Abs",
+    "tier": "S Tier",
+    "aliases": [
+      "strict straight-leg hanging raise"
+    ]
+  },
+  {
+    "id": "obliques_heel_taps",
+    "name": "Heel Taps",
+    "muscle": "Obliques",
+    "tier": "C Tier",
+    "aliases": [
+      "lying alternating penguin heel touches"
+    ]
+  },
+  {
+    "id": "lower_abs_jack_knife_suspension",
+    "name": "Jack Knife (Suspension)",
+    "muscle": "Lower Abs",
+    "tier": "B Tier",
+    "aliases": [
+      "trx pike / knee tuck jackknife"
+    ]
+  },
+  {
+    "id": "upper_abs_jackknife_sit_up",
+    "name": "Jackknife Sit Up",
+    "muscle": "Upper Abs",
+    "tier": "B Tier",
+    "aliases": [
+      "v-snap sit up",
+      "folding floor jackknife"
+    ]
+  },
+  {
+    "id": "lower_abs_knee_raise_parallel_bars",
+    "name": "Knee Raise Parallel Bars",
+    "muscle": "Lower Abs",
+    "tier": "A Tier",
+    "aliases": [
+      "captain's chair knee raise",
+      "dip station knee raise"
+    ]
+  },
+  {
+    "id": "lower_abs_lying_knee_raise",
+    "name": "Lying Knee Raise",
+    "muscle": "Lower Abs",
+    "tier": "B Tier",
+    "aliases": [
+      "supine floor knee tuck / reverse crunch"
+    ]
+  },
+  {
+    "id": "transverse_abs_deep_core_mountain_climber",
+    "name": "Mountain Climber",
     "muscle": "Transverse Abs",
     "tier": "C Tier",
     "aliases": [
-      "banded bird dog"
+      "plank running mountain climbers"
+    ]
+  },
+  {
+    "id": "obliques_oblique_crunch",
+    "name": "Oblique Crunch",
+    "muscle": "Obliques",
+    "tier": "B Tier",
+    "aliases": [
+      "side-lying oblique floor crunch"
+    ]
+  },
+  {
+    "id": "transverse_abs_deep_core_reverse_plank",
+    "name": "Reverse Plank",
+    "muscle": "Transverse Abs",
+    "tier": "C Tier",
+    "aliases": [
+      "supine posterior chain plank hold"
+    ]
+  },
+  {
+    "id": "obliques_russian_twist_bodyweight",
+    "name": "Russian Twist (Bodyweight)",
+    "muscle": "Obliques",
+    "tier": "C Tier",
+    "aliases": [
+      "seated unloaded torso twists"
+    ]
+  },
+  {
+    "id": "upper_abs_sit_up",
+    "name": "Sit Up",
+    "muscle": "Upper Abs",
+    "tier": "C Tier",
+    "aliases": [
+      "standard floor abdominal sit up"
+    ]
+  },
+  {
+    "id": "upper_abs_sit_up_weighted",
+    "name": "Sit Up (Weighted)",
+    "muscle": "Upper Abs",
+    "tier": "B Tier",
+    "aliases": [
+      "plate-held chest sit up"
+    ]
+  },
+  {
+    "id": "obliques_spiderman",
+    "name": "Spiderman",
+    "muscle": "Obliques",
+    "tier": "C Tier",
+    "aliases": [
+      "spiderman plank crunch",
+      "knee-to-elbow crawl"
+    ]
+  },
+  {
+    "id": "upper_abs_toe_touch",
+    "name": "Toe Touch",
+    "muscle": "Upper Abs",
+    "tier": "C Tier",
+    "aliases": [
+      "vertical legs supine crunch to toes"
+    ]
+  },
+  {
+    "id": "lower_abs_toes_to_bar",
+    "name": "Toes to Bar",
+    "muscle": "Lower Abs",
+    "tier": "S Tier",
+    "aliases": [
+      "hanging t2b",
+      "strict toes to bar"
+    ]
+  },
+  {
+    "id": "obliques_torso_rotation",
+    "name": "Torso Rotation",
+    "muscle": "Obliques",
+    "tier": "B Tier",
+    "aliases": [
+      "seated rotary torso machine"
+    ]
+  },
+  {
+    "id": "upper_abs_v_up",
+    "name": "V Up",
+    "muscle": "Upper Abs",
+    "tier": "A Tier",
+    "aliases": [
+      "pike v-sit up"
+    ]
+  },
+  {
+    "id": "lower_back_back_extension_machine",
+    "name": "Back Extension (Machine)",
+    "muscle": "Lower Back",
+    "tier": "A Tier",
+    "aliases": [
+      "seated selectorized back extension machine"
+    ]
+  },
+  {
+    "id": "lower_back_deadlift_band",
+    "name": "Deadlift (Band)",
+    "muscle": "Lower Back",
+    "tier": "C Tier",
+    "aliases": [
+      "banded conventional deadlift"
+    ]
+  },
+  {
+    "id": "lower_back_deadlift_dumbbell",
+    "name": "Deadlift (Dumbbell)",
+    "muscle": "Lower Back",
+    "tier": "B Tier",
+    "aliases": [
+      "dual dumbbell floor deadlift"
+    ]
+  },
+  {
+    "id": "lower_back_deadlift_smith_machine",
+    "name": "Deadlift (Smith Machine)",
+    "muscle": "Lower Back",
+    "tier": "B Tier",
+    "aliases": [
+      "smith machine floor pull / deadlift"
+    ]
+  },
+  {
+    "id": "lower_back_rack_pull",
+    "name": "Rack Pull",
+    "muscle": "Lower Back",
+    "tier": "A Tier",
+    "aliases": [
+      "elevated pin barbell partial deadlift"
+    ]
+  },
+  {
+    "id": "lower_back_reverse_hyperextension",
+    "name": "Reverse Hyperextension",
+    "muscle": "Lower Back",
+    "tier": "A+ Tier",
+    "aliases": [
+      "westside reverse hyper machine",
+      "prone leg hyperextension"
+    ]
+  },
+  {
+    "id": "lower_back_superman",
+    "name": "Superman",
+    "muscle": "Lower Back",
+    "tier": "C Tier",
+    "aliases": [
+      "prone floor back extension hold"
+    ]
+  },
+  {
+    "id": "cardio_aerobics",
+    "name": "Aerobics",
+    "muscle": "Cardio",
+    "tier": "C Tier",
+    "aliases": [
+      "step aerobics"
+    ]
+  },
+  {
+    "id": "cardio_hiit_air_bike",
+    "name": "Air Bike",
+    "muscle": "Cardio",
+    "tier": "A Tier",
+    "aliases": [
+      "assault bike",
+      "rogue echo bike"
+    ]
+  },
+  {
+    "id": "conditioning_ball_slams",
+    "name": "Ball Slams",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "medicine ball floor slam"
+    ]
+  },
+  {
+    "id": "conditioning_battle_ropes",
+    "name": "Battle Ropes",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "heavy rope waves / slams"
+    ]
+  },
+  {
+    "id": "conditioning_bear_crawl",
+    "name": "Bear Crawl",
+    "muscle": "Cardio",
+    "tier": "C Tier",
+    "aliases": [
+      "quadruped turf crawl"
+    ]
+  },
+  {
+    "id": "cardio_combat_boxing",
+    "name": "Boxing",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "heavy bag work",
+      "shadow boxing"
+    ]
+  },
+  {
+    "id": "conditioning_burpee",
+    "name": "Burpee",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "chest-to-floor burpees"
+    ]
+  },
+  {
+    "id": "conditioning_burpee_broad_jumps",
+    "name": "Burpee Broad Jumps",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "burpee to horizontal broad jump"
+    ]
+  },
+  {
+    "id": "conditioning_burpee_over_the_bar",
+    "name": "Burpee Over the Bar",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "crossfit bar-facing burpees"
+    ]
+  },
+  {
+    "id": "olympic_lift_clean",
+    "name": "Clean",
+    "muscle": "Olympic Lift",
+    "tier": "A Tier",
+    "aliases": [
+      "olympic squat clean"
+    ]
+  },
+  {
+    "id": "olympic_lift_clean_and_jerk",
+    "name": "Clean and Jerk",
+    "muscle": "Olympic Lift",
+    "tier": "A Tier",
+    "aliases": [
+      "olympic c&j"
+    ]
+  },
+  {
+    "id": "olympic_lift_clean_and_press",
+    "name": "Clean and Press",
+    "muscle": "Olympic Lift",
+    "tier": "A Tier",
+    "aliases": [
+      "barbell clean to strict overhead press"
+    ]
+  },
+  {
+    "id": "olympic_lift_clean_pull",
+    "name": "Clean Pull",
+    "muscle": "Olympic Lift",
+    "tier": "B Tier",
+    "aliases": [
+      "olympic first/second pull extension"
+    ]
+  },
+  {
+    "id": "sport_forearms_lats_climbing",
+    "name": "Climbing",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "rock climbing",
+      "bouldering"
+    ]
+  },
+  {
+    "id": "cardio_cycling",
+    "name": "Cycling",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "outdoor biking",
+      "stationary road bike"
+    ]
+  },
+  {
+    "id": "mobility_stretching_downward_dog",
+    "name": "Downward Dog",
+    "muscle": "Cardio",
+    "tier": "C Tier",
+    "aliases": [
+      "yoga downward facing dog"
+    ]
+  },
+  {
+    "id": "olympic_power_dumbbell_snatch",
+    "name": "Dumbbell Snatch",
+    "muscle": "Olympic Lift",
+    "tier": "B Tier",
+    "aliases": [
+      "alternating single-arm db power snatch"
+    ]
+  },
+  {
+    "id": "cardio_elliptical_trainer",
+    "name": "Elliptical Trainer",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "cross trainer machine"
+    ]
+  },
+  {
+    "id": "plyometrics_frog_jumps",
+    "name": "Frog Jumps",
+    "muscle": "Cardio",
+    "tier": "C Tier",
+    "aliases": [
+      "deep squat plyo hops"
+    ]
+  },
+  {
+    "id": "olympic_lift_hang_clean",
+    "name": "Hang Clean",
+    "muscle": "Olympic Lift",
+    "tier": "A Tier",
+    "aliases": [
+      "above-the-knee barbell hang clean"
+    ]
+  },
+  {
+    "id": "olympic_lift_hang_snatch",
+    "name": "Hang Snatch",
+    "muscle": "Olympic Lift",
+    "tier": "A Tier",
+    "aliases": [
+      "above-the-knee barbell hang snatch"
+    ]
+  },
+  {
+    "id": "warmup_cardio_high_knee_skips",
+    "name": "High Knee Skips",
+    "muscle": "Cardio",
+    "tier": "C Tier",
+    "aliases": [
+      "a-skips",
+      "dynamic track skips"
+    ]
+  },
+  {
+    "id": "cardio_high_knees",
+    "name": "High Knees",
+    "muscle": "Cardio",
+    "tier": "C Tier",
+    "aliases": [
+      "running in place high knees"
+    ]
+  },
+  {
+    "id": "cardio_conditioning_hiit",
+    "name": "HIIT",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "high intensity interval training"
+    ]
+  },
+  {
+    "id": "cardio_hiking",
+    "name": "Hiking",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "trail rucking / outdoor hiking"
+    ]
+  },
+  {
+    "id": "cardio_calves_jump_rope",
+    "name": "Jump Rope",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "skipping rope",
+      "double unders"
+    ]
+  },
+  {
+    "id": "warmup_cardio_jumping_jack",
+    "name": "Jumping Jack",
+    "muscle": "Cardio",
+    "tier": "C Tier",
+    "aliases": [
+      "star jumps"
+    ]
+  },
+  {
+    "id": "core_conditioning_kettlebell_around_the_world",
+    "name": "Kettlebell Around the World",
+    "muscle": "Cardio",
+    "tier": "C Tier",
+    "aliases": [
+      "standing kb hip orbit pass"
+    ]
+  },
+  {
+    "id": "olympic_power_kettlebell_clean",
+    "name": "Kettlebell Clean",
+    "muscle": "Olympic Lift",
+    "tier": "B Tier",
+    "aliases": [
+      "single/double kb rack clean"
+    ]
+  },
+  {
+    "id": "olympic_power_kettlebell_snatch",
+    "name": "Kettlebell Snatch",
+    "muscle": "Olympic Lift",
+    "tier": "B Tier",
+    "aliases": [
+      "single arm kb overhead snatch"
+    ]
+  },
+  {
+    "id": "full_body_core_kettlebell_turkish_get_up",
+    "name": "Kettlebell Turkish Get Up",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "tgu",
+      "turkish get-ups"
+    ]
+  },
+  {
+    "id": "mobility_core_pilates",
+    "name": "Pilates",
+    "muscle": "Cardio",
+    "tier": "C Tier",
+    "aliases": [
+      "mat/reformer pilates"
+    ]
+  },
+  {
+    "id": "olympic_lift_power_clean",
+    "name": "Power Clean",
+    "muscle": "Olympic Lift",
+    "tier": "A+ Tier",
+    "aliases": [
+      "barbell power clean from floor"
+    ]
+  },
+  {
+    "id": "olympic_lift_power_snatch",
+    "name": "Power Snatch",
+    "muscle": "Olympic Lift",
+    "tier": "A Tier",
+    "aliases": [
+      "barbell power snatch from floor"
+    ]
+  },
+  {
+    "id": "cardio_recumbent_bike",
+    "name": "Recumbent Bike",
+    "muscle": "Cardio",
+    "tier": "C Tier",
+    "aliases": [
+      "seated back-support stationary bike"
+    ]
+  },
+  {
+    "id": "cardio_upper_back_rowing_machine",
+    "name": "Rowing Machine",
+    "muscle": "Cardio",
+    "tier": "A Tier",
+    "aliases": [
+      "concept2 row erg",
+      "indoor rower"
+    ]
+  },
+  {
+    "id": "cardio_running",
+    "name": "Running",
+    "muscle": "Cardio",
+    "tier": "A Tier",
+    "aliases": [
+      "outdoor road/track running"
+    ]
+  },
+  {
+    "id": "cardio_sport_skating",
+    "name": "Skating",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "inline/ice skating"
+    ]
+  },
+  {
+    "id": "cardio_lats_ski_erg",
+    "name": "Ski Erg",
+    "muscle": "Cardio",
+    "tier": "A Tier",
+    "aliases": [
+      "concept2 ski ergometer"
+    ]
+  },
+  {
+    "id": "sport_skiing",
+    "name": "Skiing",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "alpine/cross-country skiing"
+    ]
+  },
+  {
+    "id": "olympic_lift_snatch",
+    "name": "Snatch",
+    "muscle": "Olympic Lift",
+    "tier": "A Tier",
+    "aliases": [
+      "full olympic squat snatch"
+    ]
+  },
+  {
+    "id": "sport_snowboarding",
+    "name": "Snowboarding",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "alpine snowboarding"
+    ]
+  },
+  {
+    "id": "cardio_spinning",
+    "name": "Spinning",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "indoor spin cycle class"
+    ]
+  },
+  {
+    "id": "olympic_lift_split_jerk",
+    "name": "Split Jerk",
+    "muscle": "Olympic Lift",
+    "tier": "A Tier",
+    "aliases": [
+      "rack barbell overhead split jerk"
+    ]
+  },
+  {
+    "id": "cardio_hamstrings_sprints",
+    "name": "Sprints",
+    "muscle": "Cardio",
+    "tier": "A Tier",
+    "aliases": [
+      "track/hill max-effort sprinting"
+    ]
+  },
+  {
+    "id": "cardio_glutes_stair_machine_floors",
+    "name": "Stair Machine (Floors)",
+    "muscle": "Cardio",
+    "tier": "A Tier",
+    "aliases": [
+      "stairmaster stepmill (floors climbed)"
+    ]
+  },
+  {
+    "id": "cardio_glutes_stair_machine_steps",
+    "name": "Stair Machine (Steps)",
+    "muscle": "Cardio",
+    "tier": "A Tier",
+    "aliases": [
+      "stairmaster stepmill (total steps)"
+    ]
+  },
+  {
+    "id": "mobility_stretching",
+    "name": "Stretching",
+    "muscle": "Cardio",
+    "tier": "C Tier",
+    "aliases": [
+      "static/dynamic cooldown stretching"
+    ]
+  },
+  {
+    "id": "cardio_swimming",
+    "name": "Swimming",
+    "muscle": "Cardio",
+    "tier": "A Tier",
+    "aliases": [
+      "lap pool swimming"
+    ]
+  },
+  {
+    "id": "cardio_treadmill",
+    "name": "Treadmill",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "incline treadmill walk / run"
+    ]
+  },
+  {
+    "id": "cardio_walking",
+    "name": "Walking",
+    "muscle": "Cardio",
+    "tier": "B Tier",
+    "aliases": [
+      "outdoor brisk walking"
+    ]
+  },
+  {
+    "id": "mobility_warm_up",
+    "name": "Warm Up",
+    "muscle": "Cardio",
+    "tier": "C Tier",
+    "aliases": [
+      "general dynamic warmup"
+    ]
+  },
+  {
+    "id": "mobility_yoga",
+    "name": "Yoga",
+    "muscle": "Cardio",
+    "tier": "C Tier",
+    "aliases": [
+      "vinyasa / hatha yoga"
+    ]
+  },
+  {
+    "id": "front_delts_overhead_plate_raise",
+    "name": "Overhead Plate Raise",
+    "muscle": "Front Delts",
+    "tier": "B Tier",
+    "aliases": [
+      "plate overhead raise",
+      "weight plate raise"
+    ]
+  },
+  {
+    "id": "forearm_flexors_seated_wrist_curl_barbell",
+    "name": "Seated Wrist Curl (Barbell)",
+    "muscle": "Forearm Flexors",
+    "tier": "A Tier",
+    "aliases": [
+      "barbell wrist curl",
+      "seated barbell wrist curl",
+      "barbell forearm curl",
+      "palms up barbell wrist curl"
+    ]
+  },
+  {
+    "id": "forearm_extensors_reverse_wrist_curl_dumbbell",
+    "name": "Reverse Wrist Curl (Dumbbell)",
+    "muscle": "Forearm Extensors",
+    "tier": "B Tier",
+    "aliases": [
+      "dumbbell reverse wrist curl",
+      "db reverse wrist curl",
+      "reverse forearm curl dumbbell",
+      "palms down dumbbell wrist curl"
     ]
   }
 ];

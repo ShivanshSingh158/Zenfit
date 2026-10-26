@@ -9,6 +9,7 @@ import Animated, {
   EntryOrExitLayoutType,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import { impactAsync, notificationAsync, selectionAsync } from '../utils/haptics';
 
 // ── Variant system — semantic press depths matching iOS / WhatsApp conventions ──
 // row:         list rows, agenda items, settings items → ultra-subtle 0.985 (zero layout jump)
@@ -73,7 +74,7 @@ export function AnimatedPressable({
   style,
   scaleTo,
   activeOpacity,
-  haptic = 'light',
+  haptic = 'none',
   variant = 'default',
   children,
   entering,
@@ -105,15 +106,15 @@ export function AnimatedPressable({
       // 2. Synchronized micro-haptic strike on touch-down (Telegram / iOS native feel)
       if (haptic !== 'none') {
         if (haptic === 'selection') {
-          Haptics.selectionAsync();
+          selectionAsync();
         } else if (haptic === 'medium') {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         } else if (haptic === 'heavy') {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+          impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
         } else if (haptic === 'success') {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          notificationAsync(Haptics.NotificationFeedbackType.Success);
         } else {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }
       }
     }

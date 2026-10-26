@@ -1,0 +1,396 @@
+================================================================================
+ZENFIT MOBILE — PLAN / ROUTINES TAB ARCHITECTURAL BREAKDOWN & DATA FLOW
+================================================================================
+Generated: October 2026
+Document: Complete Architecture, File Inventory, Data Flow & Downstream Connections
+
+--------------------------------------------------------------------------------
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY & TAB IDENTITY
+2. COMPLETE FILE INVENTORY (ALL CONNECTED FILES & PURPOSES)
+3. DATA MODELS & SCHEMAS (FIRESTORE & LOCAL STORAGE)
+4. DETAILED LIFECYCLE & HYDRATION FLOW (BOOT TO RENDER)
+5. USER INTERACTION & MUTATION FLOWS
+   5.1 Switching Splits / Templates (Arnold vs PPL)
+   5.2 Selecting & Viewing a Day (Monday – Sunday)
+   5.3 Editing Sets & Reps for an Exercise
+   5.4 Adding a New Exercise to a Day
+   5.5 Swapping an Exercise with Alternatives
+   5.6 Reordering Exercises in a Routine
+   5.7 Renaming a Routine Day & Focus
+   5.8 Schedule Pattern Changes (e.g. Mon-Sun vs Mon-Fri)
+   5.9 Exercise Vault / Catalogue Browsing
+6. DOWNSTREAM CONSUMPTION (HOW OTHER TABS USE THE PLAN)
+   6.1 Today Tab (GymHomeScreen)
+   6.2 Active Logging (useGymLog & ActiveLoggingScreen)
+   6.3 Widgets (widgetSyncService)
+   6.4 Offline Sync & Crash Drafts
+   6.5 AI Coaching (Sara Agent)
+7. ARCHITECTURAL BOTTLENECK ANALYSIS OF CURRENT IMPLEMENTATION
+
+================================================================================
+1. EXECUTIVE SUMMARY & TAB IDENTITY
+================================================================================
+In ZenFit Mobile, the "Plan" tab is the centralized routine design hub.
+- Route Name in Navigation: "Plan" (with legacy alias "Splits")
+- Host Screen Component: src/screens/gym/GymSplitsScreen.tsx
+- Current UI Architecture: Monolithic 7-day schedule editor + embedded 525-exercise vault
+- Underlying State: userGymPlan in WellnessContext.tsx (backed by Firestore collection 'user_gym_plans')
+
+================================================================================
+2. COMPLETE FILE INVENTORY (ALL CONNECTED FILES)
+================================================================================
+
+[A] NAVIGATION & SCREENS
+--------------------------------------------------------------------------------
+1. src/navigation/GymStack.tsx
+   - Purpose: Main Tab navigator. Maps Tab.Screen name="Plan" to GymSplitsScreen.tsx.
+   - Flow: Lazy loads GymSplitsScreen via getComponent={() => require('../screens/gym/GymSplitsScreen').default}.
+
+2. src/screens/gym/GymSplitsScreen.tsx (1,642 lines)
+   - Purpose: The primary master screen for the Plan tab.
+   - Connects:
+     * Segment selector ('routine' vs 'vault')
+     * Day selector (Mon-Sun chips)
+     * Active program summary card (sets, days, pattern)
+     * Exercise list with action sheets (edit, swap, delete, move up/down)
+     * All child modals (AddExerciseModal, GymTemplateModal, ZenGymAiModal, GymScheduleSettingsModal)
+
+3. src/screens/gym/ExerciseSwapScreen.tsx
+   - Purpose: Dedicated fullscreen swap picker to replace any routine exercise.
+   - Connects: EXERCISE_ALTERNATIVES from gymPlan.ts + EXERCISE_DATABASE.
+
+4. src/screens/gym/ExerciseDetailScreen.tsx
+   - Purpose: Modal/Screen showing deep biomechanical details, setup instructions, and video demo.
+   - Connects: userGymPlan.customDays to inspect routine context.
+
+5. src/screens/gym/ExerciseLibraryScreen.tsx
+   - Purpose: Exercise Vault tab embedded directly inside GymSplitsScreen.
+   - Connects: 525 curated exercises with tier filters (S, A+, A, B) and muscle search.
+
+[B] UI MODALS & SUBCOMPONENTS
+--------------------------------------------------------------------------------
+6. src/components/Gym/AddExerciseModal.tsx
+   - Purpose: Modal to search and insert new exercises into a routine day.
+   - Connects: EXERCISE_DATABASE, getBiomechanicalPrescription, updateMasterPlan.
+
+7. src/components/Gym/ExerciseSearchDropdown.tsx
+   - Purpose: Search suggestion dropdown list inside AddExerciseModal.
+
+8. src/components/Gym/ExerciseCustomFields.tsx
+   - Purpose: Input fields for sets, reps, rest timer, muscle target, video URL.
+
+9. src/components/Gym/GymTemplateModal.tsx
+   - Purpose: Allows user to switch between "Arnold Split" and "PPL (Push Pull Legs)".
+   - Connects: applyMasterTemplate in WellnessContext.tsx.
+
+10. src/components/Gym/GymScheduleSettingsModal.tsx
+    - Purpose: Configures the 7-day weekly schedule pattern:
+      * 'mon_sun' (Mon-Sat Workout, Sun Rest)
+      * 'tue_mon' (Mon Rest, Tue-Sun Workout)
+      * 'wed_sun' (Mon-Tue Workout, Wed Rest, Thu-Sat Workout, Sun Rest)
+      * 'mon_fri' (Mon-Fri Workout, Sat-Sun Rest)
+
+11. src/components/Gym/ZenGymAiModal.tsx
+    - Purpose: AI-driven routine generator using Gemini proxy.
+
+12. src/components/Gym/GymExerciseOptionsSheet.tsx
+    - Purpose: Bottom sheet for an exercise in routine: Swap, Edit Sets/Reps, Delete, Deep Dive.
+
+13. src/components/Gym/SwapRoutineModal.tsx
+    - Purpose: Quick routine switcher to swap an entire day's routine with another day.
+
+14. src/components/Gym/AddToDaySheet.tsx
+    - Purpose: Quick action sheet to append an exercise into any day (Monday through Sunday).
+
+15. src/components/Gym/GymExerciseDraggableRow.tsx
+    - Purpose: Renders each exercise item in the routine with muscle badge, sets/reps, and drag handle.
+
+16. src/components/ui/IOSSegmentedControl.tsx
+    - Purpose: Pill segment control for switching between "Weekly Routine" and "Exercise Vault".
+
+[C] CORE DATA DEFINITIONS & TYPES
+--------------------------------------------------------------------------------
+17. src/types/gym.types.ts
+    - Purpose: Core TypeScript interfaces:
+      * GymPlanExercise (id, name, targetSets, targetReps, muscle, videoId, restTimeSecs)
+      * GymPlanDay (dayIndex 1-7, name, subtitle, focus, exercises, isRest, startTime, endTime)
+      * UserGymPlanDoc (id, userId, templateId, schedulePattern, customDays, updatedAt)
+
+18. src/data/gymPlan.ts (2,630 lines)
+    - Purpose: Master static plans, default templates & resolution logic:
+      * GYM_PLAN_ARNOLD (6-day Arnold Split)
+      * GYM_PLAN_PPL (6-day Push Pull Legs Split)
+      * GYM_PLAN (Standard default template)
+      * WEEKDAY_TO_PLAN (Day of week mapping: Sun=7, Mon=1, Tue=2, etc.)
+      * resolvePlanDay(userGymPlan, planIdx) (Central funnel to get canonical day)
+      * getCustomPlanDay(customDays, planIdx) (Extracts user custom day)
+      * EXERCISE_ALTERNATIVES (Curated S/A+ tier replacement map)
+
+19. src/data/exerciseDatabase.ts
+    - Purpose: Master 525 production curated exercise library with standardized Hevy names,
+      calibrated tiers (S, A+, A, B), primary equipment tags, and muscle targets.
+
+20. src/data/exerciseAliasMap.ts
+    - Purpose: 800+ synonym mappings to resolve any legacy or variant name to canonical keys.
+
+[D] STATE MANAGEMENT, CONTEXTS & SERVICES
+--------------------------------------------------------------------------------
+21. src/contexts/domains/WellnessContext.tsx
+    - Purpose: Single source of truth for userGymPlan.
+    - Exposes:
+      * userGymPlan: UserGymPlanDoc | null
+      * updateMasterPlan: (dayIndex: number, planDay: GymPlanDay) => Promise<void>
+      * updateFullMasterPlan: (newCustomDays: Record<number, GymPlanDay>) => Promise<void>
+      * applyMasterTemplate: (templateId, schedulePattern) => Promise<void>
+    - Manages: Firestore real-time onSnapshot listener, L1 memory cache, L2 domain disk cache.
+
+22. src/hooks/useGymLog.ts
+    - Purpose: Daily workout logging hook. Connects to userGymPlan via resolvePlanDay to
+      instantiate today's or tomorrow's workout log from the routine.
+
+23. src/hooks/useGymAiPlanManager.ts
+    - Purpose: Background manager for AI alterations to customDays.
+
+24. src/hooks/useGymPlanPreCache.ts
+    - Purpose: Pre-downloads video/media assets for exercises currently in the user's weekly split.
+
+25. src/services/widgetSyncService.ts
+    - Purpose: Reads resolvePlanDay(userGymPlan, planIdx) and pushes today's scheduled workout
+      to the native iOS/Android home screen widget.
+
+26. src/services/notifications.ts
+    - Purpose: Schedules workout notification reminders using userGymPlan schedule times.
+
+27. src/utils/gymUtils.ts
+    - Purpose: Helper utilities:
+      * getCanonicalExerciseName(name)
+      * resolveExerciseTargetMuscle(name, muscle)
+      * normalizeExerciseKey(name)
+      * getExerciseSwapAlternatives(name, muscle)
+
+================================================================================
+3. DATA MODELS & SCHEMAS
+================================================================================
+
+Firestore Document:
+Collection: 'user_gym_plans'
+Document ID: {userId}
+
+Schema:
+{
+  "id": "user_uid_123",
+  "userId": "user_uid_123",
+  "templateId": "ppl",                    // 'arnold' | 'ppl'
+  "schedulePattern": "mon_sun",            // 'mon_sun' | 'tue_mon' | 'wed_sun' | 'mon_fri'
+  "updatedAt": 1729780000000,              // Monotonic epoch timestamp (ms)
+  "customDays": {
+    "1": {
+      "dayIndex": 1,
+      "name": "Push Day A",
+      "subtitle": "Chest & Triceps Focus",
+      "focus": "Upper chest clavicular head and tricep long head.",
+      "isRest": false,
+      "startTime": "06:00",
+      "endTime": "07:30",
+      "exercises": [
+        {
+          "id": "ppl_d1_e1",
+          "name": "Bench Press (Barbell)",
+          "muscle": "Mid Chest",
+          "targetSets": 3,
+          "targetReps": "8–10",
+          "restTimeSecs": 120,
+          "videoId": "vENMjPI-piM"
+        },
+        ...
+      ]
+    },
+    "2": { ... }, // Tuesday
+    "3": { ... }, // Wednesday
+    "4": { ... }, // Thursday
+    "5": { ... }, // Friday
+    "6": { ... }, // Saturday
+    "7": {
+      "dayIndex": 7,
+      "name": "Rest & Recovery",
+      "focus": "Full Body Recovery",
+      "isRest": true,
+      "exercises": []
+    }
+  }
+}
+
+Offline Caches:
+1. L1 Memory Cache: updateL1Cache('userGymPlan', plan) (Instant 0ms synchronous read)
+2. L2 Disk Cache: AsyncStorage '@zentrack_cache_userGymPlan' (Persisted offline fallback)
+
+================================================================================
+4. DETAILED LIFECYCLE & HYDRATION FLOW (BOOT TO RENDER)
+================================================================================
+
+```
+[App Boot / Navigation to Plan Tab]
+       │
+       ▼
+1. L1 Cache / AsyncStorage read:
+   WellnessContext loads initialManifest?.userGymPlan (< 5ms).
+       │
+       ▼
+2. Canonicalization Pass:
+   canonicalizeUserGymPlan() sanitizes all customDays exercises, ensuring
+   legacy names are mapped to 525 Hevy-standard canonical names.
+       │
+       ▼
+3. Firestore onSnapshot Listener Subscribed:
+   Listens to doc(db, 'user_gym_plans', uid).
+   When server updates arrive, silently updates L1 cache, state, and disk cache.
+       │
+       ▼
+4. GymSplitsScreen Mounts:
+   Computes resolvedDays memo (1..7):
+   For day 1..7:
+     If userGymPlan?.customDays?.[i] exists -> Use customDay
+     Else -> Default from basePlan (GYM_PLAN_PPL or GYM_PLAN_ARNOLD)
+       │
+       ▼
+5. Active Day Resolved:
+   selectedDayIndex defaults to current day of week (or Sunday=7).
+   Renders active day's exercises, tier tags, and sets.
+```
+
+================================================================================
+5. USER INTERACTION & MUTATION FLOWS
+================================================================================
+
+5.1 SWITCHING TEMPLATES (Arnold Split vs PPL)
+--------------------------------------------------------------------------------
+1. User taps "Templates" button on header -> Opens GymTemplateModal.
+2. User selects "Arnold Split (Chest/Back, Shoulders/Arms, Legs)".
+3. Calls applyMasterTemplate('arnold', schedulePattern) in WellnessContext.tsx.
+4. Generates new customDays[1..7] mapping Arnold days according to schedulePattern.
+5. Saves optimistically to L1 cache, disk cache, and fires setDoc to Firestore.
+6. resolvedDays in GymSplitsScreen recalculates immediately.
+
+5.2 SELECTING & VIEWING A DAY (Monday – Sunday)
+--------------------------------------------------------------------------------
+1. User taps day chip (e.g. "Wed" or "Sat") in horizontal selector.
+2. Triggers setSelectedDayIndex(i) with haptic feedback.
+3. activeDay updates to resolvedDays[i - 1].
+4. Renders list of exercises for Wednesday with their target sets/reps/rest.
+
+5.3 EDITING SETS & REPS FOR AN EXERCISE
+--------------------------------------------------------------------------------
+1. User taps on an exercise row's sets/reps badge -> Opens Edit Sets/Reps modal.
+2. User chooses target sets (e.g. 4) and rep range (e.g. '6–8').
+3. GymSplitsScreen copies current activeDay:
+   const updatedExercises = [...activeDay.exercises];
+   updatedExercises[exerciseIndex] = { ...exercise, targetSets, targetReps };
+4. Calls updateMasterPlan(selectedDayIndex, { ...activeDay, exercises: updatedExercises }).
+5. Updates userGymPlan.customDays in WellnessContext and writes to Firestore.
+
+5.4 ADDING A NEW EXERCISE TO A DAY
+--------------------------------------------------------------------------------
+1. User scrolls to bottom of day's exercise list and taps "+ Add Exercise".
+2. Opens AddExerciseModal with planDay={activeDay.planDay}.
+3. User searches or picks an exercise from the 525 database.
+4. If "Save permanently to routine" is checked:
+   Appends new exercise to activeDay.exercises.
+   Calls updateMasterPlan(dayIndex, updatedPlanDay).
+
+5.5 SWAPPING AN EXERCISE WITH ALTERNATIVES
+--------------------------------------------------------------------------------
+1. User taps "•••" on exercise row -> Selects "Swap Exercise".
+2. Navigates to ExerciseSwapScreen or opens ActiveSwapModal.
+3. Queries EXERCISE_ALTERNATIVES[muscle] to show S-Tier and A+-Tier replacements.
+4. User selects replacement exercise.
+5. Updates exercise in activeDay and calls updateMasterPlan.
+
+5.6 REORDERING EXERCISES IN A ROUTINE
+--------------------------------------------------------------------------------
+1. User taps "Move Up" or "Move Down" in exercise options sheet (or drag reorder).
+2. Exercises array is re-indexed.
+3. Calls updateMasterPlan(selectedDayIndex, { ...activeDay, exercises: reordered }).
+
+5.7 RENAMING A ROUTINE DAY & FOCUS
+--------------------------------------------------------------------------------
+1. User taps edit pencil icon next to Day Title.
+2. Opens RenameDayModal.
+3. User enters new Routine Name (e.g. "Quad Destruction") and Focus string.
+4. Calls updateMasterPlan(selectedDayIndex, { ...activeDay, name, focus }).
+
+5.8 CHANGING SCHEDULE PATTERNS (e.g. Mon-Fri vs Mon-Sun)
+--------------------------------------------------------------------------------
+1. User taps settings gear icon -> Opens GymScheduleSettingsModal.
+2. User switches pattern (e.g. 5-day Mon-Fri with Sat-Sun rest).
+3. Re-maps workout days across customDays[1..7].
+4. Calls updateFullMasterPlan(newCustomDays).
+
+================================================================================
+6. DOWNSTREAM CONSUMPTION (HOW OTHER TABS USE THE PLAN)
+================================================================================
+
+6.1 TODAY TAB (GymHomeScreen)
+--------------------------------------------------------------------------------
+- Location: src/screens/gym/GymHomeScreen.tsx
+- When user opens Today tab for dateStr:
+  * Computes planDayIndexForDate(dateStr) (Monday=1, Tuesday=2, etc.)
+  * Calls resolvePlanDay(userGymPlan, planIdx)
+  * Displays today's planned exercises in the hero banner.
+
+6.2 ACTIVE WORKOUT LOGGING (useGymLog & ActiveLoggingScreen)
+--------------------------------------------------------------------------------
+- Location: src/hooks/useGymLog.ts & src/screens/gym/ActiveLoggingScreen.tsx
+- When starting an unlogged workout (e.g. today or tomorrow):
+  * useGymLog loads planDay = resolvePlanDay(userGymPlan, planIdx).
+  * Automatically creates draft GymExerciseLog[] with targetSets, targetReps, videoId.
+  * Auto-prefills weights/reps from historyIndex using normalized exercise keys.
+
+6.3 HOME SCREEN WIDGETS (widgetSyncService)
+--------------------------------------------------------------------------------
+- Location: src/services/widgetSyncService.ts
+- When userGymPlan updates:
+  * WidgetSyncService resolves today's planDay.
+  * Pushes workout name, exercise count, and primary exercises to iOS WidgetKit / Android AppWidget.
+
+6.4 OFFLINE SYNC & CRASH DRAFTS
+--------------------------------------------------------------------------------
+- If device is offline:
+  * All plan modifications are queued in safeWrite offline queue.
+  * Synced automatically when internet returns.
+
+6.5 SARA AI AGENT
+--------------------------------------------------------------------------------
+- Location: src/agent/saraAgent.ts
+- Context includes userGymPlan.customDays so the AI trainer knows the user's exact
+  weekly split, exercise selection, and volume targets when chatting.
+
+================================================================================
+7. ARCHITECTURAL BOTTLENECK ANALYSIS OF CURRENT IMPLEMENTATION
+================================================================================
+Why the current Plan tab needs a Hevy-style rebuild:
+
+1. Rigid Day-Index Locking:
+   Currently, all routines MUST be tied to Day 1–7 (Monday through Sunday).
+   Users cannot create a standalone routine (e.g. "Quick Arm Workout", "Hotel Bodyweight")
+   without overwriting one of their 7 days of the week.
+
+2. Monolithic Code Structure:
+   src/screens/gym/GymSplitsScreen.tsx is 1,642 lines with 6 modal states embedded in
+   the same component, causing frequent unnecessary re-renders.
+
+3. Lack of "Start Routine" Direct Launch:
+   In Hevy or Strong, users can tap "Start Routine" directly from the routines tab.
+   In ZenFit currently, users must navigate to the Today tab, swap the routine onto
+   today, and then start it.
+
+4. Separation of Modular Routines vs Weekly Calendar:
+   A modern architecture separates:
+   - "Routines Library" (Collection of reusable modular workouts)
+   - "Weekly Schedule" (Which routine is assigned to which day of the week)
+   This allows unlimited routines while keeping the 7-day schedule clean and intuitive.
+
+================================================================================
+END OF PLAN TAB ARCHITECTURAL BREAKDOWN
+================================================================================

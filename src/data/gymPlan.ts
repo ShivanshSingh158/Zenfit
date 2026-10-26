@@ -1,4 +1,5 @@
 import type { GymPlanDay } from '../types/gym.types';
+import { getCanonicalExerciseName, resolveExerciseTargetMuscle } from '../utils/gymUtils';
 
 // Day of week → plan day index
 // Sunday=0→7(rest), Mon=1→1, Tue=2→2, Wed=3→3, Thu=4→4, Fri=5→5, Sat=6→6
@@ -13,14 +14,14 @@ export const GYM_PLAN_ARNOLD: GymPlanDay[] = [
     subtitle: 'Upper/Lower Chest, Back Width & Thickness',
     focus: 'Perfectly balanced day focusing on all chest heads and lat width/mid-back thickness.',
     exercises: [
-      { id: 'd1_e1', name: 'Incline Dumbbell Press', targetSets: 3, targetReps: '10–12', muscle: 'Upper Chest', videoId: '8fXfwG4ftaQ' },
-      { id: 'd1_e2', name: 'Pec Deck Fly', targetSets: 3, targetReps: '10–12', muscle: 'Mid Chest', videoId: 'fgXSA2-o0NM' },
-      { id: 'd1_e3', name: 'High-to-Low Cable Crossovers', targetSets: 3, targetReps: '10–15', muscle: 'Lower Chest', videoId: '8Um35Es-ROE' },
-      { id: 'd1_e4', name: 'Neutral-Grip Lat Pulldowns', targetSets: 3, targetReps: '8–10', muscle: 'Lat Width', videoId: 'SALxEARiMkw' },
-      { id: 'd1_e5', name: 'Lat Pulldowns (Standard)', targetSets: 3, targetReps: '10–12', muscle: 'Lat Width', videoId: 'SALxEARiMkw' },
-      { id: 'd1_e6', name: 'Chest-Supported T-Bar Row', targetSets: 3, targetReps: '8–10', muscle: 'Mid-Back', videoId: 'TyLoy3n_a10' },
-      { id: 'd1_e7', name: 'Seated Cable Rows', targetSets: 2, targetReps: '10–12', muscle: 'Mid-Back', videoId: '4mRy8U542Fo' },
-      { id: 'd1_e8', name: 'Reverse Pec Deck (Back Focus)', targetSets: 3, targetReps: '12–15', muscle: 'Mid-Back', videoId: '-TKqxK7-ehc' },
+      { id: 'd1_e1', name: 'Incline Bench Press (Dumbbell)', targetSets: 3, targetReps: '10–12', muscle: 'Upper Chest', videoId: '8fXfwG4ftaQ' },
+      { id: 'd1_e2', name: 'Butterfly (Pec Deck)', targetSets: 3, targetReps: '10–12', muscle: 'Mid Chest', videoId: 'fgXSA2-o0NM' },
+      { id: 'd1_e3', name: 'Decline Cable Fly Crossovers', targetSets: 3, targetReps: '10–15', muscle: 'Lower Chest', videoId: '8Um35Es-ROE' },
+      { id: 'd1_e4', name: 'Lat Pulldown - Close Grip (Cable)', targetSets: 3, targetReps: '8–10', muscle: 'Lat Width', videoId: 'SALxEARiMkw' },
+      { id: 'd1_e5', name: 'Lat Pulldown (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Lat Width', videoId: 'SALxEARiMkw' },
+      { id: 'd1_e6', name: 'T Bar Row', targetSets: 3, targetReps: '8–10', muscle: 'Mid-Back', videoId: 'TyLoy3n_a10' },
+      { id: 'd1_e7', name: 'Seated Cable Row - V Grip (Cable)', targetSets: 2, targetReps: '10–12', muscle: 'Mid-Back', videoId: '4mRy8U542Fo' },
+      { id: 'd1_e8', name: 'Rear Delt Reverse Fly (Machine)', targetSets: 3, targetReps: '12–15', muscle: 'Mid-Back', videoId: '-TKqxK7-ehc' },
     ],
   },
   {
@@ -29,15 +30,15 @@ export const GYM_PLAN_ARNOLD: GymPlanDay[] = [
     subtitle: 'Front/Side Delts, Heavy Arms',
     focus: 'Shoulder width, trap thickness, and heavy arm isolations.',
     exercises: [
-      { id: 'd2_e1', name: 'Machine Overhead Press', targetSets: 3, targetReps: '8–10', muscle: 'Front Delts', videoId: '6v4nrRVySj0' },
-      { id: 'd2_e2', name: 'Cable Lateral Raises', targetSets: 3, targetReps: '12–15', muscle: 'Side Delts', videoId: 'f_OGBg2KxgY' },
-      { id: 'd2_e3', name: 'Reverse Pec Deck', targetSets: 3, targetReps: '12–15', muscle: 'Rear Delts', videoId: '-TKqxK7-ehc' },
-      { id: 'd2_e4', name: 'Cable Shrugs', targetSets: 3, targetReps: '10–12', muscle: 'Upper Traps', videoId: 'rFsSeClGnNA' },
-      { id: 'd2_e5', name: 'EZ-Bar Skullcrushers', targetSets: 3, targetReps: '8–12', muscle: 'Long Tricep', videoId: 'd_KZxkY_0cM' },
-      { id: 'd2_e6', name: 'Dual-Rope Tricep Pushdowns', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: 'NvZKjiZ8NYc' },
-      { id: 'd2_e7', name: 'Rope Tricep Pushdowns', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: 'NvZKjiZ8NYc' },
-      { id: 'd2_e8', name: 'Standing EZ-Bar Curls', targetSets: 3, targetReps: '8–12', muscle: 'Short Bicep', videoId: 'kwG2ipFRgfo' },
-      { id: 'd2_e9', name: 'Incline Dumbbell Curls', targetSets: 3, targetReps: '10–12', muscle: 'Long Bicep', videoId: 'DCe8f6vMe9A' },
+      { id: 'd2_e1', name: 'Seated Shoulder Press (Machine)', targetSets: 3, targetReps: '8–10', muscle: 'Front Delts', videoId: '6v4nrRVySj0' },
+      { id: 'd2_e2', name: 'Lateral Raise (Cable)', targetSets: 3, targetReps: '12–15', muscle: 'Side Delts', videoId: 'f_OGBg2KxgY' },
+      { id: 'd2_e3', name: 'Rear Delt Reverse Fly (Machine)', targetSets: 3, targetReps: '12–15', muscle: 'Rear Delts', videoId: '-TKqxK7-ehc' },
+      { id: 'd2_e4', name: 'Shrug (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Upper Traps', videoId: 'rFsSeClGnNA' },
+      { id: 'd2_e5', name: 'Triceps Extension (Barbell)', targetSets: 3, targetReps: '8–12', muscle: 'Long Tricep', videoId: 'd_KZxkY_0cM' },
+      { id: 'd2_e6', name: 'Triceps Rope Pushdown', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: 'NvZKjiZ8NYc' },
+      { id: 'd2_e7', name: 'Triceps Rope Pushdown', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: 'NvZKjiZ8NYc' },
+      { id: 'd2_e8', name: 'EZ Bar Biceps Curl', targetSets: 3, targetReps: '8–12', muscle: 'Short Bicep', videoId: 'kwG2ipFRgfo' },
+      { id: 'd2_e9', name: 'Seated Incline Curl (Dumbbell)', targetSets: 3, targetReps: '10–12', muscle: 'Long Bicep', videoId: 'DCe8f6vMe9A' },
     ],
   },
   {
@@ -46,16 +47,16 @@ export const GYM_PLAN_ARNOLD: GymPlanDay[] = [
     subtitle: 'Hams, Heavy Quads, Upper Abs',
     focus: 'Heavy squats/hinges, upper core isolation, and forearm flexors.',
     exercises: [
-      { id: 'd3_e1', name: 'Hack Squats OR Leg Press', targetSets: 3, targetReps: '8–10', muscle: 'Quads', videoId: 'fE5BWPy7uRc' },
-      { id: 'd3_e2', name: 'Leg Extensions', targetSets: 3, targetReps: '12–15', muscle: 'Quads', videoId: 'RVEZruvfkqI' },
-      { id: 'd3_e3', name: 'Romanian Deadlifts (RDLs)', targetSets: 3, targetReps: '8–10', muscle: 'Hamstrings', videoId: '2SHsk9AzdjA' },
-      { id: 'd3_e4', name: 'Standing Machine Calf Raises', targetSets: 4, targetReps: '12–15', muscle: 'Gastrocnemius', videoId: 'SVtg-1loH4c' },
-      { id: 'd3_e5', name: 'Kneeling Cable Crunches', targetSets: 3, targetReps: '10–15', muscle: 'Upper Abs', videoId: 'mnRhbUB3Fjs' },
-      { id: 'd3_e6', name: 'Hanging Knee Raises', targetSets: 3, targetReps: '12–15', muscle: 'Lower Abs', videoId: '2n4UqRIJyk4' },
-      { id: 'd3_e7', name: 'Cable Woodchoppers', targetSets: 3, targetReps: '10–12', muscle: 'Obliques', videoId: 'gcGNypjIQDo' },
-      { id: 'd3_e8', name: 'Standing Behind Back Wrist Curls', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Flexors', videoId: 'yz2eCSWoY4E' },
-      { id: 'd3_e9', name: 'Machine Wrist Curls', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Flexors', videoId: 'eL777V8a-6E' },
-      { id: 'd3_e10', name: 'Machine Reverse Wrist Curls', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Extensors', videoId: 'sKXqNO2KQp8' },
+      { id: 'd3_e1', name: 'Hack Squat (Machine)', targetSets: 3, targetReps: '8–10', muscle: 'Quads', videoId: 'fE5BWPy7uRc' },
+      { id: 'd3_e2', name: 'Leg Extension (Machine)', targetSets: 3, targetReps: '12–15', muscle: 'Quads', videoId: 'RVEZruvfkqI' },
+      { id: 'd3_e3', name: 'Romanian Deadlift (Barbell)', targetSets: 3, targetReps: '8–10', muscle: 'Hamstrings', videoId: '2SHsk9AzdjA' },
+      { id: 'd3_e4', name: 'Standing Calf Raise (Machine)', targetSets: 4, targetReps: '12–15', muscle: 'Gastrocnemius', videoId: 'SVtg-1loH4c' },
+      { id: 'd3_e5', name: 'Cable Crunch', targetSets: 3, targetReps: '10–15', muscle: 'Upper Abs', videoId: 'mnRhbUB3Fjs' },
+      { id: 'd3_e6', name: 'Hanging Leg Raise', targetSets: 3, targetReps: '12–15', muscle: 'Lower Abs', videoId: '2n4UqRIJyk4' },
+      { id: 'd3_e7', name: 'Woodchopper', targetSets: 3, targetReps: '10–12', muscle: 'Obliques', videoId: 'gcGNypjIQDo' },
+      { id: 'd3_e8', name: 'Behind the Back Wrist Curl (Barbell)', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Flexors', videoId: 'yz2eCSWoY4E' },
+      { id: 'd3_e9', name: 'Seated Palms Up Wrist Curl', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Flexors', videoId: 'eL777V8a-6E' },
+      { id: 'd3_e10', name: 'Reverse Wrist Curl (Dumbbell)', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Extensors', videoId: 'sKXqNO2KQp8' },
     ],
   },
   {
@@ -64,13 +65,13 @@ export const GYM_PLAN_ARNOLD: GymPlanDay[] = [
     subtitle: 'Mid Chest, Lat Width',
     focus: 'Mid chest thickness and massive lat width pulling.',
     exercises: [
-      { id: 'd4_e1', name: 'Incline Machine Press', targetSets: 3, targetReps: '8–10', muscle: 'Upper Chest', videoId: 'VesHgJR14E8' },
-      { id: 'd4_e2', name: 'Cable Crossovers', targetSets: 3, targetReps: '12–15', muscle: 'Mid Chest', videoId: '8Um35Es-ROE' },
-      { id: 'd4_e3', name: 'Pec Deck Fly', targetSets: 3, targetReps: '10–12', muscle: 'Mid Chest', videoId: 'fgXSA2-o0NM' },
-      { id: 'd4_e4', name: 'Assisted Pull-Ups / Chin-Ups', targetSets: 3, targetReps: '8–10', muscle: 'Lat Width', videoId: 'CdO5BvP6Ti8' },
-      { id: 'd4_e5', name: 'Single-Arm Cable Rows (low pull)', targetSets: 3, targetReps: '10–12', muscle: 'Lat Width', videoId: 'qN54-QNO1eQ' },
-      { id: 'd4_e6', name: 'Seated Cable Rows V-Bar', targetSets: 3, targetReps: '10–12', muscle: 'Mid-Back', videoId: '4mRy8U542Fo' },
-      { id: 'd4_e7', name: 'Reverse Pec Deck (Back Focus)', targetSets: 3, targetReps: '12–15', muscle: 'Mid-Back', videoId: '-TKqxK7-ehc' },
+      { id: 'd4_e1', name: 'Incline Chest Press (Machine)', targetSets: 3, targetReps: '8–10', muscle: 'Upper Chest', videoId: 'VesHgJR14E8' },
+      { id: 'd4_e2', name: 'Cable Fly Crossovers', targetSets: 3, targetReps: '12–15', muscle: 'Mid Chest', videoId: '8Um35Es-ROE' },
+      { id: 'd4_e3', name: 'Butterfly (Pec Deck)', targetSets: 3, targetReps: '10–12', muscle: 'Mid Chest', videoId: 'fgXSA2-o0NM' },
+      { id: 'd4_e4', name: 'Chin Up', targetSets: 3, targetReps: '8–10', muscle: 'Lat Width', videoId: 'CdO5BvP6Ti8' },
+      { id: 'd4_e5', name: 'Single Arm Cable Row', targetSets: 3, targetReps: '10–12', muscle: 'Lat Width', videoId: 'qN54-QNO1eQ' },
+      { id: 'd4_e6', name: 'Seated Cable Row - V Grip (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Mid-Back', videoId: '4mRy8U542Fo' },
+      { id: 'd4_e7', name: 'Rear Delt Reverse Fly (Machine)', targetSets: 3, targetReps: '12–15', muscle: 'Mid-Back', videoId: '-TKqxK7-ehc' },
     ],
   },
   {
@@ -79,15 +80,15 @@ export const GYM_PLAN_ARNOLD: GymPlanDay[] = [
     subtitle: '3D Delts, Brachialis, Tricep Stretch',
     focus: 'Full shoulder cap development and long head arm stretches.',
     exercises: [
-      { id: 'd5_e1', name: 'Machine Overhead Press', targetSets: 3, targetReps: '8–10', muscle: 'Front Delts', videoId: '6v4nrRVySj0' },
-      { id: 'd5_e2', name: 'Dumbbell Lateral Raises', targetSets: 3, targetReps: '12–15', muscle: 'Side Delts', videoId: 'Kl3LEzQ5Zqs' },
-      { id: 'd5_e3', name: 'Face Pulls', targetSets: 3, targetReps: '12–15', muscle: 'Rear Delts', videoId: 'ljgqer1ZpXg' },
-      { id: 'd5_e4', name: 'Overhead Cable Extensions', targetSets: 3, targetReps: '10–12', muscle: 'Long Tricep', videoId: 'b5le--KkyH0' },
-      { id: 'd5_e5', name: 'Katana Cable Extensions', targetSets: 3, targetReps: '10–12', muscle: 'Long Tricep', videoId: 'b5le--KkyH0' },
-      { id: 'd5_e6', name: 'Cable Cross-Body Tricep Extensions', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: 'hp9IQlVcNW0' },
-      { id: 'd5_e7', name: 'Alternating Dumbbell Curls w/ Supination', targetSets: 3, targetReps: '10–12', muscle: 'Short Bicep', videoId: 'iui51E31sX8' },
-      { id: 'd5_e8', name: 'Face-Away Cable Curls', targetSets: 3, targetReps: '10–12', muscle: 'Long Bicep', videoId: 'kwG2ipFRgfo' },
-      { id: 'd5_e9', name: 'Dumbbell Hammer Curls', targetSets: 3, targetReps: '10–12', muscle: 'Brachialis', videoId: '5FAuyZuvJFg' },
+      { id: 'd5_e1', name: 'Seated Shoulder Press (Machine)', targetSets: 3, targetReps: '8–10', muscle: 'Front Delts', videoId: '6v4nrRVySj0' },
+      { id: 'd5_e2', name: 'Lateral Raise (Dumbbell)', targetSets: 3, targetReps: '12–15', muscle: 'Side Delts', videoId: 'Kl3LEzQ5Zqs' },
+      { id: 'd5_e3', name: 'Face Pull', targetSets: 3, targetReps: '12–15', muscle: 'Rear Delts', videoId: 'ljgqer1ZpXg' },
+      { id: 'd5_e4', name: 'Overhead Cable Triceps Extension', targetSets: 3, targetReps: '10–12', muscle: 'Long Tricep', videoId: 'b5le--KkyH0' },
+      { id: 'd5_e5', name: 'Katana Triceps Extension (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Long Tricep', videoId: 'b5le--KkyH0' },
+      { id: 'd5_e6', name: 'Crossbody Triceps Extension (Cable)', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: 'hp9IQlVcNW0' },
+      { id: 'd5_e7', name: 'Bicep Curl (Dumbbell)', targetSets: 3, targetReps: '10–12', muscle: 'Short Bicep', videoId: 'iui51E31sX8' },
+      { id: 'd5_e8', name: 'Bayesian Curl (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Long Bicep', videoId: 'kwG2ipFRgfo' },
+      { id: 'd5_e9', name: 'Cross Body Hammer Curl', targetSets: 3, targetReps: '10–12', muscle: 'Brachialis', videoId: '5FAuyZuvJFg' },
     ],
   },
   {
@@ -96,15 +97,15 @@ export const GYM_PLAN_ARNOLD: GymPlanDay[] = [
     subtitle: 'Squats, Glutes, Deep Core',
     focus: 'Quad teardrop, deep anti-rotation core, and forearm brachioradialis.',
     exercises: [
-      { id: 'd6_e1', name: 'Heel-Elevated Goblet Squats', targetSets: 3, targetReps: '10–12', muscle: 'Quad Teardrop', videoId: 'RVEZruvfkqI' },
-      { id: 'd6_e2', name: 'Seated Leg Curls', targetSets: 3, targetReps: '12–15', muscle: 'Hamstrings', videoId: '_lgE0gPvbik' },
-      { id: 'd6_e3', name: 'Dumbbell Reverse Lunges', targetSets: 3, targetReps: '8–10', muscle: 'Glutes/Quads', videoId: '3Xy4_P86v2E' },
-      { id: 'd6_e4', name: 'Seated Machine Abductions', targetSets: 3, targetReps: '15–20', muscle: 'Glutes/Abductors', videoId: '01HilwRf8m8' },
-      { id: 'd6_e5', name: 'Seated Calf Raises', targetSets: 4, targetReps: '12–15', muscle: 'Soleus', videoId: '6O5hh1rBtx8' },
-      { id: 'd6_e6', name: 'Seated Ab Crunch Machine', targetSets: 3, targetReps: '10–12', muscle: 'Upper Abs', videoId: 'mnRhbUB3Fjs' },
-      { id: 'd6_e7', name: 'Reverse Crunches', targetSets: 3, targetReps: '12–15', muscle: 'Lower Abs', videoId: 'JonqVgFNiqE' },
-      { id: 'd6_e8', name: 'Pallof Press', targetSets: 3, targetReps: '10–12', muscle: 'Transverse Abs', videoId: 'gcGNypjIQDo' },
-      { id: 'd6_e9', name: 'Reverse Cable Curls', targetSets: 3, targetReps: '10–12', muscle: 'Brachioradialis', videoId: 'jjnJHhzZUUM' },
+      { id: 'd6_e1', name: 'Goblet Squat', targetSets: 3, targetReps: '10–12', muscle: 'Quad Teardrop', videoId: 'RVEZruvfkqI' },
+      { id: 'd6_e2', name: 'Seated Leg Curl (Machine)', targetSets: 3, targetReps: '12–15', muscle: 'Hamstrings', videoId: '_lgE0gPvbik' },
+      { id: 'd6_e3', name: 'Walking Lunge', targetSets: 3, targetReps: '8–10', muscle: 'Glutes/Quads', videoId: '3Xy4_P86v2E' },
+      { id: 'd6_e4', name: 'Hip Abduction (Machine)', targetSets: 3, targetReps: '15–20', muscle: 'Glutes/Abductors', videoId: '01HilwRf8m8' },
+      { id: 'd6_e5', name: 'Seated Calf Raise (Plate Loaded)', targetSets: 4, targetReps: '12–15', muscle: 'Soleus', videoId: '6O5hh1rBtx8' },
+      { id: 'd6_e6', name: 'Crunch (Machine)', targetSets: 3, targetReps: '10–12', muscle: 'Upper Abs', videoId: 'mnRhbUB3Fjs' },
+      { id: 'd6_e7', name: 'Decline Reverse Crunch', targetSets: 3, targetReps: '12–15', muscle: 'Lower Abs', videoId: 'JonqVgFNiqE' },
+      { id: 'd6_e8', name: 'Pallof Press (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Transverse Abs', videoId: 'gcGNypjIQDo' },
+      { id: 'd6_e9', name: 'Reverse Curl (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Brachioradialis', videoId: 'jjnJHhzZUUM' },
     ],
   },
   {
@@ -124,13 +125,13 @@ export const GYM_PLAN_PPL: GymPlanDay[] = [
     subtitle: 'Heavy Chest & Triceps',
     focus: 'Compound pressing power, overhead triceps, and side/front delts.',
     exercises: [
-      { id: 'ppl_d1_e1', name: 'Flat Barbell Bench Press', targetSets: 3, targetReps: '8–10', muscle: 'Mid Chest', videoId: 'vENMjPI-piM' },
-      { id: 'ppl_d1_e2', name: 'Incline Machine Press', targetSets: 3, targetReps: '10–12', muscle: 'Upper Chest', videoId: 'WxrKIPbeQP8' },
-      { id: 'ppl_d1_e3', name: 'High-to-Low Cable Crossovers', targetSets: 3, targetReps: '12–15', muscle: 'Lower Chest', videoId: 'jFx0mOgNSsc' },
-      { id: 'ppl_d1_e4', name: 'Machine Overhead Press', targetSets: 3, targetReps: '8–12', muscle: 'Front Delts', videoId: 'TFayqrepbXE' },
-      { id: 'ppl_d1_e5', name: 'Cable Lateral Raises', targetSets: 3, targetReps: '12–15', muscle: 'Side Delts', videoId: 'xrBcuPNTxLg' },
-      { id: 'ppl_d1_e6', name: 'Dual-Rope Tricep Pushdowns', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: 'i5I7RGyWwo8' },
-      { id: 'ppl_d1_e7', name: 'Overhead Cable Extension (rope)', targetSets: 3, targetReps: '10–12', muscle: 'Long Tricep', videoId: 'b5le--KkyH0' },
+      { id: 'ppl_d1_e1', name: 'Bench Press (Barbell)', targetSets: 3, targetReps: '8–10', muscle: 'Mid Chest', videoId: 'vENMjPI-piM' },
+      { id: 'ppl_d1_e2', name: 'Incline Chest Press (Machine)', targetSets: 3, targetReps: '10–12', muscle: 'Upper Chest', videoId: 'WxrKIPbeQP8' },
+      { id: 'ppl_d1_e3', name: 'Decline Cable Fly Crossovers', targetSets: 3, targetReps: '12–15', muscle: 'Lower Chest', videoId: 'jFx0mOgNSsc' },
+      { id: 'ppl_d1_e4', name: 'Seated Shoulder Press (Machine)', targetSets: 3, targetReps: '8–12', muscle: 'Front Delts', videoId: 'TFayqrepbXE' },
+      { id: 'ppl_d1_e5', name: 'Lateral Raise (Cable)', targetSets: 3, targetReps: '12–15', muscle: 'Side Delts', videoId: 'xrBcuPNTxLg' },
+      { id: 'ppl_d1_e6', name: 'Triceps Rope Pushdown', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: 'i5I7RGyWwo8' },
+      { id: 'ppl_d1_e7', name: 'Overhead Cable Triceps Extension', targetSets: 3, targetReps: '10–12', muscle: 'Long Tricep', videoId: 'b5le--KkyH0' },
     ],
   },
   {
@@ -139,13 +140,13 @@ export const GYM_PLAN_PPL: GymPlanDay[] = [
     subtitle: 'Lat Width & Biceps',
     focus: 'Vertical pulling, rhomboid density, rear delts, and bicep isolation.',
     exercises: [
-      { id: 'ppl_d2_e1', name: 'Neutral-Grip Lat Pulldowns', targetSets: 3, targetReps: '8–10', muscle: 'Lat Width', videoId: 'QuSqYj7tFbI' },
-      { id: 'ppl_d2_e2', name: 'Single-Arm Cable Rows (low pull)', targetSets: 3, targetReps: '10–12', muscle: 'Lat Width', videoId: 'wYy32uk4Bu8' },
-      { id: 'ppl_d2_e3', name: 'Chest-Supported T-Bar Row', targetSets: 3, targetReps: '8–10', muscle: 'Mid-Back', videoId: '-avLxYko1k0' },
-      { id: 'ppl_d2_e4', name: 'Cable Shrugs', targetSets: 3, targetReps: '12–15', muscle: 'Upper Traps', videoId: '-FBZ2evfXVs' },
-      { id: 'ppl_d2_e5', name: 'Reverse Pec Deck Fly', targetSets: 3, targetReps: '12–15', muscle: 'Rear Delts', videoId: 'O2J8Qs7Wl3U' },
-      { id: 'ppl_d2_e6', name: 'Preacher Curls', targetSets: 3, targetReps: '10–12', muscle: 'Short Bicep', videoId: 'Cn_S3OKOWBc' },
-      { id: 'ppl_d2_e7', name: 'Dumbbell Hammer Curls', targetSets: 3, targetReps: '10–12', muscle: 'Brachialis', videoId: 'lmIo_gVE8T4' },
+      { id: 'ppl_d2_e1', name: 'Lat Pulldown - Close Grip (Cable)', targetSets: 3, targetReps: '8–10', muscle: 'Lat Width', videoId: 'QuSqYj7tFbI' },
+      { id: 'ppl_d2_e2', name: 'Single Arm Cable Row', targetSets: 3, targetReps: '10–12', muscle: 'Lat Width', videoId: 'wYy32uk4Bu8' },
+      { id: 'ppl_d2_e3', name: 'T Bar Row', targetSets: 3, targetReps: '8–10', muscle: 'Mid-Back', videoId: '-avLxYko1k0' },
+      { id: 'ppl_d2_e4', name: 'Shrug (Cable)', targetSets: 3, targetReps: '12–15', muscle: 'Upper Traps', videoId: '-FBZ2evfXVs' },
+      { id: 'ppl_d2_e5', name: 'Rear Delt Reverse Fly (Machine)', targetSets: 3, targetReps: '12–15', muscle: 'Rear Delts', videoId: 'O2J8Qs7Wl3U' },
+      { id: 'ppl_d2_e6', name: 'Preacher Curl (Barbell)', targetSets: 3, targetReps: '10–12', muscle: 'Short Bicep', videoId: 'Cn_S3OKOWBc' },
+      { id: 'ppl_d2_e7', name: 'Cross Body Hammer Curl', targetSets: 3, targetReps: '10–12', muscle: 'Brachialis', videoId: 'lmIo_gVE8T4' },
     ],
   },
   {
@@ -154,13 +155,13 @@ export const GYM_PLAN_PPL: GymPlanDay[] = [
     subtitle: 'Quads & Core A',
     focus: 'Heavy squats, glute abductions, deep core, and forearms.',
     exercises: [
-      { id: 'ppl_d3_e1', name: 'Hack Squats OR Leg Press', targetSets: 3, targetReps: '8–10', muscle: 'Quads', videoId: 'xMzqkzmrKTM' },
-      { id: 'ppl_d3_e2', name: 'Seated Machine Abductions', targetSets: 3, targetReps: '15–20', muscle: 'Glutes/Abductors', videoId: '01HilwRf8m8' },
-      { id: 'ppl_d3_e3', name: 'Seated Leg Curls', targetSets: 3, targetReps: '12–15', muscle: 'Hamstrings', videoId: 'eKGgmvTVHDg' },
-      { id: 'ppl_d3_e4', name: 'Seated Calf Raises', targetSets: 3, targetReps: '12–15', muscle: 'Soleus', videoId: '60XGTGOjdXA' },
-      { id: 'ppl_d3_e5', name: 'Seated Ab Crunch Machine', targetSets: 3, targetReps: '10–15', muscle: 'Upper Abs', videoId: '7T0ZUEt1m8s' },
-      { id: 'ppl_d3_e6', name: 'Cable Woodchoppers', targetSets: 3, targetReps: '10–15', muscle: 'Obliques', videoId: 'YIU0U_B57rU' },
-      { id: 'ppl_d3_e7', name: 'Machine Wrist Curls', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Flexors', videoId: '3VLTzIrnb5g' },
+      { id: 'ppl_d3_e1', name: 'Hack Squat (Machine)', targetSets: 3, targetReps: '8–10', muscle: 'Quads', videoId: 'xMzqkzmrKTM' },
+      { id: 'ppl_d3_e2', name: 'Hip Abduction (Machine)', targetSets: 3, targetReps: '15–20', muscle: 'Glutes/Abductors', videoId: '01HilwRf8m8' },
+      { id: 'ppl_d3_e3', name: 'Seated Leg Curl (Machine)', targetSets: 3, targetReps: '12–15', muscle: 'Hamstrings', videoId: 'eKGgmvTVHDg' },
+      { id: 'ppl_d3_e4', name: 'Seated Calf Raise (Plate Loaded)', targetSets: 3, targetReps: '12–15', muscle: 'Soleus', videoId: '60XGTGOjdXA' },
+      { id: 'ppl_d3_e5', name: 'Crunch (Machine)', targetSets: 3, targetReps: '10–15', muscle: 'Upper Abs', videoId: '7T0ZUEt1m8s' },
+      { id: 'ppl_d3_e6', name: 'Woodchopper', targetSets: 3, targetReps: '10–15', muscle: 'Obliques', videoId: 'YIU0U_B57rU' },
+      { id: 'ppl_d3_e7', name: 'Seated Palms Up Wrist Curl', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Flexors', videoId: '3VLTzIrnb5g' },
     ],
   },
   {
@@ -169,12 +170,12 @@ export const GYM_PLAN_PPL: GymPlanDay[] = [
     subtitle: 'Chest Detail & Side Delts',
     focus: 'Upper/Mid chest sculpting, lateral raises, and tricep horseshoe isolation.',
     exercises: [
-      { id: 'ppl_d4_e1', name: 'Low-to-High Cable Fly', targetSets: 3, targetReps: '12–15', muscle: 'Upper Chest', videoId: 'u5X5x1fw_SA' },
-      { id: 'ppl_d4_e2', name: 'Pec Deck Fly', targetSets: 3, targetReps: '10–15', muscle: 'Mid Chest', videoId: 'fgXSA2-o0NM' },
-      { id: 'ppl_d4_e3', name: 'Incline Dumbbell Press', targetSets: 3, targetReps: '8–10', muscle: 'Upper Chest', videoId: '8fXfwG4ftaQ' },
-      { id: 'ppl_d4_e4', name: 'Cable Lateral Raises', targetSets: 3, targetReps: '12–15', muscle: 'Side Delts', videoId: 'xrBcuPNTxLg' },
-      { id: 'ppl_d4_e5', name: 'Cable Cross-Body Tricep Extensions', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: '0rAlOwNPJno' },
-      { id: 'ppl_d4_e6', name: 'Cable Skull Crusher', targetSets: 3, targetReps: '10–12', muscle: 'Long Tricep', videoId: 'q-mZQep-LMI' },
+      { id: 'ppl_d4_e1', name: 'Low Cable Fly Crossovers', targetSets: 3, targetReps: '12–15', muscle: 'Upper Chest', videoId: 'u5X5x1fw_SA' },
+      { id: 'ppl_d4_e2', name: 'Butterfly (Pec Deck)', targetSets: 3, targetReps: '10–15', muscle: 'Mid Chest', videoId: 'fgXSA2-o0NM' },
+      { id: 'ppl_d4_e3', name: 'Incline Bench Press (Dumbbell)', targetSets: 3, targetReps: '8–10', muscle: 'Upper Chest', videoId: '8fXfwG4ftaQ' },
+      { id: 'ppl_d4_e4', name: 'Lateral Raise (Cable)', targetSets: 3, targetReps: '12–15', muscle: 'Side Delts', videoId: 'xrBcuPNTxLg' },
+      { id: 'ppl_d4_e5', name: 'Crossbody Triceps Extension (Cable)', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: '0rAlOwNPJno' },
+      { id: 'ppl_d4_e6', name: 'Incline Skullcrusher (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Long Tricep', videoId: 'q-mZQep-LMI' },
     ],
   },
   {
@@ -183,13 +184,13 @@ export const GYM_PLAN_PPL: GymPlanDay[] = [
     subtitle: 'Mid-Back Thickness',
     focus: 'Chest-supported dumbbell rowing, spinal erector health, and brachialis.',
     exercises: [
-      { id: 'ppl_d5_e1', name: 'Chest-Supported Incline Dumbbell Row', targetSets: 3, targetReps: '8–10', muscle: 'Mid-Back', videoId: 'H75im9fAUMc' },
-      { id: 'ppl_d5_e2', name: 'Machine Lat Pulldown', targetSets: 3, targetReps: '10–12', muscle: 'Lat Width', videoId: 'bNmvKpJSWKM' },
-      { id: 'ppl_d5_e3', name: 'Seated Cable Rows V-Bar', targetSets: 3, targetReps: '10–12', muscle: 'Mid-Back', videoId: 'HoWHac5nbLo' },
-      { id: 'ppl_d5_e4', name: 'Back Extensions', targetSets: 3, targetReps: '12–15', muscle: 'Lower Back', videoId: 'EBui4Bt5N7o' },
-      { id: 'ppl_d5_e5', name: 'Cable Rear Delt Fly', targetSets: 3, targetReps: '12–15', muscle: 'Rear Delts', videoId: 'FeERX9UwspY' },
-      { id: 'ppl_d5_e6', name: 'Incline Dumbbell Curls', targetSets: 3, targetReps: '10–12', muscle: 'Long Bicep', videoId: '0-qmVm4tHDw' },
-      { id: 'ppl_d5_e7', name: 'Reverse Cable Curls', targetSets: 3, targetReps: '10–12', muscle: 'Brachialis', videoId: 'z4D7dwPjsO8' },
+      { id: 'ppl_d5_e1', name: 'Chest Supported Incline Row (Dumbbell)', targetSets: 3, targetReps: '8–10', muscle: 'Mid-Back', videoId: 'H75im9fAUMc' },
+      { id: 'ppl_d5_e2', name: 'Lat Pulldown (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Lat Width', videoId: 'bNmvKpJSWKM' },
+      { id: 'ppl_d5_e3', name: 'Seated Cable Row - V Grip (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Mid-Back', videoId: 'HoWHac5nbLo' },
+      { id: 'ppl_d5_e4', name: 'Back Extension (Hyperextension)', targetSets: 3, targetReps: '12–15', muscle: 'Lower Back', videoId: 'EBui4Bt5N7o' },
+      { id: 'ppl_d5_e5', name: 'Rear Delt Reverse Fly (Cable)', targetSets: 3, targetReps: '12–15', muscle: 'Rear Delts', videoId: 'FeERX9UwspY' },
+      { id: 'ppl_d5_e6', name: 'Seated Incline Curl (Dumbbell)', targetSets: 3, targetReps: '10–12', muscle: 'Long Bicep', videoId: '0-qmVm4tHDw' },
+      { id: 'ppl_d5_e7', name: 'Reverse Curl (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Brachialis', videoId: 'z4D7dwPjsO8' },
     ],
   },
   {
@@ -198,13 +199,13 @@ export const GYM_PLAN_PPL: GymPlanDay[] = [
     subtitle: 'Hams & Core B',
     focus: 'RDLs, quad teardrop VMO, and deep anti-rotation transverse abs.',
     exercises: [
-      { id: 'ppl_d6_e1', name: 'Romanian Deadlifts (RDLs)', targetSets: 3, targetReps: '8–10', muscle: 'Hamstrings', videoId: 'cjRSNsvqpd8' },
-      { id: 'ppl_d6_e2', name: 'Heel-Elevated Goblet Squats', targetSets: 3, targetReps: '10–12', muscle: 'Quad Teardrop', videoId: '0wz99W3lbAs' },
-      { id: 'ppl_d6_e3', name: 'Leg Extensions', targetSets: 3, targetReps: '12–15', muscle: 'Quads', videoId: '2zZ3vkPsExQ' },
-      { id: 'ppl_d6_e4', name: 'Standing Machine Calf Raises', targetSets: 3, targetReps: '12–15', muscle: 'Gastrocnemius', videoId: 'n-5T_oYc1oU' },
-      { id: 'ppl_d6_e5', name: 'Hanging Knee Raises', targetSets: 3, targetReps: '12–15', muscle: 'Lower Abs', videoId: 'Fl8rJJ7mZJM' },
-      { id: 'ppl_d6_e6', name: 'Pallof Press', targetSets: 3, targetReps: '10–12', muscle: 'Transverse Abs', videoId: '5aZ0IhJS8O8' },
-      { id: 'ppl_d6_e7', name: 'Behind-the-Back Barbell Wrist Curls', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Flexors', videoId: 'Cj9RNAYD7iY' },
+      { id: 'ppl_d6_e1', name: 'Romanian Deadlift (Barbell)', targetSets: 3, targetReps: '8–10', muscle: 'Hamstrings', videoId: 'cjRSNsvqpd8' },
+      { id: 'ppl_d6_e2', name: 'Goblet Squat', targetSets: 3, targetReps: '10–12', muscle: 'Quad Teardrop', videoId: '0wz99W3lbAs' },
+      { id: 'ppl_d6_e3', name: 'Leg Extension (Machine)', targetSets: 3, targetReps: '12–15', muscle: 'Quads', videoId: '2zZ3vkPsExQ' },
+      { id: 'ppl_d6_e4', name: 'Standing Calf Raise (Machine)', targetSets: 3, targetReps: '12–15', muscle: 'Gastrocnemius', videoId: 'n-5T_oYc1oU' },
+      { id: 'ppl_d6_e5', name: 'Hanging Leg Raise', targetSets: 3, targetReps: '12–15', muscle: 'Lower Abs', videoId: 'Fl8rJJ7mZJM' },
+      { id: 'ppl_d6_e6', name: 'Pallof Press (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Transverse Abs', videoId: '5aZ0IhJS8O8' },
+      { id: 'ppl_d6_e7', name: 'Behind the Back Wrist Curl (Barbell)', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Flexors', videoId: 'Cj9RNAYD7iY' },
     ],
   },
   {
@@ -260,10 +261,35 @@ export function getCustomPlanDay(customDays: any, planIdx: number): GymPlanDay |
 export function resolvePlanDay(userGymPlan: any, planIdx: number): GymPlanDay {
   const rawCustom = getCustomPlanDay(userGymPlan?.customDays, planIdx);
   if (rawCustom && (rawCustom.isRest || Array.isArray(rawCustom.exercises))) {
-    return rawCustom;
+    return {
+      ...rawCustom,
+      exercises: Array.isArray(rawCustom.exercises)
+        ? rawCustom.exercises.map(ex => {
+            const canonicalName = getCanonicalExerciseName(ex.name);
+            return {
+              ...ex,
+              name: canonicalName,
+              muscle: resolveExerciseTargetMuscle(canonicalName, ex.muscle).targetMuscle,
+            };
+          })
+        : [],
+    };
   }
   const basePlan = userGymPlan?.templateId === 'arnold' ? GYM_PLAN_ARNOLD : GYM_PLAN;
-  return basePlan.find((d: GymPlanDay) => d.dayIndex === planIdx) || GYM_PLAN_ARNOLD.find((d: GymPlanDay) => d.dayIndex === planIdx) || GYM_PLAN[0];
+  const day = basePlan.find((d: GymPlanDay) => d.dayIndex === planIdx) || GYM_PLAN_ARNOLD.find((d: GymPlanDay) => d.dayIndex === planIdx) || GYM_PLAN[0];
+  return {
+    ...day,
+    exercises: Array.isArray(day.exercises)
+      ? day.exercises.map(ex => {
+          const canonicalName = getCanonicalExerciseName(ex.name);
+          return {
+            ...ex,
+            name: canonicalName,
+            muscle: resolveExerciseTargetMuscle(canonicalName, ex.muscle).targetMuscle,
+          };
+        })
+      : [],
+  };
 }
 
 // Curated 8 best distinct alternatives ranked by Biomechanical Hypertrophy Tiers (S Tier -> A+ Tier -> A Tier -> B Tier).

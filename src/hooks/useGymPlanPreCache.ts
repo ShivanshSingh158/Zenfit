@@ -9,7 +9,7 @@
  */
 import { useEffect, useRef } from 'react';
 import { InteractionManager } from 'react-native';
-import { useWellnessData } from '../contexts/domains/WellnessContext';
+import { useWellnessData, getWorkoutActiveGlobal } from '../contexts/domains/WellnessContext';
 import { GYM_PLAN } from '../data/gymPlan';
 import { preCacheExercises } from '../services/exerciseMediaService';
 import { getExerciseCatalogue, getCategoryMap } from '../components/Gym/AddExerciseModal';
@@ -21,11 +21,12 @@ export function useGymPlanPreCache() {
 
   // Cold-boot background warming of 1,600+ exercise catalogue & category maps
   useEffect(() => {
-    if (warmedUpRef.current) return;
+    if (warmedUpRef.current || getWorkoutActiveGlobal()) return;
     warmedUpRef.current = true;
     const task = InteractionManager.runAfterInteractions(() => {
       setTimeout(() => {
         try {
+          if (getWorkoutActiveGlobal()) return;
           getExerciseCatalogue();
           getCategoryMap();
         } catch (_) {}
@@ -35,6 +36,8 @@ export function useGymPlanPreCache() {
   }, []);
 
   useEffect(() => {
+    // Never run media downloads during an active workout
+    if (getWorkoutActiveGlobal()) return;
     const names: string[] = [];
 
     // Collect from userGymPlan.customDays

@@ -34,26 +34,19 @@ const _HOT_CACHE = new Map<string, CacheEntry<any>>();
 export function generateDatasetFingerprint(items: Array<any> | null | undefined, extraTag: string = ''): string {
   if (!items || items.length === 0) return `empty_${extraTag}`;
   const len = items.length;
-  const first = items[0] || {};
-  const last = items[len - 1] || {};
-  const firstRev = Number(first.updatedAt || first.lastUpdated || first.timestamp || 0);
-  const lastRev = Number(last.updatedAt || last.lastUpdated || last.timestamp || 0);
-  const mid = items[Math.floor(len / 2)] || {};
-  const midRev = Number(mid.updatedAt || mid.lastUpdated || mid.timestamp || 0);
-
-  // Instantaneous O(1) integer arithmetic hash — runs in <0.05ms instead of 35ms
-  let checkSum = (firstRev ^ lastRev ^ midRev ^ len) >>> 0;
-  const sampleLimit = Math.min(len, 10);
-  for (let i = 0; i < sampleLimit; i++) {
+  // Order-independent commutative hash (XOR + modular sum) so Firestore order never matters!
+  let xorHash = len;
+  let sumHash = 0;
+  for (let i = 0; i < len; i++) {
     const it = items[i];
-    if (it) {
-      const rev = Number(it.updatedAt || it.lastUpdated || it.timestamp || 0);
-      const exLen = Array.isArray(it.exercises) ? it.exercises.length : 0;
-      checkSum = (checkSum + rev + (exLen << 3) + (it.completed ? 7 : 0)) >>> 0;
-    }
+    if (!it) continue;
+    const rev = Number(it.updatedAt || it.lastUpdated || it.timestamp || 0);
+    const exLen = Array.isArray(it.exercises) ? it.exercises.length : 0;
+    const itemMix = ((rev ^ (exLen << 7) ^ (it.completed ? 0x9e3779b9 : 0)) >>> 0);
+    xorHash = (xorHash ^ itemMix) >>> 0;
+    sumHash = (sumHash + itemMix) >>> 0;
   }
-
-  return `${len}_${checkSum}_${first.id || first.date || ''}_${last.id || last.date || ''}_${extraTag}`;
+  return `${len}_${xorHash}_${sumHash}_${extraTag}`;
 }
 
 /**

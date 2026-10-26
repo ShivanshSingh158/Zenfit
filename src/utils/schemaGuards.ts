@@ -202,7 +202,8 @@ export function parseHabitLog(docData: any, docId: string): HabitLog {
 
 export function parseGymLog(docData: any, docId: string): GymLog {
   const d = docData && typeof docData === 'object' ? docData : {};
-  const id = sanitizeString(docId || d.id, 'gym_' + Date.now());
+  const safeDate = sanitizeDateString(d.date, '1970-01-01');
+  const id = sanitizeString(docId || d.id, `gym_${sanitizeString(d.userId, 'anon')}_${safeDate}`);
 
   const exercises = Array.isArray(d.exercises)
     ? d.exercises.map((ex: any, idx: number) => {
@@ -239,6 +240,13 @@ export function parseGymLog(docData: any, docId: string): GymLog {
                   weight,
                   weightKg: weight ?? 0,
                   completed: Boolean(s?.completed),
+                  // CRITICAL FIX: Preserve all advanced set metadata so snapshots never strip them!
+                  isWarmup: s?.isWarmup !== undefined ? Boolean(s.isWarmup) : undefined,
+                  warmupLabel: s?.warmupLabel ? sanitizeString(s.warmupLabel, 'W', 10) : undefined,
+                  setType: s?.setType ? sanitizeEnum(s.setType, ['normal', 'warmup', 'drop', 'failure'], 'normal') : undefined,
+                  rir: s?.rir !== undefined && s?.rir !== null ? sanitizeNumber(s.rir, 0, 0, 10) : undefined,
+                  rpe: s?.rpe !== undefined && s?.rpe !== null ? sanitizeNumber(s.rpe, 0, 0, 10) : undefined,
+                  completedAt: s?.completedAt ? sanitizeNumber(s.completedAt, 0, 0) : undefined,
                 };
               })
             : [],
@@ -247,8 +255,8 @@ export function parseGymLog(docData: any, docId: string): GymLog {
     : [];
 
   const cardio = Array.isArray(d.cardio)
-    ? d.cardio.map((c: any) => ({
-        id: sanitizeString(c?.id, 'cardio_' + Date.now()),
+    ? d.cardio.map((c: any, cIdx: number) => ({
+        id: sanitizeString(c?.id, `cardio_${safeDate}_${cIdx}`),
         type: sanitizeString(c?.type, 'Cardio', 50),
         durationMinutes: c?.durationMinutes != null ? sanitizeNumber(c.durationMinutes, 0, 0, 600) : null,
         calories: c?.calories != null ? sanitizeNumber(c.calories, 0, 0, 10000) : null,
@@ -262,9 +270,8 @@ export function parseGymLog(docData: any, docId: string): GymLog {
   return {
     id,
     userId: sanitizeString(d.userId, ''),
-    date: sanitizeDateString(d.date),
+    date: safeDate,
     exercises,
-
     cardio,
     workoutStartTime: d.workoutStartTime != null ? sanitizeNumber(d.workoutStartTime, 0, 0) : undefined,
     workoutDurationMinutes: d.workoutDurationMinutes != null ? sanitizeNumber(d.workoutDurationMinutes, 0, 0, 600) : undefined,
@@ -272,12 +279,13 @@ export function parseGymLog(docData: any, docId: string): GymLog {
     dayPlanIndex: d.dayPlanIndex != null ? sanitizeNumber(d.dayPlanIndex, 1, 1, 7) : undefined,
     startTime: d.startTime ? sanitizeString(d.startTime, undefined as any, 20) : undefined,
     endTime: d.endTime ? sanitizeString(d.endTime, undefined as any, 20) : undefined,
-    createdAt: d.createdAt != null ? sanitizeNumber(d.createdAt, Date.now(), 0) : undefined,
-    updatedAt: sanitizeNumber(d.updatedAt, Date.now(), 0),
+    createdAt: d.createdAt != null ? sanitizeNumber(d.createdAt, 0, 0) : undefined,
+    updatedAt: sanitizeNumber(d.updatedAt, 0, 0),
     notes: d.notes ? sanitizeString(d.notes, '', 500) : undefined,
     restTimerStartTime: d.restTimerStartTime !== undefined ? d.restTimerStartTime : null,
     restTimerDurationSecs: d.restTimerDurationSecs !== undefined ? d.restTimerDurationSecs : null,
     restTimerExerciseName: d.restTimerExerciseName !== undefined ? d.restTimerExerciseName : null,
+    deleted: Boolean(d.deleted),
   };
 }
 
@@ -296,7 +304,7 @@ export function parseAttendanceSubject(docData: any, docId: string): AttendanceS
     targetPercentage: sanitizeNumber(d.targetPercentage, 75, 1, 100),
     schedule: d.schedule && typeof d.schedule === 'object' ? d.schedule : {},
     schemaVersion: sanitizeNumber(d.schemaVersion, 1, 1, 10),
-    lastUpdated: sanitizeNumber(d.lastUpdated, Date.now(), 0),
+    lastUpdated: sanitizeNumber(d.lastUpdated, 0, 0),
     color: d.color ? sanitizeString(d.color, undefined as any, 30) : undefined,
     order: sanitizeNumber(d.order, 0, 0, 1000),
   };
@@ -322,7 +330,7 @@ export function parseAttendanceLog(docData: any, docId: string): AttendanceLog {
     action: sanitizeEnum<'attended' | 'missed' | 'cancelled'>(normalizedAction, ['attended', 'missed', 'cancelled'], 'attended'),
     date: sanitizeDateString(d.date),
     isExtra: Boolean(d.isExtra),
-    timestamp: sanitizeNumber(d.timestamp || d.createdAt, Date.now(), 0),
+    timestamp: sanitizeNumber(d.timestamp || d.createdAt, 0, 0),
     idx: typeof d.idx === 'number' ? d.idx : undefined,
   };
 }
@@ -346,8 +354,8 @@ export function parseAssignment(docData: any, docId: string): Assignment {
     maxMarks: sanitizeNumber(d.maxMarks, 100, 0, 1000),
     obtainedMarks: sanitizeNumber(d.obtainedMarks, 0, 0, 1000),
     notes: d.notes ? sanitizeString(d.notes, '', 1000) : undefined,
-    createdAt: sanitizeNumber(d.createdAt, Date.now(), 0),
-    updatedAt: sanitizeNumber(d.updatedAt, Date.now(), 0),
+    createdAt: sanitizeNumber(d.createdAt, 0, 0),
+    updatedAt: sanitizeNumber(d.updatedAt, 0, 0),
   };
 }
 
@@ -408,8 +416,8 @@ export function parseGoal(docData: any, docId: string): Goal {
     firstStep: d.firstStep ? sanitizeString(d.firstStep, '', 300) : undefined,
     successMetric: d.successMetric ? sanitizeString(d.successMetric, '', 300) : undefined,
     keyResults,
-    createdAt: sanitizeNumber(d.createdAt, Date.now(), 0),
-    updatedAt: sanitizeNumber(d.updatedAt, Date.now(), 0),
+    createdAt: sanitizeNumber(d.createdAt, 0, 0),
+    updatedAt: sanitizeNumber(d.updatedAt, 0, 0),
   } as Goal;
 }
 
@@ -425,8 +433,8 @@ export function parseStorageNode(docData: any, docId: string): StorageNode {
     size: sanitizeNumber(d.size, 0, 0),
     url: d.url ? sanitizeString(d.url, '', 2000) : undefined,
     content: typeof d.content === 'string' ? d.content : '',
-    createdAt: d.createdAt || Date.now(),
-    updatedAt: d.updatedAt || Date.now(),
+    createdAt: sanitizeNumber(d.createdAt, 0, 0),
+    updatedAt: sanitizeNumber(d.updatedAt, 0, 0),
     pinned: Boolean(d.pinned),
     tags: Array.isArray(d.tags) ? d.tags.map((t: any) => sanitizeString(t, '', 50)).filter(Boolean) : [],
   };
@@ -467,7 +475,7 @@ export function parseLearningTopic(docData: any, docId: string): LearningTopic {
     notes: d.notes ? String(d.notes) : undefined,
     lastStudiedAt: sanitizeNumber(d.lastStudiedAt, 0, 0),
     subTasks,
-    createdAt: sanitizeNumber(d.createdAt, Date.now(), 0),
+    createdAt: sanitizeNumber(d.createdAt, 0, 0),
     order: sanitizeNumber(d.order, 0, 0, 10000),
     timeSpentMinutes: sanitizeNumber(d.timeSpentMinutes, 0, 0, 10000),
     timeSpentMs: sanitizeNumber(d.timeSpentMs, 0, 0),
@@ -487,6 +495,26 @@ export function areItemsEqual<T>(prev: T[] | null | undefined, next: T[] | null 
   if (!prev || !next) return false;
   if (prev.length !== next.length) return false;
   if (prev.length === 0 && next.length === 0) return true;
+
+  // Fast-path: if items have `id` and `updatedAt`, compare via Map in O(N) without JSON.stringify!
+  const sample = (prev[0] || next[0]) as any;
+  if (sample?.id !== undefined && sample?.updatedAt !== undefined) {
+    const prevMap = new Map<string, any>();
+    for (let i = 0; i < prev.length; i++) {
+      const p = prev[i] as any;
+      prevMap.set(String(p.id), p);
+    }
+    for (let i = 0; i < next.length; i++) {
+      const n = next[i] as any;
+      const p = prevMap.get(String(n.id));
+      if (!p) return false;
+      if (p === n) continue;
+      if (p.updatedAt !== n.updatedAt || p.completed !== n.completed) return false;
+    }
+    return true;
+  }
+
+  // Fallback for items without updatedAt
   try {
     const hasIds = (prev[0] as any)?.id !== undefined || (next[0] as any)?.id !== undefined;
     if (hasIds) {

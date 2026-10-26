@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
+import { hapticSuccess, hapticSelection } from '../../utils/haptics';
 import { FONT_FAMILY, FONT_SIZE, SPACE, RADIUS, SHADOW } from '../../theme/tokens';
 import { useTheme } from "../../contexts/ThemeContext";
 
@@ -27,7 +27,7 @@ export default function ActionConfirmationCard({
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
   const handleConfirm = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    hapticSuccess();
     
     // Micro-animation collapsing into a checkmark
     Animated.parallel([
@@ -95,7 +95,7 @@ export default function ActionConfirmationCard({
               style={styles.editBtn} 
               activeOpacity={0.8} 
               onPress={() => {
-                Haptics.selectionAsync();
+                hapticSelection();
                 onEdit();
               }}
             >

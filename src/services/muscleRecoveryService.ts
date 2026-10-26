@@ -18,6 +18,7 @@ import { GymDayLog } from '../types/gym.types';
 import { inferAutomaticRIR } from './effortEngine';
 import { computeOrGetHotCache, generateDatasetFingerprint } from '../utils/hotCacheStore';
 import { formatLocalDateStr, parseLocalDate } from '../utils/dateUtils';
+import { getVolumeMultiplier } from '../utils/gymUtils';
 
 export const MUSCLES = [
   'trapezius',
@@ -471,11 +472,12 @@ export function calculateMacroVolumeLoad(
         if (ex.skipped) continue;
         const weights = getExerciseMuscleWeights(ex);
 
+        const mult = getVolumeMultiplier(ex.name);
         for (const s of ex.setsLog || []) {
           if (!s.completed || s.isWarmup) continue;
           const w = Number(s.weight) || 0;
           const r = Number(s.reps) || 0;
-          const setVol = w * r;
+          const setVol = w * r * mult;
 
           for (const [slug, mWeight] of Object.entries(weights)) {
             if (slug in out) {

@@ -16,3 +16,15 @@ export function deepSanitize(obj: any): any {
   }
   return obj;
 }
+
+let _lastMonotonicTs = 0;
+/**
+ * Hybrid Logical Clock (HLC) monotonic timestamp generator.
+ * Guarantees that timestamps strictly advance forward even if the client's
+ * phone clock drifts, changes timezones, or is set backwards.
+ */
+export function getMonotonicTimestamp(minBaselineTs = 0): number {
+  const now = Date.now();
+  _lastMonotonicTs = Math.max(now, _lastMonotonicTs + 1, minBaselineTs + 1);
+  return _lastMonotonicTs;
+}

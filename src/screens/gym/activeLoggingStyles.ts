@@ -1,23 +1,33 @@
-import { StyleSheet, Platform, StatusBar as RNStatusBar } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 import { FONT_FAMILY, SPACE, RADIUS, SHADOW } from '../../theme/tokens';
 
-export const makeActiveLoggingStyles = (colors: any, isDark: boolean = true) =>
-  StyleSheet.create({
+const stylesCache = new Map<string, any>();
+
+export const makeActiveLoggingStyles = (colors: any, isDark: boolean = true) => {
+  const cacheKey = `${isDark ? 'dark' : 'light'}_${colors?.background || ''}_${colors?.border || ''}_${colors?.textPrimary || ''}`;
+  let cached = stylesCache.get(cacheKey);
+  if (cached) return cached;
+
+  const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: isDark ? '#000000' : colors.background },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: SPACE.xl,
-      paddingTop: Platform.OS === 'android' ? (RNStatusBar.currentHeight || 40) + 8 : 12,
-      paddingBottom: SPACE.sm,
+      paddingTop: 4,
+      paddingBottom: 4,
       borderBottomWidth: 1,
       borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border,
     },
     backBtn: { padding: SPACE.xs },
     headerTitle: { fontFamily: FONT_FAMILY.bold, fontSize: 13, color: colors.textMuted, letterSpacing: 1 },
     content: { flex: 1 },
-    scrollContent: { padding: SPACE.xl, paddingBottom: 190 },
+    scrollContent: {
+      paddingHorizontal: SPACE.xl,
+      paddingTop: 4,
+      paddingBottom: 28,
+    },
     titleArea: { marginBottom: 8, alignItems: 'center' },
     musclePill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginBottom: 12 },
     muscleDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
@@ -89,6 +99,131 @@ export const makeActiveLoggingStyles = (colors: any, isDark: boolean = true) =>
       fontFamily: FONT_FAMILY.bold,
       fontSize: 12,
       color: '#34C759',
+    },
+
+    // ── Apple Inset Grouped Set Table ──────────────────────────────────────
+    tableCard: {
+      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
+      borderRadius: 16,
+      overflow: 'hidden',
+      borderWidth: 0,
+      marginBottom: 14,
+    },
+    tableHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? 'rgba(84, 84, 88, 0.36)' : 'rgba(0, 0, 0, 0.08)',
+    },
+    tableColHeader: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 11,
+      color: isDark ? '#8E8E93' : colors.textTertiary,
+      letterSpacing: 0.6,
+      textTransform: 'uppercase',
+    },
+    tableHairline: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: isDark ? 'rgba(84, 84, 88, 0.36)' : 'rgba(0, 0, 0, 0.08)',
+      marginLeft: 12,
+      marginRight: 12,
+    },
+    tableAddSetRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 11,
+      gap: 6,
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.015)',
+    },
+    tableAddSetText: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 13,
+      color: isDark ? '#A599FF' : colors.accentPrimary,
+      letterSpacing: 0.3,
+    },
+
+    // ── Mid-Workout PR Celebration Toast ──────────────────────────────────
+    prToastContainer: {
+      position: 'absolute',
+      left: 14,
+      right: 14,
+      zIndex: 9999,
+      backgroundColor: '#1C1C1E',
+      borderRadius: 14,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      borderWidth: 1.5,
+      borderColor: '#FFD700',
+      shadowColor: '#FFD700',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.35,
+      shadowRadius: 10,
+      elevation: 10,
+    },
+    prToastTitle: {
+      fontSize: 11,
+      fontFamily: FONT_FAMILY.bold,
+      color: '#FFD700',
+      letterSpacing: 0.8,
+      textTransform: 'uppercase',
+    },
+    prToastSubtitle: {
+      fontSize: 13,
+      fontFamily: FONT_FAMILY.body,
+      color: '#FFFFFF',
+      marginTop: 2,
+      lineHeight: 18,
+    },
+    prToastCloseBtn: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: 'rgba(255, 255, 255, 0.12)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginLeft: 4,
+    },
+
+    // ── RIR Selector Bar ──────────────────────────────────────────────────
+    rirContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 4,
+      marginBottom: 10,
+      paddingHorizontal: 4,
+    },
+    rirLabel: {
+      fontSize: 11,
+      fontFamily: FONT_FAMILY.bold,
+      color: isDark ? '#8E8E93' : colors.textMuted,
+      letterSpacing: 0.5,
+      textTransform: 'uppercase',
+      marginRight: 2,
+    },
+    rirPill: {
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 10,
+      backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7',
+    },
+    rirPillActive: {
+      backgroundColor: '#A599FF',
+    },
+    rirPillText: {
+      fontSize: 12,
+      fontFamily: FONT_FAMILY.bold,
+      color: isDark ? '#FFFFFF' : colors.textPrimary,
+    },
+    rirPillTextActive: {
+      color: '#000000',
     },
 
     setRowWrapper: {
@@ -313,3 +448,7 @@ export const makeActiveLoggingStyles = (colors: any, isDark: boolean = true) =>
     altRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? '#0c0c0f' : (colors.surface2 || '#F0EFF7'), padding: 16, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: isDark ? '#1c1c20' : colors.border },
     altText: { flex: 1, fontFamily: FONT_FAMILY.bold, fontSize: 16, color: colors.textPrimary, marginLeft: 12 },
   });
+
+  stylesCache.set(cacheKey, styles);
+  return styles;
+};

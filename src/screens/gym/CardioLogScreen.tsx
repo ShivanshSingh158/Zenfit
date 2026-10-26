@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { View, Text, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { View, Text, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator, InteractionManager } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -30,6 +30,9 @@ export default function CardioLogScreen() {
   const { log, updateCardio } = useGymLog(date);
   const cardioItem = log?.cardio?.find(c => c.id === cardioId);
 
+  const durationInputRef = useRef<TextInput>(null);
+  const initializedIdRef = useRef<string | null>(null);
+
   const [form, setForm] = useState({
     duration: '',
     distance: '',
@@ -48,8 +51,10 @@ export default function CardioLogScreen() {
     setForm(prev => ({ ...prev, [field]: val }));
   };
 
+  // Only hydrate form once per cardioId to prevent overwriting user input during live background syncs
   useEffect(() => {
-    if (cardioItem) {
+    if (cardioItem && initializedIdRef.current !== cardioId) {
+      initializedIdRef.current = cardioId || null;
       setForm({
         duration: cardioItem.durationMinutes != null ? String(cardioItem.durationMinutes) : '',
         distance: cardioItem.distanceKm != null ? String(cardioItem.distanceKm) : '',
@@ -64,7 +69,15 @@ export default function CardioLogScreen() {
         pace: cardioItem.pace != null ? String(cardioItem.pace) : '',
       });
     }
-  }, [cardioItem]);
+  }, [cardioItem, cardioId]);
+
+  // Focus input smoothly after screen transition finishes at 120fps
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      durationInputRef.current?.focus();
+    });
+    return () => task.cancel();
+  }, []);
 
   const handleSave = useCallback(() => {
     if (!cardioItem || !log || !cardioId) return;
@@ -135,13 +148,13 @@ export default function CardioLogScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Duration (minutes) *</Text>
               <TextInput
+                ref={durationInputRef}
                 style={styles.input}
                 value={form.duration}
                 onChangeText={v => updateField('duration', v)}
                 keyboardType="numeric"
                 placeholder="e.g. 30"
                 placeholderTextColor={colors.textMuted}
-                autoFocus
               />
             </View>
 

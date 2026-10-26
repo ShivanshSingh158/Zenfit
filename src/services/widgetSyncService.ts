@@ -7,7 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Safe no-op for Expo Go (Android home screen widgets are only active in bare native builds)
 const requestWidgetUpdate = async (_options: any): Promise<void> => {};
 import React from 'react';
-import { DeviceEventEmitter } from 'react-native';
+import { DeviceEventEmitter, InteractionManager } from 'react-native';
 import { LiveWorkoutWidget } from '../widgets/LiveWorkoutWidget';
 import { 
   TodayAgendaWidgetData, 
@@ -582,27 +582,53 @@ export async function getCachedLiveWorkoutData(): Promise<LiveWorkoutWidgetData 
   }
 }
 
+let _lastWidgetUpdateTime = 0;
+let _pendingWidgetUpdateTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingWidgetData: LiveWorkoutWidgetData | null = null;
+
 /**
- * Re-renders the Live Workout HUD widget with fresh data
+ * Re-renders the Live Workout HUD widget with fresh data.
+ * Throttled to at most once per 3 seconds and deferred via InteractionManager
+ * so heavy native RemoteViews serialization never interferes with live 60fps set inputs.
  */
 export async function updateLiveWorkoutWidget(data?: LiveWorkoutWidgetData | null): Promise<void> {
-  try {
-    const widgetData = data || (await getCachedLiveWorkoutData());
-    await requestWidgetUpdate({
-      widgetName: 'LiveWorkout',
-      renderWidget: (props) =>
-        React.createElement(LiveWorkoutWidget, {
-          data: widgetData,
-          width: props?.width || 330,
-          height: props?.height || 280,
-        }),
-      widgetNotFound: () => {},
-    });
-  } catch (e: any) {
-    if (!e?.message?.includes('not seem to be linked')) {
-      console.warn('[WidgetSync] Failed to update LiveWorkout widget:', e);
-    }
+  if (data) _pendingWidgetData = data;
+  const now = Date.now();
+  const elapsed = now - _lastWidgetUpdateTime;
+
+  if (elapsed < 3000) {
+    if (_pendingWidgetUpdateTimer) clearTimeout(_pendingWidgetUpdateTimer);
+    _pendingWidgetUpdateTimer = setTimeout(() => {
+      _pendingWidgetUpdateTimer = null;
+      updateLiveWorkoutWidget(_pendingWidgetData);
+    }, 3000 - elapsed);
+    return;
   }
+
+  _lastWidgetUpdateTime = now;
+
+  setTimeout(() => {
+    InteractionManager.runAfterInteractions(async () => {
+      try {
+        const widgetData = _pendingWidgetData || data || (await getCachedLiveWorkoutData());
+        _pendingWidgetData = null;
+        await requestWidgetUpdate({
+          widgetName: 'LiveWorkout',
+          renderWidget: (props) =>
+            React.createElement(LiveWorkoutWidget, {
+              data: widgetData,
+              width: props?.width || 330,
+              height: props?.height || 280,
+            }),
+          widgetNotFound: () => {},
+        });
+      } catch (e: any) {
+        if (!e?.message?.includes('not seem to be linked')) {
+          console.warn('[WidgetSync] Failed to update LiveWorkout widget:', e);
+        }
+      }
+    });
+  }, 100);
 }
 
 /**
@@ -640,6 +666,8 @@ async function resolveUser(): Promise<any> {
   return null;
 }
 
+const _inFlightWidgetActions = new Set<string>();
+
 /**
  * Handles headless background click actions from the Android Home Screen Widget
  * Implements Instant Zero-Latency Optimistic UI Updates (<20ms) and non-blocking background cloud sync.
@@ -648,6 +676,13 @@ export async function handleWidgetClickAction(
   payload: WidgetClickActionPayload,
   taskProps?: any
 ): Promise<void> {
+  const actionLockKey = `${payload.action}_${payload.subjectId || payload.taskId || ''}_${payload.sessionIdx ?? 0}_${payload.type || ''}`;
+  if (_inFlightWidgetActions.has(actionLockKey)) {
+    return;
+  }
+  _inFlightWidgetActions.add(actionLockKey);
+  setTimeout(() => _inFlightWidgetActions.delete(actionLockKey), 600);
+
   const currentData = await getCachedWidgetData();
   const currentWorkout = await getCachedLiveWorkoutData();
   const user = await resolveUser();
@@ -677,8 +712,14 @@ export async function handleWidgetClickAction(
     updateLiveWorkoutWidget(data).catch(() => {});
   };
 
+  const recordWidgetMutation = (domain: 'academic' | 'tasks' | 'wellness') => {
+    DeviceEventEmitter.emit('widget_cache_mutated', { domain });
+    AsyncStorage.setItem('@zentrack_widget_mutation_ts', String(Date.now())).catch(() => {});
+  };
+
   switch (payload.action) {
     case 'mark_task_done': {
+      recordWidgetMutation('tasks');
       if (!payload.taskId) return;
       const taskId = payload.taskId;
 
@@ -726,6 +767,7 @@ export async function handleWidgetClickAction(
     }
 
     case 'mark_task_undone': {
+      recordWidgetMutation('tasks');
       if (!payload.taskId) return;
       const taskId = payload.taskId;
 
@@ -772,6 +814,7 @@ export async function handleWidgetClickAction(
 
     case 'mark_class_present':
     case 'mark_class_absent': {
+      recordWidgetMutation('academic');
       const subjectId = payload.subjectId;
       if (!subjectId) return;
       const status = payload.action === 'mark_class_present' ? 'attended' : 'missed';
@@ -935,6 +978,7 @@ export async function handleWidgetClickAction(
     }
 
     case 'mark_class_undo': {
+      recordWidgetMutation('academic');
       const subjectId = payload.subjectId;
       if (!subjectId) return;
       const sessionIdx = typeof payload.sessionIdx === 'number' ? payload.sessionIdx : 0;
@@ -1041,6 +1085,7 @@ export async function handleWidgetClickAction(
 
     // ── Live Workout Actions ──────────────────────────────────────────────────
     case 'start_workout_session': {
+      recordWidgetMutation('wellness');
       const todayDateStr = payload.dateStr || formatLocalDateStr(new Date());
       const wellnessCache = await readWellnessCache();
       const planIdx = planDayIndexForDate(todayDateStr);
@@ -1107,6 +1152,7 @@ export async function handleWidgetClickAction(
     }
 
     case 'log_workout_set': {
+      recordWidgetMutation('wellness');
       if (!currentWorkout || !currentWorkout.currentExercise) return;
       const ex = currentWorkout.currentExercise;
       const setIdx = payload.setIndex ?? ex.currentSetIndex;
@@ -1188,7 +1234,8 @@ export async function handleWidgetClickAction(
           ).catch(() => {});
         }
 
-        await AsyncStorage.setItem(`@gym_active_session_${dateStr}`, JSON.stringify({
+        await AsyncStorage.removeItem(`@gym_active_session_${dateStr}`).catch(() => {});
+        await AsyncStorage.setItem('@gym_last_completed_session', JSON.stringify({
           date: dateStr,
           completed: true,
           updatedAt: Date.now(),
@@ -1285,6 +1332,7 @@ export async function handleWidgetClickAction(
     }
 
     case 'adjust_workout_weight': {
+      recordWidgetMutation('wellness');
       if (!currentWorkout || !currentWorkout.currentExercise) return;
       const ex = currentWorkout.currentExercise;
       const setIdx = payload.setIndex ?? ex.currentSetIndex;
@@ -1331,6 +1379,7 @@ export async function handleWidgetClickAction(
     }
 
     case 'next_workout_exercise': {
+      recordWidgetMutation('wellness');
       if (!currentWorkout) return;
       const isLastExercise = currentWorkout.currentExerciseIndex + 1 >= currentWorkout.totalExercises;
 
@@ -1401,6 +1450,7 @@ export async function handleWidgetClickAction(
     }
 
     case 'finish_workout_session': {
+      recordWidgetMutation('wellness');
       if (!currentWorkout) return;
       currentWorkout.isActive = false;
       currentWorkout.isCompleted = true;

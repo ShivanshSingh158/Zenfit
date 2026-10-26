@@ -1,8 +1,14 @@
 import { StyleSheet, Platform } from 'react-native';
 import { FONT_FAMILY, SPACE, RADIUS } from '../../theme/tokens';
 
-export const makeExerciseDetailStyles = (colors: any, isDark: boolean = true) =>
-  StyleSheet.create({
+const stylesCache = new Map<string, any>();
+
+export const makeExerciseDetailStyles = (colors: any, isDark: boolean = true) => {
+  const cacheKey = `${isDark ? 'dark' : 'light'}_${colors?.background || ''}_${colors?.border || ''}_${colors?.textPrimary || ''}`;
+  let cached = stylesCache.get(cacheKey);
+  if (cached) return cached;
+
+  const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: isDark ? '#000000' : colors.background },
     header: {
       flexDirection: 'row',
@@ -111,3 +117,7 @@ export const makeExerciseDetailStyles = (colors: any, isDark: boolean = true) =>
     deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 16, backgroundColor: 'rgba(255, 69, 58, 0.1)', borderRadius: RADIUS.md },
     deleteBtnText: { fontFamily: FONT_FAMILY.bold, fontSize: 15, color: '#FF453A' },
   });
+
+  stylesCache.set(cacheKey, styles);
+  return styles;
+};

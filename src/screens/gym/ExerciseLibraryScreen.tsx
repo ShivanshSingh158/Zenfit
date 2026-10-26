@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,26 +7,56 @@ import {
   TouchableOpacity,
   FlatList,
   Platform,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { EXERCISE_DATABASE, ExerciseDBEntry } from '../../data/exerciseDatabase';
 import { useTheme } from '../../contexts/ThemeContext';
-import { FONT_FAMILY, SPACE, RADIUS } from '../../theme/tokens';
-import { hapticLight } from '../../utils/haptics';
+import { FONT_FAMILY } from '../../theme/tokens';
+import { hapticLight, hapticMedium, hapticSuccess, hapticSelection } from '../../utils/haptics';
+import {
+  resolveExerciseEquipment,
+  resolveExerciseMuscleGroup,
+  EquipmentCategory,
+} from '../../utils/equipmentResolver';
 
-const MUSCLE_FILTERS = [
-  'All',
-  'Chest',
-  'Back',
-  'Shoulders',
-  'Arms',
-  'Legs',
-  'Core',
-];
+import { VaultEquipmentModal } from '../../components/Gym/VaultEquipmentModal';
+import { VaultMuscleModal } from '../../components/Gym/VaultMuscleModal';
+import { CreateCustomExerciseModal, CustomExerciseItem } from '../../components/Gym/CreateCustomExerciseModal';
+import { AddToDaySheet } from '../../components/Gym/AddToDaySheet';
+
+const CUSTOM_EXERCISES_STORAGE_KEY = '@zenfit_custom_exercises';
+const ITEM_LAYOUT_HEIGHT = 80;
+
+interface PreparedExercise {
+  id: string;
+  name: string;
+  muscle: string;
+  tier?: string;
+  aliases?: string[];
+  equipment: EquipmentCategory;
+  muscleGroup: string;
+  isCustom?: boolean;
+  _searchBlob: string;
+}
+
+// Deterministically precompute the static database once at module initialization
+const BASE_PREPARED_EXERCISES: PreparedExercise[] = EXERCISE_DATABASE.map((ex) => {
+  const eq = resolveExerciseEquipment(ex.name, ex.aliases || []);
+  const mg = resolveExerciseMuscleGroup(ex.muscle);
+  const blob = `${ex.name} ${ex.muscle} ${(ex.aliases || []).join(' ')} ${eq} ${mg}`.toLowerCase();
+  return {
+    ...ex,
+    equipment: eq,
+    muscleGroup: mg,
+    _searchBlob: blob,
+  };
+});
 
 interface ExerciseLibraryProps {
   isEmbedded?: boolean;
@@ -36,42 +66,153 @@ export default function ExerciseLibraryScreen({ isEmbedded = false }: ExerciseLi
   const { colors, isDark } = useTheme();
   const navigation = useNavigation<any>();
 
+  // Filter & Search states
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedMuscle, setSelectedMuscle] = useState('All');
+  const [selectedEquipment, setSelectedEquipment] = useState<EquipmentCategory>('All');
+  const [selectedMuscle, setSelectedMuscle] = useState<string>('All');
 
-  // Filtered exercises with high-speed memoization
+  // Modals visibility
+  const [showEquipmentModal, setShowEquipmentModal] = useState(false);
+  const [showMuscleModal, setShowMuscleModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [addToDayTarget, setAddToDayTarget] = useState<PreparedExercise | null>(null);
+
+  // Custom user exercises
+  const [customExercises, setCustomExercises] = useState<PreparedExercise[]>([]);
+
+  // Toast feedback state
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastAnim = useRef(new Animated.Value(0)).current;
+
+  // Load custom exercises on mount
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(CUSTOM_EXERCISES_STORAGE_KEY);
+        if (raw && mounted) {
+          const parsed: CustomExerciseItem[] = JSON.parse(raw);
+          const mapped: PreparedExercise[] = parsed.map((item) => ({
+            id: item.id,
+            name: item.name,
+            muscle: item.muscle,
+            tier: item.tier,
+            equipment: item.equipment,
+            muscleGroup: resolveExerciseMuscleGroup(item.muscle),
+            isCustom: true,
+            _searchBlob: `${item.name} ${item.muscle} ${item.equipment}`.toLowerCase(),
+          }));
+          setCustomExercises(mapped);
+        }
+      } catch (err) {
+        console.warn('[ExerciseLibrary] Failed to load custom exercises:', err);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const showToast = useCallback((msg: string) => {
+    setToastMessage(msg);
+    Animated.sequence([
+      Animated.spring(toastAnim, {
+        toValue: 1,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+      Animated.delay(2200),
+      Animated.timing(toastAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setToastMessage(null);
+    });
+  }, [toastAnim]);
+
+  const handleCustomExerciseCreated = useCallback(async (item: CustomExerciseItem) => {
+    const newItem: PreparedExercise = {
+      id: item.id,
+      name: item.name,
+      muscle: item.muscle,
+      tier: item.tier,
+      equipment: item.equipment,
+      muscleGroup: resolveExerciseMuscleGroup(item.muscle),
+      isCustom: true,
+      _searchBlob: `${item.name} ${item.muscle} ${item.equipment}`.toLowerCase(),
+    };
+
+    setCustomExercises((prev) => {
+      const updated = [newItem, ...prev];
+      AsyncStorage.setItem(
+        CUSTOM_EXERCISES_STORAGE_KEY,
+        JSON.stringify(
+          updated.map((u) => ({
+            id: u.id,
+            name: u.name,
+            muscle: u.muscle,
+            equipment: u.equipment,
+            isCustom: true,
+            tier: u.tier,
+          }))
+        )
+      ).catch(() => {});
+      return updated;
+    });
+
+    hapticSuccess();
+    showToast(`✓ Created "${item.name}"`);
+  }, [showToast]);
+
+  // Combined and filtered exercise list
   const filteredExercises = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return EXERCISE_DATABASE.filter(ex => {
-      // Muscle filter
-      if (selectedMuscle !== 'All') {
-        const m = ex.muscle.toLowerCase();
-        if (selectedMuscle === 'Chest' && !m.includes('chest')) return false;
-        if (selectedMuscle === 'Back' && !m.includes('back') && !m.includes('lat') && !m.includes('trap')) return false;
-        if (selectedMuscle === 'Shoulders' && !m.includes('shoulder') && !m.includes('delt')) return false;
-        if (selectedMuscle === 'Arms' && !m.includes('bicep') && !m.includes('tricep') && !m.includes('forearm')) return false;
-        if (selectedMuscle === 'Legs' && !m.includes('quad') && !m.includes('hamstring') && !m.includes('glute') && !m.includes('calf') && !m.includes('leg')) return false;
-        if (selectedMuscle === 'Core' && !m.includes('core') && !m.includes('abs') && !m.includes('oblique')) return false;
+    const pool = [...customExercises, ...BASE_PREPARED_EXERCISES];
+
+    return pool.filter((ex) => {
+      // Equipment filter
+      if (selectedEquipment !== 'All' && ex.equipment !== selectedEquipment) {
+        return false;
       }
 
-      // Query filter
+      // Muscle group filter
+      if (selectedMuscle !== 'All') {
+        const matchesGroup = ex.muscleGroup.toLowerCase() === selectedMuscle.toLowerCase();
+        const matchesRaw = ex.muscle.toLowerCase().includes(selectedMuscle.toLowerCase());
+        if (!matchesGroup && !matchesRaw) {
+          return false;
+        }
+      }
+
+      // Search query filter
       if (!q) return true;
-      if (ex.name.toLowerCase().includes(q)) return true;
-      if (ex.muscle.toLowerCase().includes(q)) return true;
-      if (ex.aliases?.some(a => a.toLowerCase().includes(q))) return true;
-
-      return false;
+      return ex._searchBlob.includes(q);
     });
-  }, [searchQuery, selectedMuscle]);
+  }, [searchQuery, selectedEquipment, selectedMuscle, customExercises]);
 
-  const handleSelectExercise = useCallback((item: ExerciseDBEntry) => {
-    hapticLight();
-    navigation.navigate('ExerciseDetail', {
-      exerciseId: item.id,
-      exerciseName: item.name,
-      muscle: item.muscle,
-    });
-  }, [navigation]);
+  const handleSelectExercise = useCallback(
+    (item: PreparedExercise) => {
+      hapticLight();
+      navigation.navigate('ExerciseDetail', {
+        exerciseId: item.id,
+        exerciseName: item.name,
+        muscle: item.muscle,
+        targetSets: 3,
+        targetReps: '8–12',
+        restTimeSecs: 90,
+      });
+    },
+    [navigation]
+  );
+
+  const getItemLayout = useCallback((_: any, index: number) => ({
+    length: ITEM_LAYOUT_HEIGHT,
+    offset: ITEM_LAYOUT_HEIGHT * index,
+    index,
+  }), []);
 
   const getTierColor = (tier?: string) => {
     switch (tier) {
@@ -83,156 +224,525 @@ export default function ExerciseLibraryScreen({ isEmbedded = false }: ExerciseLi
     }
   };
 
-  const renderItem = useCallback(({ item }: { item: ExerciseDBEntry }) => {
-    const tierColor = getTierColor(item.tier);
-    return (
-      <TouchableOpacity
-        activeOpacity={0.7}
-        onPress={() => handleSelectExercise(item)}
-        style={[
-          styles.exerciseCard,
-          {
-            backgroundColor: isDark ? '#0f0e13' : '#ffffff',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.07)',
-          },
-        ]}
-      >
-        <View style={styles.cardHeader}>
-          <View style={{ flex: 1, paddingRight: 8 }}>
-            <Text style={[styles.exerciseTitle, { color: colors.textPrimary || '#ffffff' }]} numberOfLines={1}>
-              {item.name}
-            </Text>
-            <View style={styles.metaRow}>
-              <View style={[styles.musclePill, { backgroundColor: isDark ? 'rgba(165, 153, 255, 0.12)' : 'rgba(165, 153, 255, 0.18)' }]}>
-                <Text style={[styles.muscleText, { color: colors.accentPrimary || '#a599ff' }]}>
-                  {item.muscle}
-                </Text>
-              </View>
+  const renderEquipmentIcon = (eq: EquipmentCategory) => {
+    const iconColor = isDark ? '#B0A3FF' : '#6C5CE7';
+    switch (eq) {
+      case 'Barbell':
+        return <Ionicons name="barbell-outline" size={20} color={iconColor} />;
+      case 'Dumbbell':
+        return <MaterialCommunityIcons name="dumbbell" size={20} color={iconColor} />;
+      case 'Cable':
+        return <Ionicons name="git-commit-outline" size={20} color={iconColor} />;
+      case 'Machine':
+        return <Ionicons name="hardware-chip-outline" size={20} color={iconColor} />;
+      case 'Kettlebell':
+        return <Ionicons name="fitness-outline" size={20} color={iconColor} />;
+      case 'Plate':
+        return <Ionicons name="disc-outline" size={20} color={iconColor} />;
+      case 'Resistance Band':
+        return <Ionicons name="infinite-outline" size={20} color={iconColor} />;
+      case 'None':
+        return <Ionicons name="body-outline" size={20} color={iconColor} />;
+      default:
+        return <Ionicons name="barbell-outline" size={20} color={iconColor} />;
+    }
+  };
+
+  const renderItem = useCallback(
+    ({ item }: { item: PreparedExercise }) => {
+      const tierColor = getTierColor(item.tier);
+      return (
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => handleSelectExercise(item)}
+          style={[
+            styles.card,
+            {
+              backgroundColor: isDark ? '#121118' : '#FFFFFF',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.06)',
+            },
+          ]}
+        >
+          {/* Equipment Rounded Icon Avatar */}
+          <View
+            style={[
+              styles.avatarContainer,
+              {
+                backgroundColor: isDark ? '#1C1A27' : '#F1EFFF',
+                borderColor: isDark ? 'rgba(165, 153, 255, 0.16)' : 'rgba(108, 92, 231, 0.16)',
+              },
+            ]}
+          >
+            {renderEquipmentIcon(item.equipment)}
+          </View>
+
+          {/* Center Info */}
+          <View style={styles.cardInfo}>
+            <View style={styles.cardTitleRow}>
+              <Text
+                style={[styles.cardTitle, { color: isDark ? '#FFFFFF' : '#1C1C1E' }]}
+                numberOfLines={1}
+              >
+                {item.name}
+              </Text>
+              {item.isCustom && (
+                <View style={styles.customBadge}>
+                  <Text style={styles.customBadgeText}>Custom</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.cardMetaRow}>
+              <Text style={[styles.metaMuscleText, { color: colors.accentPrimary || '#A599FF' }]}>
+                {item.muscle}
+              </Text>
+              <Text style={styles.metaDot}>•</Text>
+              <Text style={[styles.metaEquipmentText, { color: isDark ? '#8E8E93' : '#636366' }]}>
+                {item.equipment === 'None' ? 'Bodyweight' : item.equipment}
+              </Text>
 
               {item.tier && (
-                <View style={[styles.tierPill, { borderColor: tierColor + '40' }]}>
-                  <Text style={[styles.tierText, { color: tierColor }]}>
-                    {item.tier}
-                  </Text>
-                </View>
+                <>
+                  <Text style={styles.metaDot}>•</Text>
+                  <View
+                    style={[
+                      styles.tierBadge,
+                      {
+                        borderColor: tierColor + '40',
+                        backgroundColor: tierColor + '12',
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.tierBadgeText, { color: tierColor }]}>{item.tier}</Text>
+                  </View>
+                </>
               )}
             </View>
           </View>
 
-          <View style={styles.rightArrow}>
-            <Ionicons name="chevron-forward" size={18} color={isDark ? '#48484a' : '#c7c7cc'} />
+          {/* Right Action Icons: Info & Add */}
+          <View style={styles.cardActions}>
+            <TouchableOpacity
+              activeOpacity={0.6}
+              hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+              onPress={() => handleSelectExercise(item)}
+              style={[
+                styles.iconBtn,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
+                },
+              ]}
+            >
+              <Ionicons
+                name="information-circle-outline"
+                size={20}
+                color={isDark ? '#8E8E93' : '#636366'}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+              onPress={() => {
+                hapticMedium();
+                setAddToDayTarget(item);
+              }}
+              style={[
+                styles.addBtn,
+                {
+                  backgroundColor: isDark ? 'rgba(165, 153, 255, 0.16)' : 'rgba(108, 92, 231, 0.12)',
+                  borderColor: isDark ? 'rgba(165, 153, 255, 0.35)' : 'rgba(108, 92, 231, 0.35)',
+                },
+              ]}
+            >
+              <Ionicons
+                name="add"
+                size={18}
+                color={isDark ? '#B0A3FF' : '#6C5CE7'}
+              />
+            </TouchableOpacity>
           </View>
-        </View>
-      </TouchableOpacity>
-    );
-  }, [colors, isDark, handleSelectExercise]);
+        </TouchableOpacity>
+      );
+    },
+    [isDark, colors, handleSelectExercise]
+  );
+
+  const hasActiveFilters = selectedEquipment !== 'All' || selectedMuscle !== 'All';
+
+  const clearAllFilters = useCallback(() => {
+    hapticSelection();
+    setSelectedEquipment('All');
+    setSelectedMuscle('All');
+  }, []);
 
   const Container = isEmbedded ? View : SafeAreaView;
   const containerProps = isEmbedded
-    ? { style: [styles.container, { backgroundColor: colors.background || '#060509' }] }
-    : { style: [styles.container, { backgroundColor: colors.background || '#060509' }], edges: ['top' as const] };
+    ? { style: [styles.container, { backgroundColor: colors.background || '#08080A' }] }
+    : {
+        style: [styles.container, { backgroundColor: colors.background || '#08080A' }],
+        edges: ['top' as const],
+      };
 
   return (
     <Container {...containerProps}>
       {!isEmbedded && <StatusBar style={isDark ? 'light' : 'dark'} />}
 
-      {/* Header (only when standalone) */}
-      {!isEmbedded && (
-        <View style={styles.header}>
-          <View>
-            <Text style={[styles.screenTitle, { color: colors.textPrimary || '#ffffff' }]}>
-              Exercise Vault
-            </Text>
-            <Text style={styles.subTitle}>
-              {EXERCISE_DATABASE.length} scientifically catalogued exercises
-            </Text>
-          </View>
-        </View>
-      )}
+      {/* ── Sleek Top Navigation Header ── */}
+      <View style={styles.topHeader}>
+        {!isEmbedded && (
+          <TouchableOpacity
+            style={styles.headerBackBtn}
+            onPress={() => {
+              hapticLight();
+              if (navigation.canGoBack()) navigation.goBack();
+            }}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Ionicons
+              name="chevron-back"
+              size={24}
+              color={isDark ? '#FFFFFF' : '#000000'}
+            />
+          </TouchableOpacity>
+        )}
 
-      {/* Search Input Bar */}
-      <View style={styles.searchSection}>
-        <View style={[styles.searchBox, { backgroundColor: isDark ? '#141318' : '#e5e5ea', borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'transparent' }]}>
-          <Ionicons name="search" size={18} color={isDark ? '#8e8e93' : '#636366'} style={{ marginRight: 8 }} />
+        <View style={styles.headerTitleWrap}>
+          <Text style={[styles.headerTitleText, { color: isDark ? '#FFFFFF' : '#1C1C1E' }]}>
+            Exercise Vault
+          </Text>
+          <Text style={styles.headerSubtitleText}>
+            {filteredExercises.length} movement{filteredExercises.length !== 1 ? 's' : ''}
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => {
+            hapticLight();
+            setShowCreateModal(true);
+          }}
+          style={[
+            styles.createBtn,
+            {
+              backgroundColor: isDark ? 'rgba(165, 153, 255, 0.14)' : 'rgba(108, 92, 231, 0.1)',
+              borderColor: isDark ? 'rgba(165, 153, 255, 0.3)' : 'rgba(108, 92, 231, 0.25)',
+            },
+          ]}
+        >
+          <Ionicons name="add" size={16} color={isDark ? '#B0A3FF' : '#6C5CE7'} />
+          <Text style={[styles.createBtnText, { color: isDark ? '#B0A3FF' : '#6C5CE7' }]}>
+            Create
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* ── Search Input Box ── */}
+      <View style={styles.searchWrap}>
+        <View
+          style={[
+            styles.searchBox,
+            {
+              backgroundColor: isDark ? '#14131B' : '#EFEFF4',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+            },
+          ]}
+        >
+          <Ionicons
+            name="search"
+            size={18}
+            color={isDark ? '#7E7E8A' : '#8E8E93'}
+            style={{ marginRight: 8 }}
+          />
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search exercises, movements, aliases..."
-            placeholderTextColor={isDark ? '#636366' : '#8e8e93'}
-            style={[styles.searchInput, { color: colors.textPrimary || '#ffffff' }]}
+            placeholder="Search exercises, variations..."
+            placeholderTextColor={isDark ? '#636270' : '#8E8E93'}
+            style={[styles.searchInput, { color: isDark ? '#FFFFFF' : '#000000' }]}
             clearButtonMode="while-editing"
             autoCorrect={false}
           />
           {searchQuery.length > 0 && Platform.OS === 'android' && (
-            <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="close-circle" size={18} color={isDark ? '#8e8e93' : '#636366'} />
+            <TouchableOpacity
+              onPress={() => setSearchQuery('')}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name="close-circle"
+                size={18}
+                color={isDark ? '#7E7E8A' : '#8E8E93'}
+              />
             </TouchableOpacity>
           )}
         </View>
       </View>
 
-      {/* Muscle Filter Horizontal Strip */}
-      <View style={styles.filterSection}>
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={MUSCLE_FILTERS}
-          keyExtractor={item => item}
-          contentContainerStyle={styles.filterList}
-          renderItem={({ item }) => {
-            const isSelected = selectedMuscle === item;
-            return (
-              <TouchableOpacity
-                onPress={() => { hapticLight(); setSelectedMuscle(item); }}
-                style={[
-                  styles.filterChip,
-                  {
-                    backgroundColor: isSelected
-                      ? (colors.accentPrimary || '#a599ff')
-                      : (isDark ? '#16151c' : '#f2f2f7'),
-                    borderColor: isSelected
-                      ? (colors.accentPrimary || '#a599ff')
-                      : (isDark ? 'rgba(255, 255, 255, 0.06)' : 'transparent'),
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.filterChipText,
-                    {
-                      color: isSelected
-                        ? '#000000'
-                        : (isDark ? '#d1d1d6' : '#3a3a3c'),
-                      fontWeight: isSelected ? '700' : '500',
-                    },
-                  ]}
-                >
-                  {item}
-                </Text>
-              </TouchableOpacity>
-            );
+      {/* ── Hevy Side-by-Side Pill Filter Dropdowns ── */}
+      <View style={styles.filterPillRow}>
+        {/* Equipment Pill */}
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => {
+            hapticLight();
+            setShowEquipmentModal(true);
           }}
-        />
-      </View>
-
-      {/* Exercises List */}
-      <FlatList
-        data={filteredExercises}
-        keyExtractor={item => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
-        initialNumToRender={15}
-        maxToRenderPerBatch={20}
-        windowSize={10}
-        removeClippedSubviews={true}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="barbell-outline" size={48} color={isDark ? '#3a3a3c' : '#c7c7cc'} />
-            <Text style={[styles.emptyText, { color: colors.textMuted || '#8e8e93' }]}>
-              No exercises match "{searchQuery}"
+          style={[
+            styles.filterPill,
+            selectedEquipment !== 'All'
+              ? [
+                  styles.filterPillActive,
+                  {
+                    backgroundColor: isDark ? 'rgba(165, 153, 255, 0.16)' : 'rgba(108, 92, 231, 0.12)',
+                    borderColor: colors.accentPrimary || '#A599FF',
+                  },
+                ]
+              : {
+                  backgroundColor: isDark ? '#16151F' : '#F2F2F7',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+                },
+          ]}
+        >
+          <View style={styles.pillContent}>
+            <Ionicons
+              name="barbell-outline"
+              size={15}
+              color={selectedEquipment !== 'All' ? (colors.accentPrimary || '#A599FF') : (isDark ? '#8E8E93' : '#636366')}
+              style={{ marginRight: 6 }}
+            />
+            <Text
+              style={[
+                styles.filterPillText,
+                {
+                  color: selectedEquipment !== 'All'
+                    ? (isDark ? '#FFFFFF' : '#1C1C1E')
+                    : (isDark ? '#8E8E93' : '#636366'),
+                  fontWeight: selectedEquipment !== 'All' ? '700' : '500',
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {selectedEquipment === 'All' ? 'All Equipment' : selectedEquipment}
             </Text>
           </View>
+
+          {selectedEquipment !== 'All' ? (
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation();
+                hapticLight();
+                setSelectedEquipment('All');
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={styles.pillClearBtn}
+            >
+              <Ionicons name="close-circle" size={16} color={colors.accentPrimary || '#A599FF'} />
+            </TouchableOpacity>
+          ) : (
+            <Ionicons name="chevron-down" size={14} color={isDark ? '#636270' : '#8E8E93'} />
+          )}
+        </TouchableOpacity>
+
+        {/* Muscles Pill */}
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => {
+            hapticLight();
+            setShowMuscleModal(true);
+          }}
+          style={[
+            styles.filterPill,
+            selectedMuscle !== 'All'
+              ? [
+                  styles.filterPillActive,
+                  {
+                    backgroundColor: isDark ? 'rgba(165, 153, 255, 0.16)' : 'rgba(108, 92, 231, 0.12)',
+                    borderColor: colors.accentPrimary || '#A599FF',
+                  },
+                ]
+              : {
+                  backgroundColor: isDark ? '#16151F' : '#F2F2F7',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+                },
+          ]}
+        >
+          <View style={styles.pillContent}>
+            <Ionicons
+              name="body-outline"
+              size={15}
+              color={selectedMuscle !== 'All' ? (colors.accentPrimary || '#A599FF') : (isDark ? '#8E8E93' : '#636366')}
+              style={{ marginRight: 6 }}
+            />
+            <Text
+              style={[
+                styles.filterPillText,
+                {
+                  color: selectedMuscle !== 'All'
+                    ? (isDark ? '#FFFFFF' : '#1C1C1E')
+                    : (isDark ? '#8E8E93' : '#636366'),
+                  fontWeight: selectedMuscle !== 'All' ? '700' : '500',
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {selectedMuscle === 'All' ? 'All Muscles' : selectedMuscle}
+            </Text>
+          </View>
+
+          {selectedMuscle !== 'All' ? (
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation();
+                hapticLight();
+                setSelectedMuscle('All');
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={styles.pillClearBtn}
+            >
+              <Ionicons name="close-circle" size={16} color={colors.accentPrimary || '#A599FF'} />
+            </TouchableOpacity>
+          ) : (
+            <Ionicons name="chevron-down" size={14} color={isDark ? '#636270' : '#8E8E93'} />
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Optional "Clear All Filters" indicator bar if both are active */}
+      {hasActiveFilters && (
+        <View style={styles.activeFiltersBar}>
+          <Text style={[styles.activeFiltersText, { color: isDark ? '#8E8E93' : '#636366' }]}>
+            Filtered by: {[
+              selectedEquipment !== 'All' ? selectedEquipment : null,
+              selectedMuscle !== 'All' ? selectedMuscle : null,
+            ].filter(Boolean).join(' • ')}
+          </Text>
+          <TouchableOpacity onPress={clearAllFilters} hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}>
+            <Text style={[styles.clearAllText, { color: colors.accentPrimary || '#A599FF' }]}>
+              Clear All
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* ── Main Exercise FlatList ── */}
+      <FlatList
+        data={filteredExercises}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        contentContainerStyle={styles.listContent}
+        initialNumToRender={14}
+        maxToRenderPerBatch={18}
+        windowSize={8}
+        getItemLayout={getItemLayout}
+        removeClippedSubviews={Platform.OS === 'android' && !isEmbedded}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <View
+              style={[
+                styles.emptyIconCircle,
+                { backgroundColor: isDark ? '#16151F' : '#EFEFF4' },
+              ]}
+            >
+              <Ionicons
+                name="barbell-outline"
+                size={38}
+                color={isDark ? '#4A485A' : '#A0A0A5'}
+              />
+            </View>
+            <Text style={[styles.emptyTitle, { color: isDark ? '#FFFFFF' : '#1C1C1E' }]}>
+              No Movements Found
+            </Text>
+            <Text style={[styles.emptySubtitle, { color: isDark ? '#8E8E93' : '#636366' }]}>
+              {searchQuery
+                ? `No exercises match "${searchQuery}". Try adjusting your filters or create a custom one.`
+                : 'Try clearing your equipment or muscle filters.'}
+            </Text>
+            {hasActiveFilters && (
+              <TouchableOpacity
+                onPress={clearAllFilters}
+                style={[
+                  styles.emptyResetBtn,
+                  { backgroundColor: isDark ? 'rgba(165, 153, 255, 0.14)' : 'rgba(108, 92, 231, 0.1)' },
+                ]}
+              >
+                <Text style={[styles.emptyResetBtnText, { color: colors.accentPrimary || '#A599FF' }]}>
+                  Reset All Filters
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         }
+      />
+
+      {/* ── Floating Notification Toast ── */}
+      {toastMessage && (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.toastContainer,
+            {
+              opacity: toastAnim,
+              transform: [
+                {
+                  translateY: toastAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-20, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.toastBubble,
+              {
+                backgroundColor: isDark ? '#1C1B26' : '#2D2B3D',
+                borderColor: colors.accentPrimary || '#A599FF',
+              },
+            ]}
+          >
+            <Ionicons name="checkmark-circle" size={18} color="#5EDA9E" style={{ marginRight: 8 }} />
+            <Text style={styles.toastText}>{toastMessage}</Text>
+          </View>
+        </Animated.View>
+      )}
+
+      {/* ── Hevy Equipment Filter Bottom Sheet Modal ── */}
+      <VaultEquipmentModal
+        visible={showEquipmentModal}
+        selectedEquipment={selectedEquipment}
+        resultCount={filteredExercises.length}
+        onSelect={(eq) => setSelectedEquipment(eq)}
+        onClear={() => setSelectedEquipment('All')}
+        onClose={() => setShowEquipmentModal(false)}
+      />
+
+      {/* ── Hevy Muscle Groups Filter Bottom Sheet Modal ── */}
+      <VaultMuscleModal
+        visible={showMuscleModal}
+        selectedMuscle={selectedMuscle}
+        resultCount={filteredExercises.length}
+        onSelect={(muscle) => setSelectedMuscle(muscle)}
+        onClear={() => setSelectedMuscle('All')}
+        onClose={() => setShowMuscleModal(false)}
+      />
+
+      {/* ── Create Custom Movement Modal ── */}
+      <CreateCustomExerciseModal
+        visible={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onCreated={handleCustomExerciseCreated}
+      />
+
+      {/* ── Add To Workout Split Day Sheet ── */}
+      <AddToDaySheet
+        visible={addToDayTarget !== null}
+        exercise={addToDayTarget}
+        onClose={() => setAddToDayTarget(null)}
+        onSuccess={(dayName) => {
+          showToast(`✓ Added to ${dayName}`);
+        }}
       />
     </Container>
   );
@@ -242,113 +752,279 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    paddingHorizontal: 6,
-    paddingTop: 12,
-    paddingBottom: 8,
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
   },
-  screenTitle: {
-    fontSize: 26,
+  headerBackBtn: {
+    marginRight: 8,
+  },
+  headerTitleWrap: {
+    flex: 1,
+  },
+  headerTitleText: {
+    fontSize: 22,
     fontWeight: '800',
-    letterSpacing: -0.5,
+    fontFamily: FONT_FAMILY.bold,
+    letterSpacing: -0.4,
   },
-  subTitle: {
+  headerSubtitleText: {
+    fontSize: 12,
+    color: '#8E8E93',
+    fontFamily: FONT_FAMILY.body,
+    marginTop: 1,
+  },
+  createBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 4,
+  },
+  createBtnText: {
     fontSize: 13,
-    color: '#8e8e93',
-    marginTop: 2,
+    fontWeight: '700',
+    fontFamily: FONT_FAMILY.bold,
   },
-  searchSection: {
-    paddingHorizontal: 6,
-    marginTop: 8,
+  searchWrap: {
+    paddingHorizontal: 12,
+    marginTop: 6,
   },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 44,
+    height: 42,
     borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 12,
   },
   searchInput: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14,
+    fontFamily: FONT_FAMILY.body,
     paddingVertical: 0,
   },
-  filterSection: {
+  filterPillRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
     marginTop: 10,
-    marginBottom: 6,
-  },
-  filterList: {
-    paddingHorizontal: 6,
     gap: 8,
   },
-  filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  filterChipText: {
-    fontSize: 13,
-  },
-  listContent: {
-    paddingHorizontal: 6,
-    paddingTop: 8,
-    paddingBottom: 96,
-    gap: 8,
-  },
-  exerciseCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  cardHeader: {
+  filterPill: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    height: 38,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 10,
   },
-  exerciseTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 4,
+  filterPillActive: {
+    borderWidth: 1.5,
   },
-  metaRow: {
+  pillContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
+    marginRight: 4,
+  },
+  filterPillText: {
+    fontSize: 13,
+    fontFamily: FONT_FAMILY.medium,
+    flexShrink: 1,
+  },
+  pillClearBtn: {
+    padding: 2,
+  },
+  activeFiltersBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingTop: 8,
+  },
+  activeFiltersText: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.body,
+  },
+  clearAllText: {
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: FONT_FAMILY.bold,
+  },
+  listContent: {
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 110,
     gap: 8,
   },
-  musclePill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1,
   },
-  muscleText: {
-    fontSize: 11,
+  avatarContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  cardInfo: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingRight: 6,
+  },
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  cardTitle: {
+    fontSize: 15,
     fontWeight: '700',
+    fontFamily: FONT_FAMILY.bold,
+    letterSpacing: -0.2,
+    flexShrink: 1,
   },
-  tierPill: {
+  customBadge: {
+    backgroundColor: 'rgba(255, 215, 0, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.4)',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
-    borderWidth: 1,
   },
-  tierText: {
-    fontSize: 10,
+  customBadgeText: {
+    fontSize: 9,
     fontWeight: '800',
+    color: '#FFD700',
     letterSpacing: 0.3,
   },
-  rightArrow: {
-    paddingLeft: 4,
+  cardMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  metaMuscleText: {
+    fontSize: 12,
+    fontWeight: '600',
+    fontFamily: FONT_FAMILY.medium,
+  },
+  metaDot: {
+    fontSize: 11,
+    color: '#555460',
+  },
+  metaEquipmentText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.body,
+  },
+  tierBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 5,
+    borderWidth: 1,
+  },
+  tierBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  iconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 64,
+    paddingTop: 56,
+    paddingHorizontal: 24,
   },
-  emptyText: {
-    fontSize: 14,
-    marginTop: 12,
+  emptyIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    fontFamily: FONT_FAMILY.bold,
+    marginBottom: 6,
+  },
+  emptySubtitle: {
+    fontSize: 13,
     textAlign: 'center',
+    lineHeight: 18,
+    fontFamily: FONT_FAMILY.body,
+  },
+  emptyResetBtn: {
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  emptyResetBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    fontFamily: FONT_FAMILY.bold,
+  },
+  toastContainer: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 52 : 36,
+    left: 16,
+    right: 16,
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  toastBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 24,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  toastText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: FONT_FAMILY.bold,
   },
 });

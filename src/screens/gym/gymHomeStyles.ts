@@ -1,192 +1,287 @@
 /**
  * gymHomeStyles.ts — ZenTrack Gym Module
  *
- * Cleaned stylesheet factory for GymHomeScreen.
- * Pruned legacy unused style tokens to optimize mount performance and bundle size.
+ * Unified Apple iOS Human Interface Guidelines (HIG) stylesheet factory:
+ * - 0px outer borders on cards
+ * - Inset grouped containers (#1C1C1E)
+ * - 6px universal horizontal margin
+ * - Hairline dividers (0.5px) indented 52px
+ * - Large title & plain icon buttons
  */
 import { StyleSheet } from 'react-native';
-import { FONT_FAMILY } from '../../theme/tokens';
+import { IOS_DARK, FONT_FAMILY } from '../../theme/tokens';
 
-export const makeStyles = (colors: any, isDark: boolean = true) => StyleSheet.create({
-  root: { flex: 1, backgroundColor: isDark ? '#000000' : colors.background },
-  scrollContent: { paddingBottom: 95, paddingTop: 48 },
+const stylesCache = new Map<string, any>();
 
-  weekStrip: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 6, marginTop: 4, marginBottom: 12 },
-  weekDaysContainer: { flexDirection: 'row', flex: 1, justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4 },
-  weekNavBtn: { paddingVertical: 10, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center', opacity: 0.7 },
-  dayCol: { alignItems: 'center', gap: 2 },
-  dayLetter: { fontSize: 10.5, color: colors.textTertiary, fontFamily: 'Inter-Medium', marginBottom: 1 },
-  dayLetterActive: { color: colors.textPrimary },
-  dayPill: { width: 36, height: 36, borderRadius: 18, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
-  dayPillActive: { backgroundColor: isDark ? '#a599ff' : colors.accentPrimary, borderRadius: 18, overflow: 'hidden' },
-  dayNum: { fontSize: 13, color: colors.textTertiary, fontFamily: 'Inter-Regular' },
-  dayNumActive: { color: isDark ? '#000000' : '#ffffff', fontWeight: '700' },
+export const makeStyles = (colors: any, isDark: boolean = true) => {
+  const cacheKey = `${isDark ? 'dark' : 'light'}_${colors?.background || ''}_${colors?.card || ''}_${colors?.textPrimary || ''}`;
+  let cached = stylesCache.get(cacheKey);
+  if (cached) return cached;
 
-  workoutSection: { paddingHorizontal: 6, marginBottom: 14 },
-  startBtn: {
-    backgroundColor: isDark ? '#1C1C1E' : colors.accentGreen,
-    borderRadius: 16,
-    paddingVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.05)' : colors.accentGreen,
+  const styles = StyleSheet.create({
+    root: {
+    flex: 1,
+    backgroundColor: isDark ? IOS_DARK.bgCanvas : colors.background,
   },
-  startBtnText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-
-  completedBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: isDark ? 'rgba(94,218,158,0.12)' : 'rgba(16,185,129,0.10)',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: isDark ? 'transparent' : 'rgba(16,185,129,0.25)',
-  },
-  completedBannerLeft: { gap: 2 },
-  completedBannerTitle: { fontSize: 15, fontWeight: '700', color: isDark ? '#5eda9e' : '#059669' },
-  completedBannerSub: { fontSize: 13, color: colors.textMuted },
-  streakBadgeInline: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 14,
-    backgroundColor: isDark ? 'rgba(255,159,77,0.1)' : 'rgba(249,115,22,0.12)',
-  },
-  streakBadgeInlineText: { fontSize: 12, fontWeight: '700', color: isDark ? '#ff9f4d' : '#EA580C' },
-
-  readinessBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1 },
-
-  activeBanner: {
-    backgroundColor: isDark ? '#1a140b' : '#FFFBEB',
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: isDark ? '#4d3b20' : '#FDE68A',
-  },
-  activeBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  activeIndicator: { width: 8, height: 8, borderRadius: 4, backgroundColor: isDark ? '#eab308' : '#D97706' },
-  activeBannerTitle: { fontSize: 10, fontWeight: '700', color: isDark ? '#eab308' : '#B45309', letterSpacing: 1 },
-  activeBannerResume: { fontSize: 14, fontWeight: '600', color: isDark ? '#ffffff' : '#B45309' },
-
-  section: { paddingHorizontal: 6, marginBottom: 16 },
-  sectionLabel: { fontSize: 11, fontWeight: '700', color: colors.textTertiary, letterSpacing: 1.5, marginLeft: 2 },
-
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: isDark ? '#1C1C1E' : colors.surface,
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border,
-  },
-  cardioSquare: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    backgroundColor: isDark ? '#2C2C2E' : 'rgba(14,165,233,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 16,
-    borderWidth: isDark ? 0 : 1,
-    borderColor: isDark ? 'transparent' : '#0284C7',
-  },
-  checkboxCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: isDark ? '#2c2c2e' : '#D1D1D6',
-    backgroundColor: isDark ? 'transparent' : '#F4F3F8',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 16,
-  },
-  checkboxCircleDone: {
-    backgroundColor: isDark ? '#5eda9e' : '#059669',
-    borderColor: isDark ? '#5eda9e' : '#059669',
-  },
-  rowTextCol: { flex: 1, gap: 2 },
-  rowTitle: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
-  rowSubtitle: { fontSize: 12, color: colors.textMuted },
-  textStrikethrough: { textDecorationLine: 'line-through', color: colors.textTertiary },
-  rowActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  actionBtn: { padding: 8, marginHorizontal: -4 },
-
-  // ── Single Morphing Sticky Header Styles ─────────────────────────────────
-  topHeaderWrapper: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100,
-    backgroundColor: 'transparent',
+  scrollContent: {
     paddingHorizontal: 6,
+    paddingBottom: 110,
+    gap: 10,
   },
-  headerInner: {
+
+  // ── Top Header: Compact Structural Row + Plain Icons ───────────────────────
+  headerContainer: {
+    paddingHorizontal: 6,
+    paddingTop: 4,
+    paddingBottom: 2,
+  },
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingTop: 4,
-    paddingBottom: 4,
-    backgroundColor: 'transparent',
-    minHeight: 44,
+  },
+  headerTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
   },
   headerTitle: {
-    fontSize: 21,
-    fontWeight: '700',
-    fontFamily: 'Inter-Bold',
-    color: colors.textPrimary,
+    fontSize: 22,
+    fontFamily: FONT_FAMILY.bold,
+    letterSpacing: -0.3,
+    color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
+  },
+  headerDateBadge: {
+    fontSize: 13,
+    fontFamily: FONT_FAMILY.medium,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textTertiary,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
+  },
+  plainIconBtn: {
+    padding: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // ── Week Strip: Typographic with no border boxes ──────────────────────────
+  weekStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 0,
+    marginBottom: 0,
+  },
+  weekDaysContainer: {
+    flexDirection: 'row',
+    flex: 1,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 2,
+  },
+  weekNavBtn: {
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dayCol: {
+    alignItems: 'center',
+    gap: 3,
+    width: 34,
+  },
+  dayLetter: {
+    fontSize: 11,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textTertiary,
+    fontFamily: FONT_FAMILY.medium,
+  },
+  dayLetterActive: {
+    color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
+    fontFamily: FONT_FAMILY.bold,
+  },
+  dayPill: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  dayPillActive: {
+    backgroundColor: isDark ? IOS_DARK.accent : colors.accentPrimary,
+    borderRadius: 15,
+    overflow: 'hidden',
+  },
+  dayNum: {
+    fontSize: 13,
+    color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
+    fontFamily: FONT_FAMILY.bold,
+    textAlign: 'center',
+  },
+  dayNumActive: {
+    color: isDark ? '#000000' : '#FFFFFF',
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+
+  // ── Sections & Inset Grouped Lists ────────────────────────────────────────
+  section: {
+    gap: 8,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginBottom: 2,
+  },
+  sectionLabel: {
+    fontSize: 13,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textTertiary,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  sectionActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: isDark ? 'rgba(165,153,255,0.12)' : 'rgba(108,92,231,0.08)',
+  },
+  sectionActionText: {
+    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? IOS_DARK.accent : colors.accentPrimary,
+  },
+  insetGroupedCard: {
+    backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 0, // Apple HIG: Zero outer border
+  },
+  hairlineDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: isDark ? IOS_DARK.separator : 'rgba(0,0,0,0.1)',
+    marginLeft: 52, // Indented to align with text
+  },
+
+  // ── Exercise Row (Inside Inset Grouped Card) ──────────────────────────────
+  rowWrapper: {
+    width: '100%',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: 'transparent',
+  },
+  checkboxCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: isDark ? '#38383A' : '#C7C7CC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  checkboxCircleDone: {
+    backgroundColor: IOS_DARK.green,
+    borderColor: IOS_DARK.green,
+  },
+  checkboxHollow: {
+    width: 0,
+    height: 0,
+  },
+  rowTextCol: {
+    flex: 1,
     gap: 2,
   },
-  morphBtn: {
+  rowTitle: {
+    fontSize: 16,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
+    letterSpacing: -0.2,
+  },
+  rowSubtitle: {
+    fontSize: 13,
+    fontFamily: FONT_FAMILY.body,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textMuted,
+  },
+  supersetTag: {
+    backgroundColor: 'rgba(255,159,10,0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  supersetTagText: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.bold,
+    color: IOS_DARK.orange,
+  },
+  textStrikethrough: {
+    textDecorationLine: 'line-through',
+    opacity: 0.55,
+  },
+  rowActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  actionBtn: {
+    padding: 6,
+  },
+
+  // ── Cardio Row ────────────────────────────────────────────────────────────
+  cardioIconWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: isDark ? '#2C2C2E' : 'rgba(100,210,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 35,
+    marginRight: 14,
   },
-  morphBtnIconWrap: {
-    width: 32,
-    height: 32,
+  cardioIconWrapDone: {
+    backgroundColor: IOS_DARK.green,
+  },
+
+  // ── Rest Day Surface ──────────────────────────────────────────────────────
+  restCard: {
+    backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface,
     borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    borderWidth: 0,
+    gap: 12,
+  },
+  restIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(48,209,88,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
   },
-  morphBtnPill: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 16,
-    backgroundColor: isDark ? 'rgba(255,255,255,0.09)' : colors.surface,
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.14)' : colors.border,
+  restTitle: {
+    fontSize: 18,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
   },
-  morphBtnPillAccent: {
-    backgroundColor: isDark ? 'rgba(165,153,255,0.16)' : colors.accentDim,
-    borderColor: isDark ? 'rgba(165,153,255,0.32)' : colors.accentPrimary,
-  },
-  headerBtnText: {
-    fontSize: 9.5,
-    color: colors.textTertiary,
-    fontFamily: FONT_FAMILY.medium,
-    marginTop: 2,
+  restBody: {
+    fontSize: 13,
+    fontFamily: FONT_FAMILY.body,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textMuted,
     textAlign: 'center',
+    lineHeight: 19,
+    paddingHorizontal: 8,
   },
 
   // ── Themed Action Sheet Menu Styles ──────────────────────────────────────
@@ -196,11 +291,10 @@ export const makeStyles = (colors: any, isDark: boolean = true) => StyleSheet.cr
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 14,
-    backgroundColor: isDark ? '#1C1C1E' : '#F5F4FA',
+    backgroundColor: isDark ? IOS_DARK.bgElevatedInput : '#F5F4FA',
     marginBottom: 6,
     gap: 12,
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border,
+    borderWidth: 0,
   },
   menuActionIcon: {
     width: 36,
@@ -212,12 +306,12 @@ export const makeStyles = (colors: any, isDark: boolean = true) => StyleSheet.cr
   menuActionTitle: {
     fontSize: 14,
     fontFamily: FONT_FAMILY.bold,
-    color: colors.textPrimary,
+    color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
   },
   menuActionSub: {
     fontSize: 12,
     fontFamily: FONT_FAMILY.body,
-    color: colors.textMuted,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textMuted,
     marginTop: 2,
   },
   menuCancelBtn: {
@@ -226,11 +320,17 @@ export const makeStyles = (colors: any, isDark: boolean = true) => StyleSheet.cr
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#E2E1EA',
+    backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#E2E1EA',
   },
   menuCancelText: {
     fontSize: 14,
     fontFamily: FONT_FAMILY.bold,
-    color: colors.textPrimary,
+    color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
   },
 });
+
+  stylesCache.set(cacheKey, styles);
+  return styles;
+};
+
+export default makeStyles;

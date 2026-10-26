@@ -28,7 +28,7 @@ export const GymTemplateModal: React.FC<Props> = ({ visible, onClose, onApply })
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent hardwareAccelerated onRequestClose={onClose}>
       <View style={s.overlay}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
         <View style={s.content}>

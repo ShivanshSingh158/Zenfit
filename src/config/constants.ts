@@ -63,7 +63,6 @@ export const STORAGE_KEYS = {
   SARA_ACTION_HISTORY: '@sara_action_history_v1',  // [4.15] Committed action log (last 50, JSON)
   DASHBOARD_LAYOUT: '@zentrack_dashboard_layout', // Custom dashboard widget order
   SAVED_PLACES: '@zentrack_saved_places',         // User frequent places array
-  GYM_GEOFENCE: '@zentrack_gym_geofence_config',  // Gym geofence trigger configuration
 } as const;
 
 // ── Firestore Collections ─────────────────────────────────────────────────────

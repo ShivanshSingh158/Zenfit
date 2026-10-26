@@ -6,7 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { GymCardioLog } from '../../types/gym.types';
 import { useTheme } from '../../contexts/ThemeContext';
-import * as Haptics from 'expo-haptics';
+import { hapticSuccess } from '../../utils/haptics';
 
 // Extracted Styles
 import { makeCardioModalStyles } from './cardioModalStyles';
@@ -171,9 +171,7 @@ export function LogCardioModal({ visible, cardio, onClose, onSave }: Props) {
   const handleSave = () => {
     if (!cardio || isClosingRef.current) return;
     Keyboard.dismiss();
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (_) {}
+    hapticSuccess();
 
     const updates: Partial<GymCardioLog> = { completed: true };
     (TYPE_FIELDS[cardio.type] || DEFAULT_FIELDS).forEach(key => {

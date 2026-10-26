@@ -16,8 +16,17 @@
  *
  * Cache clear: called on logout — stale data from a previous user never bleeds.
  */
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clearDomainHotCache } from './hotCacheStore';
+import { clearBootManifest, updateL1Cache } from './bootManifest';
+
+// Automatically flush any pending debounced AsyncStorage writes when app backgrounds
+AppState.addEventListener('change', nextState => {
+  if (nextState === 'background' || nextState === 'inactive') {
+    flushDomainCache().catch(() => {});
+  }
+});
 
 // ─── Cache Keys ───────────────────────────────────────────────────────────────
 export const DOMAIN_CACHE_KEYS = {
@@ -60,7 +69,16 @@ export async function readDomainCache<T extends Record<string, any>>(
       try {
         const fieldName = Object.keys(keyMap).find(k => keyMap[k] === key);
         if (fieldName) result[fieldName] = JSON.parse(raw);
-      } catch { /* ignore individual parse errors */ }
+      } catch {
+        // Shadow backup fallback for self-healing storage corruption
+        try {
+          const bakRaw = await AsyncStorage.getItem(`${key}_bak`);
+          if (bakRaw) {
+            const fieldName = Object.keys(keyMap).find(k => keyMap[k] === key);
+            if (fieldName) result[fieldName] = JSON.parse(bakRaw);
+          }
+        } catch {}
+      }
     }
     return result as Partial<T>;
   } catch {
@@ -86,7 +104,44 @@ export async function flushDomainCache(domainKey?: string): Promise<void> {
       const pairs: [string, string][] = [];
       for (const [field, cacheKey] of Object.entries(pending.keyMap)) {
         if (pending.data[field] !== undefined) {
-          pairs.push([cacheKey, JSON.stringify(pending.data[field])]);
+          const valueToStore = pending.data[field];
+
+          // ── CURSORWINDOW & HOT/COLD ARCHIVE PARTITIONING ──────────────────────
+          // Keep primary gymLogs bounded to the most recent 90 days (<250KB).
+          // Partition older workouts into archive keys so SQLite rows never exceed 2MB.
+          if (field === 'gymLogs' && Array.isArray(valueToStore)) {
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - 90);
+            const cutoffStr = cutoffDate.toISOString().slice(0, 10);
+
+            const hotLogs = valueToStore.filter((l: any) => l?.date >= cutoffStr);
+            const coldLogs = valueToStore.filter((l: any) => l?.date < cutoffStr);
+
+            const hotJson = JSON.stringify(hotLogs);
+            pairs.push([cacheKey, hotJson]);
+            // Shadow backup key for self-healing storage recovery
+            pairs.push([`${cacheKey}_bak`, hotJson]);
+
+            // Archive cold logs partitioned by year if any exist
+            if (coldLogs.length > 0) {
+              const byYear: Record<string, any[]> = {};
+              for (const cl of coldLogs) {
+                const yr = cl?.date ? cl.date.slice(0, 4) : 'older';
+                if (!byYear[yr]) byYear[yr] = [];
+                byYear[yr].push(cl);
+              }
+              for (const [yr, yrLogs] of Object.entries(byYear)) {
+                pairs.push([`@zentrack_cache_gym_archive_${yr}`, JSON.stringify(yrLogs)]);
+              }
+            }
+            continue;
+          }
+
+          const serialized = JSON.stringify(valueToStore);
+          pairs.push([cacheKey, serialized]);
+          if (cacheKey.includes('gym_logs') || cacheKey.includes('attendance_logs')) {
+            pairs.push([`${cacheKey}_bak`, serialized]);
+          }
         }
       }
       if (pairs.length > 0) await AsyncStorage.multiSet(pairs);
@@ -109,6 +164,12 @@ export async function writeDomainCache(
   keyMap: Record<string, CacheKey>,
   immediate = false // Default FALSE — snapshot writes are always background
 ): Promise<void> {
+  for (const field of Object.keys(data)) {
+    if (data[field] !== undefined) {
+      updateL1Cache(field as any, data[field]);
+    }
+  }
+
   const domainKey = getCanonicalDomain(keyMap);
 
   const existing = _pendingWrites.get(domainKey);
@@ -217,6 +278,7 @@ export async function clearAllDomainCaches(): Promise<void> {
   _writeTimers.clear();
   _pendingWrites.clear();
   try {
+    clearBootManifest();
     clearDomainHotCache();
     await AsyncStorage.multiRemove(Object.values(DOMAIN_CACHE_KEYS));
   } catch { /* silent */ }

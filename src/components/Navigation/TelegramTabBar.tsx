@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable, LayoutChangeEvent } from 'react-native';
+import React, { useMemo, useCallback, useEffect } from 'react';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -8,12 +8,12 @@ import Animated, {
   FadeOut,
   Easing,
 } from 'react-native-reanimated';
-import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
-import { FONT_FAMILY } from '../../theme/tokens';
+import { IOS_DARK, FONT_FAMILY, TAB_BAR_HEIGHT } from '../../theme/tokens';
 
 // ─── Module Icons Configuration ───────────────────────────────────────────────
 export const TAB_CONFIG: Record<string, {
@@ -106,9 +106,9 @@ const TabItem = React.memo(function TabItem({
     }
   }, [route.key, route.name, isActuallyFocused, navigation]);
 
-  const activeColor = colors.accentPrimary || '#a599ff';
-  // Highlighted white for inactive tabs as requested by user
-  const inactiveColor = isDark ? '#FFFFFF' : 'rgba(0, 0, 0, 0.75)';
+  // Apple iOS HIG: Crisp color switching (#A599FF active, #8E8E93 inactive)
+  const activeColor = IOS_DARK.accent;
+  const inactiveColor = isDark ? IOS_DARK.labelSecondary : '#8E8E93';
 
   return (
     <Pressable
@@ -120,11 +120,11 @@ const TabItem = React.memo(function TabItem({
       android_ripple={null}
     >
       <View style={styles.tabContent}>
-        {/* Icon */}
+        {/* Crisp Icon */}
         <View style={styles.iconBox}>
           <Ionicons
             name={isFocused ? config.activeIcon : config.inactiveIcon}
-            size={24}
+            size={23}
             color={isFocused ? activeColor : inactiveColor}
           />
 
@@ -135,7 +135,7 @@ const TabItem = React.memo(function TabItem({
               style={[
                 styles.badge,
                 {
-                  backgroundColor: colors.error || '#FF453A',
+                  backgroundColor: colors.error || IOS_DARK.red,
                   borderColor: isDark ? '#000000' : '#FFFFFF',
                 },
               ]}
@@ -152,7 +152,7 @@ const TabItem = React.memo(function TabItem({
             styles.tabLabel,
             {
               color: isFocused ? activeColor : inactiveColor,
-              fontWeight: isFocused ? '700' : '600',
+              fontWeight: isFocused ? '600' : '500',
             },
           ]}
         >
@@ -163,54 +163,7 @@ const TabItem = React.memo(function TabItem({
   );
 });
 
-// ─── Sliding Pill Indicator ───────────────────────────────────────────────────
-interface PillIndicatorProps {
-  activeIndex: number;
-  tabCount: number;
-  tabWidth: number;
-  colors: any;
-}
-
-function PillIndicator({ activeIndex, tabCount, tabWidth, colors }: PillIndicatorProps) {
-  const PILL_W_RATIO = 0.68;
-  const pillWidth = tabWidth * PILL_W_RATIO;
-  const centerOffset = (tabWidth - pillWidth) / 2;
-
-  const pillX = useSharedValue(activeIndex * tabWidth + centerOffset);
-
-  useEffect(() => {
-    pillX.value = withTiming(activeIndex * tabWidth + centerOffset, {
-      duration: 180,
-      easing: Easing.bezier(0.16, 1, 0.3, 1),
-    });
-  }, [activeIndex, tabWidth, centerOffset]);
-
-  const pillStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: pillX.value }],
-  }));
-
-  const accent = colors.accentPrimary || '#a599ff';
-
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[
-        styles.pillContainer,
-        { width: pillWidth },
-        pillStyle,
-      ]}
-    >
-      <LinearGradient
-        colors={[accent + '40', accent + '18']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={styles.pill}
-      />
-    </Animated.View>
-  );
-}
-
-// ─── Main Telegram Tab Bar ───────────────────────────────────────────────────
+// ─── Main Apple iOS Hairline Tab Bar ──────────────────────────────────────────
 export const TelegramTabBar = React.memo(function TelegramTabBar({
   state,
   descriptors,
@@ -234,15 +187,6 @@ export const TelegramTabBar = React.memo(function TelegramTabBar({
     (route) => route.key === state.routes[state.index].key,
   );
 
-  const [tabsRowWidth, setTabsRowWidth] = useState(0);
-  const onTabsRowLayout = useCallback((e: LayoutChangeEvent) => {
-    setTabsRowWidth(e.nativeEvent.layout.width);
-  }, []);
-
-  const tabWidth = tabsRowWidth > 0
-    ? tabsRowWidth / Math.max(visibleRoutes.length, 1)
-    : 0;
-
   // Auto-hide handling when child screen requests tabBarStyle: { display: 'none' }
   const focusedOptions = descriptors[state.routes[state.index].key]?.options || {};
   const isScreenOptionsHidden =
@@ -250,11 +194,11 @@ export const TelegramTabBar = React.memo(function TelegramTabBar({
     (focusedOptions.tabBarStyle as any).display === 'none';
 
   const shouldHide = Boolean(isScreenOptionsHidden);
-  const translateY = useSharedValue(shouldHide ? 110 : 0);
+  const translateY = useSharedValue(shouldHide ? 120 : 0);
   const tabOpacity = useSharedValue(shouldHide ? 0 : 1);
 
   useEffect(() => {
-    translateY.value = withTiming(shouldHide ? 110 : 0, {
+    translateY.value = withTiming(shouldHide ? 120 : 0, {
       duration: 220,
       easing: Easing.out(Easing.cubic),
     });
@@ -269,55 +213,38 @@ export const TelegramTabBar = React.memo(function TelegramTabBar({
     opacity: tabOpacity.value,
   }));
 
-  const bottomPadding = insets.bottom > 0 ? insets.bottom : 8;
-  const tabBarHeight = 48 + 6 + bottomPadding;
-  const gradientHeight = tabBarHeight + 64;
-
-  const gradientColors = isDark
-    ? [
-        'rgba(0,0,0,0)',
-        'rgba(0,0,0,0.30)',
-        'rgba(0,0,0,0.68)',
-        'rgba(0,0,0,0.90)',
-        'rgba(0,0,0,0.98)',
-      ] as const
-    : [
-        'rgba(244,243,248,0)',
-        'rgba(244,243,248,0.35)',
-        'rgba(244,243,248,0.72)',
-        'rgba(244,243,248,0.92)',
-        'rgba(244,243,248,0.99)',
-      ] as const;
+  const bottomInset = insets.bottom > 0 ? insets.bottom : 8;
+  const barHeight = TAB_BAR_HEIGHT + bottomInset;
 
   return (
     <Animated.View
-      pointerEvents="box-none"
+      pointerEvents={shouldHide ? 'none' : 'box-none'}
       style={[
         styles.outerWrapper,
-        { height: gradientHeight },
+        { height: barHeight },
         containerAnimatedStyle,
       ]}
     >
-      {/* Spotify/ZenTrack-style black blurry gradient fade */}
-      <LinearGradient
-        colors={gradientColors}
-        locations={[0, 0.38, 0.65, 0.84, 1]}
-        style={StyleSheet.absoluteFillObject}
-        pointerEvents="none"
-      />
+      {/* Apple iOS Translucent Hairline Tab Bar Surface */}
+      <View
+        style={[
+          styles.barContainer,
+          {
+            height: barHeight,
+            paddingBottom: bottomInset,
+            borderTopColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.12)',
+            backgroundColor: isDark ? 'rgba(10, 10, 12, 0.88)' : 'rgba(248, 248, 250, 0.88)',
+          },
+        ]}
+      >
+        <BlurView
+          intensity={85}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+          pointerEvents="none"
+        />
 
-      {/* Tab bar row docked to bottom */}
-      <View style={[styles.dockedWrapper, { paddingBottom: bottomPadding }]}>
-        {tabWidth > 0 && activeIndex >= 0 && (
-          <PillIndicator
-            activeIndex={activeIndex}
-            tabCount={visibleRoutes.length}
-            tabWidth={tabWidth}
-            colors={colors}
-          />
-        )}
-
-        <View style={styles.tabsRow} onLayout={onTabsRowLayout}>
+        <View style={styles.tabsRow}>
           {visibleRoutes.map((route, index) => {
             const isVisuallyFocused = activeIndex === index;
             const isActuallyFocused = state.routes[state.index].key === route.key;
@@ -348,31 +275,28 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 99,
-    backgroundColor: 'transparent',
   },
-  dockedWrapper: {
+  barContainer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    paddingTop: 6,
-    backgroundColor: 'transparent',
+    borderTopWidth: StyleSheet.hairlineWidth, // Apple iOS 0.5px hairline divider
+    overflow: 'hidden',
   },
   tabsRow: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    height: 48,
-    backgroundColor: 'transparent',
+    justifyContent: 'space-around',
+    height: 49,
   },
   tabButton: {
     flex: 1,
-    flexBasis: 0,
     alignItems: 'center',
     justifyContent: 'center',
     height: '100%',
     backgroundColor: 'transparent',
-    paddingHorizontal: 0,
   },
   tabContent: {
     alignItems: 'center',
@@ -380,8 +304,8 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   iconBox: {
-    width: 38,
-    height: 26,
+    width: 32,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -389,7 +313,7 @@ const styles = StyleSheet.create({
   tabLabel: {
     fontSize: 10,
     marginTop: 2,
-    letterSpacing: 0.2,
+    letterSpacing: -0.2,
     textAlign: 'center',
     fontFamily: FONT_FAMILY.medium,
   },
@@ -406,22 +330,11 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   badgeText: {
-    color: '#ffffff',
-    fontSize: 8.5,
-    fontFamily: FONT_FAMILY.bold,
-  },
-  // ── Sliding pill indicator (matching ZenTrack squircle) ──
-  pillContainer: {
-    position: 'absolute',
-    top: 8,
-    left: 0,
-    height: 44,
-    zIndex: 0,
-    overflow: 'hidden',
-    borderRadius: 12,
-  },
-  pill: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 12,
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    lineHeight: 11,
   },
 });
+
+export default TelegramTabBar;

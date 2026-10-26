@@ -1,8 +1,14 @@
 import { StyleSheet, Platform } from 'react-native';
 import { FONT_FAMILY, SPACE, RADIUS } from '../../theme/tokens';
 
-export const makeCardioLogStyles = (colors: any, isDark: boolean = true) =>
-  StyleSheet.create({
+const stylesCache = new Map<string, any>();
+
+export const makeCardioLogStyles = (colors: any, isDark: boolean = true) => {
+  const cacheKey = `${isDark ? 'dark' : 'light'}_${colors?.background || ''}_${colors?.border || ''}_${colors?.textPrimary || ''}`;
+  let cached = stylesCache.get(cacheKey);
+  if (cached) return cached;
+
+  const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: isDark ? '#000000' : colors.background },
     header: {
       flexDirection: 'row',
@@ -43,3 +49,7 @@ export const makeCardioLogStyles = (colors: any, isDark: boolean = true) =>
     saveBtn: { paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
     saveBtnText: { fontFamily: FONT_FAMILY.bold, fontSize: 16, color: '#ffffff' },
   });
+
+  stylesCache.set(cacheKey, styles);
+  return styles;
+};

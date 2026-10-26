@@ -15,6 +15,7 @@ export interface ExerciseCatalogEntry {
   restTimeSecs: number;
   videoId: string;
   tier?: 'S Tier' | 'A+ Tier' | 'A Tier' | 'B Tier' | 'C Tier';
+  isCurated?: boolean;
 }
 
 export interface ExerciseSearchDropdownProps {

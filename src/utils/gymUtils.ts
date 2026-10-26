@@ -1,6 +1,6 @@
 import { EXERCISE_DATABASE } from '../data/exerciseDatabase';
 import { getCanonicalExerciseKey } from '../data/exerciseAliasMap';
-import { GymExerciseLog, GymDayLog } from '../types/gym.types';
+import { GymExerciseLog, GymDayLog, GymSet } from '../types/gym.types';
 import { computeOrGetHotCache, generateDatasetFingerprint } from './hotCacheStore';
 export { computeOrGetHotCache, generateDatasetFingerprint };
 
@@ -220,7 +220,9 @@ export function isValidWorkoutSession(log: any): boolean {
   return completedExercises >= 3 || hasCompletedCardio;
 }
 
-import { WEEKDAY_TO_PLAN, GYM_PLAN, EXERCISE_ALTERNATIVES } from '../data/gymPlan';
+// NOTE: gymPlan is required lazily inside functions to break the circular dependency:
+//   gymPlan.ts → gymUtils.ts → gymPlan.ts
+// Do NOT add a top-level import of gymPlan here.
 
 export const calculateGymStreak = (logs: any[] | null | undefined, userGymPlan?: any | null): number => {
   if (!logs || logs.length === 0) return 0;
@@ -242,16 +244,18 @@ export const calculateGymStreak = (logs: any[] | null | undefined, userGymPlan?:
     const loggedDates = new Set<string>(validDates);
 
     const isRestDayForDate = (date: Date): boolean => {
+      const { WEEKDAY_TO_PLAN: WTP, GYM_PLAN: GP } = require('../data/gymPlan');
       const dayOfWeek = date.getDay();
-      const planIdx = WEEKDAY_TO_PLAN[dayOfWeek] ?? 7;
-      const plan = userGymPlan?.customDays?.[planIdx] || GYM_PLAN.find(p => p.dayIndex === planIdx);
+      const planIdx = WTP[dayOfWeek] ?? 7;
+      const plan = userGymPlan?.customDays?.[planIdx] || GP.find((p: any) => p.dayIndex === planIdx);
       return plan?.isRest === true;
     };
 
     // Guard against all-rest-day plans causing unbounded backward traversal
     const hasAtLeastOneWorkoutDay = [0, 1, 2, 3, 4, 5, 6].some(dow => {
-      const planIdx = WEEKDAY_TO_PLAN[dow] ?? 7;
-      const plan = userGymPlan?.customDays?.[planIdx] || GYM_PLAN.find(p => p.dayIndex === planIdx);
+      const { WEEKDAY_TO_PLAN: WTP2, GYM_PLAN: GP2 } = require('../data/gymPlan');
+      const planIdx = WTP2[dow] ?? 7;
+      const plan = userGymPlan?.customDays?.[planIdx] || GP2.find((p: any) => p.dayIndex === planIdx);
       return plan?.isRest !== true;
     });
 
@@ -293,6 +297,25 @@ export const calculateExerciseMaxWeight = (exercise: GymExerciseLog | undefined 
     return Number(w);
   }));
 };
+
+/**
+ * Unilateral & Dumbbell Volume Multiplier
+ * Biomechanically, lifters log the weight of ONE dumbbell or limb
+ * (e.g., Dumbbell Curl: 14kg x 10 = 140kg per arm = 280kg total tonnage).
+ * Matches Hevy and Strong standard tonnage calculations.
+ */
+export function getVolumeMultiplier(exerciseName?: string | null): number {
+  if (!exerciseName) return 1;
+  const name = exerciseName.toLowerCase();
+  const unilateralKeywords = [
+    'dumbbell', 'db ', 'single arm', 'single-arm', 'one arm', 'one-arm',
+    'single leg', 'single-leg', 'one leg', 'one-leg', 'unilateral',
+    'bulgarian split', 'split squat', 'lunges', 'lunge',
+    'step up', 'step-up', 'pistol squat', 'concentration curl',
+    'hammer curl', 'kickback', 'lateral raise'
+  ];
+  return unilateralKeywords.some(kw => name.includes(kw)) ? 2 : 1;
+}
 
 export const calculateEstimated1RM = (exercise: GymExerciseLog | undefined | null): number => {
   if (!exercise || !exercise.setsLog || exercise.setsLog.length === 0) return 0;
@@ -473,11 +496,30 @@ export interface MuscleTargetResolution {
 let exerciseDbByKey: Map<string, any> | null = null;
 function getExerciseDbByKey(): Map<string, any> {
   if (!exerciseDbByKey) {
-    exerciseDbByKey = new Map<string, any>(
-      EXERCISE_DATABASE.map(e => [normalizeExerciseKey(e.name), e])
-    );
+    exerciseDbByKey = new Map<string, any>();
+    for (const e of EXERCISE_DATABASE) {
+      exerciseDbByKey.set(normalizeExerciseKey(e.name), e);
+      if (Array.isArray(e.aliases)) {
+        for (const a of e.aliases) {
+          if (a) exerciseDbByKey.set(normalizeExerciseKey(a), e);
+        }
+      }
+    }
   }
   return exerciseDbByKey;
+}
+
+/**
+ * Resolves any legacy exercise name or synonym to its official canonical database name.
+ * e.g. "Incline Dumbbell Press" -> "Incline Bench Press (Dumbbell)"
+ * If no match is found, returns the original name untouched.
+ */
+export function getCanonicalExerciseName(exerciseName?: string | null): string {
+  if (!exerciseName) return '';
+  const key = normalizeExerciseKey(exerciseName);
+  if (!key) return exerciseName;
+  const match = getExerciseDbByKey().get(key);
+  return match?.name || exerciseName;
 }
 
 export function resolveExerciseTargetMuscle(
@@ -841,7 +883,8 @@ export function getExerciseSwapAlternatives(
   const results: ExerciseSwapOption[] = [];
 
   // 1. Primary Source: High-Yield Biomechanical Curated Alternatives (S Tier -> A+ Tier -> A Tier -> B Tier)
-  const curatedList = EXERCISE_ALTERNATIVES[targetMuscle] || EXERCISE_ALTERNATIVES[canonicalGroup] || [];
+  const { EXERCISE_ALTERNATIVES: EA } = require('../data/gymPlan');
+  const curatedList = EA[targetMuscle] || EA[canonicalGroup] || [];
   for (const alt of curatedList) {
     if (!alt?.name) continue;
     const key = normalizeExerciseKey(alt.name);
@@ -929,6 +972,74 @@ export function getExerciseSwapAlternatives(
   }
 
   return results;
+}
+
+/**
+ * Merges a local in-memory GymDayLog with an incoming Firestore GymDayLog
+ * so no logged weight, rep, RIR, or completed checkmark is EVER lost.
+ */
+export function mergeGymLogMonotonic(local: GymDayLog | null, remote: GymDayLog): GymDayLog {
+  if (!local || local.date !== remote.date) return remote;
+  const localTs = Number(local.updatedAt) || 0;
+  const remoteTs = Number(remote.updatedAt) || 0;
+
+  // If local state has a newer timestamp, keep local state as primary and only backfill missing exercises
+  const primary = localTs >= remoteTs ? local : remote;
+  const secondary = localTs >= remoteTs ? remote : local;
+
+  const mergedExercises = (primary.exercises || []).map((pEx, exIdx) => {
+    const sEx = (secondary.exercises || []).find(
+      e => (e.exerciseId && e.exerciseId === pEx.exerciseId) || e.name === pEx.name
+    ) || secondary.exercises?.[exIdx];
+
+    if (!sEx) return pEx;
+
+    const maxSets = Math.max(pEx.setsLog?.length || 0, sEx.setsLog?.length || 0);
+    const mergedSets: GymSet[] = [];
+
+    for (let i = 0; i < maxSets; i++) {
+      const pSet = pEx.setsLog?.[i];
+      const sSet = sEx.setsLog?.[i];
+      if (pSet && !sSet) { mergedSets.push(pSet); continue; }
+      if (!pSet && sSet) { mergedSets.push(sSet); continue; }
+
+      // If primary is newer, use primary's values, but never lose a non-null weight/rep if primary has null
+      mergedSets.push({
+        ...sSet,
+        ...pSet,
+        weight: (pSet.weight !== null && pSet.weight !== undefined) ? pSet.weight : sSet.weight,
+        reps: (pSet.reps !== null && pSet.reps !== undefined) ? pSet.reps : sSet.reps,
+        completed: localTs >= remoteTs ? pSet.completed : (pSet.completed || sSet.completed),
+        rir: pSet.rir !== undefined ? pSet.rir : sSet.rir,
+        setType: pSet.setType || sSet.setType,
+      });
+    }
+
+    return {
+      ...sEx,
+      ...pEx,
+      notes: (pEx as any).notes || (sEx as any).notes,
+      setsLog: mergedSets,
+    };
+  });
+
+  const isCompleted = Boolean(local.completed || remote.completed);
+  const result: GymDayLog = {
+    ...secondary,
+    ...primary,
+    completed: isCompleted,
+    exercises: mergedExercises,
+    updatedAt: Math.max(localTs, remoteTs),
+  };
+
+  if (isCompleted) {
+    delete (result as any).workoutStartTime;
+    delete (result as any).restTimerStartTime;
+    delete (result as any).restTimerDurationSecs;
+    delete (result as any).restTimerExerciseName;
+  }
+
+  return result;
 }
 
 

@@ -7,7 +7,7 @@ import {
   View, Text, Modal, TouchableOpacity, Animated, StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
+import { hapticSuccess } from '../../utils/haptics';
 import { useTheme } from '../../contexts/ThemeContext';
 
 // Extracted Subcomponents & Styles
@@ -78,9 +78,7 @@ export function AddCardioModal({ visible, onClose, onAdd }: Props) {
 
   const handleAdd = () => {
     if (!selectedType || isClosingRef.current) return;
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (_) {}
+    hapticSuccess();
     const chosen = selectedType;
     setSelectedType(null);
     handleClose(() => {

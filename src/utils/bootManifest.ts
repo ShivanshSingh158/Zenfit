@@ -1,8 +1,23 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { InteractionManager } from 'react-native';
 import { User } from 'firebase/auth';
-import type { Task, Habit, HabitLog } from '../contexts/MobileDataContext';
-import { LayoutItem } from '../components/Dashboard/DashboardLayoutSheet';
+
+// ─── Pure JS RAM L1 Cache (0ms synchronous reads after boot) ──────────────────
+const L1_RAM_CACHE = new Map<string, any>();
+let _isBootHydrated = false;
+
+export function getL1Sync<T>(key: string, fallback: T): T {
+  return L1_RAM_CACHE.has(key) ? (L1_RAM_CACHE.get(key) as T) : fallback;
+}
+
+export function setL1Sync<T>(key: string, value: T): void {
+  L1_RAM_CACHE.set(key, value);
+  AsyncStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value)).catch(() => {});
+}
+
+export function isL1BootHydrated(): boolean {
+  return _isBootHydrated;
+}
 
 export const BOOT_KEYS = {
   NAV_ROUTE:          '@zentrack_last_route',
@@ -38,31 +53,20 @@ export const BOOT_KEYS = {
   JOBS:               '@zentrack_cache_jobs',
   CONTENT_LOGS:       '@zentrack_cache_content_logs',
   NOTIF_FINGERPRINT:  '@zentrack_notif_fingerprint',
+  FIREBASE_AUTH_USER: 'firebase:authUser:AIzaSyCWZ_tUzZynf60lxC3-RweGfZRGlcHBz_s:[DEFAULT]',
 } as const;
 
-// Tier-0 keys required for Frame-0 Auth, Theme, Navigation & Dashboard paint (<5ms)
+// Tier-0 keys required for Frame-0 Auth, Theme, Navigation & Gym Dashboard paint (<5ms)
 const TIER_0_KEYS = [
-  BOOT_KEYS.NAV_ROUTE,
-  BOOT_KEYS.ONBOARDING,
-  BOOT_KEYS.ONBOARDING_V2,
   BOOT_KEYS.OPTIMISTIC_USER,
-  BOOT_KEYS.PINNED_MODULES,
-  BOOT_KEYS.TASKS,
-  BOOT_KEYS.HABITS,
-  BOOT_KEYS.HABIT_LOGS,
-  BOOT_KEYS.DASH_LAYOUT,
-  BOOT_KEYS.WATER_GOAL_CANON,
-  BOOT_KEYS.WATER_GOAL_LEGACY,
-  BOOT_KEYS.GOOGLE_TOKEN,
+  BOOT_KEYS.FIREBASE_AUTH_USER,
   BOOT_KEYS.THEME_MODE,
-  BOOT_KEYS.XP_V1,
-  BOOT_KEYS.ATTENDANCE,
-  BOOT_KEYS.ATTENDANCE_LOGS,
-  BOOT_KEYS.HOLIDAYS,
   BOOT_KEYS.GYM_LOGS,
   BOOT_KEYS.USER_GYM_PLAN,
+  '@zenfit_guest_mode_v1',
+  'gym_profile_v1',
   BOOT_KEYS.WATER_LOGS,
-  BOOT_KEYS.NOTIF_FINGERPRINT,
+  BOOT_KEYS.NAV_ROUTE,
 ] as const;
 
 // Tier-1 heavy secondary domain caches hydrated after Frame 0 settles
@@ -86,10 +90,10 @@ export interface BootManifest {
   onboarded: boolean;
   optimisticUser: User | null;
   pinnedModules: string[];
-  tasks: Task[];
-  habits: Habit[];
-  habitLogs: HabitLog[];
-  dashboardLayout: LayoutItem[] | null;
+  tasks: any[];
+  habits: any[];
+  habitLogs: any[];
+  dashboardLayout: any[] | null;
   waterGoalMl: number;
   googleAccessToken: string | null;
   themeMode: 'dark' | 'light' | 'system' | null;
@@ -121,6 +125,7 @@ const DEFAULT_WATER_GOAL = 3800;
 let _memoryBootCache: BootManifest | null = null;
 let _bootPromise: Promise<BootManifest> | null = null;
 
+
 function parseJsonArray<T = any>(raw: string | null | undefined): T[] {
   if (!raw) return [];
   try {
@@ -140,10 +145,10 @@ export async function loadBootManifest(): Promise<BootManifest> {
       const pairs = await AsyncStorage.multiGet([...TIER_0_KEYS]);
       const map = new Map<string, string | null>(pairs);
 
-      const lastRoute = map.get(BOOT_KEYS.NAV_ROUTE) || 'Home';
+      const lastRoute = map.get(BOOT_KEYS.NAV_ROUTE) || 'Today';
 
       let optimisticUser: User | null = null;
-      const userRaw = map.get(BOOT_KEYS.OPTIMISTIC_USER);
+      const userRaw = map.get(BOOT_KEYS.OPTIMISTIC_USER) || map.get(BOOT_KEYS.FIREBASE_AUTH_USER);
       if (userRaw) {
         try {
           const parsed = JSON.parse(userRaw);
@@ -151,48 +156,19 @@ export async function loadBootManifest(): Promise<BootManifest> {
         } catch {}
       }
 
-      const onboardedVal = map.get(BOOT_KEYS.ONBOARDING) || map.get(BOOT_KEYS.ONBOARDING_V2);
-      const onboarded = onboardedVal === 'true' || onboardedVal === '1';
-
-      let pinnedModules = DEFAULT_PINNED;
-      const pinnedRaw = map.get(BOOT_KEYS.PINNED_MODULES);
-      if (pinnedRaw) {
-        try {
-          const parsed = JSON.parse(pinnedRaw);
-          if (Array.isArray(parsed) && parsed.length > 0) pinnedModules = parsed.slice(0, 4);
-        } catch {}
-      }
-
-      const tasks = parseJsonArray<Task>(map.get(BOOT_KEYS.TASKS));
-      const habits = parseJsonArray<Habit>(map.get(BOOT_KEYS.HABITS));
-      const habitLogs = parseJsonArray<HabitLog>(map.get(BOOT_KEYS.HABIT_LOGS));
-
-      let dashboardLayout: LayoutItem[] | null = null;
-      const layoutRaw = map.get(BOOT_KEYS.DASH_LAYOUT);
-      if (layoutRaw) {
-        try {
-          const parsed = JSON.parse(layoutRaw);
-          if (Array.isArray(parsed)) dashboardLayout = parsed;
-        } catch {}
-      }
-
-      let waterGoalMl = DEFAULT_WATER_GOAL;
-      const canonWater = map.get(BOOT_KEYS.WATER_GOAL_CANON) || map.get(BOOT_KEYS.WATER_GOAL_LEGACY);
-      if (canonWater) {
-        const val = parseInt(canonWater, 10);
-        if (!isNaN(val) && val > 0) waterGoalMl = val;
-      }
-
-      const googleAccessToken = map.get(BOOT_KEYS.GOOGLE_TOKEN) || null;
       const themeRaw = map.get(BOOT_KEYS.THEME_MODE);
       const themeMode = (themeRaw === 'dark' || themeRaw === 'light' || themeRaw === 'system') ? themeRaw : null;
-      const xpRaw = map.get(BOOT_KEYS.XP_V1);
-      const xp = xpRaw ? (parseInt(xpRaw, 10) || 0) : 0;
 
-      const attendance = parseJsonArray(map.get(BOOT_KEYS.ATTENDANCE));
-      const attendanceLogs = parseJsonArray(map.get(BOOT_KEYS.ATTENDANCE_LOGS));
-      const holidays = parseJsonArray<string>(map.get(BOOT_KEYS.HOLIDAYS));
-      const gymLogs = parseJsonArray(map.get(BOOT_KEYS.GYM_LOGS));
+      let gymLogs = parseJsonArray(map.get(BOOT_KEYS.GYM_LOGS));
+      if (gymLogs.length === 0) {
+        try {
+          const bakRaw = await AsyncStorage.getItem('@zentrack_cache_gym_logs_bak');
+          if (bakRaw) {
+            const bak = parseJsonArray(bakRaw);
+            if (bak.length > 0) gymLogs = bak;
+          }
+        } catch {}
+      }
       const waterLogs = parseJsonArray(map.get(BOOT_KEYS.WATER_LOGS));
 
       let userGymPlan: any = null;
@@ -201,27 +177,45 @@ export async function loadBootManifest(): Promise<BootManifest> {
         try { userGymPlan = JSON.parse(gymPlanRaw); } catch {}
       }
 
-      const notifFingerprint = map.get(BOOT_KEYS.NOTIF_FINGERPRINT) || null;
+      const guestRaw = map.get('@zenfit_guest_mode_v1');
+      const isGuest = guestRaw === 'true';
+
+      // Direct L1 RAM hydration: 0 redundant JSON.parse calls across large arrays
+      if (optimisticUser) {
+        L1_RAM_CACHE.set(BOOT_KEYS.OPTIMISTIC_USER, optimisticUser);
+        L1_RAM_CACHE.set(BOOT_KEYS.FIREBASE_AUTH_USER, optimisticUser);
+      }
+      if (themeMode) L1_RAM_CACHE.set(BOOT_KEYS.THEME_MODE, themeMode);
+      L1_RAM_CACHE.set(BOOT_KEYS.GYM_LOGS, gymLogs);
+      if (userGymPlan) L1_RAM_CACHE.set(BOOT_KEYS.USER_GYM_PLAN, userGymPlan);
+      L1_RAM_CACHE.set(BOOT_KEYS.WATER_LOGS, waterLogs);
+      L1_RAM_CACHE.set('@zenfit_guest_mode_v1', isGuest);
+      L1_RAM_CACHE.set(BOOT_KEYS.NAV_ROUTE, lastRoute);
+
+      const profileRaw = map.get('gym_profile_v1');
+      if (profileRaw) {
+        try { L1_RAM_CACHE.set('gym_profile_v1', JSON.parse(profileRaw)); } catch {}
+      }
 
       const manifest: BootManifest = {
         lastRoute,
-        onboarded,
+        onboarded: true,
         optimisticUser,
-        pinnedModules,
-        tasks,
-        habits,
-        habitLogs,
-        dashboardLayout,
-        waterGoalMl,
-        googleAccessToken,
+        pinnedModules: DEFAULT_PINNED,
+        tasks: [],
+        habits: [],
+        habitLogs: [],
+        dashboardLayout: null,
+        waterGoalMl: DEFAULT_WATER_GOAL,
+        googleAccessToken: null,
         themeMode,
-        xp,
-        attendance,
-        attendanceLogs,
+        xp: 0,
+        attendance: [],
+        attendanceLogs: [],
         assignments: [],
         semesters: [],
         semesterSubjects: [],
-        holidays,
+        holidays: [],
         gymLogs,
         userGymPlan,
         waterLogs,
@@ -234,10 +228,22 @@ export async function loadBootManifest(): Promise<BootManifest> {
         learningTopics: [],
         jobs: [],
         contentLogs: [],
-        notifFingerprint,
+        notifFingerprint: null,
       };
 
       _memoryBootCache = manifest;
+      _isBootHydrated = true;
+
+
+      // Defer analytics precomputation to idle frame off the critical startup path
+      if (gymLogs && gymLogs.length > 0) {
+        InteractionManager.runAfterInteractions(() => {
+          try {
+            const { precomputeGymAnalytics } = require('../services/gymAnalyticsPrecompute');
+            precomputeGymAnalytics(gymLogs, userGymPlan, false);
+          } catch (_) {}
+        });
+      }
 
       // Hydrate Tier-1 secondary caches off the critical startup path
       InteractionManager.runAfterInteractions(() => {
@@ -245,20 +251,25 @@ export async function loadBootManifest(): Promise<BootManifest> {
           .then(tier1Pairs => {
             if (!_memoryBootCache) return;
             const t1 = new Map<string, string | null>(tier1Pairs);
+            for (const [k, raw] of tier1Pairs) {
+              if (raw && !L1_RAM_CACHE.has(k)) {
+                try { L1_RAM_CACHE.set(k, JSON.parse(raw)); } catch { L1_RAM_CACHE.set(k, raw); }
+              }
+            }
             _memoryBootCache = {
               ..._memoryBootCache,
-              assignments: _memoryBootCache.assignments.length > 0 ? _memoryBootCache.assignments : parseJsonArray(t1.get(BOOT_KEYS.ASSIGNMENTS)),
-              semesters: _memoryBootCache.semesters.length > 0 ? _memoryBootCache.semesters : parseJsonArray(t1.get(BOOT_KEYS.SEMESTERS)),
-              semesterSubjects: _memoryBootCache.semesterSubjects.length > 0 ? _memoryBootCache.semesterSubjects : parseJsonArray(t1.get(BOOT_KEYS.SEM_SUBJECTS)),
-              sleepLogs: _memoryBootCache.sleepLogs.length > 0 ? _memoryBootCache.sleepLogs : parseJsonArray(t1.get(BOOT_KEYS.SLEEP_LOGS)),
-              weightLogs: _memoryBootCache.weightLogs.length > 0 ? _memoryBootCache.weightLogs : parseJsonArray(t1.get(BOOT_KEYS.WEIGHT_LOGS)),
-              customEvents: _memoryBootCache.customEvents.length > 0 ? _memoryBootCache.customEvents : parseJsonArray(t1.get(BOOT_KEYS.CUSTOM_EVENTS)),
-              goals: _memoryBootCache.goals.length > 0 ? _memoryBootCache.goals : parseJsonArray(t1.get(BOOT_KEYS.GOALS)),
-              weeklyReviews: _memoryBootCache.weeklyReviews.length > 0 ? _memoryBootCache.weeklyReviews : parseJsonArray(t1.get(BOOT_KEYS.WEEKLY_REVIEWS)),
-              storageNodes: _memoryBootCache.storageNodes.length > 0 ? _memoryBootCache.storageNodes : parseJsonArray(t1.get(BOOT_KEYS.STORAGE_NODES)),
-              learningTopics: _memoryBootCache.learningTopics.length > 0 ? _memoryBootCache.learningTopics : parseJsonArray(t1.get(BOOT_KEYS.LEARNING_TOPICS)),
-              jobs: _memoryBootCache.jobs.length > 0 ? _memoryBootCache.jobs : parseJsonArray(t1.get(BOOT_KEYS.JOBS)),
-              contentLogs: _memoryBootCache.contentLogs.length > 0 ? _memoryBootCache.contentLogs : parseJsonArray(t1.get(BOOT_KEYS.CONTENT_LOGS)),
+              assignments: _liveUpdatedKeys.has('assignments') ? _memoryBootCache.assignments : parseJsonArray(t1.get(BOOT_KEYS.ASSIGNMENTS)),
+              semesters: _liveUpdatedKeys.has('semesters') ? _memoryBootCache.semesters : parseJsonArray(t1.get(BOOT_KEYS.SEMESTERS)),
+              semesterSubjects: _liveUpdatedKeys.has('semesterSubjects') ? _memoryBootCache.semesterSubjects : parseJsonArray(t1.get(BOOT_KEYS.SEM_SUBJECTS)),
+              sleepLogs: _liveUpdatedKeys.has('sleepLogs') ? _memoryBootCache.sleepLogs : parseJsonArray(t1.get(BOOT_KEYS.SLEEP_LOGS)),
+              weightLogs: _liveUpdatedKeys.has('weightLogs') ? _memoryBootCache.weightLogs : parseJsonArray(t1.get(BOOT_KEYS.WEIGHT_LOGS)),
+              customEvents: _liveUpdatedKeys.has('customEvents') ? _memoryBootCache.customEvents : parseJsonArray(t1.get(BOOT_KEYS.CUSTOM_EVENTS)),
+              goals: _liveUpdatedKeys.has('goals') ? _memoryBootCache.goals : parseJsonArray(t1.get(BOOT_KEYS.GOALS)),
+              weeklyReviews: _liveUpdatedKeys.has('weeklyReviews') ? _memoryBootCache.weeklyReviews : parseJsonArray(t1.get(BOOT_KEYS.WEEKLY_REVIEWS)),
+              storageNodes: _liveUpdatedKeys.has('storageNodes') ? _memoryBootCache.storageNodes : parseJsonArray(t1.get(BOOT_KEYS.STORAGE_NODES)),
+              learningTopics: _liveUpdatedKeys.has('learningTopics') ? _memoryBootCache.learningTopics : parseJsonArray(t1.get(BOOT_KEYS.LEARNING_TOPICS)),
+              jobs: _liveUpdatedKeys.has('jobs') ? _memoryBootCache.jobs : parseJsonArray(t1.get(BOOT_KEYS.JOBS)),
+              contentLogs: _liveUpdatedKeys.has('contentLogs') ? _memoryBootCache.contentLogs : parseJsonArray(t1.get(BOOT_KEYS.CONTENT_LOGS)),
             };
           })
           .catch(() => {});
@@ -303,6 +314,7 @@ export async function loadBootManifest(): Promise<BootManifest> {
       _memoryBootCache = fallback;
       return fallback;
     } finally {
+      _isBootHydrated = true;
       _bootPromise = null;
     }
   })();
@@ -314,7 +326,10 @@ export function getBootManifestSync(): BootManifest | null {
   return _memoryBootCache;
 }
 
+const _liveUpdatedKeys = new Set<keyof BootManifest>();
+
 export function updateL1Cache<K extends keyof BootManifest>(key: K, value: BootManifest[K]): void {
+  _liveUpdatedKeys.add(key);
   if (_memoryBootCache) {
     _memoryBootCache = {
       ..._memoryBootCache,
@@ -326,4 +341,7 @@ export function updateL1Cache<K extends keyof BootManifest>(key: K, value: BootM
 export function clearBootManifest(): void {
   _memoryBootCache = null;
   _bootPromise = null;
+  _isBootHydrated = false;
+  L1_RAM_CACHE.clear();
+  _liveUpdatedKeys.clear();
 }

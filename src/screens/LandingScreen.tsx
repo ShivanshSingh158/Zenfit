@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Haptics from 'expo-haptics';
+import { hapticLight, hapticSelection } from '../utils/haptics';
 import Reanimated, {
   FadeInDown,
   FadeInUp,
@@ -147,7 +147,7 @@ export default function LandingScreen({ onGetStarted }: LandingScreenProps) {
   }, []);
 
   const handleGetStarted = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    hapticLight();
     onGetStarted();
   };
 
@@ -156,7 +156,7 @@ export default function LandingScreen({ onGetStarted }: LandingScreenProps) {
     const index = Math.round(offsetX / (CARD_WIDTH + CARD_SPACING));
     if (index !== activeCardIndex && index >= 0 && index < MODULE_PILLARS.length) {
       setActiveCardIndex(index);
-      Haptics.selectionAsync();
+      hapticSelection();
     }
   };
 
@@ -173,7 +173,7 @@ export default function LandingScreen({ onGetStarted }: LandingScreenProps) {
   };
 
   const handleDotPress = (index: number) => {
-    Haptics.selectionAsync();
+    hapticSelection();
     setActiveCardIndex(index);
     scrollRef.current?.scrollTo({
       x: index * (CARD_WIDTH + CARD_SPACING),

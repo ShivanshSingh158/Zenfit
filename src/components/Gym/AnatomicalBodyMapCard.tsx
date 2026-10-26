@@ -16,7 +16,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, RADIUS, FONT_FAMILY, FONT_SIZE } from '../../theme/tokens';
 import { useTheme } from '../../contexts/ThemeContext';
 import { feedback } from '../../utils/haptics';
-import { BODY_PATHS, ViewGeometry } from './bodyPaths';
+import { generateDatasetFingerprint } from '../../utils/hotCacheStore';
+import { BODY_PATHS, ViewGeometry, getMergedMusclePath, getMergedInertPath } from './bodyPaths';
 import {
   MUSCLES,
   INERT,
@@ -52,6 +53,37 @@ const MUSCLE_SELECTION_ORDER: MuscleSlug[] = [
   'hip-flexors',
 ];
 
+// Pre-join path arrays ONCE at module load time (38 total SVG Path components, zero allocations)
+const JOINED_BODY_PATHS = (() => {
+  const result: Record<'male' | 'female', {
+    front: { vb: string; inertJoined: string; muscles: Record<string, string> };
+    back:  { vb: string; inertJoined: string; muscles: Record<string, string> };
+  }> = {} as any;
+
+  for (const gender of ['male', 'female'] as const) {
+    result[gender] = {} as any;
+    for (const side of ['front', 'back'] as const) {
+      const geo = BODY_PATHS[gender][side];
+      const inertArr: string[] = [];
+      INERT.forEach(slug => {
+        if (geo.p[slug]) inertArr.push(...geo.p[slug]);
+      });
+      const muscles: Record<string, string> = {};
+      MUSCLES.forEach(slug => {
+        if (geo.p[slug]?.length) {
+          muscles[slug] = geo.p[slug].join(' ');
+        }
+      });
+      result[gender][side] = {
+        vb: geo.vb,
+        inertJoined: inertArr.join(' '),
+        muscles,
+      };
+    }
+  }
+  return result;
+})();
+
 interface Props {
   gymLogs: GymDayLog[];
   weekAnchorDate?: string;
@@ -76,16 +108,16 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
   const { colors, isDark } = useTheme();
   const { width: screenWidth } = useWindowDimensions();
   const colWidth = Math.min((screenWidth - 70) / 2, 175);
-  const initialMode = defaultMode || (variant === 'weekly' ? 'fatigue' : 'volume');
+  const initialMode = defaultMode || (variant === 'weekly' ? 'volume' : 'fatigue');
   const [mode, setMode] = useState<string>(initialMode);
   const [windowDays, setWindowDays] = useState<TimeWindow>(timeWindowDays ?? (variant === 'weekly' ? 7 : 30));
   const [onlyHardSets, setOnlyHardSets] = useState<boolean>(false);
   const [selectedMuscle, setSelectedMuscle] = useState<MuscleSlug | null>(null);
 
-  // Sync mode when variant or defaultMode changes
+  // Sync mode when defaultMode changes
   React.useEffect(() => {
-    setMode(defaultMode || (variant === 'weekly' ? 'fatigue' : 'volume'));
-  }, [variant, defaultMode]);
+    if (defaultMode) setMode(defaultMode);
+  }, [defaultMode]);
 
   // Sync with external timeWindowDays prop if passed
   React.useEffect(() => {
@@ -95,48 +127,59 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
   }, [timeWindowDays]);
 
   // ── Macro Analytics Models (Strictly gated by active mode) ──
-  const needVolume = variant === 'analytics' && mode === 'volume';
+  const needVolume = mode === 'volume';
   const volumeModel = useMemo(
     () => needVolume ? calculateMacroVolumeLoad(gymLogs, windowDays as any, weekAnchorDate) : ({} as Record<string, any>),
     [gymLogs, windowDays, weekAnchorDate, needVolume]
   );
 
-  const needGrowth = variant === 'analytics' && mode === 'growth';
+  const needGrowth = mode === 'growth';
   const growthModel = useMemo(
     () => needGrowth ? calculateMuscleGrowthProgression(gymLogs, windowDays as any, weekAnchorDate) : ({} as Record<string, any>),
     [gymLogs, windowDays, weekAnchorDate, needGrowth]
   );
 
-  const needBalance = (variant === 'analytics' || variant === 'weekly') && mode === 'balance';
+  const needBalance = mode === 'balance';
   const balanceModel = useMemo(
     () => needBalance ? calculateSymmetryAndBalance(gymLogs, windowDays as any, weekAnchorDate) : ({} as Record<string, any>),
     [gymLogs, windowDays, weekAnchorDate, needBalance]
   );
 
-  // ── Weekly Report Models (Only computed when variant === 'weekly') ───────────
+  // ── Weekly & Fatigue Models ─────────────────────────────────────────────────
   const weeklyMuscleLoad = useMemo(
-    () => (variant === 'weekly') ? calculateMuscleLoad(gymLogs, 7, weekAnchorDate, onlyHardSets) : ({} as Record<string, any>),
+    () => calculateMuscleLoad(gymLogs, variant === 'weekly' ? 0 : 7, weekAnchorDate, onlyHardSets),
     [gymLogs, weekAnchorDate, onlyHardSets, variant]
   );
 
   const weeklyMuscleLevels = useMemo(
-    () => (variant === 'weekly') ? calculateMuscleLevels(weeklyMuscleLoad as any) : ({} as Record<string, any>),
-    [weeklyMuscleLoad, variant]
+    () => calculateMuscleLevels(weeklyMuscleLoad as any),
+    [weeklyMuscleLoad]
   );
 
+  const needFatigue = mode === 'fatigue' || mode === 'strength' || variant === 'weekly';
   const weeklyFatigue = useMemo(
-    () => (variant === 'weekly') ? calculateMuscleFatigue(gymLogs, weekAnchorDate) : ({} as Record<string, any>),
-    [gymLogs, weekAnchorDate, variant]
+    () => needFatigue ? calculateMuscleFatigue(gymLogs, weekAnchorDate) : ({} as Record<string, any>),
+    [gymLogs, weekAnchorDate, needFatigue]
   );
 
-  const genderGeometry = BODY_PATHS[bodyGender] || BODY_PATHS.male;
+  const genderGeometry = JOINED_BODY_PATHS[bodyGender] || JOINED_BODY_PATHS.male;
 
   // ── Color Generators ────────────────────────────────────────────────────────
   const getMuscleFillColor = (slug: MuscleSlug): string => {
     const baseColor = isDark ? '#232128' : '#e4e4e9';
 
+    if (mode === 'fatigue') {
+      const r = weeklyFatigue[slug];
+      const level = r ? r.fatigueLevel : 0;
+      if (level === 4) return '#ff4757'; // 🔴 Fatigued
+      if (level === 3) return '#ff7f50'; // 🟠 High
+      if (level === 2) return '#ffd32a'; // 🟡 Recovering
+      if (level === 1) return '#d4ac0d'; // 🟡 Light
+      return baseColor; // ⚫ Ready
+    }
+
     if (variant === 'weekly') {
-      if (mode === 'balance' || mode === 'volume') {
+      if (mode === 'volume') {
         const level = weeklyMuscleLevels[slug] || 0;
         if (level === 4) return '#5eda9e'; // 🟢 Peak volume / Target Hit
         if (level === 3) return '#89dceb'; // 🔹 Optimal volume
@@ -144,14 +187,15 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
         if (level === 1) return '#6d5fe0'; // 🟣 Base volume
         return baseColor;
       }
-      if (mode === 'fatigue') {
-        const r = weeklyFatigue[slug];
-        const level = r ? r.fatigueLevel : 0;
-        if (level === 4) return '#ff4757'; // 🔴 Fatigued
-        if (level === 3) return '#ff7f50'; // 🟠 High
-        if (level === 2) return '#ffd32a'; // 🟡 Recovering
-        if (level === 1) return '#d4ac0d'; // 🟡 Light
-        return baseColor; // ⚫ Ready
+      if (mode === 'balance') {
+        const b = balanceModel[slug];
+        if (b && b.status !== 'untrained') return b.color;
+        const level = weeklyMuscleLevels[slug] || 0;
+        if (level === 4) return '#5eda9e';
+        if (level === 3) return '#89dceb';
+        if (level === 2) return '#a599ff';
+        if (level === 1) return '#6d5fe0';
+        return baseColor;
       }
       if (mode === 'strength') {
         const r = weeklyFatigue[slug];
@@ -192,51 +236,42 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
   };
 
   const handleMusclePress = (slug: MuscleSlug) => {
-    feedback.tap();
+    feedback.selectionChange();
     setSelectedMuscle(prev => (prev === slug ? null : slug));
   };
 
 const InertSilhouetteLayer = React.memo(function InertSilhouetteLayer({
-  viewGeo,
+  inertD,
   isDark,
 }: {
-  viewGeo: ViewGeometry;
+  inertD: string;
   isDark: boolean;
 }) {
   const inertColor = isDark ? '#18171c' : '#d1d1d6';
-  return (
-    <G>
-      {INERT.map(slug =>
-        (viewGeo.p[slug] || []).map((dStr, idx) => (
-          <Path key={`inert-${slug}-${idx}`} d={dStr} fill={inertColor} />
-        ))
-      )}
-    </G>
-  );
+  if (!inertD) return null;
+  return <Path d={inertD} fill={inertColor} />;
 });
 
 const MemoizedMuscleGroup = React.memo<{
   slug: MuscleSlug;
-  paths: string[];
+  d: string;
   fill: string;
   isSelected: boolean;
   isDark: boolean;
   onPress: (slug: MuscleSlug) => void;
 }>(
-  function MemoizedMuscleGroup({ slug, paths, fill, isSelected, isDark, onPress }) {
+  function MemoizedMuscleGroup({ slug, d, fill, isSelected, isDark, onPress }) {
     return (
       <G onPress={() => onPress(slug)}>
-        {/* Visible Muscle Path */}
-        {paths.map((dStr, idx) => (
-          <Path
-            key={`muscle-${slug}-${idx}`}
-            d={dStr}
-            fill={fill}
-            stroke={isSelected ? '#ffffff' : isDark ? '#111016' : '#ffffff'}
-            strokeWidth={isSelected ? 5 : 1.2}
-            strokeLinejoin="round"
-          />
-        ))}
+        {/* Visible Single Combined Muscle Path */}
+        <Path
+          key={`muscle-${slug}`}
+          d={d}
+          fill={fill}
+          stroke={isSelected ? '#ffffff' : isDark ? '#111016' : '#ffffff'}
+          strokeWidth={isSelected ? 5 : 1.2}
+          strokeLinejoin="round"
+        />
       </G>
     );
   },
@@ -244,22 +279,29 @@ const MemoizedMuscleGroup = React.memo<{
     prev.fill === next.fill &&
     prev.isSelected === next.isSelected &&
     prev.isDark === next.isDark &&
-    prev.paths === next.paths
+    prev.d === next.d
 );
 
   // ── Render Single SVG View (Front or Back) ──────────────────────────────────
-  const renderBodySvg = (viewGeo: ViewGeometry, label: string) => {
+  const renderBodySvg = (
+    viewData: { vb: string; inertJoined: string; muscles: Record<string, string> },
+    label: string
+  ) => {
     return (
-      <View style={[styles.bodyViewCol, { width: colWidth }]}>
-        <Svg viewBox={viewGeo.vb} style={styles.svgCanvas}>
+      <View
+        style={[styles.bodyViewCol, { width: colWidth }]}
+        renderToHardwareTextureAndroid={true}
+        shouldRasterizeIOS={true}
+      >
+        <Svg viewBox={viewData.vb} style={styles.svgCanvas}>
           {/* Inert Silhouette (Head, Neck, Hands, Feet, Knees, Joints) */}
-          <InertSilhouetteLayer viewGeo={viewGeo} isDark={isDark} />
+          <InertSilhouetteLayer inertD={viewData.inertJoined} isDark={isDark} />
 
           {/* Interactive Muscle Layers with Expanded Hit Boxes */}
           <G>
             {MUSCLES.map(slug => {
-              const paths = viewGeo.p[slug] || [];
-              if (!paths.length) return null;
+              const d = viewData.muscles[slug];
+              if (!d) return null;
 
               const isSelected = selectedMuscle === slug;
               const fill = getMuscleFillColor(slug);
@@ -268,7 +310,7 @@ const MemoizedMuscleGroup = React.memo<{
                 <MemoizedMuscleGroup
                   key={`muscle-group-${slug}`}
                   slug={slug}
-                  paths={paths}
+                  d={d}
                   fill={fill}
                   isSelected={isSelected}
                   isDark={isDark}
@@ -299,136 +341,63 @@ const MemoizedMuscleGroup = React.memo<{
       style={[
         styles.card,
         {
-          backgroundColor: isDark ? '#0d0d10' : '#ffffff',
-          borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+          backgroundColor: isDark ? '#1C1C1E' : '#ffffff',
+          borderColor: 'transparent',
         },
         style,
       ]}
     >
-      {/* ── Segmented Control Tabs (Weekly vs Analytics) ────────────────────── */}
-      {variant === 'weekly' ? (
-        <View style={styles.segControl}>
-          <TouchableOpacity
-            style={[styles.segBtn, mode === 'fatigue' && styles.segBtnActive]}
-            onPress={() => {
-              feedback.tap();
-              setMode('fatigue');
-            }}
-            activeOpacity={0.75}
-          >
-            <Text style={[styles.segBtnText, mode === 'fatigue' && styles.segBtnTextActive]} numberOfLines={1}>
-              Fatigue
-            </Text>
-          </TouchableOpacity>
+      {/* ── Segmented Control Tabs [ Fatigue | Volume | Symmetry ] ────────────────────── */}
+      <View style={styles.segControl}>
+        <TouchableOpacity
+          style={[styles.segBtn, mode === 'fatigue' && styles.segBtnActive]}
+          onPress={() => {
+            feedback.selectionChange();
+            setMode('fatigue');
+          }}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.segBtnText, mode === 'fatigue' && styles.segBtnTextActive]} numberOfLines={1}>
+            Fatigue
+          </Text>
+        </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.segBtn, mode === 'balance' && styles.segBtnActive]}
-            onPress={() => {
-              feedback.tap();
-              setMode('balance');
-            }}
-            activeOpacity={0.75}
-          >
-            <Text style={[styles.segBtnText, mode === 'balance' && styles.segBtnTextActive]} numberOfLines={1}>
-              Balance
-            </Text>
-          </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.segBtn, mode === 'volume' && styles.segBtnActive]}
+          onPress={() => {
+            feedback.selectionChange();
+            setMode('volume');
+          }}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.segBtnText, mode === 'volume' && styles.segBtnTextActive]} numberOfLines={1}>
+            Volume
+          </Text>
+        </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.segBtn, mode === 'strength' && styles.segBtnActive]}
-            onPress={() => {
-              feedback.tap();
-              setMode('strength');
-            }}
-            activeOpacity={0.75}
-          >
-            <Text style={[styles.segBtnText, mode === 'strength' && styles.segBtnTextActive]} numberOfLines={1}>
-              Strength
-            </Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={styles.segControl}>
-          <TouchableOpacity
-            style={[styles.segBtn, mode === 'volume' && styles.segBtnActive]}
-            onPress={() => {
-              feedback.tap();
-              setMode('volume');
-            }}
-            activeOpacity={0.75}
-          >
-            <Text style={[styles.segBtnText, mode === 'volume' && styles.segBtnTextActive]} numberOfLines={1}>
-              Volume
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.segBtn, mode === 'growth' && styles.segBtnActive]}
-            onPress={() => {
-              feedback.tap();
-              setMode('growth');
-            }}
-            activeOpacity={0.75}
-          >
-            <Text style={[styles.segBtnText, mode === 'growth' && styles.segBtnTextActive]} numberOfLines={1}>
-              Growth
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.segBtn, mode === 'balance' && styles.segBtnActive]}
-            onPress={() => {
-              feedback.tap();
-              setMode('balance');
-            }}
-            activeOpacity={0.75}
-          >
-            <Text style={[styles.segBtnText, mode === 'balance' && styles.segBtnTextActive]} numberOfLines={1}>
-              Symmetry
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
+        <TouchableOpacity
+          style={[styles.segBtn, mode === 'balance' && styles.segBtnActive]}
+          onPress={() => {
+            feedback.selectionChange();
+            setMode('balance');
+          }}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.segBtnText, mode === 'balance' && styles.segBtnTextActive]} numberOfLines={1}>
+            Symmetry
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       {/* ── Main Dual-View BodyMap (Front & Back) ────────────────────────────── */}
-      <View style={styles.bodyDualContainer}>
+      <View
+        style={styles.bodyDualContainer}
+        renderToHardwareTextureAndroid={true}
+        shouldRasterizeIOS={true}
+      >
         {renderBodySvg(genderGeometry.front, 'FRONT')}
         {renderBodySvg(genderGeometry.back, 'BACK')}
       </View>
-
-      {/* ── Quick Muscle Selector Pills (Instant 0ms Selection) ────────────── */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.quickPillsScroll}
-        style={styles.quickPillsWrapper}
-      >
-        {MUSCLE_SELECTION_ORDER.map(slug => {
-          const isSelected = selectedMuscle === slug;
-          const dotColor = getMuscleFillColor(slug);
-          return (
-            <TouchableOpacity
-              key={`quick-${slug}`}
-              style={[
-                styles.quickPill,
-                isSelected && styles.quickPillSelected,
-              ]}
-              onPress={() => handleMusclePress(slug)}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.quickPillDot, { backgroundColor: dotColor }]} />
-              <Text
-                style={[
-                  styles.quickPillText,
-                  isSelected && styles.quickPillTextSelected,
-                ]}
-              >
-                {MUSCLE_NAME[slug]}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
 
       {/* ── Interactive Muscle Detail Inspector ─────────────────────────────── */}
       {selectedData ? (
@@ -481,7 +450,7 @@ const MemoizedMuscleGroup = React.memo<{
                   </View>
                 )}
 
-                {mode === 'balance' && (
+                {(mode === 'volume' || mode === 'balance') && (
                   <View style={{ gap: 2 }}>
                     <Text style={styles.inspectorStatText}>
                       🎯 Weekly Volume:{' '}
@@ -583,7 +552,7 @@ const MemoizedMuscleGroup = React.memo<{
           {variant === 'weekly'
             ? mode === 'fatigue'
               ? 'Tap any muscle to inspect recovery status and soreness recency.'
-              : mode === 'balance'
+              : (mode === 'volume' || mode === 'balance')
               ? 'Tap any muscle to inspect weekly set volume and target adherence.'
               : 'Tap any muscle to inspect retained strength capacity.'
             : mode === 'volume'
@@ -615,7 +584,7 @@ const MemoizedMuscleGroup = React.memo<{
               </View>
             )}
 
-            {mode === 'balance' && (
+            {(mode === 'volume' || mode === 'balance') && (
               <View style={styles.legendItemsWrap}>
                 <View style={styles.legendPill}>
                   <View style={[styles.legendDot, { backgroundColor: '#5eda9e' }]} />
@@ -722,6 +691,15 @@ const MemoizedMuscleGroup = React.memo<{
       </View>
     </View>
   );
+}, (prev, next) => {
+  return (
+    prev.bodyGender === next.bodyGender &&
+    prev.variant === next.variant &&
+    prev.timeWindowDays === next.timeWindowDays &&
+    prev.defaultMode === next.defaultMode &&
+    prev.weekAnchorDate === next.weekAnchorDate &&
+    generateDatasetFingerprint(prev.gymLogs) === generateDatasetFingerprint(next.gymLogs)
+  );
 });
 
 export default AnatomicalBodyMapCard;
@@ -729,7 +707,7 @@ export default AnatomicalBodyMapCard;
 const styles = StyleSheet.create({
   card: {
     borderRadius: 20,
-    borderWidth: 1,
+    borderWidth: 0,
     padding: 16,
     marginBottom: 16,
     overflow: 'hidden',

@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
+import { hapticSelection } from '../../utils/haptics';
 
 export interface CardioTypeOption {
   label: string;
@@ -50,7 +50,7 @@ export const CardioTypeSelector: React.FC<CardioTypeSelectorProps> = React.memo(
               isSelected && styles.chipSelected,
             ]}
             onPress={() => {
-              Haptics.selectionAsync();
+              hapticSelection();
               onSelect(label);
             }}
             activeOpacity={0.75}

@@ -14,6 +14,40 @@ export interface GenderGeometry {
   back: ViewGeometry;
 }
 
+const _MERGED_PATH_CACHE = new WeakMap<ViewGeometry, Map<string, string>>();
+const _MERGED_INERT_CACHE = new WeakMap<ViewGeometry, string>();
+
+/**
+ * Returns pre-merged SVG path string for a given muscle slug.
+ * Evaluated once per geometry object; subsequent calls are O(1) pointer lookups (<0.001ms).
+ */
+export function getMergedMusclePath(viewGeo: ViewGeometry, slug: string): string {
+  let map = _MERGED_PATH_CACHE.get(viewGeo);
+  if (!map) {
+    map = new Map();
+    _MERGED_PATH_CACHE.set(viewGeo, map);
+  }
+  let merged = map.get(slug);
+  if (merged === undefined) {
+    const list = viewGeo.p[slug];
+    merged = Array.isArray(list) ? list.join(' ') : '';
+    map.set(slug, merged);
+  }
+  return merged;
+}
+
+/**
+ * Returns pre-merged inert silhouette path string (head, joints, hands, feet).
+ */
+export function getMergedInertPath(viewGeo: ViewGeometry, inertSlugs: readonly string[]): string {
+  let merged = _MERGED_INERT_CACHE.get(viewGeo);
+  if (merged === undefined) {
+    merged = inertSlugs.flatMap(slug => viewGeo.p[slug] || []).join(' ');
+    _MERGED_INERT_CACHE.set(viewGeo, merged);
+  }
+  return merged;
+}
+
 export const BODY_PATHS: Record<'male' | 'female', GenderGeometry> = {
   "male": {
     "front": {
