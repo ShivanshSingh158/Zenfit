@@ -84,49 +84,33 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
 
   const formattedDayTime = formatTimeSlot(activeDay.planDay.startTime);
 
-  // Weekly Audit
+  // Active training days count
+  const trainingDaysCount = useMemo(() => {
+    return resolvedDays.filter(d => !d.planDay.isRest && (d.planDay.exercises?.length || 0) > 0).length;
+  }, [resolvedDays]);
+
+  // Weekly Volume Breakdown by Canonical Muscle Group
   const weeklyAudit = useMemo(() => {
     let totalSets = 0;
-    let sTierCount = 0;
-    let aPlusTierCount = 0;
-    let totalExercises = 0;
-    const muscleSets: Record<string, number> = {
-      Chest: 0,
-      Back: 0,
-      Shoulders: 0,
-      Quads: 0,
-      Hamstrings: 0,
-      Triceps: 0,
-      Biceps: 0,
-    };
+    const muscleMap: Record<string, number> = {};
 
     for (const d of resolvedDays) {
       if (d.planDay.isRest) continue;
       for (const ex of d.planDay.exercises || []) {
         const sets = Number(ex.targetSets) || 3;
         totalSets += sets;
-        totalExercises += 1;
 
-        const tier = EXERCISE_TIER_MAP.get(normalizeExerciseKey(ex.name));
-        if (tier === 'S Tier') sTierCount++;
-        if (tier === 'A+ Tier') aPlusTierCount++;
-
-        const m = (ex.muscle || '').toLowerCase();
-        if (m.includes('chest')) muscleSets.Chest += sets;
-        else if (m.includes('back') || m.includes('lat')) muscleSets.Back += sets;
-        else if (m.includes('quad')) muscleSets.Quads += sets;
-        else if (m.includes('hamstring') || m.includes('hams')) muscleSets.Hamstrings += sets;
-        else if (m.includes('tricep')) muscleSets.Triceps += sets;
-        else if (m.includes('bicep')) muscleSets.Biceps += sets;
-        else if (m.includes('delt') || m.includes('shoulder')) muscleSets.Shoulders += sets;
+        const { targetMuscle, canonicalGroup } = resolveExerciseTargetMuscle(ex.name, ex.muscle);
+        const group = canonicalGroup || targetMuscle || 'Other';
+        muscleMap[group] = (muscleMap[group] || 0) + sets;
       }
     }
 
-    const highTierPct = totalExercises > 0
-      ? Math.round(((sTierCount + aPlusTierCount) / totalExercises) * 100)
-      : 0;
+    const sortedMuscles = Object.entries(muscleMap)
+      .filter(([_, sets]) => sets > 0)
+      .sort((a, b) => b[1] - a[1]);
 
-    return { totalSets, highTierPct, muscleSets };
+    return { totalSets, sortedMuscles };
   }, [resolvedDays]);
 
   const activeDayTotalSets = useMemo(() => {
@@ -195,7 +179,7 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
           })}
         </View>
 
-        {/* ── 2. Subtle Weekly Split Balance Banner (Apple Health Style) ── */}
+        {/* ── 2. Subtle Weekly Split Volume Bar (Apple Health Style) ── */}
         <TouchableOpacity
           activeOpacity={0.75}
           onPress={() => {
@@ -206,36 +190,65 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
         >
           <View style={styles.auditRow}>
             <View style={styles.auditLeft}>
-              <Ionicons name="stats-chart" size={14} color="#A599FF" />
+              <Ionicons name="stats-chart" size={13} color="#A599FF" />
               <Text style={[styles.auditTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}>
-                Weekly Split Balance
+                Weekly Volume
               </Text>
-              <View style={styles.tierPill}>
-                <Text style={styles.tierPillText}>{weeklyAudit.highTierPct}% S/A+</Text>
-              </View>
             </View>
             <View style={styles.auditRight}>
-              <Text style={styles.auditMeta}>{weeklyAudit.totalSets} Weekly Sets</Text>
+              <Text style={styles.auditMeta}>
+                {weeklyAudit.totalSets} Sets · {trainingDaysCount} Workouts
+              </Text>
               <Ionicons
-                name={auditExpanded ? 'chevron-up' : 'chevron-forward'}
+                name={auditExpanded ? 'chevron-up' : 'chevron-down'}
                 size={13}
                 color="#8E8E93"
-                style={{ marginLeft: 4 }}
+                style={{ marginLeft: 5 }}
               />
             </View>
           </View>
 
+          {/* Segmented Multi-Color Volume Bar */}
+          {weeklyAudit.totalSets > 0 && (
+            <View style={styles.auditProgressBar}>
+              {weeklyAudit.sortedMuscles.map(([muscle, sets]) => {
+                const pct = (sets / weeklyAudit.totalSets) * 100;
+                const color = resolveMuscleColor(muscle);
+                return (
+                  <View
+                    key={`bar-${muscle}`}
+                    style={{
+                      width: `${pct}%`,
+                      height: '100%',
+                      backgroundColor: color,
+                    }}
+                  />
+                );
+              })}
+            </View>
+          )}
+
           {auditExpanded && (
             <View style={styles.auditExpandedWrap}>
-              <View style={styles.musclePillsGrid}>
-                {Object.entries(weeklyAudit.muscleSets).map(([muscle, sets]) => (
-                  <View key={`aud-${muscle}`} style={styles.muscleStatItem}>
-                    <Text style={styles.muscleStatName}>{muscle}</Text>
-                    <Text style={[styles.muscleStatValue, sets === 0 && { color: '#8E8E93' }]}>
-                      {sets}s
-                    </Text>
-                  </View>
-                ))}
+              <View style={styles.muscleGrid}>
+                {weeklyAudit.sortedMuscles.map(([muscle, sets]) => {
+                  const color = resolveMuscleColor(muscle);
+                  const pct = weeklyAudit.totalSets > 0 ? Math.round((sets / weeklyAudit.totalSets) * 100) : 0;
+
+                  return (
+                    <View key={`aud-${muscle}`} style={styles.muscleGridItem}>
+                      <View style={[styles.muscleDot, { backgroundColor: color }]} />
+                      <Text
+                        style={[styles.muscleGridName, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
+                        numberOfLines={1}
+                      >
+                        {muscle}
+                      </Text>
+                      <Text style={styles.muscleGridSets}>{sets}s</Text>
+                      <Text style={styles.muscleGridPct}>{pct}%</Text>
+                    </View>
+                  );
+                })}
               </View>
             </View>
           )}
@@ -642,7 +655,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 8,
     borderRadius: 12,
-    paddingVertical: 9,
+    paddingVertical: 10,
     paddingHorizontal: 12,
   },
   auditRow: {
@@ -656,19 +669,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   auditTitle: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 12,
-  },
-  tierPill: {
-    backgroundColor: 'rgba(165, 153, 255, 0.15)',
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: 4,
-  },
-  tierPillText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#A599FF',
+    fontSize: 13,
   },
   auditRight: {
     flexDirection: 'row',
@@ -676,38 +678,51 @@ const styles = StyleSheet.create({
   },
   auditMeta: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 11,
+    fontSize: 12,
     color: '#8E8E93',
   },
-  auditExpandedWrap: {
+  auditProgressBar: {
+    flexDirection: 'row',
+    height: 4,
+    borderRadius: 2,
+    overflow: 'hidden',
     marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(84, 84, 88, 0.18)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
-  musclePillsGrid: {
+  auditExpandedWrap: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  muscleGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    rowGap: 8,
   },
-  muscleStatItem: {
+  muscleGridItem: {
+    width: '50%',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingRight: 8,
+    gap: 6,
   },
-  muscleStatName: {
+  muscleGridName: {
+    flex: 1,
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 12,
+  },
+  muscleGridSets: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 12,
+    color: '#A599FF',
+  },
+  muscleGridPct: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 11,
     color: '#8E8E93',
-  },
-  muscleStatValue: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-    color: '#FFFFFF',
+    width: 28,
+    textAlign: 'right',
   },
   dayWorkoutCard: {
     marginHorizontal: 16,
