@@ -318,20 +318,11 @@ export default function GymSplitsScreen() {
             Plan
           </Text>
           <Text style={styles.screenSubtitle}>
-            {splitTitle} · {customRoutinesList.length} Custom Routine{customRoutinesList.length === 1 ? '' : 's'}
+            {splitTitle} · 7-Day Schedule
           </Text>
         </View>
 
         <View style={styles.headerActions}>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={handleCreateRoutine}
-            style={styles.newRoutinePill}
-          >
-            <Ionicons name="add" size={15} color="#FFFFFF" />
-            <Text style={styles.newRoutinePillText}>Routine</Text>
-          </TouchableOpacity>
-
           <TouchableOpacity
             activeOpacity={0.7}
             onPress={() => {
@@ -363,7 +354,7 @@ export default function GymSplitsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* 1. Subtle Weekly Schedule Strip + Balance Pill + Compact Day Preview */}
+        {/* 1. Subtle Weekly Schedule Strip + Balance Pill + Direct Exercise Cards */}
         <WeeklyScheduleStrip
           resolvedDays={resolvedDays}
           selectedDayIndex={selectedDayIndex}
@@ -376,12 +367,52 @@ export default function GymSplitsScreen() {
           customRoutines={customRoutinesList}
         />
 
-        {/* 2. My Custom Routines (Apple Grouped Cards) */}
+        {/* 2. Master Split Program */}
         <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>MASTER SPLIT PROGRAM</Text>
+          <TouchableOpacity onPress={() => setShowTemplateModal(true)} style={styles.createInlineBtn}>
+            <Text style={styles.createInlineText}>Explore Splits</Text>
+            <Ionicons name="chevron-forward" size={12} color="#A599FF" />
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => {
+            hapticLight();
+            setShowTemplateModal(true);
+          }}
+          style={[
+            styles.activeSplitCard,
+            { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
+          ]}
+        >
+          <View style={styles.splitIconBox}>
+            <Ionicons name="layers-outline" size={20} color="#A599FF" />
+          </View>
+          <View style={styles.splitTextCol}>
+            <View style={styles.splitBadgeRow}>
+              <Text style={styles.splitPreTitle}>CURRENT PROGRAM</Text>
+              <View style={styles.splitActiveBadge}>
+                <Text style={styles.splitActiveBadgeText}>Active</Text>
+              </View>
+            </View>
+            <Text style={[styles.splitTitleText, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}>
+              {splitTitle}
+            </Text>
+            <Text style={styles.splitSubText}>
+              Tap to browse Arnold, PPL, Upper/Lower, or custom splits
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="#636366" />
+        </TouchableOpacity>
+
+        {/* 3. Custom Routines */}
+        <View style={[styles.sectionHeaderRow, { marginTop: 18 }]}>
           <Text style={styles.sectionTitle}>MY ROUTINES</Text>
           <TouchableOpacity onPress={handleCreateRoutine} style={styles.createInlineBtn}>
             <Ionicons name="add" size={14} color="#A599FF" />
-            <Text style={styles.createInlineText}>New Routine</Text>
+            <Text style={styles.createInlineText}>New</Text>
           </TouchableOpacity>
         </View>
 
@@ -390,17 +421,15 @@ export default function GymSplitsScreen() {
             activeOpacity={0.8}
             onPress={handleCreateRoutine}
             style={[
-              styles.emptyRoutinesCard,
+              styles.emptyRoutinesSlimCard,
               { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
             ]}
           >
-            <Ionicons name="barbell-outline" size={26} color="#A599FF" style={{ marginBottom: 6 }} />
-            <Text style={[styles.emptyRoutinesTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-              Create Custom Routine
+            <Ionicons name="add-circle-outline" size={18} color="#A599FF" style={{ marginRight: 8 }} />
+            <Text style={[styles.emptyRoutinesSlimText, { color: isDark ? '#FFFFFF' : '#000000' }]}>
+              Create a custom routine for quick assignment
             </Text>
-            <Text style={styles.emptyRoutinesSub}>
-              Build your customized workouts with target sets, reps & rest intervals.
-            </Text>
+            <Ionicons name="chevron-forward" size={14} color="#636366" style={{ marginLeft: 'auto' }} />
           </TouchableOpacity>
         ) : (
           customRoutinesList.map(rt => {
@@ -453,84 +482,6 @@ export default function GymSplitsScreen() {
             );
           })
         )}
-
-        {/* 3. Curated Split Programs (Sleek Horizontal Carousel) */}
-        <View style={[styles.sectionHeaderRow, { marginTop: 22 }]}>
-          <Text style={styles.sectionTitle}>CURATED SPLIT PROGRAMS</Text>
-          <TouchableOpacity onPress={() => setShowTemplateModal(true)} style={styles.createInlineBtn}>
-            <Text style={styles.createInlineText}>Browse</Text>
-            <Ionicons name="chevron-forward" size={12} color="#A599FF" />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.curatedCarousel}
-        >
-          {[
-            {
-              id: 'ppl',
-              name: 'Push / Pull / Legs',
-              badge: '6 Days/Wk',
-              focus: 'Balanced Hypertrophy',
-            },
-            {
-              id: 'arnold',
-              name: 'Arnold Split',
-              badge: '6 Days/Wk',
-              focus: 'Antagonist Supersets',
-            },
-            {
-              id: 'upper_lower',
-              name: 'Upper / Lower',
-              badge: '4 Days/Wk',
-              focus: 'Strength & Size',
-            },
-            {
-              id: 'full_body',
-              name: 'Full Body 3-Day',
-              badge: '3 Days/Wk',
-              focus: 'High Efficiency',
-            },
-          ].map(curated => (
-            <TouchableOpacity
-              key={`carousel-${curated.id}`}
-              activeOpacity={0.8}
-              onPress={() => {
-                hapticLight();
-                if (curated.id === 'ppl' || curated.id === 'arnold') {
-                  applyMasterTemplate(curated.id as any);
-                  Alert.alert('Applied', `${curated.name} set as your active weekly split.`);
-                } else {
-                  setShowTemplateModal(true);
-                }
-              }}
-              style={[
-                styles.curatedCarouselCard,
-                { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
-              ]}
-            >
-              <View style={styles.curatedBadgePill}>
-                <Text style={styles.curatedBadgeText}>{curated.badge}</Text>
-              </View>
-              <Text
-                style={[styles.curatedCardTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
-                numberOfLines={1}
-              >
-                {curated.name}
-              </Text>
-              <Text style={styles.curatedCardFocus} numberOfLines={1}>
-                {curated.focus}
-              </Text>
-
-              <View style={styles.curatedCardActionRow}>
-                <Text style={styles.curatedCardActionText}>Apply Split</Text>
-                <Ionicons name="chevron-forward" size={12} color="#A599FF" />
-              </View>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
       </ScrollView>
 
       {/* ── MODAL: ROUTINE BUILDER / EDITOR ── */}
@@ -816,22 +767,69 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#A599FF',
   },
-  emptyRoutinesCard: {
+  activeSplitCard: {
     marginHorizontal: 16,
     borderRadius: 14,
-    padding: 20,
+    padding: 14,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
   },
-  emptyRoutinesTitle: {
+  splitIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: 'rgba(165, 153, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  splitTextCol: {
+    flex: 1,
+  },
+  splitBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
+  splitPreTitle: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 10,
+    color: '#8E8E93',
+    letterSpacing: 0.6,
+  },
+  splitActiveBadge: {
+    backgroundColor: 'rgba(48, 209, 88, 0.15)',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
+  },
+  splitActiveBadgeText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 9,
+    color: '#30D158',
+  },
+  splitTitleText: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 15,
-    marginBottom: 4,
   },
-  emptyRoutinesSub: {
+  splitSubText: {
     fontFamily: FONT_FAMILY.regular,
-    fontSize: 12,
+    fontSize: 11.5,
     color: '#8E8E93',
-    textAlign: 'center',
+    marginTop: 2,
+  },
+  emptyRoutinesSlimCard: {
+    marginHorizontal: 16,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  emptyRoutinesSlimText: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 13,
   },
   routineCard: {
     marginHorizontal: 16,
@@ -878,50 +876,6 @@ const styles = StyleSheet.create({
   },
   cardAssignText: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 11,
-    color: '#A599FF',
-  },
-  curatedCarousel: {
-    paddingHorizontal: 16,
-    gap: 10,
-    paddingBottom: 4,
-  },
-  curatedCarouselCard: {
-    width: 200,
-    borderRadius: 14,
-    padding: 12,
-  },
-  curatedBadgePill: {
-    backgroundColor: 'rgba(165, 153, 255, 0.15)',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    marginBottom: 6,
-  },
-  curatedBadgeText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#A599FF',
-  },
-  curatedCardTitle: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 14,
-  },
-  curatedCardFocus: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11,
-    color: '#8E8E93',
-    marginTop: 2,
-  },
-  curatedCardActionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10,
-    gap: 2,
-  },
-  curatedCardActionText: {
-    fontFamily: FONT_FAMILY.bold,
     fontSize: 11,
     color: '#A599FF',
   },

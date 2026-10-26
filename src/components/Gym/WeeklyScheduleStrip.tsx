@@ -11,7 +11,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { GymPlanDay, GymPlanExercise, GymRoutine } from '../../types/gym.types';
 import { EXERCISE_DATABASE } from '../../data/exerciseDatabase';
-import { normalizeExerciseKey, MUSCLE_COLORS } from '../../utils/gymUtils';
+import { normalizeExerciseKey, resolveMuscleColor, resolveExerciseTargetMuscle } from '../../utils/gymUtils';
+import { getEquipmentGlyph } from './ExerciseCardItem';
 import { hapticLight, hapticSuccess } from '../../utils/haptics';
 import { FONT_FAMILY, IOS_DARK, SPACE } from '../../theme/tokens';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -57,7 +58,6 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
   const { colors, isDark } = useTheme();
   const [showAssignSheet, setShowAssignSheet] = useState(false);
   const [auditExpanded, setAuditExpanded] = useState(false);
-  const [exercisesExpanded, setExercisesExpanded] = useState(false);
 
   // Today's day index (1 = Monday, 7 = Sunday)
   const todayDayOfWeek = new Date().getDay();
@@ -135,273 +135,316 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
 
   return (
     <>
-    <View style={styles.container}>
-      {/* ── 1. 7-Day Mon–Sun Apple HIG Segmented Strip ── */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>WEEKLY SCHEDULE</Text>
-        <Text style={styles.todayLabel}>
-          Today: {DAY_SHORT[todayDayIndex - 1]}
-        </Text>
-      </View>
-
-      <View style={[styles.dayStrip, { backgroundColor: isDark ? '#141418' : 'rgba(0, 0, 0, 0.04)' }]}>
-        {resolvedDays.map(d => {
-          const isSelected = selectedDayIndex === d.dayIndex;
-          const isToday = d.dayIndex === todayDayIndex;
-          const isRest = Boolean(d.planDay.isRest);
-          const exerciseCount = d.planDay.exercises?.length || 0;
-
-          return (
-            <TouchableOpacity
-              key={`day-${d.dayIndex}`}
-              activeOpacity={0.7}
-              onPress={() => {
-                hapticLight();
-                onSelectDayIndex(d.dayIndex);
-              }}
-              style={[
-                styles.dayPill,
-                isSelected && styles.dayPillActive,
-              ]}
-            >
-              {isToday && <View style={styles.todayIndicatorDot} />}
-              <Text style={[styles.dayPillName, isSelected && styles.dayPillNameActive]}>
-                {DAY_SHORT[d.dayIndex - 1]}
-              </Text>
-              {isRest ? (
-                <Text
-                  style={[
-                    styles.dayPillTag,
-                    styles.dayPillTagRest,
-                    isSelected && styles.dayPillTagActive,
-                  ]}
-                  numberOfLines={1}
-                >
-                  Rest
-                </Text>
-              ) : (
-                <Text
-                  style={[
-                    styles.dayPillTag,
-                    isSelected && styles.dayPillTagActive,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {exerciseCount > 0 ? `${exerciseCount} ex` : 'Train'}
-                </Text>
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* ── 2. Subtle Weekly Split Balance Banner (Apple Health Style) ── */}
-      <TouchableOpacity
-        activeOpacity={0.75}
-        onPress={() => {
-          hapticLight();
-          setAuditExpanded(!auditExpanded);
-        }}
-        style={[styles.auditCard, { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface }]}
-      >
-        <View style={styles.auditRow}>
-          <View style={styles.auditLeft}>
-            <Ionicons name="stats-chart" size={14} color="#A599FF" />
-            <Text style={[styles.auditTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}>
-              Weekly Split Balance
-            </Text>
-            <View style={styles.tierPill}>
-              <Text style={styles.tierPillText}>{weeklyAudit.highTierPct}% S/A+</Text>
-            </View>
-          </View>
-          <View style={styles.auditRight}>
-            <Text style={styles.auditMeta}>{weeklyAudit.totalSets} Weekly Sets</Text>
-            <Ionicons
-              name={auditExpanded ? 'chevron-up' : 'chevron-forward'}
-              size={13}
-              color="#8E8E93"
-              style={{ marginLeft: 4 }}
-            />
-          </View>
+      <View style={styles.container}>
+        {/* ── 1. 7-Day Mon–Sun Apple HIG Segmented Strip ── */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>WEEKLY SCHEDULE</Text>
+          <Text style={styles.todayLabel}>
+            Today: {DAY_SHORT[todayDayIndex - 1]}
+          </Text>
         </View>
 
-        {auditExpanded && (
-          <View style={styles.auditExpandedWrap}>
-            <View style={styles.musclePillsGrid}>
-              {Object.entries(weeklyAudit.muscleSets).map(([muscle, sets]) => (
-                <View key={`aud-${muscle}`} style={styles.muscleStatItem}>
-                  <Text style={styles.muscleStatName}>{muscle}</Text>
-                  <Text style={[styles.muscleStatValue, sets === 0 && { color: '#8E8E93' }]}>
-                    {sets}s
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-      </TouchableOpacity>
+        <View style={[styles.dayStrip, { backgroundColor: isDark ? '#141418' : 'rgba(0, 0, 0, 0.04)' }]}>
+          {resolvedDays.map(d => {
+            const isSelected = selectedDayIndex === d.dayIndex;
+            const isToday = d.dayIndex === todayDayIndex;
+            const isRest = Boolean(d.planDay.isRest);
+            const exerciseCount = d.planDay.exercises?.length || 0;
 
-      {/* ── 3. Selected Day Card (Apple Inset Grouped Card) ── */}
-      <View
-        style={[
-          styles.dayWorkoutCard,
-          { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
-        ]}
-      >
-        {activeDayIsRest ? (
-          <View style={styles.restCardBody}>
-            <View style={styles.restIconBox}>
-              <Ionicons name="moon-outline" size={24} color="#A599FF" />
-            </View>
-            <Text style={[styles.restTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}>
-              {activeDay.dayName}: Rest & Recovery
-            </Text>
-            <Text style={styles.restSubtitle}>
-              Scheduled active recovery, muscle repair & nervous system restoration.
-            </Text>
-            <TouchableOpacity
-              activeOpacity={0.75}
-              onPress={() => onToggleRest(activeDay.dayIndex)}
-              style={styles.switchWorkoutBtn}
-            >
-              <Ionicons name="fitness-outline" size={15} color="#A599FF" style={{ marginRight: 6 }} />
-              <Text style={styles.switchWorkoutBtnText}>Switch to Workout Day</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.dayCardBody}>
-            {/* Header: Day name badge + routine title + rename */}
-            <View style={styles.dayCardHeaderRow}>
-              <View style={{ flex: 1, paddingRight: 8 }}>
-                <View style={styles.dayBadgeRow}>
-                  <Text style={styles.dayCardDayLabel}>{activeDay.dayName.toUpperCase()}</Text>
-                  {activeDay.dayIndex === todayDayIndex && (
-                    <View style={styles.todayPillBadge}>
-                      <Text style={styles.todayPillText}>TODAY</Text>
-                    </View>
-                  )}
-                </View>
-                <Text
-                  style={[styles.dayCardTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
-                  numberOfLines={1}
-                >
-                  {activeDay.planDay.name}
-                </Text>
-                {activeDay.planDay.focus ? (
-                  <Text style={styles.dayCardFocusText} numberOfLines={1}>
-                    {activeDay.planDay.focus}
-                  </Text>
-                ) : null}
-              </View>
-
+            return (
               <TouchableOpacity
+                key={`day-${d.dayIndex}`}
                 activeOpacity={0.7}
-                onPress={() => onRenameDay(activeDay.dayIndex)}
-                style={styles.renameBtn}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="pencil-outline" size={16} color="#8E8E93" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Unified Stats & Schedule Time Row */}
-            <View style={styles.metricsChipsRow}>
-              <View style={styles.metricChip}>
-                <Ionicons name="barbell-outline" size={13} color="#A599FF" />
-                <Text style={styles.metricChipText}>
-                  {activeDayExercises.length} Movements • {activeDayTotalSets} Sets
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => onEditTime(activeDay.dayIndex)}
-                style={[styles.metricChip, styles.timeMetricChip]}
-              >
-                <Ionicons name="time-outline" size={13} color="#A599FF" />
-                <Text style={styles.timeMetricText}>
-                  {formattedDayTime || 'Set Time'}
-                </Text>
-                <Ionicons name="chevron-forward" size={11} color="#8E8E93" style={{ marginLeft: 2 }} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Harmonized Action Buttons Row (Balanced, Premium, Matching Colors) */}
-            <View style={styles.dayCardButtonsRow}>
-              <TouchableOpacity
-                activeOpacity={0.75}
-                onPress={() => setShowAssignSheet(true)}
+                onPress={() => {
+                  hapticLight();
+                  onSelectDayIndex(d.dayIndex);
+                }}
                 style={[
-                  styles.switchRoutineBtn,
-                  { backgroundColor: isDark ? 'rgba(165, 153, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)' },
+                  styles.dayPill,
+                  isSelected && styles.dayPillActive,
                 ]}
               >
-                <Ionicons name="swap-horizontal" size={15} color="#A599FF" />
-                <Text style={[styles.switchRoutineBtnText, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}>
-                  Switch Routine
+                {isToday && <View style={[styles.todayIndicatorDot, isSelected && styles.todayIndicatorDotActive]} />}
+                <Text style={[styles.dayPillName, isSelected && styles.dayPillNameActive]}>
+                  {DAY_SHORT[d.dayIndex - 1]}
                 </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => onEditRoutineExercises(activeDay.planDay, activeDay.dayIndex)}
-                style={styles.editMovementsBtn}
-              >
-                <Ionicons name="create-outline" size={15} color="#FFFFFF" />
-                <Text style={styles.editMovementsBtnText}>Edit Movements</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Exercise preview row / disclosure */}
-            {activeDayExercises.length > 0 && (
-              <View style={styles.exercisePreviewWrap}>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() => setExercisesExpanded(!exercisesExpanded)}
-                  style={styles.disclosureHeader}
-                >
-                  <Text style={styles.disclosureTitle}>
-                    {exercisesExpanded ? 'Hide Movements' : `View ${activeDayExercises.length} Movements`}
+                {isRest ? (
+                  <Text
+                    style={[
+                      styles.dayPillTag,
+                      styles.dayPillTagRest,
+                      isSelected && styles.dayPillTagActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Rest
                   </Text>
-                  <Ionicons
-                    name={exercisesExpanded ? 'chevron-up' : 'chevron-down'}
-                    size={14}
-                    color="#8E8E93"
-                  />
-                </TouchableOpacity>
-
-                {exercisesExpanded ? (
-                  <View style={styles.expandedExercisesList}>
-                    {activeDayExercises.map((ex, idx) => (
-                      <View key={`ex-item-${idx}`} style={styles.miniExerciseRow}>
-                        <Text style={styles.miniIndex}>{idx + 1}</Text>
-                        <Text
-                          style={[styles.miniName, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
-                          numberOfLines={1}
-                        >
-                          {ex.name}
-                        </Text>
-                        <Text style={styles.miniSets}>
-                          {ex.targetSets} × {ex.targetReps}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
                 ) : (
-                  <Text style={styles.compactExercisePills} numberOfLines={1}>
-                    {activeDayExercises.map(e => e.name.split(' (')[0]).slice(0, 4).join(' · ')}
-                    {activeDayExercises.length > 4 ? ` +${activeDayExercises.length - 4} more` : ''}
+                  <Text
+                    style={[
+                      styles.dayPillTag,
+                      isSelected && styles.dayPillTagActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {exerciseCount > 0 ? `${exerciseCount} ex` : 'Train'}
                   </Text>
                 )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* ── 2. Subtle Weekly Split Balance Banner (Apple Health Style) ── */}
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => {
+            hapticLight();
+            setAuditExpanded(!auditExpanded);
+          }}
+          style={[styles.auditCard, { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface }]}
+        >
+          <View style={styles.auditRow}>
+            <View style={styles.auditLeft}>
+              <Ionicons name="stats-chart" size={14} color="#A599FF" />
+              <Text style={[styles.auditTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}>
+                Weekly Split Balance
+              </Text>
+              <View style={styles.tierPill}>
+                <Text style={styles.tierPillText}>{weeklyAudit.highTierPct}% S/A+</Text>
               </View>
-            )}
+            </View>
+            <View style={styles.auditRight}>
+              <Text style={styles.auditMeta}>{weeklyAudit.totalSets} Weekly Sets</Text>
+              <Ionicons
+                name={auditExpanded ? 'chevron-up' : 'chevron-forward'}
+                size={13}
+                color="#8E8E93"
+                style={{ marginLeft: 4 }}
+              />
+            </View>
           </View>
-        )}
+
+          {auditExpanded && (
+            <View style={styles.auditExpandedWrap}>
+              <View style={styles.musclePillsGrid}>
+                {Object.entries(weeklyAudit.muscleSets).map(([muscle, sets]) => (
+                  <View key={`aud-${muscle}`} style={styles.muscleStatItem}>
+                    <Text style={styles.muscleStatName}>{muscle}</Text>
+                    <Text style={[styles.muscleStatValue, sets === 0 && { color: '#8E8E93' }]}>
+                      {sets}s
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* ── 3. Selected Day Card (Schedule-First Direct Exercise View) ── */}
+        <View
+          style={[
+            styles.dayWorkoutCard,
+            { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
+          ]}
+        >
+          {activeDayIsRest ? (
+            <View style={styles.restCardBody}>
+              <View style={styles.restIconBox}>
+                <Ionicons name="moon-outline" size={24} color="#A599FF" />
+              </View>
+              <Text style={[styles.restTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}>
+                {activeDay.dayName}: Rest & Recovery
+              </Text>
+              <Text style={styles.restSubtitle}>
+                Scheduled active recovery, muscle repair & nervous system restoration.
+              </Text>
+              <TouchableOpacity
+                activeOpacity={0.75}
+                onPress={() => onToggleRest(activeDay.dayIndex)}
+                style={styles.switchWorkoutBtn}
+              >
+                <Ionicons name="fitness-outline" size={15} color="#A599FF" style={{ marginRight: 6 }} />
+                <Text style={styles.switchWorkoutBtnText}>Switch to Workout Day</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.dayCardBody}>
+              {/* Header: Day Name + Title + Single Primary "Customize" Action */}
+              <View style={styles.dayCardHeaderRow}>
+                <View style={{ flex: 1, paddingRight: 10 }}>
+                  <View style={styles.dayBadgeRow}>
+                    <Text style={styles.dayCardDayLabel}>{activeDay.dayName.toUpperCase()}</Text>
+                    {activeDay.dayIndex === todayDayIndex && (
+                      <View style={styles.todayPillBadge}>
+                        <Text style={styles.todayPillText}>TODAY</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text
+                    style={[styles.dayCardTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
+                    numberOfLines={1}
+                  >
+                    {activeDay.planDay.name}
+                  </Text>
+                  <Text style={styles.dayCardSubCount} numberOfLines={1}>
+                    {activeDayExercises.length} Movements · {activeDayTotalSets} Sets
+                    {activeDay.planDay.focus ? ` · ${activeDay.planDay.focus}` : ''}
+                  </Text>
+                </View>
+
+                {/* 1-Tap Primary Action */}
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    hapticLight();
+                    onEditRoutineExercises(activeDay.planDay, activeDay.dayIndex);
+                  }}
+                  style={styles.customizeBtn}
+                >
+                  <Ionicons name="create-outline" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
+                  <Text style={styles.customizeBtnText}>Customize</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Direct Exercise Cards: Visible directly with 0 extra taps */}
+              <View style={styles.directExerciseList}>
+                {activeDayExercises.length === 0 ? (
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => onEditRoutineExercises(activeDay.planDay, activeDay.dayIndex)}
+                    style={styles.noExercisesBox}
+                  >
+                    <Ionicons name="add-circle-outline" size={20} color="#A599FF" />
+                    <Text style={styles.noExercisesText}>No movements yet. Tap to add exercises.</Text>
+                  </TouchableOpacity>
+                ) : (
+                  activeDayExercises.map((ex, idx) => {
+                    const eq = getEquipmentGlyph(ex.name);
+                    const { targetMuscle } = resolveExerciseTargetMuscle(ex.name, ex.muscle);
+                    const muscleColor = resolveMuscleColor(targetMuscle);
+                    const tier = EXERCISE_TIER_MAP.get(normalizeExerciseKey(ex.name));
+
+                    return (
+                      <TouchableOpacity
+                        key={`ex-row-${idx}-${ex.id || ex.name}`}
+                        activeOpacity={0.75}
+                        onPress={() => {
+                          hapticLight();
+                          onEditRoutineExercises(activeDay.planDay, activeDay.dayIndex);
+                        }}
+                        style={[
+                          styles.directExerciseRow,
+                          idx !== activeDayExercises.length - 1 && styles.directExerciseRowBorder,
+                        ]}
+                      >
+                        <View style={styles.directExLeft}>
+                          {/* Equipment Glyph */}
+                          <View
+                            style={[
+                              styles.eqBadge,
+                              { backgroundColor: `${eq.color}15`, borderColor: `${eq.color}35` },
+                            ]}
+                          >
+                            <Text style={[styles.eqBadgeText, { color: eq.color }]}>{eq.glyph}</Text>
+                          </View>
+
+                          {/* Exercise Name & Muscle / Tier */}
+                          <View style={styles.directExTextCol}>
+                            <Text
+                              style={[styles.directExName, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
+                              numberOfLines={1}
+                            >
+                              {ex.name}
+                            </Text>
+                            <View style={styles.directExMetaRow}>
+                              <View style={[styles.muscleDot, { backgroundColor: muscleColor }]} />
+                              <Text style={styles.directExMuscle} numberOfLines={1}>
+                                {targetMuscle}
+                              </Text>
+                              {tier ? (
+                                <View style={[styles.tierTag, tier === 'S Tier' ? styles.sTierTag : styles.aTierTag]}>
+                                  <Text style={[styles.tierTagText, tier === 'S Tier' ? styles.sTierText : styles.aTierText]}>
+                                    {tier}
+                                  </Text>
+                                </View>
+                              ) : null}
+                            </View>
+                          </View>
+                        </View>
+
+                        {/* Sets × Reps Pill */}
+                        <View style={styles.directExRight}>
+                          <View style={styles.setsRepsPill}>
+                            <Text style={styles.setsRepsText}>
+                              {ex.targetSets || 3} × {ex.targetReps || '8–12'}
+                            </Text>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </View>
+
+              {/* Minimal Secondary Action Chips Row (Tucked cleanly at bottom) */}
+              <View style={styles.footerChipsRow}>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    hapticLight();
+                    setShowAssignSheet(true);
+                  }}
+                  style={styles.footerChip}
+                >
+                  <Ionicons name="swap-horizontal" size={13} color="#A599FF" />
+                  <Text style={styles.footerChipText}>Switch Routine</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    hapticLight();
+                    onEditTime(activeDay.dayIndex);
+                  }}
+                  style={styles.footerChip}
+                >
+                  <Ionicons name="time-outline" size={13} color="#A599FF" />
+                  <Text style={styles.footerChipText}>
+                    {formattedDayTime || 'Set Time'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    hapticLight();
+                    onRenameDay(activeDay.dayIndex);
+                  }}
+                  style={styles.footerChip}
+                >
+                  <Ionicons name="pencil-outline" size={12} color="#8E8E93" />
+                  <Text style={styles.footerChipText}>Rename</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    hapticLight();
+                    onToggleRest(activeDay.dayIndex);
+                  }}
+                  style={styles.footerChip}
+                >
+                  <Ionicons name="moon-outline" size={12} color="#8E8E93" />
+                  <Text style={styles.footerChipText}>Rest</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
       </View>
 
-    </View>
-
-      {/* ── Quick Sheet: Assign Routine to Day (OUTSIDE content View to prevent touch blocking) ── */}
+      {/* ── Quick Sheet: Assign Routine to Day ── */}
       <Modal
         visible={showAssignSheet}
         transparent
@@ -561,10 +604,18 @@ const styles = StyleSheet.create({
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#A599FF',
+    backgroundColor: '#30D158',
+  },
+  todayIndicatorDotActive: {
+    backgroundColor: '#000000',
   },
   dayPillActive: {
-    backgroundColor: '#2C2C2E',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.25,
+    shadowRadius: 2,
+    elevation: 2,
   },
   dayPillName: {
     fontFamily: FONT_FAMILY.medium,
@@ -573,7 +624,7 @@ const styles = StyleSheet.create({
   },
   dayPillNameActive: {
     fontFamily: FONT_FAMILY.bold,
-    color: '#FFFFFF',
+    color: '#000000',
   },
   dayPillTag: {
     fontFamily: FONT_FAMILY.bold,
@@ -582,7 +633,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   dayPillTagActive: {
-    color: '#A599FF',
+    color: '#000000',
   },
   dayPillTagRest: {
     color: '#8E8E93',
@@ -667,14 +718,14 @@ const styles = StyleSheet.create({
   dayCardBody: {},
   dayCardHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
   },
   dayBadgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 3,
+    marginBottom: 2,
   },
   dayCardDayLabel: {
     fontFamily: FONT_FAMILY.bold,
@@ -696,94 +747,169 @@ const styles = StyleSheet.create({
   },
   dayCardTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 18,
+    fontSize: 17,
     letterSpacing: -0.3,
-    marginTop: 2,
   },
-  dayCardFocusText: {
+  dayCardSubCount: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 12,
     color: '#8E8E93',
     marginTop: 2,
-    lineHeight: 16,
   },
-  renameBtn: {
-    padding: 6,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  metricsChipsRow: {
+  customizeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    marginTop: 10,
-  },
-  metricChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  timeMetricChip: {
-    backgroundColor: 'rgba(165, 153, 255, 0.08)',
-    borderColor: 'rgba(165, 153, 255, 0.2)',
-  },
-  metricChipText: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 11.5,
-    color: '#E0E0E6',
-  },
-  timeMetricText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11.5,
-    color: '#A599FF',
-  },
-  dayCardButtonsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginTop: 12,
-  },
-  switchRoutineBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    height: 42,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(165, 153, 255, 0.25)',
-  },
-  switchRoutineBtnText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-  },
-  editMovementsBtn: {
-    flex: 1.1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    height: 42,
-    borderRadius: 12,
     backgroundColor: '#6C5CE7',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
     shadowColor: '#6C5CE7',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.35,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowRadius: 5,
+    elevation: 3,
   },
-  editMovementsBtnText: {
+  customizeBtnText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 12,
+    color: '#FFFFFF',
+  },
+  directExerciseList: {
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+    paddingTop: 4,
+  },
+  noExercisesBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+    gap: 8,
+  },
+  noExercisesText: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 13,
+    color: '#8E8E93',
+  },
+  directExerciseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 9,
+  },
+  directExerciseRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  directExLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    paddingRight: 10,
+    gap: 10,
+  },
+  eqBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eqBadgeText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 10,
+    letterSpacing: 0.2,
+  },
+  directExTextCol: {
+    flex: 1,
+  },
+  directExName: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 13,
-    color: '#FFFFFF',
+    lineHeight: 17,
+  },
+  directExMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 2,
+  },
+  muscleDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  directExMuscle: {
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: 11,
+    color: '#8E8E93',
+  },
+  tierTag: {
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+    marginLeft: 2,
+  },
+  sTierTag: {
+    backgroundColor: 'rgba(255, 215, 0, 0.15)',
+  },
+  sTierText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 9,
+    color: '#FFD700',
+  },
+  aTierTag: {
+    backgroundColor: 'rgba(165, 153, 255, 0.15)',
+  },
+  aTierText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 9,
+    color: '#A599FF',
+  },
+  tierTagText: {},
+  directExRight: {
+    alignItems: 'flex-end',
+  },
+  setsRepsPill: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  setsRepsText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 11,
+    color: '#E0E0E6',
+  },
+  footerChipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  footerChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  footerChipText: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 11,
+    color: '#8E8E93',
   },
   restIconBox: {
     width: 44,
@@ -794,58 +920,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 8,
   },
-  exercisePreviewWrap: {
-    marginTop: 8,
-  },
-  disclosureHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  disclosureTitle: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 11,
-    color: '#8E8E93',
-  },
-  compactExercisePills: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11,
-    color: '#636366',
-    marginTop: 2,
-  },
-  expandedExercisesList: {
-    marginTop: 6,
-    gap: 4,
-  },
-  miniExerciseRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  miniIndex: {
-    width: 18,
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 11,
-    color: '#636366',
-  },
-  miniName: {
-    flex: 1,
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 12,
-  },
-  miniSets: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11,
-    color: '#8E8E93',
-  },
   restCardBody: {
     alignItems: 'center',
     paddingVertical: 18,
   },
   restTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 14,
+    fontSize: 15,
     marginBottom: 2,
   },
   restSubtitle: {
@@ -853,12 +934,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#8E8E93',
     textAlign: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
+    lineHeight: 17,
   },
   switchWorkoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: 'rgba(165, 153, 255, 0.12)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
     borderRadius: 8,
   },
   switchWorkoutBtnText: {
