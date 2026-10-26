@@ -21,6 +21,7 @@ import {
   dateStrOffset,
 } from '../../hooks/useGymLog';
 import { GymCardioLog } from '../../types/gym.types';
+import { getL1Sync } from '../../utils/bootManifest';
 import { useTheme } from '../../contexts/ThemeContext';
 import { IOS_DARK, FONT_FAMILY } from '../../theme/tokens';
 import { hapticLight, hapticMedium, hapticSuccess, hapticHeavy } from '../../utils/haptics';
@@ -301,16 +302,22 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
           if (isWorkoutCompleted || log?.completed) return;
           const draftKey = log?.id ? `gym_active_draft_${log.id}` : null;
           if (draftKey) {
-            const raw = await AsyncStorage.getItem(draftKey);
-            if (raw) {
-              const draft = JSON.parse(raw);
+            let draft = getL1Sync<any>(draftKey, null);
+            if (!draft) {
+              const raw = await AsyncStorage.getItem(draftKey);
+              if (raw) {
+                try {
+                  draft = JSON.parse(raw);
+                } catch {}
+              }
+            }
+            if (draft) {
               const hasLoggedSets = (draft?.exercises || []).some((ex: any) =>
                 (ex.setsLog || []).some((s: any) => s.completed)
               );
               // Only re-hydrate if: newer AND has real logged sets.
               // A bare workoutStartTime with no sets is a ghost — ignore it.
               if (
-                draft &&
                 draft.date === selectedDate &&
                 !draft.completed &&
                 hasLoggedSets &&

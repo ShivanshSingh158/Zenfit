@@ -28,11 +28,14 @@ import { queueWrite } from "../../services/offlineSync";
 import { uploadFileToCloudinary } from "../../services/cloudinary";
 import { formatLocalDateStr } from "../../utils/dateUtils";
 
+import { BOOT_KEYS } from "../../utils/bootManifest";
+
 // Extracted Subcomponents & Styles
 import { makeBodyMetricsStyles } from "./bodyMetricsStyles";
 import BodyMetricsHistoryChart, { WeightChartEntry } from "./BodyMetricsHistoryChart";
 
-const WEIGHT_LOGS_KEY = "zentrack_weight_logs_v1";
+const WEIGHT_LOGS_KEY = BOOT_KEYS.WEIGHT_LOGS;
+const LEGACY_WEIGHT_LOGS_KEY = "zentrack_weight_logs_v1";
 
 function classifyBMI(bmi: number): { label: string; color: string } {
   if (bmi < 18.5) return { label: "Underweight", color: "#60a5fa" };
@@ -70,7 +73,7 @@ export default function BodyMetricsSheet({ visible, onClose }: Props) {
   const [localLogs, setLocalLogs] = useState<WeightEntry[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<{ url: string; date?: string; weight?: number } | null>(null);
 
-  // Load cached local weight logs on mount / visibility
+  // Load cached local weight logs on mount / visibility (migrating from legacy key if needed)
   useEffect(() => {
     if (visible) {
       AsyncStorage.getItem(WEIGHT_LOGS_KEY).then(raw => {
@@ -79,6 +82,19 @@ export default function BodyMetricsSheet({ visible, onClose }: Props) {
             const parsed = JSON.parse(raw);
             if (Array.isArray(parsed)) setLocalLogs(parsed);
           } catch (_) {}
+        } else {
+          AsyncStorage.getItem(LEGACY_WEIGHT_LOGS_KEY).then(legacyRaw => {
+            if (legacyRaw) {
+              try {
+                const parsed = JSON.parse(legacyRaw);
+                if (Array.isArray(parsed)) {
+                  setLocalLogs(parsed);
+                  AsyncStorage.setItem(WEIGHT_LOGS_KEY, legacyRaw).catch(() => {});
+                  AsyncStorage.removeItem(LEGACY_WEIGHT_LOGS_KEY).catch(() => {});
+                }
+              } catch (_) {}
+            }
+          });
         }
       });
     }
@@ -167,6 +183,7 @@ export default function BodyMetricsSheet({ visible, onClose }: Props) {
       const updatedLocal = [newEntry, ...localLogs.filter(l => l.date !== today)];
       setLocalLogs(updatedLocal);
       await AsyncStorage.setItem(WEIGHT_LOGS_KEY, JSON.stringify(updatedLocal));
+      AsyncStorage.removeItem(LEGACY_WEIGHT_LOGS_KEY).catch(() => {});
 
       // Update gym profile height/weight/target
       const heightVal = heightInput ? parseFloat(heightInput) : gymProfile.heightCm;

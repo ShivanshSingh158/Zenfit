@@ -63,17 +63,17 @@ const ZEN_LIGHT_THEME = {
   },
 };
 
-function MainNavigator() {
+function MainNavigator({ navReady }: { navReady: boolean }) {
   const { user, loading, isGuest } = useCoreData();
   const { isDark, colors } = useTheme();
   const [authStep, setAuthStep] = useState<'welcome' | 'signin'>('welcome');
 
-  // Dismiss splash screen the exact moment real UI (either GymStack or AuthScreen) is ready
+  // Dismiss splash screen the exact moment real UI (either GymStack or AuthScreen) AND navigation are ready
   React.useEffect(() => {
-    if (!loading) {
+    if (!loading && navReady) {
       SplashScreen.hideAsync().catch(() => {});
     }
-  }, [loading]);
+  }, [loading, navReady]);
 
   // Instant 0ms transition: if cached user or guest exists, this never renders.
   // If fresh install, this holds under the native splash for <5ms while local storage checks.
@@ -109,15 +109,16 @@ function MainNavigator() {
 
 function MainRoot() {
   const { isDark } = useTheme();
+  const [navReady, setNavReady] = useState(false);
 
   return (
     <NavigationContainer
       theme={isDark ? ZEN_DARK_THEME : ZEN_LIGHT_THEME}
       onReady={() => {
-        SplashScreen.hideAsync().catch(() => {});
+        setNavReady(true);
       }}
     >
-      <MainNavigator />
+      <MainNavigator navReady={navReady} />
     </NavigationContainer>
   );
 }
@@ -147,10 +148,10 @@ export default function App() {
     // 0ms startup delay; silently downloads new bundles in the background, ready on next launch
     const unsubscribeOta = registerDeferredOtaSync();
 
-    // Safety fallback: guaranteed splash dismissal under any unexpected edge case (<400ms)
+    // Safety fallback: guaranteed splash dismissal under any unexpected edge case (<2500ms)
     const safetyTimer = setTimeout(() => {
       SplashScreen.hideAsync().catch(() => {});
-    }, 400);
+    }, 2500);
 
     return () => {
       clearTimeout(safetyTimer);

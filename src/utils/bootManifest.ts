@@ -3,7 +3,7 @@ import { InteractionManager } from 'react-native';
 import { User } from 'firebase/auth';
 
 // ─── Pure JS RAM L1 Cache (0ms synchronous reads after boot) ──────────────────
-const L1_RAM_CACHE = new Map<string, any>();
+export const L1_RAM_CACHE = new Map<string, any>();
 let _isBootHydrated = false;
 
 export function getL1Sync<T>(key: string, fallback: T): T {
@@ -13,6 +13,10 @@ export function getL1Sync<T>(key: string, fallback: T): T {
 export function setL1Sync<T>(key: string, value: T): void {
   L1_RAM_CACHE.set(key, value);
   AsyncStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value)).catch(() => {});
+}
+
+export function deleteL1Sync(key: string): void {
+  L1_RAM_CACHE.delete(key);
 }
 
 export function isL1BootHydrated(): boolean {

@@ -27,7 +27,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useGymLogs, useBodyMetrics } from '../../contexts/domains/WellnessContext';
 import { useGymProfile } from '../../hooks/useGymProfile';
-import { getL1Sync } from '../../utils/bootManifest';
+import { BOOT_KEYS, getL1Sync } from '../../utils/bootManifest';
 import { useTheme } from '../../contexts/ThemeContext';
 import { FONT_FAMILY } from '../../theme/tokens';
 import { GymNavigationParamList } from '../../types/gym.types';
@@ -37,7 +37,8 @@ import BodyMetricsHistoryChart, { WeightChartEntry } from '../../components/Gym/
 import BodyMetricsSheet from '../../components/Gym/BodyMetricsSheet';
 import BeforeAfterSlider from '../../components/Gym/BeforeAfterSlider';
 
-const WEIGHT_LOGS_KEY = 'zentrack_weight_logs_v1';
+const WEIGHT_LOGS_KEY = BOOT_KEYS.WEIGHT_LOGS;
+const LEGACY_WEIGHT_LOGS_KEY = 'zentrack_weight_logs_v1';
 
 function classifyBMI(bmi: number): { label: string; color: string } {
   if (bmi < 18.5) return { label: 'Underweight', color: '#60A5FA' };
@@ -54,15 +55,26 @@ export default function GymProgressScreen() {
   const { gymProfile } = useGymProfile();
 
   const [showWeighInSheet, setShowWeighInSheet] = useState(false);
-  const [localWeightLogs, setLocalWeightLogs] = useState<any[]>(() => getL1Sync<any[]>(WEIGHT_LOGS_KEY, []));
+  const [localWeightLogs, setLocalWeightLogs] = useState<any[]>(() =>
+    getL1Sync<any[]>(WEIGHT_LOGS_KEY, null) || getL1Sync<any[]>(LEGACY_WEIGHT_LOGS_KEY, [])
+  );
 
   useEffect(() => {
     AsyncStorage.getItem(WEIGHT_LOGS_KEY).then(raw => {
-      if (!raw) return;
-      try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) setLocalWeightLogs(parsed);
-      } catch (_) {}
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) setLocalWeightLogs(parsed);
+        } catch (_) {}
+      } else {
+        AsyncStorage.getItem(LEGACY_WEIGHT_LOGS_KEY).then(legacyRaw => {
+          if (!legacyRaw) return;
+          try {
+            const parsed = JSON.parse(legacyRaw);
+            if (Array.isArray(parsed)) setLocalWeightLogs(parsed);
+          } catch (_) {}
+        });
+      }
     });
   }, [showWeighInSheet]);
 

@@ -695,7 +695,8 @@ const MemoizedMuscleGroup = React.memo<{
     prev.timeWindowDays === next.timeWindowDays &&
     prev.defaultMode === next.defaultMode &&
     prev.weekAnchorDate === next.weekAnchorDate &&
-    generateDatasetFingerprint(prev.gymLogs) === generateDatasetFingerprint(next.gymLogs)
+    prev.style === next.style &&
+    (prev.gymLogs === next.gymLogs || generateDatasetFingerprint(prev.gymLogs) === generateDatasetFingerprint(next.gymLogs))
   );
 });
 

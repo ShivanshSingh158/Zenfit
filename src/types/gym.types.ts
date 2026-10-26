@@ -122,6 +122,7 @@ export interface GymCustomPlanDay {
 export interface UserGymPlanDoc {
   id?: string;
   userId: string;
+  schemaVersion?: number;
   templateId?: 'arnold' | 'ppl' | string;
   schedulePattern?: 'mon_sun' | 'tue_mon' | 'wed_sun' | 'mon_fri' | 'custom' | string;
   customDays: Record<number, GymPlanDay>;

@@ -584,8 +584,8 @@ export function computeUnifiedAnalytics(gymLogs: GymDayLog[]): UnifiedAnalyticsD
       }
     }
 
-    const overloadRatePct = evaluatedCount > 0 ? Math.round((progressedCount / evaluatedCount) * 100) : 100;
-    const netStrengthDeltaPct = evaluatedCount > 0 ? Math.round((sumDeltaPct / evaluatedCount) * 10) / 10 : 3.2;
+    const overloadRatePct = evaluatedCount > 0 ? Math.round((progressedCount / evaluatedCount) * 100) : 0;
+    const netStrengthDeltaPct = evaluatedCount > 0 ? Math.round((sumDeltaPct / evaluatedCount) * 10) / 10 : 0;
 
     // ── Effective Weekly Muscle Volumes (Zone Bars) ───────────────────────────
     const MUSCLE_PALETTE: Record<string, string> = {
@@ -615,7 +615,7 @@ export function computeUnifiedAnalytics(gymLogs: GymDayLog[]): UnifiedAnalyticsD
     // ── Effort Quality ────────────────────────────────────────────────────────
     const totalWeeklySets = weeklyEffectiveHypertrophySets + weeklySubmaximalSets;
     const hypertrophySweetSpotPct =
-      totalWeeklySets > 0 ? Math.round((weeklyEffectiveHypertrophySets / totalWeeklySets) * 100) : 85;
+      totalWeeklySets > 0 ? Math.round((weeklyEffectiveHypertrophySets / totalWeeklySets) * 100) : 0;
 
     // ── Pinned Core Lifts Matrix (Top 4 most frequent compound lifts) ──────────
     const pinnedCandidates = allSummaries.slice(0, 4);
@@ -659,14 +659,14 @@ export function computeUnifiedAnalytics(gymLogs: GymDayLog[]): UnifiedAnalyticsD
       },
       recentPRs: prEvents.slice(0, 20),
       weeklyScorecard: {
-        evaluatedCount: evaluatedCount || 6,
-        progressedCount: progressedCount || 5,
-        overloadRatePct: overloadRatePct || 83,
-        netStrengthDeltaPct: netStrengthDeltaPct || 3.4,
-        weightUnlocks: weightUnlocks || 3,
-        repBuilds: repBuilds || 2,
-        plateaus: plateaus || 1,
-        deloads: deloads || 0,
+        evaluatedCount,
+        progressedCount,
+        overloadRatePct: evaluatedCount > 0 ? overloadRatePct : 0,
+        netStrengthDeltaPct: evaluatedCount > 0 ? netStrengthDeltaPct : 0,
+        weightUnlocks,
+        repBuilds,
+        plateaus,
+        deloads,
       },
       effectiveMuscleVolumes,
       effortQuality: {

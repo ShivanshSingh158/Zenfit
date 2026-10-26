@@ -28,7 +28,7 @@ import { setActiveWorkoutFlag } from '../components/BackgroundNotificationWatche
 import { isAutoTimerEnabledSync } from './useGymProfile';
 import { generateDatasetFingerprint } from '../utils/hotCacheStore';
 import { writeWellnessCache, flushDomainCache } from '../utils/domainCache';
-import { updateL1Cache } from '../utils/bootManifest';
+import { updateL1Cache, setL1Sync, L1_RAM_CACHE } from '../utils/bootManifest';
 import { recordExerciseToLedger } from '../utils/exerciseLedger';
 
 
@@ -252,7 +252,7 @@ export function useGymLog(dateStr: string) {
       if (draftSaveTimerRef.current && logRef.current && !logRef.current.completed && prevLogId) {
         clearTimeout(draftSaveTimerRef.current);
         draftSaveTimerRef.current = null;
-        AsyncStorage.setItem(`gym_active_draft_${prevLogId}`, JSON.stringify(logRef.current)).catch(() => {});
+        setL1Sync(`gym_active_draft_${prevLogId}`, logRef.current);
       }
 
       // 3. Flush Firestore write using the PREVIOUS date's logId (not the new dateStr!)
@@ -590,7 +590,7 @@ export function useGymLog(dateStr: string) {
         draftSaveTimerRef.current = null;
       }
 
-      // 2. Purge all draft keys from AsyncStorage
+      // 2. Purge all draft keys from AsyncStorage and L1 RAM cache
       const draftKeys = [
         `gym_active_draft_${logId}`,
         effectiveUid ? `gym_active_draft_${effectiveUid}_${updatedLog.date}` : null,
@@ -599,6 +599,7 @@ export function useGymLog(dateStr: string) {
         '@zentrack_active_workout_state',
       ].filter(Boolean) as string[];
       AsyncStorage.multiRemove(draftKeys).catch(() => {});
+      draftKeys.forEach(k => L1_RAM_CACHE.delete(k));
 
       if (pendingOptimisticUpdateTimerRef.current) {
         clearTimeout(pendingOptimisticUpdateTimerRef.current);
@@ -671,13 +672,13 @@ export function useGymLog(dateStr: string) {
         updateL1Cache('gymLogs', nextLogs);
       } catch (_) {}
 
-      // Write active draft to AsyncStorage immediately — 0ms delay!
+      // Write active draft to L1 RAM cache & AsyncStorage immediately — 0ms delay!
       // This guarantees that swiping away or closing the app NEVER drops logged sets or exercises!
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
       draftSaveTimerRef.current = null;
-      AsyncStorage.setItem(`gym_active_draft_${logId}`, JSON.stringify(logWithId)).catch(() => {});
+      setL1Sync(`gym_active_draft_${logId}`, logWithId);
       if (effectiveUid !== 'local_user') {
-        AsyncStorage.setItem(`gym_active_draft_${effectiveUid}_${updatedLog.date}`, JSON.stringify(logWithId)).catch(() => {});
+        setL1Sync(`gym_active_draft_${effectiveUid}_${updatedLog.date}`, logWithId);
       }
       try {
         // Immediate write to wellness domain disk cache so restart reads fresh data
@@ -733,9 +734,9 @@ export function useGymLog(dateStr: string) {
           const effectiveUid = user?.uid || auth.currentUser?.uid || 'local_user';
           const logId = currentLog.id || `${effectiveUid}_${currentLog.date}`;
           if (!currentLog.completed) {
-            AsyncStorage.setItem(`gym_active_draft_${logId}`, JSON.stringify(currentLog)).catch(() => {});
+            setL1Sync(`gym_active_draft_${logId}`, currentLog);
             if (effectiveUid !== 'local_user') {
-              AsyncStorage.setItem(`gym_active_draft_${effectiveUid}_${currentLog.date}`, JSON.stringify(currentLog)).catch(() => {});
+              setL1Sync(`gym_active_draft_${effectiveUid}_${currentLog.date}`, currentLog);
             }
           }
           flushGlobalPendingFirestoreWrite(logId);

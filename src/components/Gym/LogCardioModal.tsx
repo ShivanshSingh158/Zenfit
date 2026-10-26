@@ -83,27 +83,21 @@ export function LogCardioModal({ visible, cardio, onClose, onSave }: Props) {
     : [];
 
   useEffect(() => {
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvt, (e) => {
-      if (Platform.OS === 'ios') {
-        Animated.timing(keyboardOffset, {
-          toValue: e.endCoordinates.height,
-          duration: e.duration || 160,
-          useNativeDriver: true,
-        }).start();
-      }
+    if (Platform.OS !== 'ios') return;
+    const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
+      Animated.timing(keyboardOffset, {
+        toValue: e.endCoordinates.height,
+        duration: e.duration || 160,
+        useNativeDriver: true,
+      }).start();
     });
 
-    const hideSub = Keyboard.addListener(hideEvt, (e: any) => {
-      if (Platform.OS === 'ios') {
-        Animated.timing(keyboardOffset, {
-          toValue: 0,
-          duration: e?.duration || 160,
-          useNativeDriver: true,
-        }).start();
-      }
+    const hideSub = Keyboard.addListener('keyboardWillHide', (e: any) => {
+      Animated.timing(keyboardOffset, {
+        toValue: 0,
+        duration: e?.duration || 160,
+        useNativeDriver: true,
+      }).start();
     });
 
     return () => {
