@@ -202,11 +202,13 @@ export function useGymLog(dateStr: string) {
     const pending = pendingOptimisticUpdateLogRef.current;
     if (pending) {
       pendingOptimisticUpdateLogRef.current = null;
-      if (gymLogsRef.current.some(l => l.id === pending.logId || l.date === pending.log.date)) {
-        optimisticUpdateGymLog(pending.logId, pending.log as any);
-      } else {
-        optimisticAddGymLog(pending.log as any);
-      }
+      queueMicrotask(() => {
+        if (gymLogsRef.current.some(l => l.id === pending.logId || l.date === pending.log.date)) {
+          optimisticUpdateGymLog(pending.logId, pending.log as any);
+        } else {
+          optimisticAddGymLog(pending.log as any);
+        }
+      });
       queueMicrotask(() => {
         DeviceEventEmitter.emit('gym_log_local_mutation', {
           date: pending.log.date,
@@ -628,12 +630,14 @@ export function useGymLog(dateStr: string) {
         writeWellnessCache({ gymLogs: nextLogs as any }, true);
       } catch (_) {}
 
-      // 4. Immediately update WellnessContext state
-      if ((gymLogsRef.current || []).some(l => l.id === logId || l.date === updatedLog.date)) {
-        optimisticUpdateGymLog(logId, cleanCompletedLog as any);
-      } else {
-        optimisticAddGymLog(cleanCompletedLog as any);
-      }
+      // 4. Update WellnessContext state in microtask so it never updates during active component render
+      queueMicrotask(() => {
+        if ((gymLogsRef.current || []).some(l => l.id === logId || l.date === updatedLog.date)) {
+          optimisticUpdateGymLog(logId, cleanCompletedLog as any);
+        } else {
+          optimisticAddGymLog(cleanCompletedLog as any);
+        }
+      });
       queueMicrotask(() => {
         DeviceEventEmitter.emit('gym_log_local_mutation', {
           date: updatedLog.date,

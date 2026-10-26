@@ -942,7 +942,9 @@ export function WellnessProvider({
     const next = exists ? prev.map(l => (l.id === log.id || l.date === log.date) ? log : l) : [log, ...prev];
     gymLogsRef.current = next;
     updateL1Cache('gymLogs', next);
-    setGymLogs(next);
+    queueMicrotask(() => {
+      setGymLogs(next);
+    });
     debouncePersistGymLogs(next);
   }, [debouncePersistGymLogs]);
 
@@ -960,7 +962,9 @@ export function WellnessProvider({
     });
     gymLogsRef.current = next;
     updateL1Cache('gymLogs', next);
-    setGymLogs(next);
+    queueMicrotask(() => {
+      setGymLogs(next);
+    });
     debouncePersistGymLogs(next);
   }, [debouncePersistGymLogs]);
 
