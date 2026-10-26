@@ -28,7 +28,6 @@ import { RoutineEditorModal } from '../../components/Gym/RoutineEditorModal';
 import { ZenGymAiModal } from '../../components/Gym/ZenGymAiModal';
 import { GymTemplateModal } from '../../components/Gym/GymTemplateModal';
 import GymScheduleSettingsModal from '../../components/Gym/GymScheduleSettingsModal';
-import { GymAiIcon } from '../../components/Gym/GymAiIcon';
 
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -322,7 +321,7 @@ export default function GymSplitsScreen() {
           <Text style={[styles.screenTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}>
             Plan
           </Text>
-          <Text style={styles.screenSubtitle}>
+          <Text style={styles.screenSubtitle} numberOfLines={1}>
             {splitTitle} · 7-Day Schedule
           </Text>
         </View>
@@ -341,15 +340,13 @@ export default function GymSplitsScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={() => {
-              hapticLight();
-              setAiModalVisible(true);
-            }}
-            style={styles.headerIconBtn}
-            accessibilityLabel="AI Coach"
+            activeOpacity={0.75}
+            onPress={() => handleCreateRoutine()}
+            style={styles.newRoutinePill}
+            accessibilityLabel="Add Routine"
           >
-            <GymAiIcon size={18} primaryColor="#A599FF" sparkleColor="#EC4899" />
+            <Ionicons name="add" size={15} color="#FFFFFF" />
+            <Text style={styles.newRoutinePillText}>Add Routine</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -743,16 +740,22 @@ const styles = StyleSheet.create({
   newRoutinePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 4,
     backgroundColor: '#6C5CE7',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    shadowColor: '#6C5CE7',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 5,
+    elevation: 3,
   },
   newRoutinePillText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
+    fontSize: 12.5,
     color: '#FFFFFF',
+    letterSpacing: -0.2,
   },
   headerIconBtn: {
     width: 32,
