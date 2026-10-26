@@ -33,7 +33,6 @@ import SupersetPickerModal from '../../components/Gym/SupersetPickerModal';
 import ActiveSwapModal from '../../components/Gym/ActiveSwapModal';
 import AnimatedRestTimer from '../../components/Gym/AnimatedRestTimer';
 import ExerciseDeepDiveModal from '../../components/Gym/ExerciseDeepDiveModal';
-import PlateCalculatorModal from '../../components/Gym/PlateCalculatorModal';
 import { WorkoutKeypad } from '../../components/Gym/WorkoutKeypad';
 import { insertWarmupLadder } from '../../utils/warmupGenerator';
 import { dismissActiveWorkoutNotification } from '../../services/activeWorkoutNotificationService';
@@ -226,7 +225,6 @@ export default function ActiveLoggingScreen() {
   // With InteractionManager they execute only after all pending animations finish.
   const [overloadSuggestion, setOverloadSuggestion] = useState<any | null>(null);
   const [lastTimeData, setLastTimeData] = useState<string | null>(null);
-  const [showPlateModal, setShowPlateModal] = useState(false);
   const [prToast, setPrToast] = useState<{ message: string } | null>(null);
   const prToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -515,10 +513,6 @@ export default function ActiveLoggingScreen() {
       setIsRefreshingVideo(false);
     }
   }, [exercise, isRefreshingVideo, realExerciseIndex, updateExercise]);
-
-  const handleOpenPlateCalculator = useCallback(() => {
-    setShowPlateModal(true);
-  }, []);
 
   const stateRef = useRef({
     setInputs,
@@ -1719,7 +1713,6 @@ export default function ActiveLoggingScreen() {
               onVideoToggle={handleVideoToggle}
               onSwitchToPartner={handleSwitchToPartner}
               onNoteChange={handleNoteChange}
-              onOpenPlateCalculator={handleOpenPlateCalculator}
             />
 
             {/* Form Video Player Component */}
@@ -1981,24 +1974,6 @@ export default function ActiveLoggingScreen() {
           overloadSuggestion={overloadSuggestion}
           gymLogs={gymLogs || []}
           onClose={() => setDeepDiveVisible(false)}
-        />
-      )}
-
-      {/* Barbell Plate Calculator Modal */}
-      {showPlateModal && (
-        <PlateCalculatorModal
-          visible={showPlateModal}
-          initialWeight={(() => {
-            const curSet = exercise?.setsLog?.[activeSetIndex] || exercise?.setsLog?.[0];
-            const inputWeight = setInputs?.[activeSetIndex]?.weight;
-            return Number(inputWeight) || Number(curSet?.weight) || 60;
-          })()}
-          onClose={() => setShowPlateModal(false)}
-          onApplyWeight={(w) => {
-            if (activeSetIndex != null && activeSetIndex >= 0) {
-              handleTextChange(activeSetIndex, 'weight', String(w));
-            }
-          }}
         />
       )}
 

@@ -52,7 +52,6 @@ export interface ActiveExerciseHeaderProps {
   onVideoToggle: () => void;
   onSwitchToPartner: () => void;
   onNoteChange?: (note: string) => void;
-  onOpenPlateCalculator?: () => void;
 }
 
 export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.memo(({
@@ -70,7 +69,6 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
   onVideoToggle,
   onSwitchToPartner,
   onNoteChange,
-  onOpenPlateCalculator,
 }) => {
   const rawMuscle = exercise.muscle;
   const resolved = resolveExerciseTargetMuscle(exercise.name, rawMuscle).targetMuscle;
@@ -95,20 +93,6 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
 
       {/* ── Clean Circular Action Buttons Centered Below ── */}
       <View style={headerStyles.actionsRow}>
-        {onOpenPlateCalculator && (
-          <TouchableOpacity
-            onPress={() => {
-              hapticLight();
-              onOpenPlateCalculator();
-            }}
-            style={headerStyles.circleBtn}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="calculator-outline" size={16} color="rgba(255, 255, 255, 0.85)" />
-          </TouchableOpacity>
-        )}
-
         <TouchableOpacity
           onPress={() => {
             hapticMedium();
