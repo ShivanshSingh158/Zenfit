@@ -135,31 +135,12 @@ export const VolumeZoneRadarBar: React.FC<Props> = React.memo(({
   }, [processedData, filterRegion]);
 
   return (
-    <View style={[styles.card, { backgroundColor: isDark ? '#1C1C20' : colors.surface }]}>
+    <View style={[styles.card, { backgroundColor: isDark ? '#18181B' : colors.surface }]}>
       {/* Header */}
       <View style={styles.headerRow}>
-        <View style={{ flex: 1, paddingRight: 8 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Ionicons name="speedometer-outline" size={14} color="#A599FF" />
-            <Text style={styles.sectionLabel}>{title}</Text>
-          </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.sectionLabel}>{title}</Text>
           <Text style={styles.subtitleText}>{subtitle}</Text>
-        </View>
-
-        {/* Legend Pills */}
-        <View style={styles.legendRow}>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#60A5FA' }]} />
-            <Text style={styles.legendText}>MEV</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#30D158' }]} />
-            <Text style={styles.legendText}>MAV</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#FF453A' }]} />
-            <Text style={styles.legendText}>MRV</Text>
-          </View>
         </View>
       </View>
 
@@ -167,7 +148,7 @@ export const VolumeZoneRadarBar: React.FC<Props> = React.memo(({
       <View style={styles.filterTabsRow}>
         {(['all', 'lagging', 'optimal'] as const).map(tab => {
           const isActive = filterRegion === tab;
-          const label = tab === 'all' ? 'All Muscles' : tab === 'lagging' ? 'Sub-MEV (Lagging)' : 'Optimal Growth';
+          const label = tab === 'all' ? 'All' : tab === 'lagging' ? 'Sub-MEV' : 'Optimal';
           return (
             <TouchableOpacity
               key={tab}
@@ -187,17 +168,19 @@ export const VolumeZoneRadarBar: React.FC<Props> = React.memo(({
       </View>
 
       {/* Muscle Zone Bars List */}
-      <View style={{ gap: 14, marginTop: 4 }}>
+      <View style={{ gap: 12, marginTop: 4 }}>
         {filteredData.map(item => {
           const isSelected = selectedMuscle === item.muscleGroup;
           const muscleColor = resolveMuscleColor(item.muscleGroup);
+          const hasSets = item.effectiveSets > 0;
+          const isOptimal = item.zone === 'optimal_mav';
 
           return (
             <TouchableOpacity
               key={item.muscleGroup}
               style={[
                 styles.muscleZoneItem,
-                isSelected && { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F2F2F7', borderRadius: RADIUS.md },
+                isSelected && { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F2F2F7', borderRadius: RADIUS.md },
               ]}
               onPress={() => {
                 hapticLight();
@@ -205,7 +188,7 @@ export const VolumeZoneRadarBar: React.FC<Props> = React.memo(({
               }}
               activeOpacity={0.75}
             >
-              {/* Row 1: Muscle Name + Current Sets + Status Tag */}
+              {/* Row 1: Muscle Name + Sets Count + Subtle Text Status */}
               <View style={styles.barTopRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <View style={[styles.muscleDot, { backgroundColor: muscleColor }]} />
@@ -214,71 +197,62 @@ export const VolumeZoneRadarBar: React.FC<Props> = React.memo(({
                   </Text>
                 </View>
 
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={styles.setsDetailText}>
-                    {item.directSets}d + {item.synergistSets}s
-                  </Text>
-                  <Text style={[styles.effectiveSetsNum, { color: item.statusColor }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text
+                    style={[
+                      styles.effectiveSetsNum,
+                      { color: hasSets ? colors.textPrimary : colors.textTertiary },
+                    ]}
+                  >
                     {item.effectiveSets} sets
                   </Text>
-                  <View style={[styles.statusTag, { backgroundColor: `${item.statusColor}18`, borderColor: `${item.statusColor}40` }]}>
-                    <Text style={[styles.statusTagText, { color: item.statusColor }]}>
-                      {item.statusLabel}
+                  {hasSets && (
+                    <Text
+                      style={[
+                        styles.statusLabelText,
+                        { color: isOptimal ? '#30D158' : colors.textSecondary },
+                      ]}
+                    >
+                      · {item.statusLabel}
                     </Text>
-                  </View>
+                  )}
                 </View>
               </View>
 
-              {/* Row 2: Visual Multi-Zone Progress Track */}
+              {/* Row 2: Sleek Single iOS Progress Track with Subtle Target Bracket */}
               <View style={styles.zoneTrackContainer}>
-                {/* Zone 1: Sub-MEV (0 to MEV) */}
-                <View style={[styles.zoneSection, { flex: item.mevPct, backgroundColor: 'rgba(255,255,255,0.06)' }]} />
-
-                {/* Zone 2: MEV to MAV min */}
-                <View style={[styles.zoneSection, { flex: item.mavMinPct - item.mevPct, backgroundColor: 'rgba(96,165,250,0.15)' }]} />
-
-                {/* Zone 3: MAV Optimal Sweet Spot (Green) */}
-                <View style={[styles.zoneSection, { flex: item.mavMaxPct - item.mavMinPct, backgroundColor: 'rgba(48,209,88,0.22)' }]} />
-
-                {/* Zone 4: MAV max to MRV (Ceiling Warning) */}
-                <View style={[styles.zoneSection, { flex: item.mrvPct - item.mavMaxPct, backgroundColor: 'rgba(255,159,10,0.18)' }]} />
-
-                {/* Zone 5: Over MRV (Red Danger) */}
-                <View style={[styles.zoneSection, { flex: 100 - item.mrvPct, backgroundColor: 'rgba(255,69,58,0.18)' }]} />
-
-                {/* Current Sets Active Fill Bar */}
+                {/* Subtle Target Range (MAV Min to MAV Max) */}
                 <View
                   style={[
-                    styles.currentSetsFill,
+                    styles.targetRangeBracket,
                     {
-                      width: `${item.currentPct}%`,
-                      backgroundColor: item.statusColor,
+                      left: `${item.mavMinPct}%`,
+                      width: `${item.mavMaxPct - item.mavMinPct}%`,
                     },
                   ]}
                 />
 
-                {/* Landmark Pin Indicator for MEV */}
-                <View style={[styles.landmarkMarker, { left: `${item.mevPct}%` }]}>
-                  <View style={[styles.landmarkMarkerTick, { backgroundColor: '#60A5FA' }]} />
-                </View>
-
-                {/* Landmark Pin Indicator for MRV */}
-                <View style={[styles.landmarkMarker, { left: `${item.mrvPct}%` }]}>
-                  <View style={[styles.landmarkMarkerTick, { backgroundColor: '#FF453A' }]} />
-                </View>
+                {/* Active Sets Fill Bar */}
+                {hasSets && (
+                  <View
+                    style={[
+                      styles.currentSetsFill,
+                      {
+                        width: `${item.currentPct}%`,
+                        backgroundColor: isOptimal ? '#30D158' : 'rgba(255,255,255,0.45)',
+                      },
+                    ]}
+                  />
+                )}
               </View>
 
-              {/* Row 3: Subtitle Guide Labels under bar */}
+              {/* Row 3: Clean Single-Line Target Guide */}
               <View style={styles.landmarkLabelsRow}>
-                <Text style={styles.landmarkLabelText}>0s</Text>
-                <Text style={[styles.landmarkLabelText, { color: '#60A5FA' }]}>
-                  MEV: {item.landmark.mev}s
+                <Text style={styles.landmarkLabelText}>
+                  Target: {item.landmark.mavMin}–{item.landmark.mavMax} sets (MEV {item.landmark.mev})
                 </Text>
-                <Text style={[styles.landmarkLabelText, { color: '#30D158' }]}>
-                  MAV: {item.landmark.mavMin}–{item.landmark.mavMax}s
-                </Text>
-                <Text style={[styles.landmarkLabelText, { color: '#FF453A' }]}>
-                  MRV: {item.landmark.mrv}s
+                <Text style={styles.landmarkLabelText}>
+                  Max: {item.landmark.mrv}s
                 </Text>
               </View>
 
@@ -325,7 +299,7 @@ export default VolumeZoneRadarBar;
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: RADIUS.xl,
+    borderRadius: RADIUS.lg,
     padding: 16,
     marginBottom: SPACE.md,
     borderWidth: 1,
@@ -339,34 +313,15 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-    letterSpacing: 1.2,
-    color: '#A599FF',
+    fontSize: 12,
+    letterSpacing: 0.8,
+    color: '#8E8E93',
   },
   subtitleText: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 11,
-    color: '#8E8E93',
+    color: 'rgba(255,255,255,0.4)',
     marginTop: 2,
-  },
-  legendRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  legendDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-  },
-  legendText: {
-    fontFamily: FONT_FAMILY.mono,
-    fontSize: 9.5,
-    color: '#8E8E93',
   },
 
   // Filter Tabs
@@ -376,16 +331,16 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   filterTabBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
     borderRadius: RADIUS.full,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
   },
   filterTabBtnActive: {
-    backgroundColor: 'rgba(165,153,255,0.15)',
-    borderColor: 'rgba(165,153,255,0.4)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderColor: 'rgba(255,255,255,0.22)',
   },
   filterTabText: {
     fontFamily: FONT_FAMILY.medium,
@@ -394,7 +349,7 @@ const styles = StyleSheet.create({
   },
   filterTabTextActive: {
     fontFamily: FONT_FAMILY.bold,
-    color: '#A599FF',
+    color: '#FFFFFF',
   },
 
   // Muscle Zone Item
@@ -405,69 +360,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 5,
   },
   muscleDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   muscleName: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 13,
   },
-  setsDetailText: {
-    fontFamily: FONT_FAMILY.mono,
-    fontSize: 10,
-    color: '#8E8E93',
-  },
   effectiveSetsNum: {
     fontFamily: FONT_FAMILY.mono,
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11.5,
+    fontWeight: '600',
   },
-  statusTag: {
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: RADIUS.sm,
-    borderWidth: 1,
-  },
-  statusTagText: {
+  statusLabelText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 9,
-    textTransform: 'uppercase',
+    fontSize: 11,
   },
 
   // Multi-Zone Track
   zoneTrackContainer: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    flexDirection: 'row',
-    overflow: 'hidden',
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.06)',
     position: 'relative',
+    overflow: 'hidden',
   },
-  zoneSection: {
-    height: '100%',
+  targetRangeBracket: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
   currentSetsFill: {
     position: 'absolute',
     left: 0,
     top: 0,
     bottom: 0,
-    borderRadius: 4,
-  },
-  landmarkMarker: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 2,
-    zIndex: 2,
-  },
-  landmarkMarkerTick: {
-    width: 2,
-    height: '100%',
-    opacity: 0.8,
+    borderRadius: 2,
   },
 
   // Guide Labels under track
@@ -477,9 +410,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   landmarkLabelText: {
-    fontFamily: FONT_FAMILY.mono,
-    fontSize: 9,
-    color: '#636366',
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 9.5,
+    color: 'rgba(255,255,255,0.3)',
   },
 
   // Expanded Info Box

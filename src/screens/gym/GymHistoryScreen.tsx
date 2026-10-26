@@ -509,8 +509,8 @@ export default function GymHistoryScreen() {
           {/* Card 3: Interactive Volume Radar & MEV vs MRV Zones */}
           <VolumeZoneRadarBar
             volumes={analyticsData.effectiveMuscleVolumes}
-            title="HYPERTROPHY VOLUME ZONES (MEV vs MRV)"
-            subtitle="Minimum Effective Volume vs Maximum Recoverable Thresholds"
+            title="VOLUME LANDMARKS"
+            subtitle="Weekly sets vs MEV & MRV thresholds"
           />
 
           {/* Card 4: Effort Quality (Hypertrophy Tension vs Submaximal) */}

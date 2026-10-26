@@ -82,12 +82,7 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
     <View style={s.container}>
       {/* Header with Title & Carousel Story Indicator */}
       <View style={s.headerRow}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <View style={s.sparkleBadge}>
-            <Ionicons name="sparkles" size={12} color="#A599FF" />
-          </View>
-          <Text style={s.sectionTitle}>WEEKLY HIGHLIGHTS</Text>
-        </View>
+        <Text style={s.sectionTitle}>WEEKLY HIGHLIGHTS</Text>
 
         {/* 3 Story Dots */}
         <View style={s.dotsContainer}>
@@ -116,15 +111,12 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
         contentContainerStyle={{ paddingHorizontal: 2, gap: 12 }}
       >
         {/* ══════════════════════════════════════════════════════════════════
-            CARD 1: Overall Volume & Overload Rate (85% Overload Success)
+            CARD 1: Overall Volume & Overload Rate
            ══════════════════════════════════════════════════════════════════ */}
-        <View style={[s.storyCard, { width: cardWidth, backgroundColor: isDark ? '#18181C' : colors.surface }]}>
+        <View style={[s.storyCard, { width: cardWidth, backgroundColor: isDark ? '#18181B' : colors.surface }]}>
           {/* Card Top Label */}
           <View style={s.cardTopRow}>
-            <View style={s.cardTagPill}>
-              <Ionicons name="trending-up" size={11} color="#30D158" />
-              <Text style={s.cardTagText}>OVERLOAD VELOCITY</Text>
-            </View>
+            <Text style={s.cardCategoryText}>OVERLOAD PROGRESS</Text>
             <Text style={s.storyCardIndex}>1 OF 3</Text>
           </View>
 
@@ -141,12 +133,12 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
                 <Ionicons
                   name={stats.volumeDeltaPct >= 0 ? 'arrow-up' : 'arrow-down'}
                   size={12}
-                  color={stats.volumeDeltaPct >= 0 ? '#30D158' : '#FF453A'}
+                  color={stats.volumeDeltaPct >= 0 ? '#30D158' : '#8E8E93'}
                 />
                 <Text
                   style={[
                     s.deltaText,
-                    { color: stats.volumeDeltaPct >= 0 ? '#30D158' : '#FF453A' },
+                    { color: stats.volumeDeltaPct >= 0 ? '#30D158' : '#8E8E93' },
                   ]}
                 >
                   {volumeDeltaText}
@@ -154,49 +146,38 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
               </View>
             </View>
 
-            {/* Overload Success Rate Radial / Circle Badge */}
+            {/* Overload Success Rate Clean Stat */}
             <View style={s.overloadBadgeContainer}>
-              <View style={s.overloadRingWrap}>
-                <Text style={s.overloadRateNum}>{stats.overloadRatePct}%</Text>
-                <Text style={s.overloadRateSub}>Overload</Text>
-              </View>
-              <View style={s.overloadSuccessTag}>
-                <Text style={s.overloadSuccessTagText}>Success</Text>
-              </View>
+              <Text style={s.overloadRateNum}>{stats.overloadRatePct}%</Text>
+              <Text style={s.overloadRateSub}>Overload Success</Text>
             </View>
           </View>
 
           {/* Sub-KPI Pods */}
           <View style={s.subKpiGrid}>
             <View style={[s.subKpiPod, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F2F2F7' }]}>
-              <Ionicons name="barbell-outline" size={13} color="#A599FF" />
-              <Text style={s.subKpiVal}>{stats.sessionCount} Workouts</Text>
-              <Text style={s.subKpiLabel}>Sessions Hit</Text>
+              <Text style={s.subKpiVal}>{stats.sessionCount}</Text>
+              <Text style={s.subKpiLabel}>Workouts</Text>
             </View>
 
             <View style={[s.subKpiPod, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F2F2F7' }]}>
-              <Ionicons name="layers-outline" size={13} color="#60A5FA" />
-              <Text style={s.subKpiVal}>{stats.thisWeekSets} Sets</Text>
-              <Text style={s.subKpiLabel}>Hypertrophy Volume</Text>
+              <Text style={s.subKpiVal}>{stats.thisWeekSets}</Text>
+              <Text style={s.subKpiLabel}>Total Sets</Text>
             </View>
 
             <View style={[s.subKpiPod, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F2F2F7' }]}>
-              <Ionicons name="flash-outline" size={13} color="#FFD700" />
-              <Text style={s.subKpiVal}>{stats.weightUnlocksCount} Unlocks</Text>
-              <Text style={s.subKpiLabel}>Weight Upgrades</Text>
+              <Text style={s.subKpiVal}>{stats.weightUnlocksCount}</Text>
+              <Text style={s.subKpiLabel}>Weight PRs</Text>
             </View>
           </View>
         </View>
 
         {/* ══════════════════════════════════════════════════════════════════
-            CARD 2: Top 3 PRs with Golden Trophy Badges
+            CARD 2: Top 3 PRs (Clean Apple Fitness Style)
            ══════════════════════════════════════════════════════════════════ */}
-        <View style={[s.storyCard, { width: cardWidth, backgroundColor: isDark ? '#18181C' : colors.surface }]}>
+        <View style={[s.storyCard, { width: cardWidth, backgroundColor: isDark ? '#18181B' : colors.surface }]}>
           <View style={s.cardTopRow}>
-            <View style={[s.cardTagPill, { borderColor: 'rgba(255,215,0,0.3)', backgroundColor: 'rgba(255,215,0,0.1)' }]}>
-              <Ionicons name="trophy" size={11} color="#FFD700" />
-              <Text style={[s.cardTagText, { color: '#FFD700' }]}>PR TROPHY SHELF</Text>
-            </View>
+            <Text style={s.cardCategoryText}>TOP PERSONAL RECORDS</Text>
             <Text style={s.storyCardIndex}>2 OF 3</Text>
           </View>
 
@@ -204,19 +185,14 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
           <View style={s.podiumContainer}>
             {stats.topPRs && stats.topPRs.length > 0 ? (
               stats.topPRs.slice(0, 3).map((pr, index) => {
-                const isGold = index === 0;
-                const isSilver = index === 1;
-                const rankColor = isGold ? '#FFD700' : isSilver ? '#E0E0E0' : '#CD7F32';
-                const rankLabel = isGold ? '🥇 1st' : isSilver ? '🥈 2nd' : '🥉 3rd';
-
                 return (
                   <TouchableOpacity
                     key={`${pr.exerciseName}-${index}`}
                     style={[
                       s.podiumRow,
                       {
-                        backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F2F2F7',
-                        borderColor: isGold ? 'rgba(255,215,0,0.35)' : 'rgba(255,255,255,0.06)',
+                        backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F2F2F7',
+                        borderColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border,
                       },
                     ]}
                     activeOpacity={0.75}
@@ -225,9 +201,9 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
                       if (onSelectExercise) onSelectExercise(pr.exerciseName);
                     }}
                   >
-                    {/* Rank Badge */}
-                    <View style={[s.podiumRankBadge, { backgroundColor: `${rankColor}1A`, borderColor: `${rankColor}40` }]}>
-                      <Text style={[s.podiumRankText, { color: rankColor }]}>{rankLabel}</Text>
+                    {/* Minimal Rank Circle */}
+                    <View style={s.podiumRankCircle}>
+                      <Text style={s.podiumRankText}>{index + 1}</Text>
                     </View>
 
                     {/* Exercise Info */}
@@ -251,8 +227,8 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
               })
             ) : (
               <View style={s.emptyPrBox}>
-                <Ionicons name="medal-outline" size={28} color="#FFD700" />
-                <Text style={s.emptyPrText}>Log working sets to unlock personal records!</Text>
+                <Ionicons name="barbell-outline" size={24} color={colors.textTertiary} />
+                <Text style={s.emptyPrText}>Log working sets to track personal records</Text>
               </View>
             )}
           </View>
@@ -261,27 +237,22 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
         {/* ══════════════════════════════════════════════════════════════════
             CARD 3: Anatomical Muscle Heatmap & Balanced vs Lagging Indicators
            ══════════════════════════════════════════════════════════════════ */}
-        <View style={[s.storyCard, { width: cardWidth, backgroundColor: isDark ? '#18181C' : colors.surface }]}>
+        <View style={[s.storyCard, { width: cardWidth, backgroundColor: isDark ? '#18181B' : colors.surface }]}>
           <View style={s.cardTopRow}>
-            <View style={[s.cardTagPill, { borderColor: 'rgba(165,153,255,0.3)', backgroundColor: 'rgba(165,153,255,0.1)' }]}>
-              <Ionicons name="body-outline" size={11} color="#A599FF" />
-              <Text style={[s.cardTagText, { color: '#A599FF' }]}>ANATOMICAL BALANCE</Text>
-            </View>
-            <View style={s.adherencePill}>
-              <Text style={s.adherencePillText}>
-                {stats.overallAdherencePct >= 100 ? '100% Plan Hit' : `${stats.overallAdherencePct}% Plan Hit`}
-              </Text>
-            </View>
+            <Text style={s.cardCategoryText}>ANATOMICAL BALANCE</Text>
+            <Text style={s.adherenceText}>
+              {stats.overallAdherencePct >= 100 ? '100% Plan Hit' : `${stats.overallAdherencePct}% Plan Hit`}
+            </Text>
           </View>
 
           {/* Balanced vs Lagging Grid */}
           <View style={s.muscleBalanceGrid}>
-            {stats.muscleAdherence.slice(0, 6).map((item, i) => {
+            {stats.muscleAdherence.slice(0, 6).map((item) => {
               const muscleColor = resolveMuscleColor(item.muscle);
               const isBalanced = item.status === 'balanced';
               const isFatigue = item.status === 'fatigue';
 
-              const statusColor = isBalanced ? '#30D158' : isFatigue ? '#FF453A' : '#FF9F0A';
+              const statusColor = isBalanced ? '#30D158' : isFatigue ? '#FF453A' : colors.textTertiary;
               const statusTag = isBalanced ? 'Optimal' : isFatigue ? 'Fatigue' : 'Lagging';
 
               return (
@@ -289,24 +260,22 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
                   key={item.muscle}
                   style={[
                     s.muscleBalanceCard,
-                    { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F2F2F7' },
+                    { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F2F2F7' },
                   ]}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1, paddingRight: 4 }}>
                       <View style={[s.muscleDot, { backgroundColor: muscleColor }]} />
                       <Text style={[s.muscleItemName, { color: colors.textPrimary }]} numberOfLines={1}>
                         {item.muscle}
                       </Text>
                     </View>
-                    <View style={[s.statusBadgeSmall, { backgroundColor: `${statusColor}18` }]}>
-                      <Text style={[s.statusBadgeSmallText, { color: statusColor }]}>{statusTag}</Text>
-                    </View>
+                    <Text style={[s.statusTextSmall, { color: statusColor }]}>{statusTag}</Text>
                   </View>
 
                   <View style={s.muscleProgressRow}>
                     <Text style={s.muscleSetCount}>
-                      {item.sets} <Text style={{ color: '#8E8E93', fontSize: 10 }}>/ {item.target} sets</Text>
+                      {item.sets} <Text style={{ color: colors.textTertiary, fontSize: 10 }}>/ {item.target} sets</Text>
                     </Text>
                     <View style={s.progressBarTrack}>
                       <View
@@ -314,7 +283,7 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
                           s.progressBarFill,
                           {
                             width: `${Math.min(100, Math.round((item.sets / Math.max(1, item.target)) * 100))}%`,
-                            backgroundColor: statusColor,
+                            backgroundColor: isBalanced ? '#30D158' : 'rgba(255,255,255,0.3)',
                           },
                         ]}
                       />
@@ -343,18 +312,10 @@ const s = StyleSheet.create({
     paddingHorizontal: 4,
     marginBottom: 8,
   },
-  sparkleBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'rgba(165,153,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   sectionTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-    letterSpacing: 1.2,
+    fontSize: 12,
+    letterSpacing: 0.8,
     color: '#8E8E93',
   },
   dotsContainer: {
@@ -367,25 +328,20 @@ const s = StyleSheet.create({
     borderRadius: 2,
   },
   dotActive: {
-    width: 18,
-    backgroundColor: '#A599FF',
+    width: 16,
+    backgroundColor: '#FFFFFF',
   },
   dotInactive: {
-    width: 5,
+    width: 4,
     backgroundColor: 'rgba(255,255,255,0.15)',
   },
   storyCard: {
-    borderRadius: RADIUS.xl,
+    borderRadius: RADIUS.lg,
     padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
-    minHeight: 184,
+    minHeight: 180,
     justifyContent: 'space-between',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 3,
   },
   cardTopRow: {
     flexDirection: 'row',
@@ -393,27 +349,16 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 10,
   },
-  cardTagPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: RADIUS.sm,
-    backgroundColor: 'rgba(48,209,88,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(48,209,88,0.3)',
-  },
-  cardTagText: {
+  cardCategoryText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 9.5,
-    color: '#30D158',
-    letterSpacing: 0.5,
+    fontSize: 10.5,
+    color: '#8E8E93',
+    letterSpacing: 0.8,
   },
   storyCardIndex: {
     fontFamily: FONT_FAMILY.mono,
-    fontSize: 10.5,
-    color: '#8E8E93',
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.35)',
   },
 
   // Hero metric row
@@ -444,44 +389,21 @@ const s = StyleSheet.create({
     fontSize: 12,
   },
 
-  // Overload Radial Badge
+  // Overload Clean Stat Block
   overloadBadgeContainer: {
-    alignItems: 'center',
-  },
-  overloadRingWrap: {
-    width: 66,
-    height: 66,
-    borderRadius: 33,
-    backgroundColor: 'rgba(48,209,88,0.12)',
-    borderWidth: 2.5,
-    borderColor: '#30D158',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'flex-end',
   },
   overloadRateNum: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 17,
-    color: '#30D158',
-    letterSpacing: -0.3,
+    fontSize: 22,
+    color: '#FFFFFF',
+    letterSpacing: -0.5,
   },
   overloadRateSub: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 9,
-    color: '#30D158',
-    marginTop: -2,
-  },
-  overloadSuccessTag: {
-    backgroundColor: '#30D158',
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: RADIUS.full,
-    marginTop: -8,
-  },
-  overloadSuccessTagText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 8.5,
-    color: '#000000',
-    textTransform: 'uppercase',
+    fontSize: 10.5,
+    color: '#8E8E93',
+    marginTop: 1,
   },
 
   // Sub KPI Grid
@@ -492,22 +414,21 @@ const s = StyleSheet.create({
   subKpiPod: {
     flex: 1,
     borderRadius: RADIUS.md,
-    padding: 8,
+    padding: 9,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.04)',
   },
   subKpiVal: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
+    fontSize: 13,
     color: '#FFFFFF',
-    marginTop: 4,
   },
   subKpiLabel: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 9.5,
+    fontSize: 10,
     color: '#8E8E93',
-    marginTop: 1,
+    marginTop: 2,
   },
 
   // Podium (Card 2)
@@ -517,19 +438,22 @@ const s = StyleSheet.create({
   podiumRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 9,
-    borderRadius: RADIUS.lg,
+    padding: 10,
+    borderRadius: RADIUS.md,
     borderWidth: 1,
   },
-  podiumRankBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: RADIUS.sm,
-    borderWidth: 1,
+  podiumRankCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   podiumRankText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
+    fontSize: 10.5,
+    color: '#FFFFFF',
   },
   podiumExName: {
     fontFamily: FONT_FAMILY.bold,
@@ -547,7 +471,7 @@ const s = StyleSheet.create({
   podiumE1rmVal: {
     fontFamily: FONT_FAMILY.mono,
     fontSize: 13,
-    color: '#FFD700',
+    color: '#FFFFFF',
     fontWeight: '700',
   },
   podiumE1rmLabel: {
@@ -568,18 +492,10 @@ const s = StyleSheet.create({
   },
 
   // Muscle Balance (Card 3)
-  adherencePill: {
-    backgroundColor: 'rgba(48,209,88,0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: RADIUS.full,
-    borderWidth: 1,
-    borderColor: 'rgba(48,209,88,0.3)',
-  },
-  adherencePillText: {
+  adherenceText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#30D158',
+    fontSize: 10.5,
+    color: '#8E8E93',
   },
   muscleBalanceGrid: {
     flexDirection: 'row',
@@ -589,28 +505,22 @@ const s = StyleSheet.create({
   muscleBalanceCard: {
     width: '48.5%',
     borderRadius: RADIUS.md,
-    padding: 8,
+    padding: 9,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.04)',
   },
   muscleDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   muscleItemName: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 11.5,
   },
-  statusBadgeSmall: {
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 3,
-  },
-  statusBadgeSmallText: {
+  statusTextSmall: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 8.5,
-    textTransform: 'uppercase',
+    fontSize: 9.5,
   },
   muscleProgressRow: {
     marginTop: 6,
@@ -620,16 +530,15 @@ const s = StyleSheet.create({
     fontFamily: FONT_FAMILY.mono,
     fontSize: 11,
     color: '#FFFFFF',
-    fontWeight: '700',
   },
   progressBarTrack: {
-    height: 4,
-    borderRadius: 2,
+    height: 3,
+    borderRadius: 1.5,
     backgroundColor: 'rgba(255,255,255,0.08)',
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
-    borderRadius: 2,
+    borderRadius: 1.5,
   },
 });

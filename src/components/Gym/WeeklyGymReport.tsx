@@ -868,8 +868,8 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
           {/* 1.8 ── Interactive Volume Radar / Zone Bar (MEV vs MRV) ──────── */}
           <VolumeZoneRadarBar
             volumes={muscleVolumeEntries}
-            title="HYPERTROPHY VOLUME ZONES (MEV vs MRV)"
-            subtitle="Minimum Effective vs Maximum Recoverable Thresholds"
+            title="VOLUME LANDMARKS"
+            subtitle="Weekly sets vs recovery thresholds"
           />
 
           {/* 2. ── GYM-GPT Weekly Intelligence Card (Collapsible) ────────────── */}
