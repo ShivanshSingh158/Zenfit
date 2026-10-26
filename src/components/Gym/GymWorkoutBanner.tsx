@@ -188,23 +188,19 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
   }
 
   // ─── 3. NOT STARTED: UNIFIED HERO WORKOUT SURFACE ──────────────────────────
-  // Clean up the title: strip parenthetical suffixes like "(Thickness)" from name display
-  const cleanTitle = routineTitle.replace(/\s*\(.*?\)\s*/g, '').trim() || 'Workout Day';
-  // Focus is shown as-is (not screaming caps)
-  const cleanFocus = routineFocus || '';
+  // Clean up the title: format "(Thickness)" -> "Thickness" (e.g. "Chest & Back (Thickness)" -> "Chest & Back Thickness")
+  const cleanTitle = routineTitle.replace(/[()]/g, '').trim() || 'Workout Day';
 
   return (
     <View style={[styles.heroCard, { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface }]}>
-      {/* Top row: Focus label + streak */}
+      {/* Title row with Streak Badge on right (Zero wasted vertical space) */}
       <View style={styles.topRow}>
-        {cleanFocus ? (
-          <View style={styles.focusPill}>
-            <Ionicons name="barbell-outline" size={10} color={isDark ? IOS_DARK.labelSecondary : colors.textMuted} />
-            <Text style={[styles.focusPillText, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}>
-              {cleanFocus}
-            </Text>
-          </View>
-        ) : <View />}
+        <Text
+          numberOfLines={1}
+          style={[styles.heroTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary, flex: 1 }]}
+        >
+          {cleanTitle}
+        </Text>
 
         {currentStreak > 0 && (
           <View style={styles.streakBadge}>
@@ -213,14 +209,6 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
           </View>
         )}
       </View>
-
-      {/* Main workout title */}
-      <Text
-        numberOfLines={1}
-        style={[styles.heroTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
-      >
-        {cleanTitle}
-      </Text>
 
       {/* 3-Stat chip row */}
       <View style={styles.statChipRow}>
