@@ -12,25 +12,28 @@ export interface OverloadBannerProps {
 }
 
 export const OverloadBanner: React.FC<OverloadBannerProps> = ({ overloadSuggestion }) => {
-  const targetWeight = overloadSuggestion?.recommended || overloadSuggestion?.suggestedWeight || 0;
-  if (targetWeight > 0) {
-    const repsText = overloadSuggestion?.suggestedReps || overloadSuggestion?.reps || '8-12';
-    return (
-      <View style={headerStyles.overloadRow}>
-        <Ionicons name="trending-up" size={14} color={IOS_DARK.green} />
-        <Text style={headerStyles.overloadText}>
-          Progressive Overload: Try {targetWeight} kg × {repsText} today
-        </Text>
-      </View>
-    );
+  // Only display when there is a REAL progressive overload recommendation with active target weight
+  // (Do NOT show when calibrating baseline or when there's no actual progressive overload data)
+  if (!overloadSuggestion || overloadSuggestion.state === 'BASELINE') {
+    return null;
   }
 
-  // When calibrating baseline for a fresh exercise without past logs
+  const targetWeight = overloadSuggestion.recommended || overloadSuggestion.suggestedWeight || 0;
+  if (targetWeight <= 0) {
+    return null;
+  }
+
+  const repsText = overloadSuggestion.suggestedReps || overloadSuggestion.reps || '8-12';
+  const delta = (overloadSuggestion.isWeightIncrease || overloadSuggestion.type === 'increase') && overloadSuggestion.weightDelta
+    ? ` (+${overloadSuggestion.weightDelta} kg)`
+    : '';
+  const suggestionText = `Progressive Overload: ${targetWeight} kg × ${repsText}${delta}`;
+
   return (
     <View style={headerStyles.overloadRow}>
-      <Ionicons name="trending-up" size={14} color={IOS_DARK.green} />
-      <Text style={headerStyles.overloadText}>
-        Progressive Overload: Calibrating baseline · Complete sets today
+      <Ionicons name="trending-up" size={13} color={IOS_DARK.green} />
+      <Text style={headerStyles.overloadText} numberOfLines={1} ellipsizeMode="tail">
+        {suggestionText}
       </Text>
     </View>
   );
@@ -191,11 +194,10 @@ const headerStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 3,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: 'rgba(48, 209, 88, 0.08)',
-    marginTop: 2,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    backgroundColor: 'transparent',
+    marginTop: 4,
   },
   overloadText: {
     fontSize: 12,
