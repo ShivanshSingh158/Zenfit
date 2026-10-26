@@ -49,6 +49,18 @@ export const makeAddExerciseStyles = (colors: any, isDark: boolean = true) =>
       color: colors.textPrimary,
       letterSpacing: -0.3,
     },
+    backBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingVertical: 4,
+      paddingRight: 8,
+    },
+    backBtnText: {
+      fontFamily: FONT_FAMILY.medium,
+      fontSize: 14,
+      color: colors.textSecondary,
+    },
     closeBtn: {
       width: 32,
       height: 32,
@@ -56,6 +68,29 @@ export const makeAddExerciseStyles = (colors: any, isDark: boolean = true) =>
       backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    customExerciseHeader: {
+      marginBottom: 14,
+      paddingBottom: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : colors.border,
+    },
+    customExerciseTitle: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 18,
+      color: colors.textPrimary,
+      letterSpacing: -0.3,
+      marginBottom: 4,
+    },
+    customExerciseMuscleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    customExerciseMuscleText: {
+      fontFamily: FONT_FAMILY.medium,
+      fontSize: 12,
+      color: colors.textTertiary,
     },
 
     // Search Row

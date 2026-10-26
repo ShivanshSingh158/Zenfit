@@ -788,208 +788,249 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
           {/* Grab handle */}
           <View style={styles.dragHandle} />
 
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <Text style={styles.title}>Add Exercise</Text>
-            </View>
-            <TouchableOpacity onPress={resetAndClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="close" size={19} color={colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Search Input Bar */}
-          <View style={styles.searchRow}>
-            <Ionicons name="search-outline" size={17} color={colors.textTertiary} style={{ marginRight: 8 }} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search exercise catalogue (e.g. Incline Bench)..."
-              placeholderTextColor={colors.textTertiary}
-              value={searchQuery}
-              onChangeText={text => {
-                setSearchQuery(text);
-                setSelectedEntry(null);
-              }}
-              autoCorrect={false}
-              autoCapitalize="words"
-              returnKeyType="search"
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity
-                onPress={() => {
-                  setSearchQuery('');
-                  setSelectedEntry(null);
-                }}
-                style={styles.clearBtn}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="close-circle" size={17} color={colors.textTertiary} />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Visual Anatomical Muscle Filter Bar */}
-          <View style={styles.filterBarContainer}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filterChipsRow}
-            >
-              {ANATOMICAL_MUSCLE_CHIPS.map(chip => {
-                const isActive = selectedMuscle === chip.id;
-                return (
-                  <TouchableOpacity
-                    key={chip.id}
-                    style={[styles.filterChip, isActive && styles.filterChipActive]}
-                    onPress={() => {
-                      hapticLight();
-                      setSelectedMuscle(prev => (prev === chip.id ? 'all' : chip.id));
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons
-                      name={chip.icon}
-                      size={13}
-                      color={isActive ? (isDark ? '#FFFFFF' : '#000000') : colors.textTertiary}
-                    />
-                    <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
-                      {chip.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-
-          {/* Database Notice Header */}
-          <View style={styles.statusNotice}>
-            <Text style={styles.statusNoticeText}>
-              {isDatabaseActive ? 'Exercises' : 'Popular Exercises'}
-            </Text>
-          </View>
-
-          {/* Card Results List or 0-Results Instant Creation */}
-          {results.length > 0 ? (
-            <FlatList
-              data={results}
-              keyExtractor={(item, idx) => `${item.id || item.name}_${idx}`}
-              renderItem={renderExerciseCard}
-              contentContainerStyle={styles.cardList}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              initialNumToRender={10}
-              maxToRenderPerBatch={10}
-              windowSize={5}
-              removeClippedSubviews={Platform.OS === 'android'}
-              style={{ maxHeight: showCustomTuning ? 200 : 380 }}
-            />
-          ) : (
-            /* Instant "Create Custom Exercise" Card */
-            <ScrollView style={{ maxHeight: 380 }} keyboardShouldPersistTaps="handled">
-              {autoResolvedForQuery && (
-                <View style={styles.createCustomCard}>
-                  <View style={styles.createCustomHeader}>
-                    <View style={styles.createCustomIconWrap}>
-                      <Ionicons name="barbell-outline" size={24} color="#A599FF" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.createCustomTitle} numberOfLines={1}>
-                        Create "{autoResolvedForQuery.canonicalName}"
-                      </Text>
-                      <Text style={styles.createCustomSubtitle}>
-                        Auto-categorized as{' '}
-                        <Text style={{ color: autoResolvedForQuery.muscleColor, fontFamily: FONT_FAMILY.bold }}>
-                          {autoResolvedForQuery.canonicalGroup} ({autoResolvedForQuery.targetMuscle})
-                        </Text>
-                      </Text>
-                    </View>
-                  </View>
-
-                  <TouchableOpacity
-                    style={styles.createCustomCtaBtn}
-                    activeOpacity={0.8}
-                    onPress={handleInstantCreateCustom}
-                  >
-                    <Ionicons name="add" size={18} color="#000" />
-                    <Text style={styles.createCustomCtaText}>
-                      Create "{autoResolvedForQuery.canonicalName}" Exercise
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.createCustomSecondaryLink}
-                    onPress={() => {
-                      setMuscle(autoResolvedForQuery.targetMuscle);
-                      setShowCustomTuning(true);
-                    }}
-                  >
-                    <Text style={styles.createCustomSecondaryText}>
-                      Customize sets, reps & video link ⚙
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* Empty state prompt */}
-              <View style={styles.emptyState}>
-                <Ionicons name="search-outline" size={24} color={colors.textTertiary} />
-                <Text style={styles.emptyStateText}>
-                  Not in standard catalogue? Tap create above or configure custom details below.
-                </Text>
-              </View>
-            </ScrollView>
-          )}
-
-          {/* Quick Custom Tuning Drawer (When an exercise is selected or custom tuning is tapped) */}
-          {showCustomTuning && (
-            <ScrollView
-              style={styles.tuningContainer}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={styles.tuningHeaderRow}>
-                <View style={{ flex: 1, paddingRight: 8 }}>
-                  <Text style={styles.tuningTitle}>Customize Exercise</Text>
-                  <Text style={styles.tuningSubtitle} numberOfLines={1}>
-                    {selectedEntry?.name || searchQuery}
-                  </Text>
-                </View>
+          {showCustomTuning ? (
+            /* ── VIEW 2: Dedicated Customization View (Spacious & Clean) ── */
+            <View style={{ flex: 1, maxHeight: 560 }}>
+              {/* Header with Back button and Close */}
+              <View style={styles.header}>
                 <TouchableOpacity
                   onPress={() => setShowCustomTuning(false)}
-                  style={styles.tuningCloseBtn}
+                  style={styles.backBtn}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Ionicons name="close" size={16} color={colors.textSecondary} />
+                  <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
+                  <Text style={styles.backBtnText}>Catalogue</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={resetAndClose}
+                  style={styles.closeBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={19} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
 
-              <ExerciseCustomFields
-                sets={sets}
-                setSets={setSets}
-                reps={reps}
-                setReps={setReps}
-                restTime={restTime}
-                setRestTime={setRestTime}
-                muscle={muscle}
-                setMuscle={setMuscle}
-                videoLink={videoLink}
-                setVideoLink={setVideoLink}
-                savePermanently={savePermanently}
-                setSavePermanently={setSavePermanently}
-                planDay={planDay}
-                colors={colors}
-                styles={styles}
-              />
+              {/* Exercise Title Banner */}
+              <View style={styles.customExerciseHeader}>
+                <Text style={styles.customExerciseTitle} numberOfLines={2}>
+                  {selectedEntry?.name || searchQuery}
+                </Text>
+                <View style={styles.customExerciseMuscleRow}>
+                  <View
+                    style={[
+                      styles.muscleDot,
+                      {
+                        backgroundColor: resolveMuscleColor(
+                          muscle !== 'None' ? muscle : (selectedEntry?.muscle || 'Mixed')
+                        ),
+                      },
+                    ]}
+                  />
+                  <Text style={styles.customExerciseMuscleText}>
+                    {muscle !== 'None' ? muscle : (selectedEntry?.muscle || 'General')}
+                  </Text>
+                </View>
+              </View>
 
-              <TouchableOpacity
-                style={styles.submitBtn}
-                onPress={handleConfirmAddTuned}
-                activeOpacity={0.8}
+              {/* Scrollable Customization Form */}
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ paddingBottom: 28 }}
               >
-                <Ionicons name="checkmark-sharp" size={16} color={isDark ? '#000000' : '#FFFFFF'} style={{ marginRight: 6 }} />
-                <Text style={styles.submitBtnText}>Add to Workout</Text>
-              </TouchableOpacity>
-            </ScrollView>
+                <ExerciseCustomFields
+                  sets={sets}
+                  setSets={setSets}
+                  reps={reps}
+                  setReps={setReps}
+                  restTime={restTime}
+                  setRestTime={setRestTime}
+                  muscle={muscle}
+                  setMuscle={setMuscle}
+                  videoLink={videoLink}
+                  setVideoLink={setVideoLink}
+                  savePermanently={savePermanently}
+                  setSavePermanently={setSavePermanently}
+                  planDay={planDay}
+                  colors={colors}
+                  styles={styles}
+                />
+
+                <TouchableOpacity
+                  style={styles.submitBtn}
+                  onPress={handleConfirmAddTuned}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name="checkmark-sharp"
+                    size={16}
+                    color={isDark ? '#000000' : '#FFFFFF'}
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={styles.submitBtnText}>Add to Workout</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          ) : (
+            /* ── VIEW 1: Catalogue Search & Results List ── */
+            <>
+              {/* Header */}
+              <View style={styles.header}>
+                <View style={styles.headerLeft}>
+                  <Text style={styles.title}>Add Exercise</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={resetAndClose}
+                  style={styles.closeBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={19} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Search Input Bar */}
+              <View style={styles.searchRow}>
+                <Ionicons name="search-outline" size={17} color={colors.textTertiary} style={{ marginRight: 8 }} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search exercise catalogue (e.g. Incline Bench)..."
+                  placeholderTextColor={colors.textTertiary}
+                  value={searchQuery}
+                  onChangeText={text => {
+                    setSearchQuery(text);
+                    setSelectedEntry(null);
+                  }}
+                  autoCorrect={false}
+                  autoCapitalize="words"
+                  returnKeyType="search"
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSearchQuery('');
+                      setSelectedEntry(null);
+                    }}
+                    style={styles.clearBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="close-circle" size={17} color={colors.textTertiary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Visual Anatomical Muscle Filter Bar */}
+              <View style={styles.filterBarContainer}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.filterChipsRow}
+                >
+                  {ANATOMICAL_MUSCLE_CHIPS.map(chip => {
+                    const isActive = selectedMuscle === chip.id;
+                    return (
+                      <TouchableOpacity
+                        key={chip.id}
+                        style={[styles.filterChip, isActive && styles.filterChipActive]}
+                        onPress={() => {
+                          hapticLight();
+                          setSelectedMuscle(prev => (prev === chip.id ? 'all' : chip.id));
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name={chip.icon}
+                          size={13}
+                          color={isActive ? (isDark ? '#FFFFFF' : '#000000') : colors.textTertiary}
+                        />
+                        <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
+                          {chip.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              {/* Notice Header */}
+              <View style={styles.statusNotice}>
+                <Text style={styles.statusNoticeText}>
+                  {isDatabaseActive ? 'Exercises' : 'Popular Exercises'}
+                </Text>
+              </View>
+
+              {/* Card Results List or 0-Results Instant Creation */}
+              {results.length > 0 ? (
+                <FlatList
+                  data={results}
+                  keyExtractor={(item, idx) => `${item.id || item.name}_${idx}`}
+                  renderItem={renderExerciseCard}
+                  contentContainerStyle={styles.cardList}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  initialNumToRender={10}
+                  maxToRenderPerBatch={10}
+                  windowSize={5}
+                  removeClippedSubviews={Platform.OS === 'android'}
+                  style={{ maxHeight: 440 }}
+                />
+              ) : (
+                /* Instant "Create Custom Exercise" Card */
+                <ScrollView style={{ maxHeight: 440 }} keyboardShouldPersistTaps="handled">
+                  {autoResolvedForQuery && (
+                    <View style={styles.createCustomCard}>
+                      <View style={styles.createCustomHeader}>
+                        <View style={styles.createCustomIconWrap}>
+                          <Ionicons name="barbell-outline" size={24} color="#A599FF" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.createCustomTitle} numberOfLines={1}>
+                            Create "{autoResolvedForQuery.canonicalName}"
+                          </Text>
+                          <Text style={styles.createCustomSubtitle}>
+                            Auto-categorized as{' '}
+                            <Text style={{ color: autoResolvedForQuery.muscleColor, fontFamily: FONT_FAMILY.bold }}>
+                              {autoResolvedForQuery.canonicalGroup} ({autoResolvedForQuery.targetMuscle})
+                            </Text>
+                          </Text>
+                        </View>
+                      </View>
+
+                      <TouchableOpacity
+                        style={styles.createCustomCtaBtn}
+                        activeOpacity={0.8}
+                        onPress={handleInstantCreateCustom}
+                      >
+                        <Ionicons name="add" size={18} color="#000" />
+                        <Text style={styles.createCustomCtaText}>
+                          Create "{autoResolvedForQuery.canonicalName}" Exercise
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.createCustomSecondaryLink}
+                        onPress={() => {
+                          setMuscle(autoResolvedForQuery.targetMuscle);
+                          setShowCustomTuning(true);
+                        }}
+                      >
+                        <Text style={styles.createCustomSecondaryText}>
+                          Customize sets, reps & video link ⚙
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* Empty state prompt */}
+                  <View style={styles.emptyState}>
+                    <Ionicons name="search-outline" size={24} color={colors.textTertiary} />
+                    <Text style={styles.emptyStateText}>
+                      Not in standard catalogue? Tap create above or configure custom details below.
+                    </Text>
+                  </View>
+                </ScrollView>
+              )}
+            </>
           )}
         </KeyboardAvoidingView>
       </View>
