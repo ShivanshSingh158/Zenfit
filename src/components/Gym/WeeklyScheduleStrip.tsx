@@ -116,10 +116,31 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
     return activeDayExercises.reduce((acc, ex) => acc + (Number(ex.targetSets) || 3), 0);
   }, [activeDayExercises]);
 
+  // Precompute current week's calendar dates (Mon..Sun) to match Today tab
+  const weekDaysInfo = useMemo(() => {
+    const now = new Date();
+    const currentDay = now.getDay(); // 0 is Sun
+    const distanceToMon = currentDay === 0 ? -6 : 1 - currentDay;
+    const mon = new Date(now);
+    mon.setDate(now.getDate() + distanceToMon);
+
+    const letters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+    return resolvedDays.map((d, idx) => {
+      const dayDate = new Date(mon);
+      dayDate.setDate(mon.getDate() + idx);
+      return {
+        ...d,
+        dateNum: dayDate.getDate(),
+        dayLetter: letters[idx],
+      };
+    });
+  }, [resolvedDays]);
+
   return (
     <>
       <View style={styles.container}>
-        {/* ── 1. 7-Day Mon–Sun Apple HIG Segmented Strip ── */}
+        {/* ── 1. 7-Day Mon–Sun Apple HIG Segmented Strip (Matching Today Tab) ── */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>WEEKLY SCHEDULE</Text>
           <Text style={styles.todayLabel}>
@@ -127,65 +148,56 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
           </Text>
         </View>
 
-        <View style={[styles.dayStrip, { backgroundColor: isDark ? '#141418' : 'rgba(0, 0, 0, 0.04)' }]}>
-          {resolvedDays.map(d => {
-            const isSelected = selectedDayIndex === d.dayIndex;
-            const isToday = d.dayIndex === todayDayIndex;
-            const isRest = Boolean(d.planDay.isRest);
-            const exerciseCount = d.planDay.exercises?.length || 0;
+        <View style={styles.weekStrip}>
+          <View style={styles.weekDaysContainer}>
+            {weekDaysInfo.map(d => {
+              const isSelected = selectedDayIndex === d.dayIndex;
+              const isToday = d.dayIndex === todayDayIndex;
+              const isRest = Boolean(d.planDay.isRest);
+              const exerciseCount = d.planDay.exercises?.length || 0;
 
-            return (
-              <TouchableOpacity
-                key={`day-${d.dayIndex}`}
-                activeOpacity={0.7}
-                onPress={() => {
-                  hapticLight();
-                  onSelectDayIndex(d.dayIndex);
-                }}
-                style={[
-                  styles.dayPill,
-                  isSelected && styles.dayPillActive,
-                ]}
-              >
-                {isToday && <View style={[styles.todayIndicatorDot, isSelected && styles.todayIndicatorDotActive]} />}
-                <Text style={[styles.dayPillName, isSelected && styles.dayPillNameActive]}>
-                  {DAY_SHORT[d.dayIndex - 1]}
-                </Text>
-                {isRest ? (
+              return (
+                <TouchableOpacity
+                  key={`day-${d.dayIndex}`}
+                  style={styles.dayCol}
+                  onPress={() => {
+                    hapticLight();
+                    onSelectDayIndex(d.dayIndex);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.dayLetter, isSelected && styles.dayLetterActive]}>
+                    {d.dayLetter}
+                  </Text>
+                  <View style={[styles.dayPill, isSelected && styles.dayPillActive]}>
+                    <Text style={[styles.dayNum, isSelected && styles.dayNumActive]}>
+                      {d.dateNum}
+                    </Text>
+                  </View>
                   <Text
                     style={[
-                      styles.dayPillTag,
-                      styles.dayPillTagRest,
-                      isSelected && styles.dayPillTagActive,
+                      styles.daySubLabel,
+                      isSelected && styles.daySubLabelActive,
+                      isRest && styles.daySubLabelRest,
                     ]}
                     numberOfLines={1}
                   >
-                    Rest
+                    {isRest ? 'Rest' : (exerciseCount > 0 ? `${exerciseCount} ex` : 'Train')}
                   </Text>
-                ) : (
-                  <Text
-                    style={[
-                      styles.dayPillTag,
-                      isSelected && styles.dayPillTagActive,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {exerciseCount > 0 ? `${exerciseCount} ex` : 'Train'}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            );
-          })}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
-        {/* ── 2. Subtle Weekly Split Volume Bar (Apple Health Style) ── */}
+        {/* ── 2. Subtle Weekly Split Volume Bar (Clean, Unified Apple Health Style - NO multi-color rainbow!) ── */}
         <TouchableOpacity
           activeOpacity={0.75}
           onPress={() => {
             hapticLight();
             setAuditExpanded(!auditExpanded);
           }}
-          style={[styles.auditCard, { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface }]}
+          style={[styles.auditCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.surface }]}
         >
           <View style={styles.auditRow}>
             <View style={styles.auditLeft}>
@@ -207,23 +219,17 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
             </View>
           </View>
 
-          {/* Segmented Multi-Color Volume Bar */}
+          {/* Unified Purple Accent Progress Bar (Clean & Cohesive) */}
           {weeklyAudit.totalSets > 0 && (
             <View style={styles.auditProgressBar}>
-              {weeklyAudit.sortedMuscles.map(([muscle, sets]) => {
-                const pct = (sets / weeklyAudit.totalSets) * 100;
-                const color = resolveMuscleColor(muscle);
-                return (
-                  <View
-                    key={`bar-${muscle}`}
-                    style={{
-                      width: `${pct}%`,
-                      height: '100%',
-                      backgroundColor: color,
-                    }}
-                  />
-                );
-              })}
+              <View
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  borderRadius: 2,
+                  backgroundColor: '#6C5CE7',
+                }}
+              />
             </View>
           )}
 
@@ -231,12 +237,11 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
             <View style={styles.auditExpandedWrap}>
               <View style={styles.muscleGrid}>
                 {weeklyAudit.sortedMuscles.map(([muscle, sets]) => {
-                  const color = resolveMuscleColor(muscle);
                   const pct = weeklyAudit.totalSets > 0 ? Math.round((sets / weeklyAudit.totalSets) * 100) : 0;
 
                   return (
                     <View key={`aud-${muscle}`} style={styles.muscleGridItem}>
-                      <View style={[styles.muscleDot, { backgroundColor: color }]} />
+                      <View style={[styles.muscleDot, { backgroundColor: '#A599FF' }]} />
                       <Text
                         style={[styles.muscleGridName, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
                         numberOfLines={1}
@@ -254,35 +259,35 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
         </TouchableOpacity>
 
         {/* ── 3. Selected Day Card (Schedule-First Direct Exercise View) ── */}
-        <View
-          style={[
-            styles.dayWorkoutCard,
-            { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
-          ]}
-        >
+        <View style={styles.daySectionWrapper}>
           {activeDayIsRest ? (
-            <View style={styles.restCardBody}>
+            <View
+              style={[
+                styles.restCardBody,
+                { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.surface },
+              ]}
+            >
               <View style={styles.restIconBox}>
-                <Ionicons name="moon-outline" size={24} color="#A599FF" />
+                <Ionicons name="leaf-outline" size={22} color="#30D158" />
               </View>
               <Text style={[styles.restTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}>
                 {activeDay.dayName}: Rest & Recovery
               </Text>
               <Text style={styles.restSubtitle}>
-                Scheduled active recovery, muscle repair & nervous system restoration.
+                Muscles repair and grow during sleep & rest.
               </Text>
               <TouchableOpacity
                 activeOpacity={0.75}
                 onPress={() => onToggleRest(activeDay.dayIndex)}
                 style={styles.switchWorkoutBtn}
               >
-                <Ionicons name="fitness-outline" size={15} color="#A599FF" style={{ marginRight: 6 }} />
+                <Ionicons name="add" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
                 <Text style={styles.switchWorkoutBtnText}>Switch to Workout Day</Text>
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={styles.dayCardBody}>
-              {/* Header: Day Name + Title + Single Primary "Customize" Action */}
+            <View style={styles.dayContentBox}>
+              {/* Header: Day Name + Title + Single Primary "Customize" Action (Styled like Today tab + Add button) */}
               <View style={styles.dayCardHeaderRow}>
                 <View style={{ flex: 1, paddingRight: 10 }}>
                   <View style={styles.dayBadgeRow}>
@@ -305,7 +310,7 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
                   </Text>
                 </View>
 
-                {/* 1-Tap Subtle Secondary Action */}
+                {/* Pill Action Button matching Today tab's + Add button style */}
                 <TouchableOpacity
                   activeOpacity={0.8}
                   onPress={() => {
@@ -314,13 +319,13 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
                   }}
                   style={styles.customizeBtn}
                 >
-                  <Ionicons name="create-outline" size={13} color="#A599FF" style={{ marginRight: 4 }} />
+                  <Ionicons name="pencil" size={12} color={isDark ? '#000000' : '#FFFFFF'} style={{ marginRight: 4 }} />
                   <Text style={styles.customizeBtnText}>Customize</Text>
                 </TouchableOpacity>
               </View>
 
-              {/* Direct Exercise Cards: Visible directly with 0 extra taps */}
-              <View style={styles.directExerciseList}>
+              {/* Standalone Exercise Cards (Matching Today Tab) */}
+              <View style={styles.exerciseCardsWrapper}>
                 {activeDayExercises.length === 0 ? (
                   <TouchableOpacity
                     activeOpacity={0.7}
@@ -334,53 +339,50 @@ export const WeeklyScheduleStrip: React.FC<WeeklyScheduleStripProps> = ({
                   activeDayExercises.map((ex, idx) => {
                     const { targetMuscle } = resolveExerciseTargetMuscle(ex.name, ex.muscle);
                     const muscleColor = resolveMuscleColor(targetMuscle);
-                    const tier = EXERCISE_TIER_MAP.get(normalizeExerciseKey(ex.name));
 
                     return (
                       <TouchableOpacity
-                        key={`ex-row-${idx}-${ex.id || ex.name}`}
+                        key={`ex-card-${idx}-${ex.id || ex.name}`}
                         activeOpacity={0.75}
                         onPress={() => {
                           hapticLight();
                           onEditRoutineExercises(activeDay.planDay, activeDay.dayIndex);
                         }}
                         style={[
-                          styles.directExerciseRow,
-                          idx !== activeDayExercises.length - 1 && styles.directExerciseRowBorder,
+                          styles.standaloneExerciseCard,
+                          {
+                            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+                            borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : colors.border,
+                          },
                         ]}
                       >
-                        <View style={styles.directExLeft}>
-                          {/* Exercise Name & Muscle / Tier */}
-                          <View style={styles.directExTextCol}>
-                            <Text
-                              style={[styles.directExName, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
-                              numberOfLines={1}
-                            >
-                              {ex.name}
-                            </Text>
-                            <View style={styles.directExMetaRow}>
-                              <View style={[styles.muscleDot, { backgroundColor: muscleColor }]} />
-                              <Text style={styles.directExMuscle} numberOfLines={1}>
-                                {targetMuscle}
+                        <View style={styles.cardLeftZone}>
+                          <Text
+                            style={[styles.cardExerciseTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
+                            numberOfLines={1}
+                          >
+                            {ex.name}
+                          </Text>
+                          <View style={styles.cardMetaRow}>
+                            <View style={[styles.muscleDot, { backgroundColor: muscleColor }]} />
+                            <Text style={styles.cardMuscleName} numberOfLines={1}>
+                              {targetMuscle}
+                              <Text style={styles.cardSetsRepsInline}>
+                                {` · ${ex.targetSets || 3} sets × ${ex.targetReps || '8–12'} reps`}
                               </Text>
-                              {tier ? (
-                                <View style={[styles.tierTag, tier === 'S Tier' ? styles.sTierTag : styles.aTierTag]}>
-                                  <Text style={[styles.tierTagText, tier === 'S Tier' ? styles.sTierText : styles.aTierText]}>
-                                    {tier}
-                                  </Text>
-                                </View>
-                              ) : null}
-                            </View>
+                            </Text>
                           </View>
                         </View>
 
-                        {/* Sets × Reps - Natural Subtle Typography (NO PILL) */}
-                        <View style={styles.directExRight}>
-                          <Text style={[styles.setsRepsNaturalText, { color: isDark ? '#E5E5EA' : colors.textPrimary }]}>
-                            {ex.targetSets || 3}
-                            <Text style={styles.setsRepsCross}> × </Text>
-                            {ex.targetReps || '8–12'}
-                          </Text>
+                        <View style={styles.cardRightZone}>
+                          <View style={styles.cardSetsBadge}>
+                            <Text style={styles.cardSetsBadgeText}>
+                              {ex.targetSets || 3}
+                              <Text style={styles.cardSetsBadgeCross}> × </Text>
+                              {ex.targetReps || '8–12'}
+                            </Text>
+                          </View>
+                          <Ionicons name="ellipsis-horizontal" size={16} color="#8E8E93" style={{ marginLeft: 8 }} />
                         </View>
                       </TouchableOpacity>
                     );
@@ -577,74 +579,87 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
+    fontSize: 12,
     color: '#8E8E93',
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
   },
   todayLabel: {
-    fontFamily: FONT_FAMILY.medium,
+    fontFamily: FONT_FAMILY.bold,
     fontSize: 11,
     color: '#A599FF',
   },
-  dayStrip: {
+  weekStrip: {
     flexDirection: 'row',
-    borderRadius: 12,
-    padding: 3,
-    marginHorizontal: 16,
-  },
-  dayPill: {
-    flex: 1,
     alignItems: 'center',
-    paddingVertical: 7,
-    borderRadius: 9,
-    position: 'relative',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginBottom: 4,
   },
-  todayIndicatorDot: {
-    position: 'absolute',
-    top: 3,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#30D158',
+  weekDaysContainer: {
+    flexDirection: 'row',
+    flex: 1,
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  todayIndicatorDotActive: {
-    backgroundColor: '#000000',
+  dayCol: {
+    alignItems: 'center',
+    gap: 3,
+    width: 36,
   },
-  dayPillActive: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.25,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  dayPillName: {
-    fontFamily: FONT_FAMILY.medium,
+  dayLetter: {
     fontSize: 11,
     color: '#8E8E93',
+    fontFamily: FONT_FAMILY.medium,
   },
-  dayPillNameActive: {
+  dayLetterActive: {
+    color: '#FFFFFF',
     fontFamily: FONT_FAMILY.bold,
-    color: '#000000',
   },
-  dayPillTag: {
+  dayPill: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  dayPillActive: {
+    backgroundColor: '#6C5CE7',
+  },
+  dayNum: {
+    fontSize: 13,
+    color: '#FFFFFF',
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
+    textAlign: 'center',
+  },
+  dayNumActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  daySubLabel: {
+    fontSize: 9.5,
     color: '#636366',
-    marginTop: 2,
+    fontFamily: FONT_FAMILY.medium,
+    marginTop: 1,
   },
-  dayPillTagActive: {
-    color: '#000000',
+  daySubLabelActive: {
+    color: '#A599FF',
+    fontFamily: FONT_FAMILY.bold,
   },
-  dayPillTagRest: {
+  daySubLabelRest: {
     color: '#8E8E93',
   },
   auditCard: {
     marginHorizontal: 16,
-    marginTop: 8,
-    borderRadius: 12,
+    marginTop: 6,
+    borderRadius: 14,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   auditRow: {
     flexDirection: 'row',
@@ -666,11 +681,10 @@ const styles = StyleSheet.create({
   },
   auditMeta: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 12,
+    fontSize: 11.5,
     color: '#8E8E93',
   },
   auditProgressBar: {
-    flexDirection: 'row',
     height: 4,
     borderRadius: 2,
     overflow: 'hidden',
@@ -712,17 +726,16 @@ const styles = StyleSheet.create({
     width: 28,
     textAlign: 'right',
   },
-  dayWorkoutCard: {
+  daySectionWrapper: {
     marginHorizontal: 16,
-    marginTop: 10,
-    borderRadius: 14,
-    padding: 14,
+    marginTop: 14,
   },
-  dayCardBody: {},
+  dayContentBox: {},
   dayCardHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
+    marginBottom: 10,
   },
   dayBadgeRow: {
     flexDirection: 'row',
@@ -732,7 +745,7 @@ const styles = StyleSheet.create({
   },
   dayCardDayLabel: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
+    fontSize: 11,
     color: '#A599FF',
     letterSpacing: 0.6,
   },
@@ -750,41 +763,100 @@ const styles = StyleSheet.create({
   },
   dayCardTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 17,
+    fontSize: 20,
     letterSpacing: -0.3,
   },
   dayCardSubCount: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 12,
     color: '#8E8E93',
-    marginTop: 2,
+    marginTop: 3,
   },
   customizeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(108, 92, 231, 0.12)',
-    paddingHorizontal: 10,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 13,
     paddingVertical: 6,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(108, 92, 231, 0.25)',
+    borderRadius: 999,
   },
   customizeBtnText: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 12,
-    color: '#A599FF',
+    color: '#000000',
   },
-  directExerciseList: {
-    marginTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
-    paddingTop: 4,
+  exerciseCardsWrapper: {
+    gap: 8,
+    marginTop: 4,
+  },
+  standaloneExerciseCard: {
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  cardLeftZone: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  cardExerciseTitle: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 15,
+    letterSpacing: -0.2,
+    marginBottom: 4,
+  },
+  cardMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  muscleDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  cardMuscleName: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 12,
+    color: '#8E8E93',
+  },
+  cardSetsRepsInline: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 11.5,
+    color: '#8E8E93',
+  },
+  cardRightZone: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cardSetsBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 7,
+  },
+  cardSetsBadgeText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 12,
+    color: '#E0E0E6',
+  },
+  cardSetsBadgeCross: {
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: 11,
+    color: '#8E8E93',
   },
   noExercisesBox: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 18,
+    paddingVertical: 24,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
     gap: 8,
   },
   noExercisesText: {
@@ -792,147 +864,72 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#8E8E93',
   },
-  directExerciseRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 9,
-  },
-  directExerciseRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
-  },
-  directExLeft: {
-    flex: 1,
-    paddingRight: 10,
-  },
-  directExTextCol: {
-    flex: 1,
-  },
-  directExName: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13.5,
-    lineHeight: 18,
-    letterSpacing: -0.2,
-  },
-  directExMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 2,
-  },
-  muscleDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-  },
-  directExMuscle: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11.5,
-    color: '#8E8E93',
-  },
-  tierTag: {
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
-    borderRadius: 4,
-    marginLeft: 3,
-  },
-  sTierTag: {
-    backgroundColor: 'rgba(255, 215, 0, 0.12)',
-  },
-  sTierText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 9.5,
-    color: '#FFD700',
-  },
-  aTierTag: {
-    backgroundColor: 'rgba(165, 153, 255, 0.12)',
-  },
-  aTierText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 9.5,
-    color: '#A599FF',
-  },
-  tierTagText: {},
-  directExRight: {
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    paddingLeft: 8,
-  },
-  setsRepsNaturalText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-    letterSpacing: -0.2,
-  },
-  setsRepsCross: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11.5,
-    color: '#8E8E93',
-  },
   footerChipsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+    gap: 7,
+    marginTop: 12,
+    paddingTop: 8,
   },
   footerChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 7,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.07)',
   },
   footerChipText: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 11,
+    fontSize: 11.5,
     color: '#8E8E93',
+  },
+  restCardBody: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   restIconBox: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(165, 153, 255, 0.15)',
+    backgroundColor: 'rgba(48, 209, 88, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
   },
-  restCardBody: {
-    alignItems: 'center',
-    paddingVertical: 18,
-  },
   restTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 15,
-    marginBottom: 2,
+    fontSize: 16,
+    marginBottom: 3,
   },
   restSubtitle: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 12,
     color: '#8E8E93',
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
     lineHeight: 17,
   },
   switchWorkoutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(165, 153, 255, 0.12)',
+    backgroundColor: '#6C5CE7',
     paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 8,
+    paddingVertical: 8,
+    borderRadius: 999,
   },
   switchWorkoutBtnText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    color: '#A599FF',
+    fontSize: 12.5,
+    color: '#FFFFFF',
   },
   sheetBackdrop: {
     flex: 1,

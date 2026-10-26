@@ -345,7 +345,7 @@ export default function GymSplitsScreen() {
             style={styles.newRoutinePill}
             accessibilityLabel="Add Routine"
           >
-            <Ionicons name="add" size={15} color="#FFFFFF" />
+            <Ionicons name="add" size={14} color="#000000" />
             <Text style={styles.newRoutinePillText}>Add Routine</Text>
           </TouchableOpacity>
         </View>
@@ -413,7 +413,7 @@ export default function GymSplitsScreen() {
         <View style={[styles.sectionHeaderRow, { marginTop: 18 }]}>
           <Text style={styles.sectionTitle}>MY ROUTINES</Text>
           <TouchableOpacity onPress={handleCreateRoutine} style={styles.createInlineBtn}>
-            <Ionicons name="add" size={14} color="#A599FF" />
+            <Ionicons name="add" size={13} color="#000000" />
             <Text style={styles.createInlineText}>New</Text>
           </TouchableOpacity>
         </View>
@@ -740,22 +740,16 @@ const styles = StyleSheet.create({
   newRoutinePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#6C5CE7',
+    gap: 3,
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 16,
-    shadowColor: '#6C5CE7',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 5,
-    elevation: 3,
+    paddingVertical: 5.5,
+    borderRadius: 999,
   },
   newRoutinePillText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 12.5,
-    color: '#FFFFFF',
-    letterSpacing: -0.2,
+    fontSize: 12,
+    color: '#000000',
   },
   headerIconBtn: {
     width: 32,
@@ -778,27 +772,34 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
+    fontSize: 12,
     color: '#8E8E93',
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
   },
   createInlineBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 3,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 4.5,
+    borderRadius: 999,
   },
   createInlineText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    color: '#A599FF',
+    fontSize: 11.5,
+    color: '#000000',
   },
   activeSplitCard: {
     marginHorizontal: 16,
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   splitIconBox: {
     width: 38,
@@ -859,8 +860,10 @@ const styles = StyleSheet.create({
   routineCard: {
     marginHorizontal: 16,
     marginBottom: 8,
-    borderRadius: 14,
-    padding: 12,
+    borderRadius: 16,
+    padding: 13,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   routineCardMain: {
     flexDirection: 'row',
