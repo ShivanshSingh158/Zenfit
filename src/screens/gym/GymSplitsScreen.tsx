@@ -59,6 +59,7 @@ export default function GymSplitsScreen() {
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [routineEditorVisible, setRoutineEditorVisible] = useState(false);
   const [editingRoutine, setEditingRoutine] = useState<GymRoutine | null>(null);
+  const [editingDayIndex, setEditingDayIndex] = useState<number | null>(null);
 
   // Day Selector: 1..7 for Monday..Sunday
   const currentDayOfWeek = new Date().getDay();
@@ -244,19 +245,23 @@ export default function GymSplitsScreen() {
       updatedAt: Date.now(),
     };
     setEditingRoutine(routineObj);
+    setEditingDayIndex(dayIndex);
     setRoutineEditorVisible(true);
   }, []);
 
   // Routine Management Actions
-  const handleCreateRoutine = () => {
+  const handleCreateRoutine = useCallback((dayIndex?: number | any) => {
     hapticMedium();
     setEditingRoutine(null);
+    const targetIdx = typeof dayIndex === 'number' ? dayIndex : (selectedDayIndex || null);
+    setEditingDayIndex(targetIdx);
     setRoutineEditorVisible(true);
-  };
+  }, [selectedDayIndex]);
 
   const handleEditRoutine = (routine: GymRoutine) => {
     hapticLight();
     setEditingRoutine(routine);
+    setEditingDayIndex(null);
     setRoutineEditorVisible(true);
   };
 
@@ -488,13 +493,30 @@ export default function GymSplitsScreen() {
       <RoutineEditorModal
         visible={routineEditorVisible}
         routineToEdit={editingRoutine}
-        onClose={() => setRoutineEditorVisible(false)}
-        onSave={savedRt => {
-          saveCustomRoutine(savedRt);
+        initialDayIndex={editingDayIndex}
+        onClose={() => {
           setRoutineEditorVisible(false);
+          setEditingDayIndex(null);
         }}
-        onOpenAiAutoFill={() => {
-          setAiModalVisible(true);
+        onSave={(savedRt, targetDayIndex) => {
+          saveCustomRoutine(savedRt);
+          if (targetDayIndex != null && targetDayIndex >= 1 && targetDayIndex <= 7) {
+            const targetDay = resolvedDays.find(d => d.dayIndex === targetDayIndex);
+            if (targetDay) {
+              const updatedPlanDay: GymPlanDay = {
+                ...targetDay.planDay,
+                routineId: savedRt.id,
+                name: savedRt.name,
+                subtitle: savedRt.subtitle,
+                focus: savedRt.focus,
+                exercises: savedRt.exercises,
+                isRest: false,
+              };
+              updateMasterPlan(targetDayIndex, updatedPlanDay);
+            }
+          }
+          setRoutineEditorVisible(false);
+          setEditingDayIndex(null);
         }}
       />
 

@@ -9,48 +9,276 @@ import {
   ScrollView,
   FlatList,
   Pressable,
-  Platform,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { GymPlanExercise, GymRoutine } from '../../types/gym.types';
 import { EXERCISE_DATABASE } from '../../data/exerciseDatabase';
-import { normalizeExerciseKey, getExerciseSwapAlternatives, MUSCLE_COLORS } from '../../utils/gymUtils';
+import {
+  normalizeExerciseKey,
+  getExerciseSwapAlternatives,
+  resolveMuscleColor,
+  resolveExerciseTargetMuscle,
+} from '../../utils/gymUtils';
+import { getEquipmentGlyph } from './ExerciseCardItem';
 import { hapticLight, hapticMedium, hapticSuccess } from '../../utils/haptics';
 import { FONT_FAMILY, IOS_DARK, SPACE } from '../../theme/tokens';
 import { useTheme } from '../../contexts/ThemeContext';
 
-const COMMON_SETS = [1, 2, 3, 4, 5, 6, 7, 8];
-const COMMON_REPS = ['6–8', '8–10', '8–12', '10–12', '12–15', '15–20', '5 × 5'];
-const COMMON_REST = [60, 90, 120, 180];
-
+const COMMON_REPS = ['6–8', '8–10', '8–12', '10–12', '12–15', '15–20'];
+const COMMON_REST = [45, 60, 90, 120, 180];
 const MUSCLE_FILTERS = ['All', 'Chest', 'Back', 'Shoulders', 'Triceps', 'Biceps', 'Quads', 'Hamstrings', 'Calves', 'Abs'];
+
+const DAY_OPTIONS = [
+  { label: 'Mon', index: 1 },
+  { label: 'Tue', index: 2 },
+  { label: 'Wed', index: 3 },
+  { label: 'Thu', index: 4 },
+  { label: 'Fri', index: 5 },
+  { label: 'Sat', index: 6 },
+  { label: 'Sun', index: 7 },
+  { label: 'Library Only', index: null },
+];
+
+/**
+ * Intelligent Permutation & Combination Generator
+ * Analyzes selected muscles, volume proportion, and biomechanical pairs
+ * to automatically generate professional workout names and focus subtitles.
+ */
+export function generateSmartRoutineMeta(exercises: GymPlanExercise[]): {
+  suggestedName: string;
+  suggestedFocus: string;
+  nameOptions: string[];
+} {
+  if (!exercises || exercises.length === 0) {
+    return {
+      suggestedName: 'Custom Routine',
+      suggestedFocus: 'Targeted strength & hypertrophy',
+      nameOptions: ['Custom Routine', 'Full Body Power', 'Hypertrophy Day'],
+    };
+  }
+
+  const muscleScores: Record<string, number> = {};
+  for (const ex of exercises) {
+    const rawMuscle = ex.muscle || '';
+    const m = rawMuscle.toLowerCase();
+    const sets = Number(ex.targetSets) || 3;
+
+    if (m.includes('chest')) muscleScores['Chest'] = (muscleScores['Chest'] || 0) + sets;
+    else if (m.includes('back') || m.includes('lat')) muscleScores['Back'] = (muscleScores['Back'] || 0) + sets;
+    else if (m.includes('shoulder') || m.includes('delt')) muscleScores['Shoulders'] = (muscleScores['Shoulders'] || 0) + sets;
+    else if (m.includes('bicep')) muscleScores['Biceps'] = (muscleScores['Biceps'] || 0) + sets;
+    else if (m.includes('tricep')) muscleScores['Triceps'] = (muscleScores['Triceps'] || 0) + sets;
+    else if (m.includes('quad')) muscleScores['Quads'] = (muscleScores['Quads'] || 0) + sets;
+    else if (m.includes('hamstring') || m.includes('hams') || m.includes('glute')) muscleScores['Hamstrings'] = (muscleScores['Hamstrings'] || 0) + sets;
+    else if (m.includes('calf') || m.includes('calves')) muscleScores['Calves'] = (muscleScores['Calves'] || 0) + sets;
+    else if (m.includes('ab') || m.includes('core')) muscleScores['Abs'] = (muscleScores['Abs'] || 0) + sets;
+    else muscleScores['Other'] = (muscleScores['Other'] || 0) + sets;
+  }
+
+  const sortedMuscles = Object.entries(muscleScores)
+    .filter(([_, score]) => score > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([m]) => m);
+
+  const has = (name: string) => sortedMuscles.includes(name);
+
+  // 1. Chest & Back
+  if (has('Chest') && has('Back') && !has('Quads') && !has('Hamstrings')) {
+    if (has('Biceps') || has('Triceps')) {
+      return {
+        suggestedName: 'Chest & Back (Upper Torso)',
+        suggestedFocus: 'Antagonist push/pull supersets with arms finisher',
+        nameOptions: [
+          'Chest & Back (Upper Torso)',
+          'Upper Push & Pull',
+          'Torso & Arms Hypertrophy',
+          'Arnold Chest & Back',
+        ],
+      };
+    }
+    return {
+      suggestedName: 'Chest & Back (Thickness)',
+      suggestedFocus: 'Antagonist supersets focusing on chest thickness and lat width',
+      nameOptions: [
+        'Chest & Back (Thickness)',
+        'Upper Body Push & Pull',
+        'Chest & Back Power',
+        'Torso Hypertrophy',
+      ],
+    };
+  }
+
+  // 2. Push: Chest + Shoulders + Triceps
+  if (has('Chest') && (has('Shoulders') || has('Triceps')) && !has('Back') && !has('Quads')) {
+    const hasDelt = has('Shoulders');
+    const hasTri = has('Triceps');
+    return {
+      suggestedName: hasDelt && hasTri ? 'Push (Chest, Delts & Triceps)' : hasDelt ? 'Chest & Shoulders Power' : 'Chest & Triceps Hypertrophy',
+      suggestedFocus: 'Horizontal and overhead pressing with triceps lockout overload',
+      nameOptions: [
+        'Push: Chest & Delts',
+        'Chest & Triceps Power',
+        'Upper Push Hypertrophy',
+        'Push Day Focus',
+      ],
+    };
+  }
+
+  // 3. Pull: Back + Biceps (+ Delts/Traps)
+  if (has('Back') && (has('Biceps') || has('Shoulders')) && !has('Chest') && !has('Quads')) {
+    return {
+      suggestedName: has('Biceps') ? 'Pull (Back & Biceps)' : 'Pull (Back & Rear Delts)',
+      suggestedFocus: 'Vertical & horizontal pulling with elbow flexion overload',
+      nameOptions: [
+        'Pull: Back & Biceps',
+        'Lats & Biceps Hypertrophy',
+        'Upper Pull Dominance',
+        'Back Width & Arm Sculpt',
+      ],
+    };
+  }
+
+  // 4. Legs: Quads + Hamstrings (+ Calves)
+  if (has('Quads') || has('Hamstrings')) {
+    if (has('Quads') && has('Hamstrings')) {
+      return {
+        suggestedName: 'Leg Day (Quads & Posterior Chain)',
+        suggestedFocus: 'Compound knee extension and hip hinge mechanics',
+        nameOptions: [
+          'Leg Day (Quads & Posterior Chain)',
+          'Lower Body Hypertrophy',
+          'Squat & Hinge Power',
+          'Complete Leg Overload',
+        ],
+      };
+    }
+    if (has('Quads')) {
+      return {
+        suggestedName: 'Quad Hypertrophy Focus',
+        suggestedFocus: 'Knee extension overload and VMO quad development',
+        nameOptions: [
+          'Quad Hypertrophy Focus',
+          'Anterior Chain Power',
+          'Squats & Quad Burn',
+        ],
+      };
+    }
+    return {
+      suggestedName: 'Posterior Chain (Hamstrings & Glutes)',
+      suggestedFocus: 'Hip hinge mechanics and hamstring stretch stimulus',
+      nameOptions: [
+        'Posterior Chain (Hams & Glutes)',
+        'Hamstring & Glute Power',
+        'Posterior Hypertrophy',
+      ],
+    };
+  }
+
+  // 5. Arms & Shoulders (The Gunsmith)
+  if ((has('Biceps') || has('Triceps')) && has('Shoulders') && !has('Chest') && !has('Back')) {
+    return {
+      suggestedName: 'Shoulders & Arms (The Gunsmith)',
+      suggestedFocus: '3D deltoid capping and bicep/tricep antagonistic pump',
+      nameOptions: [
+        'Shoulders & Arms (The Gunsmith)',
+        'Delts & Arms Hypertrophy',
+        'Upper Arm Sculpt',
+        'Arms & Shoulders Day',
+      ],
+    };
+  }
+
+  // 6. Chest + Biceps
+  if (has('Chest') && has('Biceps') && !has('Back')) {
+    return {
+      suggestedName: 'Chest & Biceps Pump',
+      suggestedFocus: 'Pressing volume with elbow flexion supersets',
+      nameOptions: [
+        'Chest & Biceps Pump',
+        'Chest & Bicep Hypertrophy',
+        'Upper Body Sculpt',
+      ],
+    };
+  }
+
+  // 7. Back + Triceps
+  if (has('Back') && has('Triceps') && !has('Chest')) {
+    return {
+      suggestedName: 'Back & Triceps Power',
+      suggestedFocus: 'Lat width compound movements with tricep isolation',
+      nameOptions: [
+        'Back & Triceps Power',
+        'Lat Width & Tricep Hypertrophy',
+        'Back & Arm Day',
+      ],
+    };
+  }
+
+  // 8. General permutation of top muscles
+  if (sortedMuscles.length >= 2) {
+    const m1 = sortedMuscles[0];
+    const m2 = sortedMuscles[1];
+    return {
+      suggestedName: `${m1} & ${m2} Hypertrophy`,
+      suggestedFocus: `Targeting ${m1} and ${m2} with progressive overload`,
+      nameOptions: [
+        `${m1} & ${m2} Hypertrophy`,
+        `${m1} & ${m2} Power`,
+        `${m1} & ${m2} Sculpt`,
+        'Custom Focus Session',
+      ],
+    };
+  }
+
+  if (sortedMuscles.length === 1) {
+    const m = sortedMuscles[0];
+    return {
+      suggestedName: `${m} Hypertrophy Day`,
+      suggestedFocus: `High volume targeted stimulus for ${m}`,
+      nameOptions: [
+        `${m} Hypertrophy Day`,
+        `${m} Power Session`,
+        `${m} Blast`,
+      ],
+    };
+  }
+
+  return {
+    suggestedName: 'Custom Routine',
+    suggestedFocus: 'Targeted strength & hypertrophy',
+    nameOptions: ['Custom Routine', 'Full Body Power', 'Hypertrophy Day'],
+  };
+}
 
 export interface RoutineEditorModalProps {
   visible: boolean;
   routineToEdit?: GymRoutine | null;
+  initialDayIndex?: number | null;
   onClose: () => void;
-  onSave: (routine: GymRoutine) => void;
-  onOpenAiAutoFill?: () => void;
+  onSave: (routine: GymRoutine, assignedDayIndex?: number | null) => void;
 }
 
 export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   visible,
   routineToEdit,
+  initialDayIndex,
   onClose,
   onSave,
-  onOpenAiAutoFill,
 }) => {
   const { colors, isDark } = useTheme();
 
   // Internal view switcher: 'builder' | 'vault_picker'
-  const [currentView, setCurrentView] = useState<'builder' | 'vault_picker'>('builder');
+  const [currentView, setCurrentView] = useState<'builder' | 'vault_picker'>('vault_picker');
+  const [isNewRoutine, setIsNewRoutine] = useState(true);
 
   // Routine Form Fields
   const [routineName, setRoutineName] = useState('');
   const [routineSubtitle, setRoutineSubtitle] = useState('');
   const [exercises, setExercises] = useState<GymPlanExercise[]>([]);
+  const [nameOptions, setNameOptions] = useState<string[]>([]);
+  const [assignedDay, setAssignedDay] = useState<number | null>(initialDayIndex ?? null);
 
   // Vault Picker Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -60,23 +288,32 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   // Quick Swap Modal State
   const [swapTargetIndex, setSwapTargetIndex] = useState<number | null>(null);
 
-  // Initialize or Reset form on open
+  // Initialize form on open
   useEffect(() => {
     if (visible) {
-      if (routineToEdit) {
+      if (routineToEdit && routineToEdit.exercises && routineToEdit.exercises.length > 0) {
         setRoutineName(routineToEdit.name || '');
         setRoutineSubtitle(routineToEdit.subtitle || routineToEdit.focus || '');
-        setExercises([...(routineToEdit.exercises || [])]);
+        setExercises([...routineToEdit.exercises]);
+        const smart = generateSmartRoutineMeta(routineToEdit.exercises);
+        setNameOptions(smart.nameOptions);
+        setCurrentView('builder');
+        setIsNewRoutine(false);
       } else {
         setRoutineName('');
         setRoutineSubtitle('');
         setExercises([]);
+        setNameOptions([]);
+        // Flow: Land DIRECTLY on exercise selector so user doesn't face empty screens!
+        setCurrentView('vault_picker');
+        setIsNewRoutine(true);
       }
-      setCurrentView('builder');
+      setAssignedDay(initialDayIndex ?? null);
       setSelectedVaultExerciseIds(new Set());
       setSearchQuery('');
+      setSelectedMuscleFilter('All');
     }
-  }, [visible, routineToEdit]);
+  }, [visible, routineToEdit, initialDayIndex]);
 
   // Session Volume Summary Calculations
   const sessionSummary = useMemo(() => {
@@ -96,12 +333,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
 
   // Handle Save Routine
   const handleSave = () => {
-    const trimmedName = routineName.trim();
-    if (!trimmedName) {
-      Alert.alert('Routine Name Required', 'Please provide a name for this workout routine.');
-      return;
-    }
-
+    const finalName = routineName.trim() || 'Custom Routine';
     if (exercises.length === 0) {
       Alert.alert('Add Exercises', 'Please add at least 1 exercise to this workout routine.');
       return;
@@ -111,7 +343,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
     const finalRoutine: GymRoutine = {
       id: routineToEdit?.id || `rt_${Date.now()}`,
       folderId: routineToEdit?.folderId,
-      name: trimmedName,
+      name: finalName,
       subtitle: routineSubtitle.trim() || undefined,
       focus: routineSubtitle.trim() || undefined,
       exercises,
@@ -119,7 +351,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
       updatedAt: Date.now(),
     };
 
-    onSave(finalRoutine);
+    onSave(finalRoutine, assignedDay);
     onClose();
   };
 
@@ -138,12 +370,19 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   // Delete exercise
   const handleDeleteExercise = (idx: number) => {
     hapticLight();
-    setExercises(prev => prev.filter((_, i) => i !== idx));
+    const updated = exercises.filter((_, i) => i !== idx);
+    setExercises(updated);
+    if (updated.length > 0 && isNewRoutine) {
+      const smart = generateSmartRoutineMeta(updated);
+      setRoutineName(smart.suggestedName);
+      setRoutineSubtitle(smart.suggestedFocus);
+      setNameOptions(smart.nameOptions);
+    }
   };
 
   // Update target sets inline
   const handleAdjustSets = (idx: number, delta: number) => {
-    hapticLight();
+    hapticMedium();
     setExercises(prev =>
       prev.map((ex, i) => {
         if (i !== idx) return ex;
@@ -174,20 +413,16 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   const filteredVaultExercises = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return EXERCISE_DATABASE.filter(ex => {
-      // Muscle filter
       if (selectedMuscleFilter !== 'All') {
         const m = (ex.muscle || '').toLowerCase();
         if (!m.includes(selectedMuscleFilter.toLowerCase())) return false;
       }
-
-      // Search query
       if (query) {
         const nameMatch = ex.name.toLowerCase().includes(query);
         const aliasMatch = ex.aliases?.some(a => a.toLowerCase().includes(query));
         const muscleMatch = ex.muscle.toLowerCase().includes(query);
         if (!nameMatch && !aliasMatch && !muscleMatch) return false;
       }
-
       return true;
     });
   }, [searchQuery, selectedMuscleFilter]);
@@ -226,7 +461,17 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
       }
     }
 
-    setExercises(prev => [...prev, ...newAdditions]);
+    const merged = [...exercises, ...newAdditions];
+    setExercises(merged);
+
+    // Auto-generate smart permutation name & focus
+    const smart = generateSmartRoutineMeta(merged);
+    setNameOptions(smart.nameOptions);
+    if (!routineName || isNewRoutine) {
+      setRoutineName(smart.suggestedName);
+      setRoutineSubtitle(smart.suggestedFocus);
+    }
+
     setSelectedVaultExerciseIds(new Set());
     setCurrentView('builder');
   };
@@ -235,8 +480,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   const swapAlternatives = useMemo(() => {
     if (swapTargetIndex === null || !exercises[swapTargetIndex]) return [];
     const currentEx = exercises[swapTargetIndex];
-    const alts = getExerciseSwapAlternatives(currentEx.name, currentEx.muscle);
-    return alts;
+    return getExerciseSwapAlternatives(currentEx.name, currentEx.muscle);
   }, [swapTargetIndex, exercises]);
 
   const handleApplySwap = (newExName: string, newMuscle?: string) => {
@@ -276,7 +520,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                 <Text style={styles.navCancelText}>Cancel</Text>
               </TouchableOpacity>
               <Text style={[styles.navTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-                {routineToEdit ? 'Edit Routine' : 'New Routine'}
+                {routineToEdit ? 'Customize Routine' : 'New Routine'}
               </Text>
               <TouchableOpacity onPress={handleSave} style={styles.navSaveBtn}>
                 <Text style={styles.navSaveText}>Save</Text>
@@ -289,64 +533,128 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              {/* Routine Name & Subtitle Inputs */}
+              {/* 1. Schedule to Day Selector */}
+              <View
+                style={[
+                  styles.dayScheduleCard,
+                  { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
+                ]}
+              >
+                <View style={styles.cardHeaderRow}>
+                  <Text style={styles.cardSectionLabel}>SCHEDULE TO DAY</Text>
+                  {assignedDay != null ? (
+                    <Text style={styles.dayAssignedTag}>
+                      Day {assignedDay} Selected
+                    </Text>
+                  ) : (
+                    <Text style={styles.dayLibraryTag}>Library Only</Text>
+                  )}
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.dayPillsScroll}
+                >
+                  {DAY_OPTIONS.map(opt => {
+                    const isSelected = assignedDay === opt.index;
+                    return (
+                      <TouchableOpacity
+                        key={`day-opt-${opt.label}`}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          hapticLight();
+                          setAssignedDay(opt.index);
+                        }}
+                        style={[
+                          styles.dayPillBtn,
+                          isSelected && styles.dayPillBtnActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.dayPillBtnText,
+                            isSelected && styles.dayPillBtnTextActive,
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              {/* 2. System-Suggested Name & Focus Card */}
               <View
                 style={[
                   styles.inputCard,
                   { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
                 ]}
               >
+                <View style={styles.cardHeaderRow}>
+                  <Text style={styles.cardSectionLabel}>ROUTINE NAME & FOCUS</Text>
+                  <View style={styles.autoGeneratedBadge}>
+                    <Ionicons name="sparkles" size={10} color="#A599FF" />
+                    <Text style={styles.autoGeneratedBadgeText}>Auto-Suggested</Text>
+                  </View>
+                </View>
+
                 <TextInput
                   style={[styles.titleInput, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
-                  placeholder="Routine Name (e.g., Heavy Chest & Delts)"
+                  placeholder="Routine Name (e.g. Chest & Back Power)"
                   placeholderTextColor="#636366"
                   value={routineName}
                   onChangeText={setRoutineName}
                   returnKeyType="next"
                 />
-                <View style={styles.inputDivider} />
+
                 <TextInput
-                  style={[styles.subtitleInput, { color: isDark ? '#EBEBF5' : colors.textPrimary }]}
-                  placeholder="Focus / Subtitle (e.g., Upper Chest & Side Delt Focus)"
+                  style={[styles.subtitleInput, { color: isDark ? '#A599FF' : colors.textPrimary }]}
+                  placeholder="Focus / Subtitle"
                   placeholderTextColor="#636366"
                   value={routineSubtitle}
                   onChangeText={setRoutineSubtitle}
                   returnKeyType="done"
                 />
-              </View>
 
-              {/* Action Buttons: Add Exercises + Auto-Fill with AI */}
-              <View style={styles.actionButtonsRow}>
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => {
-                    hapticLight();
-                    setCurrentView('vault_picker');
-                  }}
-                  style={styles.addExerciseBtn}
-                >
-                  <Ionicons name="add-circle" size={18} color="#FFFFFF" />
-                  <Text style={styles.addExerciseBtnText}>Add Exercises</Text>
-                </TouchableOpacity>
-
-                {onOpenAiAutoFill && (
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      hapticLight();
-                      onOpenAiAutoFill();
-                    }}
-                    style={styles.aiAutoFillBtn}
-                  >
-                    <Ionicons name="sparkles" size={16} color="#EC4899" />
-                    <Text style={styles.aiAutoFillBtnText}>✨ AI Auto-Fill</Text>
-                  </TouchableOpacity>
+                {/* Quick Permutation Name Chips */}
+                {nameOptions.length > 0 && (
+                  <View style={styles.suggestionChipsWrap}>
+                    {nameOptions.map(optName => (
+                      <TouchableOpacity
+                        key={`name-opt-${optName}`}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          hapticLight();
+                          setRoutineName(optName);
+                        }}
+                        style={[
+                          styles.nameOptionChip,
+                          routineName === optName && styles.nameOptionChipActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.nameOptionChipText,
+                            routineName === optName && styles.nameOptionChipTextActive,
+                          ]}
+                        >
+                          {optName}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                 )}
               </View>
 
-              {/* Session Volume Heatmap Summary Pill */}
+              {/* 3. Session Volume Breakdown */}
               {exercises.length > 0 && (
-                <View style={styles.sessionVolumeBanner}>
+                <View
+                  style={[
+                    styles.sessionVolumeBanner,
+                    { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
+                  ]}
+                >
                   <View style={styles.sessionVolumeTop}>
                     <Text style={styles.sessionVolumeTitle}>SESSION VOLUME</Text>
                     <Text style={styles.sessionVolumeMeta}>
@@ -365,183 +673,207 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                 </View>
               )}
 
-              {/* Exercises List with 1-Tap Pill Steppers */}
-              {exercises.length === 0 ? (
-                <View style={styles.emptyExercisesCard}>
-                  <Ionicons name="barbell-outline" size={40} color="#8E8E93" style={{ marginBottom: 10 }} />
-                  <Text style={styles.emptyTitle}>No Exercises Added</Text>
-                  <Text style={styles.emptySubtitle}>
-                    Tap "+ Add Exercises" or "✨ AI Auto-Fill" to build this workout.
-                  </Text>
-                </View>
-              ) : (
-                exercises.map((ex, exIdx) => {
-                  const currentSets = Number(ex.targetSets) || 3;
-                  const currentReps = ex.targetReps || '8–12';
-                  const currentRest = ex.restTimeSecs || 90;
+              {/* 4. Action Button: + Add More Exercises */}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => {
+                  hapticLight();
+                  setCurrentView('vault_picker');
+                }}
+                style={styles.addMoreExercisesBtn}
+              >
+                <Ionicons name="add-circle" size={17} color="#FFFFFF" />
+                <Text style={styles.addMoreExercisesBtnText}>Add More Exercises</Text>
+              </TouchableOpacity>
 
-                  return (
-                    <View
-                      key={`builder-ex-${ex.id || exIdx}`}
-                      style={[
-                        styles.exerciseBuilderCard,
-                        { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
-                      ]}
-                    >
-                      {/* Exercise Header */}
-                      <View style={styles.exHeaderRow}>
-                        <View style={styles.exIndexBadge}>
-                          <Text style={styles.exIndexText}>{exIdx + 1}</Text>
-                        </View>
+              {/* 5. Exercises List with Precision Interactive Steppers */}
+              {exercises.map((ex, exIdx) => {
+                const currentSets = Number(ex.targetSets) || 3;
+                const currentReps = ex.targetReps || '8–12';
+                const currentRest = ex.restTimeSecs || 90;
+                const eq = getEquipmentGlyph(ex.name);
+                const { targetMuscle } = resolveExerciseTargetMuscle(ex.name, ex.muscle);
+                const muscleColor = resolveMuscleColor(targetMuscle);
 
-                        <View style={styles.exTitleCol}>
-                          <Text
-                            style={[styles.exName, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
-                            numberOfLines={1}
-                          >
-                            {ex.name}
-                          </Text>
-                          <Text style={styles.exMuscle}>{ex.muscle || 'Full Body'}</Text>
-                        </View>
-
-                        {/* Top Right Actions: Reorder, Swap & Delete */}
-                        <View style={styles.exActionsRow}>
-                          <TouchableOpacity
-                            onPress={() => handleMoveExercise(exIdx, 'up')}
-                            disabled={exIdx === 0}
-                            style={[styles.iconActionBtn, exIdx === 0 && { opacity: 0.3 }]}
-                          >
-                            <Ionicons name="chevron-up" size={18} color="#8E8E93" />
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            onPress={() => handleMoveExercise(exIdx, 'down')}
-                            disabled={exIdx === exercises.length - 1}
-                            style={[styles.iconActionBtn, exIdx === exercises.length - 1 && { opacity: 0.3 }]}
-                          >
-                            <Ionicons name="chevron-down" size={18} color="#8E8E93" />
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            onPress={() => {
-                              hapticLight();
-                              setSwapTargetIndex(exIdx);
-                            }}
-                            style={styles.swapActionBtn}
-                          >
-                            <Ionicons name="swap-horizontal" size={16} color="#A599FF" />
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            onPress={() => handleDeleteExercise(exIdx)}
-                            style={styles.deleteActionBtn}
-                          >
-                            <Ionicons name="trash-outline" size={16} color="#FF453A" />
-                          </TouchableOpacity>
-                        </View>
+                return (
+                  <View
+                    key={`builder-ex-${ex.id || exIdx}`}
+                    style={[
+                      styles.exerciseBuilderCard,
+                      { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
+                    ]}
+                  >
+                    {/* Header Row: Equipment Badge, Name, Reorder, Swap & Delete */}
+                    <View style={styles.exHeaderRow}>
+                      <View style={[styles.eqBadge, { backgroundColor: `${eq.color}15`, borderColor: `${eq.color}35` }]}>
+                        <Text style={[styles.eqBadgeText, { color: eq.color }]}>{eq.glyph}</Text>
                       </View>
 
-                      {/* 1-Tap Sets Stepper */}
-                      <View style={styles.stepperRow}>
-                        <Text style={styles.stepperLabel}>SETS</Text>
-                        <View style={styles.setsStepperContainer}>
-                          <TouchableOpacity
-                            onPress={() => handleAdjustSets(exIdx, -1)}
-                            style={styles.stepperMinusBtn}
-                          >
-                            <Text style={styles.stepperBtnSymbol}>−</Text>
-                          </TouchableOpacity>
-                          <View style={styles.setsValueBadge}>
-                            <Text style={styles.setsValueText}>{currentSets} Sets</Text>
-                          </View>
-                          <TouchableOpacity
-                            onPress={() => handleAdjustSets(exIdx, 1)}
-                            style={styles.stepperPlusBtn}
-                          >
-                            <Text style={styles.stepperBtnSymbol}>+</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-
-                      {/* 1-Tap Reps Pill Strip */}
-                      <View style={styles.stepperRow}>
-                        <Text style={styles.stepperLabel}>REPS</Text>
-                        <ScrollView
-                          horizontal
-                          showsHorizontalScrollIndicator={false}
-                          contentContainerStyle={styles.pillsScroll}
+                      <View style={styles.exTitleCol}>
+                        <Text
+                          style={[styles.exName, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
+                          numberOfLines={1}
                         >
-                          {COMMON_REPS.map(repOption => {
-                            const isSelected = currentReps === repOption;
-                            return (
-                              <TouchableOpacity
-                                key={`rep-${repOption}`}
-                                onPress={() => handleSelectReps(exIdx, repOption)}
-                                style={[
-                                  styles.pillItem,
-                                  isSelected && styles.pillItemSelected,
-                                ]}
-                              >
-                                <Text
-                                  style={[
-                                    styles.pillItemText,
-                                    isSelected && styles.pillItemTextSelected,
-                                  ]}
-                                >
-                                  {repOption}
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </ScrollView>
+                          {ex.name}
+                        </Text>
+                        <View style={styles.exMetaRow}>
+                          <View style={[styles.muscleDot, { backgroundColor: muscleColor }]} />
+                          <Text style={styles.exMuscle}>{targetMuscle}</Text>
+                        </View>
                       </View>
 
-                      {/* 1-Tap Rest Timer Pill Strip */}
-                      <View style={styles.stepperRow}>
-                        <Text style={styles.stepperLabel}>REST</Text>
-                        <View style={styles.pillsScroll}>
-                          {COMMON_REST.map(restOption => {
-                            const isSelected = currentRest === restOption;
-                            return (
-                              <TouchableOpacity
-                                key={`rest-${restOption}`}
-                                onPress={() => handleSelectRest(exIdx, restOption)}
-                                style={[
-                                  styles.pillItem,
-                                  isSelected && styles.pillItemSelected,
-                                ]}
-                              >
-                                <Text
-                                  style={[
-                                    styles.pillItemText,
-                                    isSelected && styles.pillItemTextSelected,
-                                  ]}
-                                >
-                                  {restOption}s
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </View>
+                      {/* Top Right Action Icons */}
+                      <View style={styles.exActionsRow}>
+                        <TouchableOpacity
+                          onPress={() => handleMoveExercise(exIdx, 'up')}
+                          disabled={exIdx === 0}
+                          style={[styles.iconActionBtn, exIdx === 0 && { opacity: 0.25 }]}
+                        >
+                          <Ionicons name="chevron-up" size={17} color="#8E8E93" />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => handleMoveExercise(exIdx, 'down')}
+                          disabled={exIdx === exercises.length - 1}
+                          style={[styles.iconActionBtn, exIdx === exercises.length - 1 && { opacity: 0.25 }]}
+                        >
+                          <Ionicons name="chevron-down" size={17} color="#8E8E93" />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => {
+                            hapticLight();
+                            setSwapTargetIndex(exIdx);
+                          }}
+                          style={styles.swapActionBtn}
+                        >
+                          <Ionicons name="swap-horizontal" size={15} color="#A599FF" />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => handleDeleteExercise(exIdx)}
+                          style={styles.deleteActionBtn}
+                        >
+                          <Ionicons name="trash-outline" size={15} color="#FF453A" />
+                        </TouchableOpacity>
                       </View>
                     </View>
-                  );
-                })
-              )}
+
+                    {/* Sets Stepper */}
+                    <View style={styles.controlRow}>
+                      <Text style={styles.controlLabel}>SETS</Text>
+                      <View style={styles.setsStepperContainer}>
+                        <TouchableOpacity
+                          activeOpacity={0.7}
+                          onPress={() => handleAdjustSets(exIdx, -1)}
+                          style={styles.stepperMinusBtn}
+                        >
+                          <Text style={styles.stepperBtnSymbol}>−</Text>
+                        </TouchableOpacity>
+                        <View style={styles.setsValueBadge}>
+                          <Text style={styles.setsValueNumber}>{currentSets}</Text>
+                          <Text style={styles.setsValueSub}>SETS</Text>
+                        </View>
+                        <TouchableOpacity
+                          activeOpacity={0.7}
+                          onPress={() => handleAdjustSets(exIdx, 1)}
+                          style={styles.stepperPlusBtn}
+                        >
+                          <Text style={styles.stepperBtnSymbol}>+</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    {/* Reps Selector Strip */}
+                    <View style={styles.controlRow}>
+                      <Text style={styles.controlLabel}>REPS</Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.pillsScroll}
+                      >
+                        {COMMON_REPS.map(repOption => {
+                          const isSelected = currentReps === repOption;
+                          return (
+                            <TouchableOpacity
+                              key={`rep-${repOption}`}
+                              activeOpacity={0.7}
+                              onPress={() => handleSelectReps(exIdx, repOption)}
+                              style={[
+                                styles.pillItem,
+                                isSelected && styles.pillItemSelected,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.pillItemText,
+                                  isSelected && styles.pillItemTextSelected,
+                                ]}
+                              >
+                                {repOption}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    </View>
+
+                    {/* Rest Timer Selector Strip */}
+                    <View style={styles.controlRow}>
+                      <Text style={styles.controlLabel}>REST</Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.pillsScroll}
+                      >
+                        {COMMON_REST.map(restOption => {
+                          const isSelected = currentRest === restOption;
+                          return (
+                            <TouchableOpacity
+                              key={`rest-${restOption}`}
+                              activeOpacity={0.7}
+                              onPress={() => handleSelectRest(exIdx, restOption)}
+                              style={[
+                                styles.pillItem,
+                                isSelected && styles.pillItemRestSelected,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.pillItemText,
+                                  isSelected && styles.pillItemTextSelected,
+                                ]}
+                              >
+                                {restOption}s
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    </View>
+                  </View>
+                );
+              })}
             </ScrollView>
           </View>
         ) : (
-          // ── VAULT MULTI-SELECT PICKER VIEW ─────────────────────────────────
+          // ── VAULT MULTI-SELECT PICKER VIEW (Instant First Screen) ───────────
           <View style={{ flex: 1 }}>
             {/* Vault Picker Nav */}
             <View style={styles.navBar}>
-              <TouchableOpacity
-                onPress={() => setCurrentView('builder')}
-                style={styles.navCancelBtn}
-              >
-                <Ionicons name="chevron-back" size={20} color="#A599FF" />
-                <Text style={styles.navCancelText}>Builder</Text>
-              </TouchableOpacity>
+              {exercises.length > 0 ? (
+                <TouchableOpacity
+                  onPress={() => setCurrentView('builder')}
+                  style={styles.navCancelBtn}
+                >
+                  <Ionicons name="chevron-back" size={18} color="#A599FF" />
+                  <Text style={styles.navCancelText}>Builder</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity onPress={onClose} style={styles.navCancelBtn}>
+                  <Text style={styles.navCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              )}
               <Text style={[styles.navTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
                 Select Exercises
               </Text>
@@ -561,7 +893,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
               />
             </View>
 
-            {/* Muscle Filter Strip (Single Clean Row) */}
+            {/* Muscle Filter Strip */}
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -603,6 +935,9 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
               contentContainerStyle={{ paddingBottom: 110 }}
               renderItem={({ item }) => {
                 const isSelected = selectedVaultExerciseIds.has(item.id);
+                const eq = getEquipmentGlyph(item.name);
+                const muscleColor = resolveMuscleColor(item.muscle);
+
                 return (
                   <TouchableOpacity
                     activeOpacity={0.7}
@@ -619,7 +954,17 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                         isSelected && styles.checkboxCircleSelected,
                       ]}
                     >
-                      {isSelected && <Ionicons name="checkmark" size={13} color="#000000" />}
+                      {isSelected && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
+                    </View>
+
+                    {/* Equipment Glyph */}
+                    <View
+                      style={[
+                        styles.eqBadgeSmall,
+                        { backgroundColor: `${eq.color}15`, borderColor: `${eq.color}35` },
+                      ]}
+                    >
+                      <Text style={[styles.eqBadgeSmallText, { color: eq.color }]}>{eq.glyph}</Text>
                     </View>
 
                     <View style={styles.vaultExDetailsCol}>
@@ -629,12 +974,27 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                       >
                         {item.name}
                       </Text>
-                      <Text style={styles.vaultExSub}>{item.muscle}</Text>
+                      <View style={styles.vaultExMetaRow}>
+                        <View style={[styles.muscleDot, { backgroundColor: muscleColor }]} />
+                        <Text style={styles.vaultExSub}>{item.muscle}</Text>
+                      </View>
                     </View>
 
                     {item.tier && (
-                      <View style={styles.vaultTierBadge}>
-                        <Text style={styles.vaultTierText}>{item.tier}</Text>
+                      <View
+                        style={[
+                          styles.vaultTierBadge,
+                          item.tier === 'S Tier' ? styles.sTierBadge : styles.aTierBadge,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.vaultTierText,
+                            item.tier === 'S Tier' ? styles.sTierText : styles.aTierText,
+                          ]}
+                        >
+                          {item.tier}
+                        </Text>
                       </View>
                     )}
                   </TouchableOpacity>
@@ -659,7 +1019,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                   selectedVaultExerciseIds.size === 0 && styles.confirmAddBtnDisabled,
                 ]}
               >
-                <Ionicons name="add" size={18} color="#000000" style={{ marginRight: 2 }} />
+                <Ionicons name="add" size={18} color="#FFFFFF" style={{ marginRight: 4 }} />
                 <Text style={styles.confirmAddBtnText}>
                   Add to Routine ({selectedVaultExerciseIds.size})
                 </Text>
@@ -687,10 +1047,10 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
               onPress={e => e.stopPropagation()}
             >
               <Text style={[styles.swapSheetTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-                Swap Alternative Movements
+                Swap Alternative Movement
               </Text>
               <Text style={styles.swapSheetSub}>
-                S-Tier & science-backed biomechanic swaps
+                Science-backed biomechanical alternatives
               </Text>
 
               <ScrollView style={{ maxHeight: 300 }}>
@@ -748,9 +1108,9 @@ const styles = StyleSheet.create({
   },
   navSaveBtn: {
     backgroundColor: '#6C5CE7',
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 6,
-    borderRadius: 14,
+    borderRadius: 8,
   },
   navSaveText: {
     fontFamily: FONT_FAMILY.bold,
@@ -760,71 +1120,119 @@ const styles = StyleSheet.create({
   builderContent: {
     padding: 16,
     paddingBottom: 40,
+    gap: 12,
+  },
+  dayScheduleCard: {
+    borderRadius: 14,
+    padding: 12,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  cardSectionLabel: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 10,
+    color: '#8E8E93',
+    letterSpacing: 0.8,
+  },
+  dayAssignedTag: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 10.5,
+    color: '#30D158',
+  },
+  dayLibraryTag: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 10.5,
+    color: '#8E8E93',
+  },
+  dayPillsScroll: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingVertical: 2,
+  },
+  dayPillBtn: {
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  dayPillBtnActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  dayPillBtnText: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 12,
+    color: '#8E8E93',
+  },
+  dayPillBtnTextActive: {
+    fontFamily: FONT_FAMILY.bold,
+    color: '#000000',
   },
   inputCard: {
     borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 14,
+    padding: 14,
+  },
+  autoGeneratedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(165, 153, 255, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  autoGeneratedBadgeText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 9.5,
+    color: '#A599FF',
   },
   titleInput: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 16,
-    paddingVertical: 6,
-  },
-  inputDivider: {
-    height: 1,
-    backgroundColor: 'rgba(84, 84, 88, 0.2)',
-    marginVertical: 4,
+    fontSize: 17,
+    paddingVertical: 4,
   },
   subtitleInput: {
     fontFamily: FONT_FAMILY.regular,
-    fontSize: 14,
-    paddingVertical: 6,
+    fontSize: 12.5,
+    paddingVertical: 2,
+    marginTop: 2,
   },
-  actionButtonsRow: {
+  suggestionChipsWrap: {
     flexDirection: 'row',
-    gap: 10,
-    marginBottom: 14,
-  },
-  addExerciseBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexWrap: 'wrap',
     gap: 6,
-    backgroundColor: '#6C5CE7',
-    paddingVertical: 12,
-    borderRadius: 12,
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
   },
-  addExerciseBtnText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
-  aiAutoFillBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(236, 72, 153, 0.15)',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 12,
+  nameOptionChip: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: 'rgba(236, 72, 153, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  aiAutoFillBtnText: {
+  nameOptionChipActive: {
+    backgroundColor: 'rgba(165, 153, 255, 0.15)',
+    borderColor: '#A599FF',
+  },
+  nameOptionChipText: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 11,
+    color: '#8E8E93',
+  },
+  nameOptionChipTextActive: {
+    color: '#A599FF',
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-    color: '#EC4899',
   },
   sessionVolumeBanner: {
-    backgroundColor: 'rgba(165, 153, 255, 0.08)',
     borderRadius: 12,
     padding: 10,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(165, 153, 255, 0.18)',
   },
   sessionVolumeTop: {
     flexDirection: 'row',
@@ -846,59 +1254,59 @@ const styles = StyleSheet.create({
   sessionMusclePillsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 5,
   },
   sessionMusclePill: {
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-    paddingHorizontal: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: 5,
   },
   sessionMusclePillText: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 11,
-    color: '#E5E5EA',
-  },
-  emptyExercisesCard: {
-    alignItems: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 20,
-  },
-  emptyTitle: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 16,
-    color: '#8E8E93',
-    marginBottom: 4,
-  },
-  emptySubtitle: {
     fontFamily: FONT_FAMILY.regular,
+    fontSize: 10.5,
+    color: '#E0E0E6',
+  },
+  addMoreExercisesBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#6C5CE7',
+    paddingVertical: 11,
+    borderRadius: 12,
+    shadowColor: '#6C5CE7',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  addMoreExercisesBtnText: {
+    fontFamily: FONT_FAMILY.bold,
     fontSize: 13,
-    color: '#636366',
-    textAlign: 'center',
+    color: '#FFFFFF',
   },
   exerciseBuilderCard: {
     borderRadius: 14,
     padding: 12,
-    marginBottom: 12,
   },
   exHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
     marginBottom: 10,
   },
-  exIndexBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  eqBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
   },
-  exIndexText: {
+  eqBadgeText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-    color: '#8E8E93',
+    fontSize: 10,
   },
   exTitleCol: {
     flex: 1,
@@ -906,89 +1314,120 @@ const styles = StyleSheet.create({
   exName: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 14,
+    lineHeight: 18,
+  },
+  exMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  muscleDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   exMuscle: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 11,
     color: '#8E8E93',
-    marginTop: 1,
   },
   exActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 2,
   },
   iconActionBtn: {
     padding: 4,
   },
   swapActionBtn: {
     padding: 5,
-    backgroundColor: 'rgba(165, 153, 255, 0.15)',
     borderRadius: 6,
+    backgroundColor: 'rgba(165, 153, 255, 0.1)',
   },
   deleteActionBtn: {
     padding: 5,
-    backgroundColor: 'rgba(255, 69, 58, 0.15)',
     borderRadius: 6,
+    backgroundColor: 'rgba(255, 69, 58, 0.1)',
+    marginLeft: 3,
   },
-  stepperRow: {
+  controlRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    paddingVertical: 5,
   },
-  stepperLabel: {
+  controlLabel: {
     width: 44,
     fontFamily: FONT_FAMILY.bold,
     fontSize: 10,
     color: '#8E8E93',
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
   },
   setsStepperContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-    borderRadius: 8,
-    overflow: 'hidden',
+    gap: 6,
   },
   stepperMinusBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   stepperPlusBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   stepperBtnSymbol: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 16,
     color: '#FFFFFF',
+    lineHeight: 18,
   },
   setsValueBadge: {
-    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
-  setsValueText: {
+  setsValueNumber: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
+    fontSize: 14,
     color: '#FFFFFF',
+  },
+  setsValueSub: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 9.5,
+    color: '#8E8E93',
   },
   pillsScroll: {
     flexDirection: 'row',
-    gap: 6,
+    gap: 5,
   },
   pillItem: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   pillItemSelected: {
     backgroundColor: '#6C5CE7',
   },
+  pillItemRestSelected: {
+    backgroundColor: '#A599FF',
+  },
   pillItemText: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 11,
+    fontSize: 11.5,
     color: '#8E8E93',
   },
   pillItemTextSelected: {
@@ -1000,33 +1439,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.06)',
     marginHorizontal: 16,
-    marginTop: 10,
-    marginBottom: 8,
+    marginVertical: 8,
+    paddingHorizontal: 12,
+    height: 38,
     borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
   },
   searchInput: {
     flex: 1,
-    fontFamily: FONT_FAMILY.medium,
+    fontFamily: FONT_FAMILY.regular,
     fontSize: 14,
   },
   filterStrip: {
     paddingHorizontal: 16,
-    paddingBottom: 10,
-    gap: 8,
+    gap: 6,
+    paddingBottom: 8,
   },
   filterChip: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   filterChipSelected: {
-    backgroundColor: '#A599FF',
-    borderColor: '#A599FF',
+    backgroundColor: '#FFFFFF',
   },
   filterChipText: {
     fontFamily: FONT_FAMILY.medium,
@@ -1040,52 +1475,77 @@ const styles = StyleSheet.create({
   vaultExerciseRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
     marginHorizontal: 16,
     marginBottom: 6,
     borderRadius: 12,
+    padding: 10,
+    gap: 10,
   },
   checkboxCircle: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     borderWidth: 1.5,
     borderColor: '#636366',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
   checkboxCircleSelected: {
-    backgroundColor: '#A599FF',
-    borderColor: '#A599FF',
+    backgroundColor: '#6C5CE7',
+    borderColor: '#6C5CE7',
+  },
+  eqBadgeSmall: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eqBadgeSmallText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 9,
   },
   vaultExDetailsCol: {
     flex: 1,
   },
   vaultExName: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 14,
+    fontSize: 13,
+  },
+  vaultExMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
   },
   vaultExSub: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 11,
     color: '#8E8E93',
-    marginTop: 2,
   },
   vaultTierBadge: {
-    backgroundColor: 'rgba(165, 153, 255, 0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(165, 153, 255, 0.25)',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
-  vaultTierText: {
+  sTierBadge: {
+    backgroundColor: 'rgba(255, 215, 0, 0.15)',
+  },
+  sTierText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 10.5,
+    fontSize: 9.5,
+    color: '#FFD700',
+  },
+  aTierBadge: {
+    backgroundColor: 'rgba(165, 153, 255, 0.15)',
+  },
+  aTierText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 9.5,
     color: '#A599FF',
   },
+  vaultTierText: {},
   stickyBottomBar: {
     position: 'absolute',
     bottom: 0,
@@ -1095,62 +1555,53 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 24,
+    paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    borderTopColor: 'rgba(84, 84, 88, 0.2)',
   },
   selectedCountWrap: {},
   selectedCountText: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 13,
-    color: '#8E8E93',
+    color: '#A599FF',
   },
   confirmAddBtn: {
-    backgroundColor: '#A599FF',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 11,
-    borderRadius: 14,
-    shadowColor: '#A599FF',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
-    elevation: 4,
+    backgroundColor: '#6C5CE7',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 10,
   },
   confirmAddBtnDisabled: {
-    opacity: 0.35,
-    shadowOpacity: 0,
-    elevation: 0,
+    opacity: 0.4,
   },
   confirmAddBtnText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 13.5,
-    color: '#000000',
-    letterSpacing: 0.2,
+    fontSize: 13,
+    color: '#FFFFFF',
   },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
+    justifyContent: 'flex-end',
   },
   swapSheetContainer: {
-    borderRadius: 18,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
     padding: 16,
+    paddingBottom: 32,
   },
   swapSheetTitle: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 16,
-    marginBottom: 2,
   },
   swapSheetSub: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 12,
     color: '#8E8E93',
     marginBottom: 12,
+    marginTop: 2,
   },
   swapAltRow: {
     flexDirection: 'row',
@@ -1174,10 +1625,10 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   swapPickBadge: {
-    backgroundColor: 'rgba(165, 153, 255, 0.15)',
+    backgroundColor: 'rgba(165, 153, 255, 0.12)',
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: 6,
   },
   swapPickBadgeText: {
     fontFamily: FONT_FAMILY.bold,
