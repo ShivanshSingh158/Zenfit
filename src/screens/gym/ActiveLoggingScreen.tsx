@@ -91,6 +91,7 @@ export default function ActiveLoggingScreen() {
 
   const isLoggingSetRef = useRef(false);
   const supersetJumpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoAdvanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handlersRef = useRef<any>({});
 
   // PERF: Freeze notification reschedules and shield WellnessContext snapshot cascades while active workout screen is mounted
@@ -101,6 +102,14 @@ export default function ActiveLoggingScreen() {
     return () => {
       setActiveWorkoutFlag(false);
       setWorkoutActiveGlobal(false);
+      if (supersetJumpTimerRef.current) {
+        clearTimeout(supersetJumpTimerRef.current);
+        supersetJumpTimerRef.current = null;
+      }
+      if (autoAdvanceTimerRef.current) {
+        clearTimeout(autoAdvanceTimerRef.current);
+        autoAdvanceTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -646,6 +655,14 @@ export default function ActiveLoggingScreen() {
       setActiveKeypad(null);
       return;
     }
+    if (autoAdvanceTimerRef.current) {
+      clearTimeout(autoAdvanceTimerRef.current);
+      autoAdvanceTimerRef.current = null;
+    }
+    if (supersetJumpTimerRef.current) {
+      clearTimeout(supersetJumpTimerRef.current);
+      supersetJumpTimerRef.current = null;
+    }
     flushPendingInputs();
     Keyboard.dismiss();
     hapticLight();
@@ -746,6 +763,14 @@ export default function ActiveLoggingScreen() {
     if (nextJumpIdx !== -1) {
       if (supersetJumpTimerRef.current) clearTimeout(supersetJumpTimerRef.current);
       supersetJumpTimerRef.current = setTimeout(() => setActiveExIndex(nextJumpIdx), 400);
+    } else {
+      const isExComplete = newEx.setsLog.length > 0 && newEx.setsLog.every(s => s.completed);
+      if (isExComplete && curActiveIdx < allExs.length - 1) {
+        if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
+        autoAdvanceTimerRef.current = setTimeout(() => {
+          setActiveExIndex(curActiveIdx + 1);
+        }, 550);
+      }
     }
   }, [logSetAndStartTimer]);
 
@@ -989,6 +1014,10 @@ export default function ActiveLoggingScreen() {
 
   const handleAddSet = useCallback(() => {
     if (!exercise) return;
+    if (autoAdvanceTimerRef.current) {
+      clearTimeout(autoAdvanceTimerRef.current);
+      autoAdvanceTimerRef.current = null;
+    }
     hapticLight();
     const lastIdx = exercise.setsLog.length - 1;
     const lastSet = exercise.setsLog[lastIdx];
@@ -1158,8 +1187,20 @@ export default function ActiveLoggingScreen() {
       if (nextJumpIdx !== -1) {
         if (supersetJumpTimerRef.current) clearTimeout(supersetJumpTimerRef.current);
         supersetJumpTimerRef.current = setTimeout(() => setActiveExIndex(nextJumpIdx), 400);
+      } else {
+        const isExComplete = targetCompleted && newEx.setsLog.length > 0 && newEx.setsLog.every(s => s.completed);
+        if (isExComplete && curActiveIdx < allExs.length - 1) {
+          if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
+          autoAdvanceTimerRef.current = setTimeout(() => {
+            setActiveExIndex(curActiveIdx + 1);
+          }, 550);
+        }
       }
     } else {
+      if (autoAdvanceTimerRef.current) {
+        clearTimeout(autoAdvanceTimerRef.current);
+        autoAdvanceTimerRef.current = null;
+      }
       hapticLight();
       updateExercise(curRealIdx, newEx);
     }
@@ -1596,6 +1637,14 @@ export default function ActiveLoggingScreen() {
                     }
                   }}
                   onPress={() => {
+                    if (supersetJumpTimerRef.current) {
+                      clearTimeout(supersetJumpTimerRef.current);
+                      supersetJumpTimerRef.current = null;
+                    }
+                    if (autoAdvanceTimerRef.current) {
+                      clearTimeout(autoAdvanceTimerRef.current);
+                      autoAdvanceTimerRef.current = null;
+                    }
                     hapticSelection();
                     setActiveExIndex(idx);
                   }}
