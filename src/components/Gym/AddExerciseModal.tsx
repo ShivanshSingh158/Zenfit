@@ -43,7 +43,7 @@ import { hapticLight, hapticSuccess, hapticMedium } from '../../utils/haptics';
 // Subcomponents & Styles
 import { makeAddExerciseStyles } from './addExerciseStyles';
 import { ExerciseCatalogEntry } from './ExerciseSearchDropdown';
-import ExerciseCardItem, { getEquipmentGlyph, getSecondaryMuscles, TIER_CONFIG } from './ExerciseCardItem';
+import ExerciseCardItem, { getEquipmentGlyph } from './ExerciseCardItem';
 import ExerciseCustomFields from './ExerciseCustomFields';
 import {
   getBiomechanicalPrescription,
@@ -52,20 +52,19 @@ import {
   resolveMuscleColor,
 } from '../../utils/gymUtils';
 
-// ── Visual Anatomical Muscle Filter Chips ───────────────────────────────────
-export const ANATOMICAL_MUSCLE_CHIPS: {
+// ── Muscle Filter Chips (Matching Customize Exercise design with subtle dot) ──
+export const MUSCLE_FILTER_CHIPS: {
   id: string;
   label: string;
-  icon: keyof typeof Ionicons.glyphMap;
 }[] = [
-  { id: 'all', label: 'All', icon: 'apps-outline' },
-  { id: 'Chest', label: 'Chest', icon: 'shield-outline' },
-  { id: 'Back', label: 'Back', icon: 'layers-outline' },
-  { id: 'Legs', label: 'Legs', icon: 'walk-outline' },
-  { id: 'Shoulders', label: 'Shoulders', icon: 'fitness-outline' },
-  { id: 'Arms', label: 'Arms', icon: 'flash-outline' },
-  { id: 'Abs', label: 'Abs', icon: 'grid-outline' },
-  { id: 'Cardio', label: 'Cardio', icon: 'flame-outline' },
+  { id: 'all', label: 'All' },
+  { id: 'Chest', label: 'Chest' },
+  { id: 'Back', label: 'Back' },
+  { id: 'Shoulders', label: 'Shoulders' },
+  { id: 'Legs', label: 'Legs' },
+  { id: 'Arms', label: 'Arms' },
+  { id: 'Abs', label: 'Abs' },
+  { id: 'Cardio', label: 'Cardio' },
 ];
 
 // ── Ultra-Lightweight Pre-defined Staples (Rendered in 0ms when DB is idle) ──
@@ -797,12 +796,16 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
               <View style={styles.header}>
                 <TouchableOpacity
                   onPress={() => setShowCustomTuning(false)}
-                  style={styles.headerLeftBtn}
+                  style={styles.backBtn}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Ionicons name="chevron-back" size={22} color={colors.textPrimary} style={{ marginRight: 2 }} />
-                  <Text style={styles.title}>Customize</Text>
+                  <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
+                  <Text style={styles.backBtnText}>Catalogue</Text>
                 </TouchableOpacity>
+
+                <Text style={styles.title} numberOfLines={1}>
+                  Customize
+                </Text>
 
                 <TouchableOpacity
                   onPress={resetAndClose}
@@ -819,31 +822,12 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
               >
-                {/* Hero Info Card for Exercise (Same design as catalogue ExerciseCard) */}
-                <View style={styles.exerciseCard}>
-                  <View style={styles.cardTopRow}>
-                    <Text style={styles.cardTitle} numberOfLines={1}>
-                      {selectedEntry?.name || searchQuery}
-                    </Text>
-
-                    {selectedEntry?.tier && (selectedEntry.tier === 'S Tier' || selectedEntry.tier === 'A+ Tier') && TIER_CONFIG[selectedEntry.tier] && (
-                      <View
-                        style={[
-                          styles.tierBadge,
-                          {
-                            backgroundColor: TIER_CONFIG[selectedEntry.tier].bg,
-                            borderColor: TIER_CONFIG[selectedEntry.tier].border,
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.tierBadgeText, { color: TIER_CONFIG[selectedEntry.tier].text }]}>
-                          {selectedEntry.tier}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-
-                  <View style={styles.cardMuscleRow}>
+                {/* Hero Info Card for Exercise */}
+                <View style={styles.customizeHeroCard}>
+                  <Text style={styles.customizeHeroTitle} numberOfLines={2}>
+                    {selectedEntry?.name || searchQuery}
+                  </Text>
+                  <View style={styles.customizeHeroMeta}>
                     <View
                       style={[
                         styles.muscleDot,
@@ -854,16 +838,8 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                         },
                       ]}
                     />
-                    <Text style={styles.cardMuscleText} numberOfLines={1}>
-                      <Text style={styles.primaryMuscleText}>
-                        {muscle !== 'None' ? muscle : (selectedEntry?.muscle || 'General')}
-                      </Text>{' '}
-                      <Text style={styles.secondaryMuscleText}>
-                        {getSecondaryMuscles(
-                          selectedEntry?.name || searchQuery,
-                          muscle !== 'None' ? muscle : (selectedEntry?.muscle || 'General')
-                        )}
-                      </Text>
+                    <Text style={styles.customizeHeroMuscle}>
+                      {muscle !== 'None' ? muscle : (selectedEntry?.muscle || 'General')}
                     </Text>
                   </View>
                 </View>
@@ -894,21 +870,20 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                   onPress={handleConfirmAddTuned}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="checkmark-sharp" size={17} color={colors.textPrimary} style={{ marginRight: 6 }} />
+                  <Ionicons name="checkmark-sharp" size={17} color={isDark ? '#000000' : '#FFFFFF'} style={{ marginRight: 6 }} />
                   <Text style={styles.submitBtnText}>Add to Workout</Text>
                 </TouchableOpacity>
               </ScrollView>
             </>
           ) : (
             /* ══════════════════════════════════════════════════════════════════
-               CATALOGUE SEARCH & FILTER VIEW
+               CATALOGUE SEARCH & FILTER VIEW (Matching Customize Design)
                ══════════════════════════════════════════════════════════════════ */
             <>
-              {/* Header */}
+              {/* Header with Centered Title */}
               <View style={styles.header}>
-                <View style={styles.headerLeft}>
-                  <Text style={styles.title}>Add Exercise</Text>
-                </View>
+                <View style={{ width: 32 }} />
+                <Text style={styles.title}>Add Exercise</Text>
                 <TouchableOpacity onPress={resetAndClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Ionicons name="close" size={19} color={colors.textSecondary} />
                 </TouchableOpacity>
@@ -944,15 +919,16 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                 )}
               </View>
 
-              {/* Visual Anatomical Muscle Filter Bar */}
+              {/* Muscle Filter Bar (Same pill + dot design as Customize) */}
               <View style={styles.filterBarContainer}>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.filterChipsRow}
                 >
-                  {ANATOMICAL_MUSCLE_CHIPS.map(chip => {
+                  {MUSCLE_FILTER_CHIPS.map(chip => {
                     const isActive = selectedMuscle === chip.id;
+                    const dotColor = chip.id === 'all' ? colors.textTertiary : resolveMuscleColor(chip.id);
                     return (
                       <TouchableOpacity
                         key={chip.id}
@@ -963,11 +939,7 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                         }}
                         activeOpacity={0.7}
                       >
-                        <Ionicons
-                          name={chip.icon}
-                          size={13}
-                          color={isActive ? (isDark ? '#FFFFFF' : '#000000') : colors.textTertiary}
-                        />
+                        <View style={[styles.muscleDot, { backgroundColor: dotColor }]} />
                         <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
                           {chip.label}
                         </Text>

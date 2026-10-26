@@ -187,7 +187,7 @@ export const makeAddExerciseStyles = (colors: any, isDark: boolean = true) =>
       paddingBottom: 24,
     },
     exerciseCard: {
-      backgroundColor: isDark ? '#17171A' : colors.surface,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
       borderRadius: RADIUS.lg,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,255,255,0.06)' : colors.border,
@@ -199,45 +199,22 @@ export const makeAddExerciseStyles = (colors: any, isDark: boolean = true) =>
       borderColor: isDark ? 'rgba(255,255,255,0.25)' : colors.textPrimary,
       backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
     },
-    cardTopRow: {
+    exerciseCardInner: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: 4,
-    },
-    cardNameContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      flex: 1,
-      paddingRight: 8,
     },
     cardTitle: {
       fontFamily: FONT_FAMILY.bold,
-      fontSize: 14.5,
+      fontSize: 15,
       color: colors.textPrimary,
-      flex: 1,
       letterSpacing: -0.2,
+      marginBottom: 4,
     },
-
-    // Tier Badge
-    tierBadge: {
-      paddingHorizontal: 6,
-      paddingVertical: 1.5,
-      borderRadius: RADIUS.sm,
-      borderWidth: 1,
-    },
-    tierBadgeText: {
-      fontFamily: FONT_FAMILY.bold,
-      fontSize: 9.5,
-    },
-
-    // Muscles Row
     cardMuscleRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
-      marginBottom: 8,
     },
     muscleDot: {
       width: 5,
@@ -246,59 +223,27 @@ export const makeAddExerciseStyles = (colors: any, isDark: boolean = true) =>
     },
     cardMuscleText: {
       fontFamily: FONT_FAMILY.medium,
-      fontSize: 11.5,
-      color: colors.textTertiary,
-      flex: 1,
-    },
-    primaryMuscleText: {
-      fontFamily: FONT_FAMILY.bold,
+      fontSize: 12,
       color: colors.textSecondary,
     },
-    secondaryMuscleText: {
+    cardSnippetInline: {
       fontFamily: FONT_FAMILY.medium,
       fontSize: 11.5,
       color: colors.textTertiary,
-    },
-
-    // Card Bottom Row (Snippet + Action)
-    cardBottomRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingTop: 8,
-      borderTopWidth: 1,
-      borderTopColor: isDark ? 'rgba(255,255,255,0.04)' : colors.border,
-    },
-    snippetContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      flex: 1,
-      paddingRight: 8,
-    },
-    snippetText: {
-      fontFamily: FONT_FAMILY.mono,
-      fontSize: 11,
-      color: colors.textTertiary,
-    },
-    snippetHistoryText: {
-      color: colors.textSecondary,
-      fontWeight: '600',
     },
     quickAddBtn: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 3,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
-      paddingHorizontal: 11,
-      paddingVertical: 5,
+      backgroundColor: isDark ? '#FFFFFF' : '#000000',
+      paddingHorizontal: 12,
+      paddingVertical: 5.5,
       borderRadius: RADIUS.full,
     },
     quickAddBtnText: {
       fontFamily: FONT_FAMILY.bold,
-      fontSize: 11.5,
-      color: colors.textPrimary,
+      fontSize: 12,
+      color: isDark ? '#000000' : '#FFFFFF',
     },
 
     // Instant Create Custom Exercise Card
@@ -504,11 +449,9 @@ export const makeAddExerciseStyles = (colors: any, isDark: boolean = true) =>
       alignItems: 'center',
       justifyContent: 'center',
       gap: 6,
-      backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)',
+      backgroundColor: isDark ? '#FFFFFF' : '#000000',
       paddingVertical: 13,
-      borderRadius: RADIUS.full,
+      borderRadius: RADIUS.lg,
       marginTop: 8,
     },
     submitBtnDisabled: {
@@ -517,8 +460,7 @@ export const makeAddExerciseStyles = (colors: any, isDark: boolean = true) =>
     submitBtnText: {
       fontFamily: FONT_FAMILY.bold,
       fontSize: 14.5,
-      color: colors.textPrimary,
-      letterSpacing: -0.2,
+      color: isDark ? '#000000' : '#FFFFFF',
     },
     emptyState: {
       alignItems: 'center',

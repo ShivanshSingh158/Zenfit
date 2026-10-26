@@ -190,10 +190,7 @@ export const ExerciseCardItem: React.FC<ExerciseCardItemProps> = memo(({
 }) => {
   const primaryMuscle = item.muscle || 'Mixed';
   const muscleColor = resolveMuscleColor(primaryMuscle);
-  const secondaryMuscles = getSecondaryMuscles(item.name, primaryMuscle);
-  const { snippet, hasHistory } = getPastPerformanceSnippet(item.name, gymLogs);
-  const tierTheme = item.tier && TIER_CONFIG[item.tier] ? TIER_CONFIG[item.tier] : null;
-  const isTopTier = item.tier === 'S Tier' || item.tier === 'A+ Tier';
+  const { snippet } = getPastPerformanceSnippet(item.name, gymLogs);
 
   return (
     <TouchableOpacity
@@ -204,52 +201,21 @@ export const ExerciseCardItem: React.FC<ExerciseCardItemProps> = memo(({
         onSelect(item);
       }}
     >
-      {/* Top Row: Exercise Name + Subtle Top Tier Badge (if S or A+) */}
-      <View style={styles.cardTopRow}>
-        <Text style={styles.cardTitle} numberOfLines={1}>
-          {item.name}
-        </Text>
-
-        {isTopTier && tierTheme && (
-          <View style={[styles.tierBadge, { backgroundColor: tierTheme.bg, borderColor: tierTheme.border }]}>
-            <Text style={[styles.tierBadgeText, { color: tierTheme.text }]}>
-              {item.tier}
+      <View style={styles.exerciseCardInner}>
+        <View style={{ flex: 1, paddingRight: 12 }}>
+          <Text style={styles.cardTitle} numberOfLines={1}>
+            {item.name}
+          </Text>
+          <View style={styles.cardMuscleRow}>
+            <View style={[styles.muscleDot, { backgroundColor: muscleColor }]} />
+            <Text style={styles.cardMuscleText} numberOfLines={1}>
+              {primaryMuscle}
+              {snippet ? <Text style={styles.cardSnippetInline}> · {snippet}</Text> : null}
             </Text>
           </View>
-        )}
-      </View>
-
-      {/* Middle Row: Subtle 5px colored dot + muted secondary text (no heavy colored pill container) */}
-      <View style={styles.cardMuscleRow}>
-        <View style={[styles.muscleDot, { backgroundColor: muscleColor }]} />
-        <Text style={styles.cardMuscleText} numberOfLines={1}>
-          <Text style={styles.primaryMuscleText}>{primaryMuscle}</Text> {secondaryMuscles}
-        </Text>
-      </View>
-
-      {/* Bottom Row: Performance Snippet + Minimalist Add Button */}
-      <View style={styles.cardBottomRow}>
-        <View style={styles.snippetContainer}>
-          {hasHistory && (
-            <Ionicons
-              name="time-outline"
-              size={12}
-              color={colors.textTertiary}
-              style={{ marginRight: 4 }}
-            />
-          )}
-          <Text
-            style={[
-              styles.snippetText,
-              hasHistory && styles.snippetHistoryText,
-            ]}
-            numberOfLines={1}
-          >
-            {snippet}
-          </Text>
         </View>
 
-        {/* Quick Add Button */}
+        {/* Quick Add Button (Matching Screenshot 1's crisp white pill style) */}
         <TouchableOpacity
           style={styles.quickAddBtn}
           activeOpacity={0.75}
@@ -259,7 +225,7 @@ export const ExerciseCardItem: React.FC<ExerciseCardItemProps> = memo(({
           }}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="add" size={13} color={colors.textPrimary} />
+          <Ionicons name="add" size={14} color={isDark ? '#000000' : '#FFFFFF'} />
           <Text style={styles.quickAddBtnText}>Add</Text>
         </TouchableOpacity>
       </View>
