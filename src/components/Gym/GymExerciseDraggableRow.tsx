@@ -2,9 +2,9 @@ import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import type { RenderItemParams } from 'react-native-draggable-flatlist';
 import { Ionicons } from '@expo/vector-icons';
-import { IOS_DARK, FONT_FAMILY } from '../../theme/tokens';
-import { hapticLight, hapticMedium, hapticSuccess } from '../../utils/haptics';
-import { resolveMuscleColor, canonicalizeMuscle, resolveExerciseEquipment } from '../../utils/gymUtils';
+import { IOS_DARK } from '../../theme/tokens';
+import { hapticLight, hapticMedium } from '../../utils/haptics';
+import { resolveMuscleColor, canonicalizeMuscle } from '../../utils/gymUtils';
 
 export interface GymExerciseDraggableRowProps {
   itemParams?: RenderItemParams<any>;
@@ -45,10 +45,30 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
   const totalSets = setsLog.length || Number(ex.targetSets) || 3;
   const isDone = setsLog.length > 0 && setsLog.every((set: any) => set.completed);
 
-  // Muscle and Equipment metadata
+  // Muscle metadata
   const muscleName = canonicalizeMuscle(ex.muscle);
   const muscleColor = resolveMuscleColor(ex.muscle);
-  const equipment = resolveExerciseEquipment(ex.name);
+
+  // Set progress calculation
+  const completedSets = setsLog.filter((set: any) => set.completed);
+  const completedCount = completedSets.length;
+
+  let progressLabel = '';
+  if (completedCount === 0) {
+    progressLabel = `${totalSets} sets × ${ex.targetReps || '8–12'} reps${ex.restTimeSecs ? ` · ⏱ ${ex.restTimeSecs}s` : ''}`;
+  } else if (completedCount < totalSets) {
+    const lastDone = completedSets[completedSets.length - 1];
+    const w = lastDone?.weight != null ? lastDone.weight : (lastDone?.weightKg != null ? lastDone.weightKg : null);
+    const r = lastDone?.reps != null ? lastDone.reps : null;
+    const detail = w ? ` · ${w}kg${r ? ` × ${r}` : ''}` : (r ? ` · ${r} reps` : '');
+    progressLabel = `${completedCount}/${totalSets} sets${detail}`;
+  } else {
+    const weights = completedSets
+      .map((set: any) => Number(set.weight || set.weightKg || 0))
+      .filter((n: number) => n > 0);
+    const topW = weights.length > 0 ? Math.max(...weights) : null;
+    progressLabel = `Completed${topW ? ` · ${topW}kg` : ''}`;
+  }
 
   return (
     <View style={s.rowWrapper}>
@@ -77,15 +97,10 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
           }}
           delayLongPress={220}
         >
-          {/* Header Meta Row: Muscle Micro-Indicator + Equipment */}
+          {/* Header: Subtle Muscle Indicator Dot + Name */}
           <View style={s.heroMetaRow}>
             <View style={[s.heroMuscleDot, { backgroundColor: muscleColor }]} />
             <Text style={s.heroMuscleText} numberOfLines={1}>{muscleName}</Text>
-            <Text style={s.heroMetaDivider}>•</Text>
-            <View style={s.heroEquipmentWrap}>
-              <Ionicons name={equipment.iconName as any} size={11} color={IOS_DARK.labelSecondary} />
-              <Text style={s.heroEquipmentText}>{equipment.label}</Text>
-            </View>
           </View>
 
           {/* Exercise Title */}
@@ -100,45 +115,26 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
             {ex.name}
           </Text>
 
-          {/* Set Completion Micro-Pills / Ticks */}
-          {setsLog.length > 0 ? (
-            <View style={s.heroSetPillsRow}>
-              {setsLog.map((set: any, sIdx: number) => {
-                const isSetDone = set.completed;
-                const weightVal = set.weight != null ? set.weight : (set.weightKg != null ? set.weightKg : null);
-                const repsVal = set.reps != null ? set.reps : null;
-
+          {/* Sleek Segmented Set Progress Bar + Live Status */}
+          <View style={s.heroProgressRow}>
+            <View style={s.heroSegmentsWrap}>
+              {Array.from({ length: Math.min(totalSets, 8) }).map((_, sIdx) => {
+                const isSetDone = Boolean(setsLog[sIdx]?.completed);
                 return (
                   <View
                     key={sIdx}
                     style={[
-                      s.heroSetPill,
-                      isSetDone ? s.heroSetPillCompleted : s.heroSetPillPending,
+                      s.heroSegmentBar,
+                      isSetDone ? s.heroSegmentCompleted : s.heroSegmentPending,
                     ]}
-                  >
-                    <Text
-                      style={
-                        isSetDone ? s.heroSetPillTextCompleted : s.heroSetPillTextPending
-                      }
-                      numberOfLines={1}
-                    >
-                      {weightVal !== null ? `${weightVal}k` : '—'} × {repsVal !== null ? repsVal : (ex.targetReps || '10')}
-                    </Text>
-                    {isSetDone ? (
-                      <Ionicons name="checkmark" size={10} color="#30D158" />
-                    ) : (
-                      <Text style={s.heroSetPillTextPending}>·</Text>
-                    )}
-                  </View>
+                  />
                 );
               })}
             </View>
-          ) : (
-            <Text style={s.rowSubtitle}>
-              {totalSets} sets × {ex.targetReps || '8–12'} reps
-              {ex.restTimeSecs ? ` · ⏱ ${ex.restTimeSecs}s` : ''}
+            <Text style={s.heroProgressText} numberOfLines={1}>
+              {progressLabel}
             </Text>
-          )}
+          </View>
         </TouchableOpacity>
 
         {/* ── ZONE 2: Right 20% Fast-Action Zone ── */}

@@ -269,33 +269,19 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
   heroMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 6,
     marginBottom: 4,
   },
   heroMuscleDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   heroMuscleText: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontFamily: FONT_FAMILY.medium,
     color: isDark ? IOS_DARK.labelSecondary : colors.textSecondary,
-    letterSpacing: 0.1,
-  },
-  heroMetaDivider: {
-    fontSize: 10,
-    color: isDark ? IOS_DARK.labelTertiary : colors.textTertiary,
-  },
-  heroEquipmentWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  heroEquipmentText: {
-    fontSize: 11,
-    fontFamily: FONT_FAMILY.medium,
-    color: isDark ? IOS_DARK.labelSecondary : colors.textSecondary,
+    letterSpacing: 0.2,
   },
   rowTitle: {
     fontSize: 15.5,
@@ -303,39 +289,34 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
     color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
     letterSpacing: -0.2,
   },
-  heroSetPillsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 5,
-    marginTop: 6,
-  },
-  heroSetPill: {
-    height: 22,
-    paddingHorizontal: 7,
-    borderRadius: 6,
+  heroProgressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 8,
+    marginTop: 5,
   },
-  heroSetPillCompleted: {
-    backgroundColor: isDark ? 'rgba(48,209,88,0.11)' : 'rgba(52,199,89,0.08)',
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(48,209,88,0.26)' : 'rgba(52,199,89,0.2)',
+  heroSegmentsWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3.5,
   },
-  heroSetPillPending: {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)',
+  heroSegmentBar: {
+    width: 14,
+    height: 3.5,
+    borderRadius: 2,
   },
-  heroSetPillTextCompleted: {
-    fontSize: 10.5,
-    fontFamily: FONT_FAMILY.bold,
-    color: '#30D158',
+  heroSegmentCompleted: {
+    backgroundColor: '#30D158',
   },
-  heroSetPillTextPending: {
-    fontSize: 10.5,
+  heroSegmentPending: {
+    backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.09)',
+  },
+  heroProgressText: {
+    fontSize: 12,
     fontFamily: FONT_FAMILY.medium,
-    color: isDark ? IOS_DARK.labelTertiary : colors.textTertiary,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textMuted,
+    letterSpacing: 0.1,
+    flexShrink: 1,
   },
   rowSubtitle: {
     fontSize: 12.5,
