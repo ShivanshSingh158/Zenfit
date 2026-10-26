@@ -49,12 +49,6 @@ export const makeAddExerciseStyles = (colors: any, isDark: boolean = true) =>
       color: colors.textPrimary,
       letterSpacing: -0.3,
     },
-    catalogueBadge: {
-      display: 'none',
-    },
-    catalogueBadgeText: {
-      display: 'none',
-    },
     closeBtn: {
       width: 32,
       height: 32,
@@ -135,11 +129,6 @@ export const makeAddExerciseStyles = (colors: any, isDark: boolean = true) =>
       color: colors.textTertiary,
       textTransform: 'uppercase',
       letterSpacing: 0.6,
-    },
-    statusCountBadge: {
-      fontFamily: FONT_FAMILY.mono,
-      fontSize: 11,
-      color: colors.textSecondary,
     },
 
     // Exercise Card List

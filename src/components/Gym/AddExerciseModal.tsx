@@ -864,13 +864,8 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
           {/* Database Notice Header */}
           <View style={styles.statusNotice}>
             <Text style={styles.statusNoticeText}>
-              {isDatabaseActive ? 'Catalogue Results' : 'Popular Exercises'}
+              {isDatabaseActive ? 'Exercises' : 'Popular Exercises'}
             </Text>
-            {isDatabaseActive && (
-              <Text style={styles.statusCountBadge}>
-                {results.length} {results.length === 1 ? 'Exercise' : 'Exercises'}
-              </Text>
-            )}
           </View>
 
           {/* Card Results List or 0-Results Instant Creation */}
