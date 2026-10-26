@@ -792,9 +792,6 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
           <View style={styles.header}>
             <View style={styles.headerLeft}>
               <Text style={styles.title}>Add Exercise</Text>
-              <View style={styles.catalogueBadge}>
-                <Text style={styles.catalogueBadgeText}>1,300+ EXERCISES</Text>
-              </View>
             </View>
             <TouchableOpacity onPress={resetAndClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Ionicons name="close" size={19} color={colors.textSecondary} />
@@ -853,7 +850,7 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                     <Ionicons
                       name={chip.icon}
                       size={13}
-                      color={isActive ? '#A599FF' : colors.textTertiary}
+                      color={isActive ? (isDark ? '#FFFFFF' : '#000000') : colors.textTertiary}
                     />
                     <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
                       {chip.label}
@@ -867,7 +864,7 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
           {/* Database Notice Header */}
           <View style={styles.statusNotice}>
             <Text style={styles.statusNoticeText}>
-              {isDatabaseActive ? 'Catalogue Results' : 'Popular Staples · 1-Tap Add'}
+              {isDatabaseActive ? 'Catalogue Results' : 'Popular Exercises'}
             </Text>
             {isDatabaseActive && (
               <Text style={styles.statusCountBadge}>
@@ -938,9 +935,9 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                 </View>
               )}
 
-              {/* AI Fallback Identifier */}
+              {/* Empty state prompt */}
               <View style={styles.emptyState}>
-                <Ionicons name="sparkles-outline" size={26} color="#A599FF" />
+                <Ionicons name="search-outline" size={24} color={colors.textTertiary} />
                 <Text style={styles.emptyStateText}>
                   Not in standard catalogue? Tap create above or configure custom details below.
                 </Text>

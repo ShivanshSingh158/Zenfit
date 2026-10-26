@@ -127,17 +127,17 @@ export function getPastPerformanceSnippet(exerciseName: string, gymLogs?: any[])
   hasHistory: boolean;
 } {
   if (!gymLogs || gymLogs.length === 0 || !exerciseName) {
-    return { snippet: 'Rec: 3 sets × 8–12 reps', hasHistory: false };
+    return { snippet: '3 sets × 8–12 reps', hasHistory: false };
   }
 
   const session = getPreviousExerciseSession(exerciseName, gymLogs);
   if (!session || !session.sets || session.sets.length === 0) {
-    return { snippet: 'First time · Rec: 3 × 8–12', hasHistory: false };
+    return { snippet: '3 sets × 8–12 reps', hasHistory: false };
   }
 
   const validSets = session.sets.filter((s: any) => (s.weight != null && s.weight > 0) || (s.reps != null && s.reps > 0));
   if (validSets.length === 0) {
-    return { snippet: 'First time · Rec: 3 × 8–12', hasHistory: false };
+    return { snippet: '3 sets × 8–12 reps', hasHistory: false };
   }
 
   // Find set with highest weight, or latest set
@@ -157,16 +157,16 @@ export function getPastPerformanceSnippet(exerciseName: string, gymLogs?: any[])
   }
 
   if (w && r) {
-    return { snippet: `Last: ${w} × ${r}${dateStr ? ` on ${dateStr}` : ''}`, hasHistory: true };
+    return { snippet: `Last: ${w} × ${r}${dateStr ? ` · ${dateStr}` : ''}`, hasHistory: true };
   }
   if (w) {
-    return { snippet: `Last: ${w}${dateStr ? ` on ${dateStr}` : ''}`, hasHistory: true };
+    return { snippet: `Last: ${w}${dateStr ? ` · ${dateStr}` : ''}`, hasHistory: true };
   }
   if (r) {
-    return { snippet: `Last: ${r} reps${dateStr ? ` on ${dateStr}` : ''}`, hasHistory: true };
+    return { snippet: `Last: ${r} reps${dateStr ? ` · ${dateStr}` : ''}`, hasHistory: true };
   }
 
-  return { snippet: 'Rec: 3 sets × 8–12 reps', hasHistory: false };
+  return { snippet: '3 sets × 8–12 reps', hasHistory: false };
 }
 
 // ── Tier Badges Theme ───────────────────────────────────────────────────────
@@ -185,70 +185,63 @@ export const ExerciseCardItem: React.FC<ExerciseCardItemProps> = memo(({
   gymLogs,
   colors,
   styles,
+  isDark = true,
   isSelected,
 }) => {
-  const equip = getEquipmentGlyph(item.name, item.aliases);
   const primaryMuscle = item.muscle || 'Mixed';
   const muscleColor = resolveMuscleColor(primaryMuscle);
   const secondaryMuscles = getSecondaryMuscles(item.name, primaryMuscle);
   const { snippet, hasHistory } = getPastPerformanceSnippet(item.name, gymLogs);
-  const tierTheme = item.tier && TIER_CONFIG[item.tier] ? TIER_CONFIG[item.tier] : TIER_CONFIG['A Tier'];
+  const tierTheme = item.tier && TIER_CONFIG[item.tier] ? TIER_CONFIG[item.tier] : null;
+  const isTopTier = item.tier === 'S Tier' || item.tier === 'A+ Tier';
 
   return (
     <TouchableOpacity
       style={[styles.exerciseCard, isSelected && styles.exerciseCardSelected]}
-      activeOpacity={0.75}
+      activeOpacity={0.7}
       onPress={() => {
         hapticLight();
         onSelect(item);
       }}
     >
-      {/* Top Row: Name + Equipment Glyph + Tier Badge */}
+      {/* Top Row: Exercise Name + Subtle Top Tier Badge (if S or A+) */}
       <View style={styles.cardTopRow}>
-        <View style={styles.cardNameContainer}>
-          {/* Equipment Glyph */}
-          <View style={[styles.equipmentGlyphBadge, { borderColor: `${equip.color}40`, backgroundColor: `${equip.color}15` }]}>
-            <Ionicons name={equip.icon} size={11} color={equip.color} />
-            <Text style={[styles.equipmentGlyphText, { color: equip.color }]}>{equip.glyph}</Text>
+        <Text style={styles.cardTitle} numberOfLines={1}>
+          {item.name}
+        </Text>
+
+        {isTopTier && tierTheme && (
+          <View style={[styles.tierBadge, { backgroundColor: tierTheme.bg, borderColor: tierTheme.border }]}>
+            <Text style={[styles.tierBadgeText, { color: tierTheme.text }]}>
+              {item.tier}
+            </Text>
           </View>
-
-          {/* Exercise Title */}
-          <Text style={styles.cardTitle} numberOfLines={1}>
-            {item.name}
-          </Text>
-        </View>
-
-        {/* Tier Badge */}
-        <View style={[styles.tierBadge, { backgroundColor: tierTheme.bg, borderColor: tierTheme.border }]}>
-          <Text style={[styles.tierBadgeText, { color: tierTheme.text }]}>
-            {item.tier || 'A Tier'}
-          </Text>
-        </View>
+        )}
       </View>
 
-      {/* Middle Row: Primary Muscle Pill + Secondary Target Text */}
+      {/* Middle Row: Subtle 5px colored dot + muted secondary text (no heavy colored pill container) */}
       <View style={styles.cardMuscleRow}>
-        <View style={styles.primaryMusclePill}>
-          <View style={[styles.muscleDot, { backgroundColor: muscleColor }]} />
-          <Text style={[styles.primaryMuscleText, { color: muscleColor }]}>{primaryMuscle}</Text>
-        </View>
-        <Text style={styles.secondaryMuscleText} numberOfLines={1}>
-          {secondaryMuscles}
+        <View style={[styles.muscleDot, { backgroundColor: muscleColor }]} />
+        <Text style={styles.cardMuscleText} numberOfLines={1}>
+          <Text style={styles.primaryMuscleText}>{primaryMuscle}</Text> {secondaryMuscles}
         </Text>
       </View>
 
-      {/* Bottom Row: Past Performance Snippet + 1-Tap Add Action */}
+      {/* Bottom Row: Performance Snippet + Minimalist Add Button */}
       <View style={styles.cardBottomRow}>
         <View style={styles.snippetContainer}>
-          <Ionicons
-            name={hasHistory ? 'time-outline' : 'sparkles-outline'}
-            size={12}
-            color={hasHistory ? '#A599FF' : colors.textTertiary}
-          />
+          {hasHistory && (
+            <Ionicons
+              name="time-outline"
+              size={12}
+              color={colors.textTertiary}
+              style={{ marginRight: 4 }}
+            />
+          )}
           <Text
             style={[
               styles.snippetText,
-              hasHistory && { color: '#C4B5FD', fontFamily: FONT_FAMILY.mono, fontWeight: '700' },
+              hasHistory && styles.snippetHistoryText,
             ]}
             numberOfLines={1}
           >
@@ -259,14 +252,14 @@ export const ExerciseCardItem: React.FC<ExerciseCardItemProps> = memo(({
         {/* Quick Add Button */}
         <TouchableOpacity
           style={styles.quickAddBtn}
-          activeOpacity={0.7}
+          activeOpacity={0.75}
           onPress={() => {
             hapticSuccess();
             onQuickAdd(item);
           }}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="add" size={13} color="#000000" />
+          <Ionicons name="add" size={13} color={colors.textPrimary} />
           <Text style={styles.quickAddBtnText}>Add</Text>
         </TouchableOpacity>
       </View>
