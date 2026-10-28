@@ -1052,9 +1052,10 @@ export default function ActiveLoggingScreen() {
     clearRestTimer,
     setRestTimerDuration,
     restTimerInitial,
+    promptFinishWorkout,
   };
 
-  // Handle interactive lock screen notification actions (Done Set, Add Weight, Next Exercise, Skip Rest)
+  // Handle interactive lock screen notification actions (Done Set, Add Weight, Next Exercise, Skip Rest, End Workout)
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('ACTIVE_WORKOUT_ACTION', (payload: any) => {
       const h = handlersRef.current;
@@ -1069,8 +1070,16 @@ export default function ActiveLoggingScreen() {
         h.clearRestTimer?.();
       } else if (payload.action === 'ADD_REST_SECONDS') {
         h.setRestTimerDuration?.(h.restTimerInitial + (payload.seconds || 30));
+      } else if (payload.action === 'END_WORKOUT') {
+        h.promptFinishWorkout?.();
       }
     });
+
+    if (route.params?.autoPromptEnd) {
+      setTimeout(() => {
+        handlersRef.current?.promptFinishWorkout?.();
+      }, 400);
+    }
 
     return () => {
       sub.remove();
@@ -1078,7 +1087,7 @@ export default function ActiveLoggingScreen() {
         clearTimeout(supersetJumpTimerRef.current);
       }
     };
-  }, [navigation]);
+  }, [navigation, route.params?.autoPromptEnd]);
 
   const warmupSets = useMemo(() => exercise?.setsLog.filter(s => s.isWarmup) || [], [exercise?.setsLog]);
   const hasWarmups = warmupSets.length > 0;

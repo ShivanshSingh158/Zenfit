@@ -80,11 +80,12 @@ export async function ensureNotificationChannels(): Promise<void> {
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     });
 
-    // 4. Ongoing Workout in Progress (Persistent Notification like Hevy)
-    await Notifications.setNotificationChannelAsync('workout_in_progress', {
+    // 4. Ongoing Workout in Progress (Persistent Non-Dismissible Notification)
+    await Notifications.deleteNotificationChannelAsync('workout_in_progress').catch(() => {});
+    await Notifications.setNotificationChannelAsync('workout_in_progress_v2', {
       name: 'Workout in Progress',
-      description: 'Persistent ongoing notification during an active workout session',
-      importance: Notifications.AndroidImportance.LOW,
+      description: 'Persistent non-dismissible notification during an active workout session',
+      importance: Notifications.AndroidImportance.HIGH,
       sound: null,
       enableVibrate: false,
       showBadge: false,
@@ -136,9 +137,8 @@ export async function requestNotificationPermissions(): Promise<boolean> {
     ]);
 
     await Notifications.setNotificationCategoryAsync('active_workout_ongoing', [
-      { identifier: 'WORKOUT_DONE_SET', buttonTitle: '✓ Done Set', options: { opensAppToForeground: false } },
-      { identifier: 'WORKOUT_ADD_WEIGHT', buttonTitle: '+2.5kg', options: { opensAppToForeground: false } },
-      { identifier: 'WORKOUT_NEXT_EXERCISE', buttonTitle: '⏭ Next', options: { opensAppToForeground: false } },
+      { identifier: 'OPEN_WORKOUT', buttonTitle: '🏋️ Return to Workout', options: { opensAppToForeground: true } },
+      { identifier: 'WORKOUT_END', buttonTitle: '🛑 End Workout', options: { opensAppToForeground: true } },
     ]);
 
     await Notifications.setNotificationCategoryAsync('gym_weekly_report', [

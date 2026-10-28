@@ -34,6 +34,8 @@ function formatRestTime(seconds: number): string {
  * Shows or updates the ongoing, persistent "Workout in Progress" notification.
  * This stays pinned on Android (like Hevy / Strava) with sticky: true until the workout ends.
  */
+export const WORKOUT_IN_PROGRESS_CHANNEL_ID = 'workout_in_progress_v2';
+
 export async function showWorkoutInProgressNotification(params: {
   workoutName?: string;
   completedSets?: number;
@@ -49,23 +51,25 @@ export async function showWorkoutInProgressNotification(params: {
 
     const name = params.workoutName || 'Workout';
     const completedCount = params.completedSets ?? 0;
-    const body = `${name} · ${completedCount} set${completedCount === 1 ? '' : 's'} completed`;
+    const body = `${name} · ${completedCount} set${completedCount === 1 ? "" : "s"} logged · Tap to return or end session`;
 
     await Notifications.scheduleNotificationAsync({
       identifier: WORKOUT_IN_PROGRESS_NOTIF_ID,
       content: {
-        title: 'Workout in Progress',
+        title: '🏋️ Workout in Progress',
         body,
         sound: undefined,
-        sticky: true, // Persistent ongoing notification on Android (cannot be swiped away while active)
-        priority: Notifications.AndroidNotificationPriority.LOW,
-        categoryIdentifier: 'active_workout',
+        sticky: true,       // Persistent ongoing notification on Android (cannot be dismissed by swipe or Clear All)
+        autoDismiss: false, // CRITICAL: Do NOT auto-dismiss when tapped
+        priority: Notifications.AndroidNotificationPriority.HIGH,
+        categoryIdentifier: 'active_workout_ongoing',
+        color: '#30D158',
         data: {
           type: 'ACTIVE_WORKOUT_IN_PROGRESS',
           date: params.dateStr,
         },
       },
-      trigger: Platform.OS === 'android' ? ({ channelId: 'workout_in_progress' } as any) : null,
+      trigger: Platform.OS === 'android' ? ({ channelId: WORKOUT_IN_PROGRESS_CHANNEL_ID } as any) : null,
     });
     isNotificationActive = true;
   } catch (err) {
@@ -188,6 +192,28 @@ export function registerActiveWorkoutNotificationListeners() {
         openWeeklyReportScreen(restDateStr);
       } catch (e) {
         DeviceEventEmitter.emit('open_weekly_report', { date: restDateStr });
+      }
+      return;
+    }
+
+    // 2. Active Workout In-Progress Notification Click or Quick Action
+    const isWorkoutInProgressNotif =
+      notificationData?.type === 'ACTIVE_WORKOUT_IN_PROGRESS' ||
+      response.notification.request.identifier === WORKOUT_IN_PROGRESS_NOTIF_ID;
+
+    if (isWorkoutInProgressNotif) {
+      const workoutDate = notificationData?.date;
+      try {
+        const { openActiveLoggingScreen } = require('../navigation/navigationService');
+        if (actionId === 'WORKOUT_END') {
+          openActiveLoggingScreen(workoutDate, true);
+          DeviceEventEmitter.emit('ACTIVE_WORKOUT_ACTION', { action: 'END_WORKOUT' });
+        } else {
+          // Tapped notification body or 'OPEN_WORKOUT' button
+          openActiveLoggingScreen(workoutDate, false);
+        }
+      } catch (e) {
+        DeviceEventEmitter.emit('OPEN_ACTIVE_WORKOUT', { date: workoutDate, action: actionId });
       }
       return;
     }

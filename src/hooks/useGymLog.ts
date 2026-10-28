@@ -754,12 +754,25 @@ export function useGymLog(dateStr: string) {
             }
           }
           flushGlobalPendingFirestoreWrite(logId);
+
+          // Pinned notification self-healing: if workout is active, ensure persistent ongoing notification stays up
+          if (!currentLog.completed && currentLog.workoutStartTime) {
+            const completedCount = (currentLog.exercises || []).reduce(
+              (sum: number, ex: any) => sum + (ex.setsLog || []).filter((s: any) => s.completed).length, 0
+            );
+            const name = planDay?.name || resolvePlanDay(userGymPlan, currentLog.dayPlanIndex ?? planIdx)?.name || 'Workout';
+            showWorkoutInProgressNotification({
+              workoutName: name,
+              completedSets: completedCount,
+              dateStr,
+            }).catch(() => {});
+          }
         }
         flushDomainCache('wellness').catch(() => {});
       }
     });
     return () => sub.remove();
-  }, [user, flushPendingOptimisticUpdate]);
+  }, [user, flushPendingOptimisticUpdate, planDay, userGymPlan, planIdx, dateStr]);
 
   // Issue 1 & 2: Listen for local mutations across all sibling screens (ExerciseSwap, ExerciseDetail, CardioLog)
   useEffect(() => {

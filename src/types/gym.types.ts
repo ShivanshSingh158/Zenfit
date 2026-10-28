@@ -243,7 +243,7 @@ export type GymNavigationParamList = {
   Splits: undefined;
   History: undefined;
   GymHome: undefined;
-  ActiveLogging: { date: string; initialIndex?: number; exerciseIndex?: number };
+  ActiveLogging: { date: string; initialIndex?: number; exerciseIndex?: number; autoPromptEnd?: boolean };
   WorkoutSummary: { date?: string; readOnly?: boolean } | undefined;
   GymProgress: { date?: string } | undefined;
   ExerciseDetail: {
