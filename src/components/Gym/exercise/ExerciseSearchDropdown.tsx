@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback, memo } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, NativeSyntheticEvent, NativeScrollEvent, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { resolveMuscleColor } from '../../../utils/gymUtils';
-import { AIExerciseInfo } from '../../../services/geminiProxy';
 import { FONT_FAMILY } from '../../../theme/tokens';
 
 export interface ExerciseCatalogEntry {
@@ -21,10 +20,10 @@ export interface ExerciseCatalogEntry {
 export interface ExerciseSearchDropdownProps {
   showDropdown: boolean;
   suggestions: ExerciseCatalogEntry[];
-  aiLoading: boolean;
-  aiSuggestion: AIExerciseInfo | null;
+  aiLoading?: boolean;
+  aiSuggestion?: any;
   onSelectSuggestion: (entry: ExerciseCatalogEntry) => void;
-  onSelectAiSuggestion: (ai: AIExerciseInfo) => void;
+  onSelectAiSuggestion?: (ai: any) => void;
   onTriggerAiSearch?: () => void;
   searchQuery?: string;
   colors: any;
@@ -49,227 +48,142 @@ const SuggestionRow = memo(({
 }: {
   item: ExerciseCatalogEntry;
   index: number;
-  onPress: (item: ExerciseCatalogEntry) => void;
+  onPress: () => void;
   colors: any;
   styles: any;
 }) => {
-  const muscleColor =
-    item.muscle && item.muscle !== 'None'
-      ? resolveMuscleColor(item.muscle)
-      : colors.textTertiary;
-  const tierTheme = item.tier && TIER_PILL_CONFIG[item.tier] ? TIER_PILL_CONFIG[item.tier] : null;
+  const muscleCol = resolveMuscleColor(item.muscle);
+  const tierCfg = item.tier ? TIER_PILL_CONFIG[item.tier] : undefined;
 
   return (
     <TouchableOpacity
-      style={[
-        styles.suggestionRow,
-        index !== 0 && styles.suggestionBorder,
-        { paddingVertical: 10 },
-      ]}
-      onPress={() => onPress(item)}
-      activeOpacity={0.7}
+      style={styles.suggestionRow}
+      onPress={onPress}
+      activeOpacity={0.65}
     >
-      <View style={{ flex: 1, paddingRight: 8 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <Text style={styles.suggestionName} numberOfLines={1}>
-            {item.name}
-          </Text>
-
-          {tierTheme && (
-            <View
-              style={{
-                backgroundColor: tierTheme.bg,
-                borderColor: tierTheme.border,
-                borderWidth: 1,
-                borderRadius: 6,
-                paddingHorizontal: 5,
-                paddingVertical: 1.5,
-              }}
-            >
-              <Text
+      <View style={styles.suggestionLeft}>
+        <View
+          style={[
+            styles.muscleIndicatorDot,
+            { backgroundColor: muscleCol },
+          ]}
+        />
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={styles.suggestionName} numberOfLines={1}>
+              {item.name}
+            </Text>
+            {tierCfg && (
+              <View
                 style={{
-                  fontFamily: FONT_FAMILY.bold,
-                  fontSize: 9.5,
-                  color: tierTheme.text,
+                  paddingHorizontal: 5,
+                  paddingVertical: 1.5,
+                  borderRadius: 4,
+                  backgroundColor: tierCfg.bg,
+                  borderWidth: 0.5,
+                  borderColor: tierCfg.border,
                 }}
               >
-                {item.tier}
-              </Text>
-            </View>
-          )}
+                <Text
+                  style={{
+                    fontFamily: FONT_FAMILY.bold,
+                    fontSize: 9,
+                    color: tierCfg.text,
+                    letterSpacing: 0.3,
+                  }}
+                >
+                  {item.tier}
+                </Text>
+              </View>
+            )}
+          </View>
+          <Text style={[styles.suggestionMeta, { color: muscleCol }]}>
+            {item.muscle} · {item.targetSets}x {item.targetReps} · {item.restTimeSecs}s rest
+          </Text>
         </View>
-
-        <Text style={[styles.suggestionMeta, { color: muscleColor, marginTop: 3 }]}>
-          {item.muscle}
-        </Text>
       </View>
-
-      <View style={styles.suggestionRight}>
-        <Text style={styles.suggestionSets}>
-          {item.targetSets}x {item.targetReps}
-        </Text>
-        <Ionicons name="return-down-back-outline" size={14} color={colors.textTertiary} />
-      </View>
+      <Ionicons
+        name="arrow-forward-circle-outline"
+        size={18}
+        color={colors.textTertiary}
+      />
     </TouchableOpacity>
   );
 });
 
-export const ExerciseSearchDropdown: React.FC<ExerciseSearchDropdownProps> = React.memo(({
+export const ExerciseSearchDropdown: React.FC<ExerciseSearchDropdownProps> = memo(({
   showDropdown,
   suggestions,
-  aiLoading,
-  aiSuggestion,
   onSelectSuggestion,
-  onSelectAiSuggestion,
-  onTriggerAiSearch,
   searchQuery,
   colors,
   styles,
 }) => {
-  const [displayCount, setDisplayCount] = useState(14);
+  const [scrollProgress, setScrollProgress] = useState(0);
 
-  // Reset to initial chunk whenever suggestions change (e.g. chip click or search input)
-  useEffect(() => {
-    setDisplayCount(14);
-  }, [suggestions]);
-
-  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
-    const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 100;
-    if (isCloseToBottom && displayCount < suggestions.length) {
-      setDisplayCount(prev => Math.min(prev + 14, suggestions.length));
-    }
-  }, [displayCount, suggestions.length]);
-
-  const queryTrimmed = (searchQuery || '').trim();
-  const hasQuery = queryTrimmed.length > 0;
   const hasSuggestions = suggestions.length > 0;
+  const hasQuery = Boolean(searchQuery && searchQuery.trim().length > 0);
+  const queryTrimmed = searchQuery ? searchQuery.trim() : '';
 
-  if (!showDropdown || (!hasQuery && !hasSuggestions && !aiLoading && !aiSuggestion)) {
+  if (!showDropdown || (!hasSuggestions && !hasQuery)) {
     return null;
   }
 
-  const visibleItems = suggestions.slice(0, displayCount);
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const maxScroll = contentSize.height - layoutMeasurement.height;
+    if (maxScroll <= 0) {
+      setScrollProgress(0);
+      return;
+    }
+    const current = Math.max(0, Math.min(contentOffset.y, maxScroll));
+    setScrollProgress(current / maxScroll);
+  };
 
   return (
-    <View style={styles.dropdown}>
-      {/* 1. Suggestions List */}
+    <View style={styles.suggestionsContainer}>
       {hasSuggestions && (
-        <ScrollView
-          style={{ maxHeight: 260 }}
-          nestedScrollEnabled={true}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={true}
-          onScroll={handleScroll}
-          scrollEventThrottle={32}
-        >
-          {visibleItems.map((item, index) => (
-            <SuggestionRow
-              key={`${item.id || item.name}_${index}`}
-              item={item}
-              index={index}
-              onPress={onSelectSuggestion}
-              colors={colors}
-              styles={styles}
-            />
-          ))}
+        <>
+          <ScrollView
+            style={styles.suggestionsList}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled={true}
+            showsVerticalScrollIndicator={false}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+          >
+            {suggestions.map((item, index) => (
+              <SuggestionRow
+                key={item.id || `${item.name}-${index}`}
+                item={item}
+                index={index}
+                onPress={() => onSelectSuggestion(item)}
+                colors={colors}
+                styles={styles}
+              />
+            ))}
+          </ScrollView>
 
-          {/* Subtle CTA at bottom of list if user wants AI variation */}
-          {onTriggerAiSearch && hasQuery && queryTrimmed.length >= 2 && !aiLoading && (
-            <TouchableOpacity
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                paddingVertical: 10,
-                borderTopWidth: 1,
-                borderTopColor: colors.border,
-                backgroundColor: 'rgba(165,153,255,0.04)',
-              }}
-              onPress={onTriggerAiSearch}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="sparkles" size={13} color="#a599ff" />
-              <Text style={{ fontFamily: FONT_FAMILY.medium, fontSize: 11.5, color: '#a599ff' }}>
-                Can't find your exercise? Identify with AI ✨
-              </Text>
-            </TouchableOpacity>
-          )}
-        </ScrollView>
-      )}
-
-      {/* 2. AI loading shimmer (Only when no local suggestions) */}
-      {!hasSuggestions && aiLoading && (
-        <View style={styles.aiLoadingRow}>
-          <ActivityIndicator size="small" color={colors.accentPrimary} style={{ marginRight: 6 }} />
-          <Text style={styles.aiLoadingText}>
-            AI is identifying "{queryTrimmed}"...
-          </Text>
-        </View>
-      )}
-
-      {/* 3. AI suggestion card (Only when no local suggestions) */}
-      {!hasSuggestions && !aiLoading && aiSuggestion && (
-        <TouchableOpacity
-          style={styles.aiSuggestionRow}
-          onPress={() => onSelectAiSuggestion(aiSuggestion)}
-          activeOpacity={0.7}
-        >
-          <View style={styles.aiSuggestionLeft}>
-            <Ionicons name="sparkles" size={18} color={colors.accentPrimary} />
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={styles.aiSuggestionName} numberOfLines={1}>
-                  {aiSuggestion.canonicalName}
-                </Text>
-                <View style={styles.aiBadge}>
-                  <Text style={styles.aiBadgeText}>AI</Text>
-                </View>
-              </View>
-              <Text
+          {suggestions.length > 3 && (
+            <View style={styles.scrollbarTrack}>
+              <View
                 style={[
-                  styles.suggestionMeta,
-                  { color: resolveMuscleColor(aiSuggestion.muscle) },
+                  styles.scrollbarThumb,
+                  {
+                    top: `${scrollProgress * 75}%` as any,
+                  },
                 ]}
-              >
-                {aiSuggestion.muscle} · {aiSuggestion.targetSets}x {aiSuggestion.targetReps} ·{' '}
-                {aiSuggestion.restTimeSecs}s rest
-              </Text>
+              />
             </View>
-          </View>
-          <Ionicons name="return-down-back-outline" size={14} color={colors.accentPrimary} />
-        </TouchableOpacity>
+          )}
+        </>
       )}
 
-      {/* 4. No matches found & not loading & no AI card yet: Show direct CTA to search with AI */}
-      {!hasSuggestions && !aiLoading && !aiSuggestion && hasQuery && queryTrimmed.length >= 2 && (
+      {!hasSuggestions && hasQuery && queryTrimmed.length >= 2 && (
         <View style={{ padding: 14, alignItems: 'center' }}>
-          <Text style={{ fontFamily: FONT_FAMILY.medium, fontSize: 12.5, color: colors.textTertiary, marginBottom: 10, textAlign: 'center' }}>
-            No match for "{queryTrimmed}" in local database
+          <Text style={{ fontFamily: FONT_FAMILY.medium, fontSize: 12.5, color: colors.textTertiary, textAlign: 'center' }}>
+            No matching exercise found in catalogue.
           </Text>
-          {onTriggerAiSearch && (
-            <TouchableOpacity
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-                backgroundColor: 'rgba(165,153,255,0.14)',
-                paddingHorizontal: 14,
-                paddingVertical: 8,
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: 'rgba(165,153,255,0.4)',
-              }}
-              onPress={onTriggerAiSearch}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="sparkles" size={14} color="#a599ff" />
-              <Text style={{ fontFamily: FONT_FAMILY.bold, fontSize: 12, color: '#a599ff' }}>
-                Identify with AI ✨
-              </Text>
-            </TouchableOpacity>
-          )}
         </View>
       )}
     </View>

@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, TextInput, ScrollView, Platform,
-  KeyboardAvoidingView, ActivityIndicator, Alert, FlatList,
+  KeyboardAvoidingView, Alert, FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
@@ -9,24 +9,22 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 
-import { SPACE } from '../../theme/tokens';
+import { SPACE, FONT_FAMILY } from '../../theme/tokens';
 import { useGymLog, todayStr, planDayIndexForDate, getCustomPlanDay } from '../../hooks/useGymLog';
 import { useGymPlan, useGymLogs } from '../../contexts/domains/WellnessContext';
 import { GYM_PLAN, GYM_PLAN_PPL, GYM_PLAN_ARNOLD } from '../../data/gymPlan';
 import { EXERCISE_DATABASE } from '../../data/exerciseDatabase';
-import { resolveMuscleColor, hexToRgba, canonicalizeMuscle, resolveExerciseTargetMuscle, getExerciseSwapAlternatives, getPreviousExerciseSession } from '../../utils/gymUtils';
+import {
+  resolveMuscleColor, hexToRgba, canonicalizeMuscle,
+  resolveExerciseTargetMuscle, getExerciseSwapAlternatives, getPreviousExerciseSession
+} from '../../utils/gymUtils';
 import { hapticMedium, hapticSuccess, hapticLight } from '../../utils/haptics';
-import { callProxy } from '../../services/geminiProxy';
 import { autoResolveExerciseVideoId } from '../../services/exerciseVideoResolver';
 import { GymNavigationParamList } from '../../types/gym.types';
 import { useTheme } from '../../contexts/ThemeContext';
-
-// Extracted Sub-Components & Styles
 import { makeExerciseSwapStyles } from './exerciseSwapStyles';
-import TemplateSwapCard from '../../components/Gym/ai/TemplateSwapCard';
-import AiSwapCard from '../../components/Gym/ai/AiSwapCard';
 
-export interface AiSwapRecommendation {
+export interface SwapRecommendation {
   id: string;
   name: string;
   muscle: string;
@@ -35,8 +33,6 @@ export interface AiSwapRecommendation {
   restTimeSecs: number;
   reason: string;
   videoId?: string;
-  isFromTemplate?: boolean;
-  dayName?: string;
 }
 
 export interface TemplateExerciseSwapItem {
@@ -51,79 +47,59 @@ export interface TemplateExerciseSwapItem {
   dayName: string;
   routineName: string;
   isExactMuscleMatch: boolean;
-  isFromTemplate: true;
+  isFromTemplate: boolean;
 }
 
-// ─── Fast Sub-Muscle Index Dictionary for O(1) Matching ────────────────────────
-const SUB_MUSCLE_TOKENS: string[] = [
-  'long tricep', 'lat/med tricep', 'upper chest', 'mid chest', 'lower chest',
-  'lat width', 'mid-back', 'rear delt', 'side delt', 'front delt',
-  'short bicep', 'long bicep', 'brachialis', 'quad', 'hamstring',
-  'soleus', 'gastrocnemius', 'upper abs', 'lower abs', 'forearm flexor', 'forearm extensor'
-];
+type ExerciseSwapRouteProp = RouteProp<GymNavigationParamList, 'ExerciseSwap'>;
 
-function isSubMuscleMatch(exactA: string, exactB: string): boolean {
-  if (exactA === exactB) return true;
-  for (let i = 0; i < SUB_MUSCLE_TOKENS.length; i++) {
-    const tok = SUB_MUSCLE_TOKENS[i];
-    if (exactA.includes(tok) && exactB.includes(tok)) return true;
+const SUB_MUSCLE_SYNONYMS: Record<string, string[]> = {
+  'upper chest': ['upper chest', 'clavicular head', 'incline'],
+  'middle chest': ['middle chest', 'sternal head', 'flat bench'],
+  'lower chest': ['lower chest', 'abdominal head', 'decline', 'dip'],
+  'lats': ['lats', 'latissimus', 'vertical pull', 'pulldown', 'pull up'],
+  'upper back': ['upper back', 'traps', 'rhomboids', 'rear delts', 'horizontal row'],
+  'lower back': ['lower back', 'erectors', 'spinal erectors', 'deadlift', 'hyperextension'],
+  'front delts': ['front delts', 'anterior deltoid', 'overhead press', 'shoulder press'],
+  'side delts': ['side delts', 'lateral deltoid', 'lateral raise'],
+  'rear delts': ['rear delts', 'posterior deltoid', 'reverse fly', 'face pull'],
+  'quads': ['quads', 'quadriceps', 'squat', 'leg press', 'leg extension', 'lunge'],
+  'hamstrings': ['hamstrings', 'leg curl', 'rdl', 'romanian deadlift'],
+  'glutes': ['glutes', 'hip thrust', 'glute bridge', 'kickback'],
+  'biceps': ['biceps', 'biceps brachii', 'curl'],
+  'triceps': ['triceps', 'triceps brachii', 'pushdown', 'skull crusher', 'extension'],
+  'calves': ['calves', 'gastrocnemius', 'soleus', 'calf raise'],
+  'abs': ['abs', 'abdominals', 'core', 'crunch', 'leg raise', 'plank'],
+};
+
+function isSubMuscleMatch(muscleA: string, muscleB: string): boolean {
+  if (!muscleA || !muscleB) return false;
+  const a = muscleA.toLowerCase().trim();
+  const b = muscleB.toLowerCase().trim();
+  if (a === b) return true;
+  for (const syns of Object.values(SUB_MUSCLE_SYNONYMS)) {
+    const hasA = syns.some(s => a.includes(s));
+    const hasB = syns.some(s => b.includes(s));
+    if (hasA && hasB) return true;
   }
   return false;
 }
 
-interface SwapExerciseRowProps {
-  item: any;
-  styles: any;
-  onSwap: (item: any) => void;
-}
-
-const SwapExerciseRow = React.memo(function SwapExerciseRow({ item, styles, onSwap }: SwapExerciseRowProps) {
-  return (
-    <TouchableOpacity
-      style={styles.exerciseRow}
-      onPress={() => onSwap(item)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.exInfo}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <Text style={styles.exName}>{item.name}</Text>
-          {item.isFromTemplate && (
-            <View style={styles.templateBadge}>
-              <Ionicons name="calendar-outline" size={10} color="#a599ff" />
-              <Text style={styles.templateBadgeText}>{item.templateDayName || 'Template'}</Text>
-            </View>
-          )}
-        </View>
-        <Text style={styles.exTarget}>{item.targetSets} sets × {item.targetReps} reps</Text>
-      </View>
-      <View style={[styles.musclePill, { backgroundColor: item.muscleBgColor }]}>
-        <View style={[styles.muscleDot, { backgroundColor: item.muscleColor }]} />
-        <Text style={[styles.muscleText, { color: item.muscleColor }]}>{item.muscle}</Text>
-      </View>
-    </TouchableOpacity>
-  );
-});
-
-export default function ExerciseSwapScreen() {
-  const { colors, isDark } = useTheme();
-  const styles = useMemo(() => makeExerciseSwapStyles(colors, isDark), [colors, isDark]);
+export function ExerciseSwapScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<GymNavigationParamList>>();
-  const route = useRoute<RouteProp<GymNavigationParamList, 'ExerciseSwap'>>();
+  const route = useRoute<ExerciseSwapRouteProp>();
   const originalExerciseId = route.params?.originalExerciseId;
   const date = route.params?.date || todayStr();
+
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => makeExerciseSwapStyles(colors, isDark), [colors, isDark]);
 
   const { log, updateExercise } = useGymLog(date);
   const { userGymPlan, updateMasterPlan } = useGymPlan();
   const { gymLogs } = useGymLogs();
 
-  const [activeTab, setActiveTab] = useState<'ai' | 'all'>('ai');
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'template' | 'exact' | 'category'>('all');
 
-  const [aiSwaps, setAiSwaps] = useState<AiSwapRecommendation[]>([]);
-  const [isAiLoading, setIsAiLoading] = useState(true);
-
-  // Original exercise
   const originalExercise = useMemo(() => {
     if (!log || !originalExerciseId) return null;
     return log.exercises.find(e => e.exerciseId === originalExerciseId || e.id === originalExerciseId);
@@ -136,7 +112,7 @@ export default function ExerciseSwapScreen() {
     [origName, rawMuscle]
   );
 
-  // ── Extract matching exercises from gym template ─────────────────────────────
+  // 1. Template Exercises
   const templateExercises = useMemo(() => {
     if (!originalExercise) return [];
 
@@ -206,137 +182,35 @@ export default function ExerciseSwapScreen() {
     });
   }, [originalExercise, origMuscle, canonicalMuscle, userGymPlan]);
 
-  const templateExercisesRef = useRef(templateExercises);
-  templateExercisesRef.current = templateExercises;
-
-  // ── Load AI recommendations & Instant Fallback ──────────────────────────────
-  useEffect(() => {
-    let isCancelled = false;
-
+  // 2. Scientific Biomechanical Alternatives (Instant & Deterministic)
+  const biomechanicalSwaps = useMemo<SwapRecommendation[]>(() => {
     const instantSwaps = getExerciseSwapAlternatives(origName, rawMuscle);
-    const instantList: AiSwapRecommendation[] = instantSwaps.map((alt, idx) => ({
+    return instantSwaps.map((alt, idx) => ({
       id: alt.id || `curated_${idx}_${Date.now()}`,
       name: alt.name,
       muscle: alt.muscle,
       targetSets: alt.targetSets,
       targetReps: alt.targetReps,
       restTimeSecs: alt.restTimeSecs,
-      reason: alt.reason || `Direct alternative targeting ${alt.muscle}`,
+      reason: alt.reason || `Biomechanical alternative matching ${alt.muscle}`,
       videoId: alt.videoId,
     }));
+  }, [origName, rawMuscle]);
 
-    setAiSwaps(instantList);
-    setIsAiLoading(true);
-
-    async function fetchAiSwaps() {
-      try {
-        const templateExerciseNames = templateExercisesRef.current.map(t => t.name).slice(0, 5).join(', ');
-        const prompt = `Exercise to swap: "${origName}" (Target Muscle: ${origMuscle}, Parent Group: ${canonicalMuscle}).
-The user is working out and wants alternative exercises that hit the EXACT same movement plane and muscle fibers.
-${templateExerciseNames ? `Note: User's workout routine already includes: [${templateExerciseNames}].` : ''}
-
-Generate EXACTLY 6 biomechanically equivalent exercise alternatives for "${origName}".
-For EACH alternative exercise, assign realistic specific targetSets (3 or 4), targetReps ('6-8', '8-12', '12-15', '15-20'), and restTimeSecs (45, 60, 90, or 120).
-
-Return ONLY a raw valid JSON array of 6 objects:
-[
-  {
-    "name": "Exercise Name",
-    "muscle": "${origMuscle}",
-    "targetSets": 3,
-    "targetReps": "8-12",
-    "restTimeSecs": 90,
-    "reason": "Biomechanical rationale"
-  }
-]`;
-
-        const res = await callProxy({
-          contents: [{ parts: [{ text: prompt }] }],
-          systemInstruction: `You are S.A.R.A, ZenTrack's elite AI biomechanics coach. Output ONLY valid JSON arrays of 6 exercise recommendations. No markdown text.`,
-          generationConfig: { temperature: 0.35, maxOutputTokens: 700 },
-        });
-
-        if (isCancelled) return;
-
-        const textResult = res?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (textResult) {
-          const cleanJsonStr = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
-          const parsed = JSON.parse(cleanJsonStr);
-          if (Array.isArray(parsed) && parsed.length >= 3) {
-            // Render suggestions immediately without 6 blocking network lookups;
-            // Video ID is resolved on-demand when user selects the exercise to swap.
-            const formatted = parsed.slice(0, 6).map((item: any, i: number) => {
-              const exName = item.name || instantList[i]?.name || 'Alternative Exercise';
-              return {
-                id: `sara_ai_${i}_${Date.now()}`,
-                name: exName,
-                muscle: item.muscle || origMuscle,
-                targetSets: typeof item.targetSets === 'number' ? item.targetSets : instantList[i]?.targetSets || 3,
-                targetReps: item.targetReps || instantList[i]?.targetReps || '8-12',
-                restTimeSecs: typeof item.restTimeSecs === 'number' ? item.restTimeSecs : instantList[i]?.restTimeSecs || 90,
-                reason: item.reason || '',
-                videoId: instantList[i]?.videoId || '',
-              };
-            });
-            if (!isCancelled) setAiSwaps(formatted);
-          }
-        }
-      } catch (e) {
-        console.warn('[SARA AI Swap] Using local fallback:', e);
-      } finally {
-        if (!isCancelled) setIsAiLoading(false);
-      }
-    }
-
-    fetchAiSwaps();
-    return () => { isCancelled = true; };
-  }, [origName, origMuscle, canonicalMuscle, rawMuscle]);
-
-  // ── Build Unified Catalogue for "All Exercises" Tab ─────────────────────────
+  // 3. Searchable catalogue
   const allExercises = useMemo(() => {
     const map = new Map<string, any>();
-
-    const allTemplateDays = [
-      ...(userGymPlan?.customDays ? Object.values(userGymPlan.customDays) : []),
-      ...GYM_PLAN_PPL,
-      ...GYM_PLAN_ARNOLD,
-      ...GYM_PLAN,
-    ];
-
-    const DAY_NAMES: Record<number, string> = {
-      1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'
-    };
-
-    for (const day of allTemplateDays) {
-      if (!day || !day.exercises || day.isRest) continue;
-      const dayTag = DAY_NAMES[day.dayIndex] ? `${DAY_NAMES[day.dayIndex]} • ${day.name || day.subtitle || ''}` : (day.name || '');
-      for (const ex of day.exercises) {
-        const key = (ex.name || '').toLowerCase().trim();
-        if (!key || map.has(key)) continue;
-        const muscleColor = resolveMuscleColor(ex.muscle || 'Mixed');
-        const muscleBgColor = hexToRgba(muscleColor, 0.1);
-        map.set(key, {
-          id: ex.id || `tpl_${key}`,
-          name: ex.name,
-          muscle: ex.muscle || 'Mixed',
-          targetSets: ex.targetSets || 3,
-          targetReps: ex.targetReps || '8–12',
-          restTimeSecs: ex.restTimeSecs || 90,
-          videoId: ex.videoId,
-          isFromTemplate: true,
-          templateDayName: dayTag,
-          aliases: [],
-          muscleColor,
-          muscleBgColor,
-        });
-      }
+    for (const tpl of templateExercises) {
+      map.set(tpl.name.toLowerCase().trim(), {
+        ...tpl,
+        muscleColor: resolveMuscleColor(tpl.muscle),
+        muscleBgColor: hexToRgba(resolveMuscleColor(tpl.muscle), 0.1),
+      });
     }
-
     for (const db of EXERCISE_DATABASE) {
       const key = (db.name || '').toLowerCase().trim();
       if (!key || map.has(key)) continue;
       const muscleColor = resolveMuscleColor(db.muscle || 'Mixed');
-      const muscleBgColor = hexToRgba(muscleColor, 0.1);
       map.set(key, {
         id: db.id || `db_${key}`,
         name: db.name,
@@ -348,16 +222,11 @@ Return ONLY a raw valid JSON array of 6 objects:
         isFromTemplate: false,
         aliases: db.aliases || [],
         muscleColor,
-        muscleBgColor,
+        muscleBgColor: hexToRgba(muscleColor, 0.1),
       });
     }
-
-    return Array.from(map.values()).sort((a, b) => {
-      if (a.isFromTemplate && !b.isFromTemplate) return -1;
-      if (!a.isFromTemplate && b.isFromTemplate) return 1;
-      return a.name.localeCompare(b.name);
-    });
-  }, [userGymPlan]);
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [templateExercises]);
 
   const filteredExercises = useMemo(() => {
     let list = allExercises;
@@ -377,12 +246,10 @@ Return ONLY a raw valid JSON array of 6 objects:
     return list.filter(ex =>
       ex.name.toLowerCase().includes(lowerSearch) ||
       (ex.muscle && ex.muscle.toLowerCase().includes(lowerSearch)) ||
-      (ex.templateDayName && ex.templateDayName.toLowerCase().includes(lowerSearch)) ||
       (ex.aliases && ex.aliases.some((a: string) => a.toLowerCase().includes(lowerSearch)))
     );
   }, [allExercises, search, filterType, origMuscle, canonicalMuscle]);
 
-  // ── Handle Swap Execution ───────────────────────────────────────────────────
   const handleSwap = useCallback((newExDef: any) => {
     if (!log || !originalExerciseId) return;
 
@@ -426,10 +293,8 @@ Return ONLY a raw valid JSON array of 6 objects:
       isCustom: false,
     };
 
-    // Update exercise in state immediately (0ms response budget)
     updateExercise(index, updatedExercise);
 
-    // Resolve missing video ID in the background without blocking the UI
     if (!newExDef.videoId) {
       autoResolveExerciseVideoId(newExDef.name).then(resolvedVid => {
         if (resolvedVid) {
@@ -468,166 +333,93 @@ Return ONLY a raw valid JSON array of 6 objects:
                     restTimeSecs,
                     videoId: newExDef.videoId || undefined,
                   };
-                } else {
-                  updatedExercises.push({
-                    id: updatedExercise.exerciseId,
-                    name: newExDef.name,
-                    muscle: targetMuscleResolved || newExDef.muscle || updatedExercise.muscle,
-                    targetSets,
-                    targetReps,
-                    restTimeSecs,
-                    videoId: newExDef.videoId || undefined,
-                  });
                 }
                 await updateMasterPlan(planIdx, { ...currentMasterDay, exercises: updatedExercises });
-                hapticSuccess();
               }
-            } catch (err) {
-              console.warn('[ExerciseSwap] Master plan update error:', err);
-            }
+            } catch (_) {}
             navigation.goBack();
           },
         },
       ]
     );
-  }, [log, originalExerciseId, gymLogs, updateExercise, navigation, date, userGymPlan, updateMasterPlan]);
+  }, [log, originalExerciseId, updateExercise, gymLogs, date, userGymPlan, updateMasterPlan, navigation]);
 
-  const renderSwapItem = useCallback(({ item }: { item: any }) => (
-    <SwapExerciseRow item={item} styles={styles} onSwap={handleSwap} />
-  ), [styles, handleSwap]);
-
-  return (
-    <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
-      <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.background} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} activeOpacity={0.7}>
-            <Ionicons name="chevron-down" size={24} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <View style={{ alignItems: 'center' }}>
-            <Text style={styles.headerTitle}>EXERCISE SWAP</Text>
-            {originalExercise && (
-              <Text style={styles.headerSub}>Swapping "{originalExercise.name}"</Text>
+  const renderSwapItem = useCallback(({ item }: { item: any }) => {
+    return (
+      <TouchableOpacity
+        style={styles.exerciseCard}
+        onPress={() => handleSwap(item)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.exerciseInfo}>
+          <Text style={styles.exerciseName}>{item.name}</Text>
+          <View style={styles.badgeRow}>
+            <View style={[styles.muscleBadge, { backgroundColor: item.muscleBgColor }]}>
+              <Text style={[styles.muscleBadgeText, { color: item.muscleColor }]}>{item.muscle}</Text>
+            </View>
+            {item.isFromTemplate && (
+              <View style={styles.templateBadge}>
+                <Ionicons name="calendar-outline" size={11} color="#a599ff" />
+                <Text style={styles.templateBadgeText}>{item.templateDayName || item.routineName}</Text>
+              </View>
             )}
           </View>
-          <View style={{ width: 32 }} />
+        </View>
+        <View style={styles.swapAction}>
+          <Ionicons name="swap-horizontal" size={18} color="#a599ff" />
+          <Text style={styles.swapActionText}>Swap</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }, [styles, handleSwap]);
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar style="light" />
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+          <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+        </TouchableOpacity>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>Swap Exercise</Text>
+          <Text style={styles.headerSub} numberOfLines={1}>
+            Replacing: <Text style={{ color: colors.textPrimary, fontFamily: FONT_FAMILY.bold }}>{origName}</Text>
+          </Text>
+        </View>
+      </View>
+
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search exercises or muscles..."
+            placeholderTextColor={colors.textMuted}
+            value={search}
+            onChangeText={setSearch}
+            autoCapitalize="none"
+          />
+          {search.length > 0 && (
+            <TouchableOpacity onPress={() => setSearch('')}>
+              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
         </View>
 
-        {/* Current Exercise Card */}
-        {originalExercise && (
-          <View style={styles.originalCard}>
-            <View style={styles.originalCardLeft}>
-              <Text style={styles.originalCardLabel}>CURRENT EXERCISE</Text>
-              <Text style={styles.originalCardName}>{originalExercise.name}</Text>
-              <Text style={styles.originalCardMeta}>
-                {originalExercise.targetSets} sets × {originalExercise.targetReps} reps • {originalExercise.restTimeSecs || 90}s rest
-              </Text>
-            </View>
-
-            <View style={[styles.musclePill, { backgroundColor: hexToRgba(resolveMuscleColor(origMuscle), 0.15) }]}>
-              <View style={[styles.muscleDot, { backgroundColor: resolveMuscleColor(origMuscle) }]} />
-              <Text style={[styles.muscleText, { color: resolveMuscleColor(origMuscle) }]}>{origMuscle}</Text>
-            </View>
-          </View>
-        )}
-
-        {/* Tabs */}
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[styles.tabBtn, activeTab === 'ai' && styles.tabBtnActive]}
-            onPress={() => { hapticMedium(); setActiveTab('ai'); }}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="sparkles" size={14} color={activeTab === 'ai' ? '#000000' : '#a599ff'} />
-            <Text style={[styles.tabBtnText, activeTab === 'ai' && styles.tabBtnTextActive]}>
-              S.A.R.A Swaps {templateExercises.length > 0 ? `(${templateExercises.length} Template)` : ''}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.tabBtn, activeTab === 'all' && styles.tabBtnActive]}
-            onPress={() => { hapticMedium(); setActiveTab('all'); }}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="search" size={14} color={activeTab === 'all' ? '#000000' : colors.textMuted} />
-            <Text style={[styles.tabBtnText, activeTab === 'all' && styles.tabBtnTextActive]}>All Exercises</Text>
-          </TouchableOpacity>
-        </View>
-
-        {activeTab === 'all' ? (
-          <>
-            {/* Search */}
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search exercise, muscle, or template day..."
-                placeholderTextColor={colors.textMuted}
-                value={search}
-                onChangeText={setSearch}
-                autoCorrect={false}
-              />
-              {search.length > 0 && (
-                <TouchableOpacity onPress={() => setSearch('')}>
-                  <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* Chips */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-              <TouchableOpacity
-                style={[styles.chip, filterType === 'all' && styles.chipActive]}
-                onPress={() => { hapticLight(); setFilterType('all'); }}
-              >
-                <Text style={[styles.chipText, filterType === 'all' && styles.chipTextActive]}>All ({allExercises.length})</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.chip, filterType === 'template' && styles.chipActive]}
-                onPress={() => { hapticLight(); setFilterType('template'); }}
-              >
-                <Ionicons name="calendar-outline" size={12} color={filterType === 'template' ? '#000000' : '#a599ff'} />
-                <Text style={[styles.chipText, filterType === 'template' && styles.chipTextActive]}>In Template</Text>
-              </TouchableOpacity>
-
-              {origMuscle && (
-                <TouchableOpacity
-                  style={[styles.chip, filterType === 'exact' && styles.chipActive]}
-                  onPress={() => { hapticLight(); setFilterType('exact'); }}
-                >
-                  <Text style={[styles.chipText, filterType === 'exact' && styles.chipTextActive]}>{origMuscle}</Text>
-                </TouchableOpacity>
-              )}
-
-              {canonicalMuscle && canonicalMuscle !== origMuscle && (
-                <TouchableOpacity
-                  style={[styles.chip, filterType === 'category' && styles.chipActive]}
-                  onPress={() => { hapticLight(); setFilterType('category'); }}
-                >
-                  <Text style={[styles.chipText, filterType === 'category' && styles.chipTextActive]}>{canonicalMuscle}</Text>
-                </TouchableOpacity>
-              )}
-            </ScrollView>
-
-            <FlatList
-              data={filteredExercises}
-              keyExtractor={item => item.id}
-              initialNumToRender={12}
-              maxToRenderPerBatch={12}
-              windowSize={5}
-              contentContainerStyle={styles.list}
-              showsVerticalScrollIndicator={false}
-              renderItem={renderSwapItem}
-              ListEmptyComponent={
-                <View style={styles.emptyState}>
-                  <Ionicons name="barbell-outline" size={32} color={colors.textMuted} />
-                  <Text style={styles.emptyText}>No exercises found.</Text>
-                </View>
-              }
-            />
-          </>
+        {search.trim().length > 0 ? (
+          <FlatList
+            data={filteredExercises}
+            keyExtractor={item => item.id}
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            renderItem={renderSwapItem}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Ionicons name="barbell-outline" size={32} color={colors.textMuted} />
+                <Text style={styles.emptyText}>No exercises found.</Text>
+              </View>
+            }
+          />
         ) : (
           <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
             {/* Template Exercises */}
@@ -642,36 +434,67 @@ Return ONLY a raw valid JSON array of 6 objects:
                 </View>
 
                 {templateExercises.map((tplEx, idx) => (
-                  <TemplateSwapCard
+                  <TouchableOpacity
                     key={tplEx.id || idx}
-                    item={tplEx}
-                    styles={styles}
-                    onSwap={handleSwap}
-                  />
+                    style={styles.templateSwapCard}
+                    onPress={() => handleSwap(tplEx)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.exerciseName}>{tplEx.name}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                        <View style={[styles.muscleBadge, { backgroundColor: hexToRgba(resolveMuscleColor(tplEx.muscle), 0.12) }]}>
+                          <Text style={[styles.muscleBadgeText, { color: resolveMuscleColor(tplEx.muscle) }]}>{tplEx.muscle}</Text>
+                        </View>
+                        <Text style={{ fontFamily: FONT_FAMILY.medium, fontSize: 11, color: colors.textMuted }}>
+                          {tplEx.dayName}
+                        </Text>
+                      </View>
+                    </View>
+                    <Ionicons name="swap-horizontal" size={18} color="#a599ff" />
+                  </TouchableOpacity>
                 ))}
               </View>
             )}
 
-            {/* SARA AI Swaps */}
-            <View style={styles.aiStatusBanner}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name="sparkles" size={16} color="#a599ff" />
-                <Text style={styles.aiStatusTitle}>S.A.R.A AI Biomechanical Swaps</Text>
+            {/* Scientific Biomechanical Alternatives */}
+            <View style={{ marginBottom: SPACE.lg }}>
+              <View style={styles.sectionHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="fitness-outline" size={15} color={colors.accentPrimary} />
+                  <Text style={styles.sectionHeaderTitle}>Scientific Alternatives ({biomechanicalSwaps.length})</Text>
+                </View>
+                <Text style={styles.sectionHeaderSub}>Target Fiber Matches</Text>
               </View>
-              {isAiLoading && <ActivityIndicator size="small" color="#a599ff" />}
-            </View>
 
-            {aiSwaps.map((item, idx) => (
-              <AiSwapCard
-                key={item.id || idx}
-                item={item}
-                styles={styles}
-                onSwap={handleSwap}
-              />
-            ))}
+              {biomechanicalSwaps.map((item, idx) => (
+                <TouchableOpacity
+                  key={item.id || idx}
+                  style={styles.exerciseCard}
+                  onPress={() => handleSwap(item)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.exerciseInfo}>
+                    <Text style={styles.exerciseName}>{item.name}</Text>
+                    <Text style={{ fontFamily: FONT_FAMILY.regular, fontSize: 12, color: colors.textTertiary, marginTop: 2 }}>
+                      {item.reason}
+                    </Text>
+                    <View style={[styles.muscleBadge, { backgroundColor: hexToRgba(resolveMuscleColor(item.muscle), 0.12), marginTop: 6, alignSelf: 'flex-start' }]}>
+                      <Text style={[styles.muscleBadgeText, { color: resolveMuscleColor(item.muscle) }]}>{item.muscle}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.swapAction}>
+                    <Ionicons name="swap-horizontal" size={18} color="#a599ff" />
+                    <Text style={styles.swapActionText}>Swap</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
           </ScrollView>
         )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
+
+export default ExerciseSwapScreen;

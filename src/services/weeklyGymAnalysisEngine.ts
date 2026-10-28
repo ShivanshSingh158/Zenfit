@@ -1,21 +1,15 @@
 /**
- * weeklyGymAnalysisEngine.ts — ZenTrack Mobile
+ * weeklyGymAnalysisEngine.ts — ZenFit Mobile
  *
- * Comprehensive AI weekly analysis engine for Rest Day report.
- * Fixed bugs:
- *  - Exercise count guard now counts COMPLETED sets (not all exercises)
- *  - Robust JSON extraction even when model wraps output in prose/markdown
- *  - Pre-computed authoritative stats injected into prompt (no hallucination)
- *  - Error state surfaced to caller (no more silent failures)
- *  - Cache freshness: re-generates if >48h old even without data change
- *  - Retry logic: up to 2 attempts with brief backoff
+ * Deterministic Weekly Training Analysis Engine.
+ * 100% Offline, Instant, and Accurate.
+ * Generates comprehensive weekly reports, volume deltas, score grades, and directives
+ * purely from authoritative workout history and mathematical models.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { callProxy, parseProxyResponse } from './geminiProxy';
 import { canonicalizeMuscle, isValidWorkoutSession, normalizeExerciseKey } from '../utils/gymUtils';
 import { formatLocalDateStr } from '../utils/dateUtils';
-
 
 export interface WeeklyGymAnalysis {
   headline: string;
@@ -36,7 +30,7 @@ export interface WeeklyGymAnalysis {
   generatedAt: number;
 }
 
-/** Pre-computed stats passed by the UI to anchor the AI prompt with real numbers */
+/** Pre-computed stats passed by the UI */
 export interface PrecomputedGymStats {
   thisWeekVolume: number;
   prevWeekVolume: number;
@@ -49,154 +43,215 @@ export interface PrecomputedGymStats {
   topLift: { name: string; weight: number; reps: number } | null;
   muscleCompletion: Record<string, { done: number; planned: number; pct: number }>;
   untrainedMuscles: string[];
-  estimatedOneRMs: Record<string, number>; // exercise name → est 1RM kg
+  estimatedOneRMs: Record<string, number>;
 }
 
-const CACHE_PREFIX = 'zentrack_weekly_gym_analysis_v3_';
-const CACHE_MAX_AGE_MS = 48 * 60 * 60 * 1000; // 48 hours
+const CACHE_PREFIX = 'zenfit_weekly_gym_analysis_v4_';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-/** Epley formula: estimated 1-Rep Max */
 export function epley1RM(weight: number, reps: number): number {
   if (reps <= 0 || weight <= 0) return 0;
   return Math.round(weight * (1 + reps / 30));
 }
 
-/**
- * Robust JSON extractor with auto-repair for truncated Gemini outputs.
- * Handles: clean JSON, ```json``` code fences, JSON buried inside prose, and unclosed brackets.
- */
-function extractJson(text: string): string {
-  if (!text) throw new Error('Empty response from Gemini');
-
-  // 1. Strip markdown code fences
-  let cleaned = text
-    .replace(/```json\s*/gi, '')
-    .replace(/```\s*/gi, '')
-    .trim();
-
-  // 2. Try direct parse
-  try { JSON.parse(cleaned); return cleaned; } catch (_) {}
-
-  // 3. Find outermost { … } block (handles preamble prose)
-  const firstBrace = cleaned.indexOf('{');
-  const lastBrace  = cleaned.lastIndexOf('}');
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    const slice = cleaned.slice(firstBrace, lastBrace + 1);
-    try { JSON.parse(slice); return slice; } catch (_) {}
-  }
-
-  // 4. Auto-repair truncated JSON (e.g. cut off mid-string or missing closing braces)
-  if (firstBrace !== -1) {
-    let candidate = cleaned.slice(firstBrace);
-    let inString = false;
-    let isEscaped = false;
-    const stack: string[] = [];
-
-    for (let i = 0; i < candidate.length; i++) {
-      const ch = candidate[i];
-      if (inString) {
-        if (isEscaped) {
-          isEscaped = false;
-        } else if (ch === '\\') {
-          isEscaped = true;
-        } else if (ch === '"') {
-          inString = false;
-        }
-      } else {
-        if (ch === '"') {
-          inString = true;
-        } else if (ch === '{') {
-          stack.push('}');
-        } else if (ch === '[') {
-          stack.push(']');
-        } else if (ch === '}') {
-          if (stack.length > 0 && stack[stack.length - 1] === '}') {
-            stack.pop();
-          }
-        } else if (ch === ']') {
-          if (stack.length > 0 && stack[stack.length - 1] === ']') {
-            stack.pop();
-          }
-        }
-      }
-    }
-
-    if (inString) {
-      candidate += '"';
-    }
-    while (stack.length > 0) {
-      candidate += stack.pop();
-    }
-    try { JSON.parse(candidate); return candidate; } catch (_) {}
-  }
-
-  throw new Error(`Cannot extract JSON from response: ${text.slice(0, 200)}`);
+export function computeMondayOfCurrentWeek(now = new Date()): Date {
+  const d = new Date(now);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
-function sanitizeAiString(str: string): string {
-  if (!str) return '';
-  return str.replace(/^(\d+\.\s*|[-•*]\s*)/, '').replace(/\*\*/g, '').trim();
+export function computeMondayOfPreviousWeek(now = new Date()): Date {
+  const m = computeMondayOfCurrentWeek(now);
+  m.setDate(m.getDate() - 7);
+  return m;
+}
+
+export function computeMondayOfTwoWeeksAgo(now = new Date()): Date {
+  const m = computeMondayOfCurrentWeek(now);
+  m.setDate(m.getDate() - 14);
+  return m;
+}
+
+export function computeWeekFingerprint(sessions: any[], monday: Date): string {
+  const sunday = new Date(monday);
+  sunday.setDate(sunday.getDate() + 7);
+  const mTime = monday.getTime();
+  const sTime = sunday.getTime();
+
+  return sessions
+    .filter(s => {
+      const t = new Date(s.date || s.startTime || 0).getTime();
+      return t >= mTime && t < sTime;
+    })
+    .map(s => `${s.id || s.date}:${(s.exercises || []).length}:${(s.exercises || []).reduce((acc: number, e: any) => acc + (e.sets || []).length, 0)}`)
+    .sort()
+    .join('|');
 }
 
 /**
- * Deterministic fingerprint of the week's data state.
- * Changes whenever new sets are logged or data is updated.
+ * Generate a 100% deterministic analysis report based on real training science.
  */
-export function computeWeeklyDataFingerprint(
-  weekAnchorDate: string,
-  weekLogs: any[],
-  thirtyDayLogs: any[],
-): string {
-  let thisWeekSets = 0;
-  let thisWeekVolume = 0;
-  let latestTimestamp = 0;
+export async function generateWeeklyGymAnalysis(
+  precomputed: PrecomputedGymStats,
+  thisWeekSessions: any[],
+  prevWeekSessions: any[],
+  allSessions: any[] = [],
+  forceRefresh = false
+): Promise<{ analysis: WeeklyGymAnalysis | null; fromCache: boolean; error?: string }> {
+  const monday = computeMondayOfCurrentWeek();
+  const mondayStr = formatLocalDateStr(monday);
+  const currentFingerprint = computeWeekFingerprint(thisWeekSessions, monday);
+  const cacheKey = `${CACHE_PREFIX}${mondayStr}`;
 
-  for (const log of weekLogs) {
-    if (log.updatedAt && log.updatedAt > latestTimestamp) latestTimestamp = log.updatedAt;
-    if (log.createdAt && log.createdAt > latestTimestamp) latestTimestamp = log.createdAt;
-    for (const ex of log.exercises ?? []) {
-      if (ex.skipped) continue;
-      const completed = (ex.setsLog ?? []).filter((s: any) => s.completed);
-      thisWeekSets += completed.length;
-      for (const s of completed) {
-        thisWeekVolume += (Number(s.weight) || 0) * (Number(s.reps) || 0);
+  if (!forceRefresh) {
+    try {
+      const cachedRaw = await AsyncStorage.getItem(cacheKey);
+      if (cachedRaw) {
+        const cached = JSON.parse(cachedRaw);
+        if (cached.fingerprint === currentFingerprint && cached.analysis) {
+          return { analysis: cached.analysis, fromCache: true };
+        }
       }
-    }
+    } catch (_) {}
   }
 
-  return `${weekAnchorDate}_s${thisWeekSets}_v${Math.round(thisWeekVolume)}_t${latestTimestamp}_d30_${thirtyDayLogs.length}`;
+  // 1. Calculate Score
+  let score = 70; // baseline
+  const adherence = precomputed.plannedSessions > 0
+    ? Math.min(1.2, precomputed.sessionCount / precomputed.plannedSessions)
+    : 1;
+  score += Math.round((adherence - 1) * 20);
+
+  if (precomputed.volumeDeltaPct > 0) {
+    score += Math.min(10, Math.round(precomputed.volumeDeltaPct / 2));
+  } else if (precomputed.volumeDeltaPct < -15) {
+    score -= 10;
+  }
+
+  if (precomputed.untrainedMuscles.length === 0) {
+    score += 5;
+  } else {
+    score -= Math.min(15, precomputed.untrainedMuscles.length * 3);
+  }
+
+  score = Math.max(45, Math.min(99, score));
+
+  let scoreGrade = 'B';
+  if (score >= 93) scoreGrade = 'A+';
+  else if (score >= 85) scoreGrade = 'A';
+  else if (score >= 75) scoreGrade = 'B+';
+  else if (score >= 65) scoreGrade = 'B';
+  else scoreGrade = 'C';
+
+  // 2. Headline & Verdict
+  const deltaSign = precomputed.volumeDeltaKg >= 0 ? '+' : '';
+  const volumeDeltaText = `${deltaSign}${Math.round(precomputed.volumeDeltaKg).toLocaleString()} kg (${deltaSign}${precomputed.volumeDeltaPct.toFixed(1)}%) vs last week`;
+
+  let headline = 'Steady Volume & Muscle Stimulus';
+  if (precomputed.volumeDeltaPct > 8) {
+    headline = 'Progressive Overload Achieved';
+  } else if (precomputed.volumeDeltaPct < -10) {
+    headline = 'Active Recovery & Consolidation Week';
+  }
+
+  const verdict = `Completed ${precomputed.sessionCount} sessions (${precomputed.thisWeekSets} total working sets) with a total volume tonnage of ${Math.round(precomputed.thisWeekVolume).toLocaleString()} kg. Progressive overload trend remains ${precomputed.volumeDeltaPct >= 0 ? 'positive' : 'consolidated'}.`;
+
+  // 3. Key Overloads & Progression
+  const keyOverloads: string[] = [];
+  if (precomputed.topLift && precomputed.topLift.weight > 0) {
+    keyOverloads.push(`Top Lift: ${precomputed.topLift.name} @ ${precomputed.topLift.weight} kg × ${precomputed.topLift.reps} reps`);
+  }
+  keyOverloads.push(`Working Volume: ${precomputed.thisWeekSets} completed sets across ${precomputed.sessionCount} workouts`);
+  if (precomputed.volumeDeltaKg !== 0) {
+    keyOverloads.push(`Tonnage Progression: ${volumeDeltaText}`);
+  }
+
+  // 4. Thirty-day Trend
+  const trajectory = precomputed.volumeDeltaPct >= 0
+    ? 'Volume and strength curves are trending upward with consistent overload.'
+    : 'Volume is currently stabilized; focus on intensity and form refinement.';
+
+  const laggingMuscles = precomputed.untrainedMuscles.length > 0
+    ? precomputed.untrainedMuscles.slice(0, 3)
+    : ['All primary muscle groups engaged'];
+
+  const fatigueIndicator = precomputed.thisWeekSets > 65
+    ? 'High systemic fatigue detected. Prioritize sleep and hydration.'
+    : 'Fatigue levels within optimal recoverable volume range (MAV).';
+
+  // 5. Next Week Directives
+  const nextWeekDirectives: string[] = [];
+  if (precomputed.topLift) {
+    nextWeekDirectives.push(`Attempt double progression on ${precomputed.topLift.name} (+1-2 reps before load increment).`);
+  }
+  if (precomputed.untrainedMuscles.length > 0) {
+    nextWeekDirectives.push(`Allocate 3-4 working sets to neglected areas: ${precomputed.untrainedMuscles.slice(0, 2).join(', ')}.`);
+  } else {
+    nextWeekDirectives.push(`Maintain target frequency and push for 1 extra rep on primary compound movements.`);
+  }
+  nextWeekDirectives.push(`Keep rest intervals strict (90s for accessories, 2-3m for primary compound lifts).`);
+
+  const analysis: WeeklyGymAnalysis = {
+    headline,
+    verdict,
+    score,
+    scoreGrade,
+    comparisonVsLastWeek: {
+      volumeDeltaText,
+      keyOverloads,
+      summary: `Completed ${precomputed.sessionCount} workouts (${precomputed.thisWeekSets} working sets) compared to ${precomputed.prevWeekSets} sets last week.`
+    },
+    thirtyDayTrend: {
+      trajectory,
+      laggingMuscles,
+      fatigueIndicator
+    },
+    nextWeekDirectives,
+    generatedAt: Date.now()
+  };
+
+  try {
+    await AsyncStorage.setItem(
+      cacheKey,
+      JSON.stringify({
+        analysis,
+        timestamp: Date.now(),
+        weekMonday: mondayStr,
+        fingerprint: currentFingerprint
+      })
+    );
+  } catch (_) {}
+
+  return { analysis, fromCache: false };
 }
+
 
 export function getWeekMondayStr(anchorDate: string): string {
-  const [y, m, d] = anchorDate.split('-').map(Number);
-  const dt = new Date(y, m - 1, d);
-  const mon = new Date(dt);
-  mon.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
-  const yyyy = mon.getFullYear();
-  const mm = String(mon.getMonth() + 1).padStart(2, '0');
-  const dd = String(mon.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
+  const d = new Date(anchorDate || Date.now());
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  return formatLocalDateStr(d);
+}
+
+export function computeWeeklyDataFingerprint(sessions: any[], anchorDate: string): string {
+  return computeWeekFingerprint(sessions, new Date(anchorDate || Date.now()));
 }
 
 export async function getCachedWeeklyGymAnalysis(weekAnchorDate: string): Promise<WeeklyGymAnalysis | null> {
+  const mondayStr = getWeekMondayStr(weekAnchorDate);
+  const cacheKey = `${CACHE_PREFIX}${mondayStr}`;
   try {
-    const mondayStr = getWeekMondayStr(weekAnchorDate);
-    const key = `${CACHE_PREFIX}${mondayStr}`;
-    let raw = await AsyncStorage.getItem(key);
-    if (!raw) {
-      raw = await AsyncStorage.getItem(`@zentrack_weekly_ai_report_${mondayStr}`);
-    }
+    const raw = await AsyncStorage.getItem(cacheKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return (parsed.analysis || parsed) as WeeklyGymAnalysis;
+    return parsed.analysis || null;
   } catch (_) {
     return null;
   }
 }
-
-// ── Main Export ───────────────────────────────────────────────────────────────
 
 export async function getOrGenerateWeeklyGymAnalysis(
   gymLogs: any[],
@@ -206,262 +261,44 @@ export async function getOrGenerateWeeklyGymAnalysis(
   forceRefresh: boolean = false,
   precomputedStats?: PrecomputedGymStats,
 ): Promise<{ analysis: WeeklyGymAnalysis | null; fromCache: boolean; error?: string }> {
-
   if (!gymLogs || gymLogs.length === 0) {
     return { analysis: null, fromCache: false };
   }
 
-  // ── Build date ranges ─────────────────────────────────────────────────────
-  const [y, m, dayN] = weekAnchorDate.split('-').map(Number);
-  const d = new Date(y, m - 1, dayN);
-  const monday = new Date(d);
-  monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-
-  const makeRange = (startMonday: Date): string[] =>
-    Array.from({ length: 7 }, (_, i) => {
-      const dt = new Date(startMonday.getFullYear(), startMonday.getMonth(), startMonday.getDate() + i);
-      return formatLocalDateStr(dt);
-    });
-
-  const weekDates     = makeRange(monday);
-  const prevMonday    = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 7);
-  const prevWeekDates = makeRange(prevMonday);
-
-  const thirtyDaysAgo = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 30);
-  const thirtyDaysAgoStr = formatLocalDateStr(thirtyDaysAgo);
-
-  const weekLogs      = gymLogs.filter(l => weekDates.includes(l.date));
-  const prevLogs      = gymLogs.filter(l => prevWeekDates.includes(l.date));
-  const thirtyDayLogs = gymLogs.filter(l => l.date >= thirtyDaysAgoStr && l.date <= weekDates[6]);
-
-  // ── FIX: Count completed sets, not total exercises ────────────────────────
-  const thisWeekCompletedSets = weekLogs.reduce((sum, l) =>
-    sum + (l.exercises ?? []).reduce((s2: number, ex: any) => {
-      if (ex.skipped) return s2;
-      return s2 + (ex.setsLog ?? []).filter((s: any) => s.completed).length;
-    }, 0), 0);
-
-  if (thisWeekCompletedSets === 0) {
-    return { analysis: null, fromCache: false };
-  }
-
   const mondayStr = getWeekMondayStr(weekAnchorDate);
-  const cacheKey  = `${CACHE_PREFIX}${mondayStr}`;
-  const currentFingerprint = computeWeeklyDataFingerprint(weekAnchorDate, weekLogs, thirtyDayLogs);
+  const anchorTime = new Date(mondayStr).getTime();
+  const nextMondayTime = anchorTime + 7 * 86400000;
+  const prevMondayTime = anchorTime - 7 * 86400000;
 
-  // ── Cache Check: Freshness & Data Fingerprint ────────────────────────────
-  if (!forceRefresh) {
-    try {
-      const raw = await AsyncStorage.getItem(cacheKey);
-      if (raw) {
-        const cached = JSON.parse(raw);
-        const analysis = (cached.analysis || cached) as WeeklyGymAnalysis;
-        const timestamp = cached.timestamp || cached.analysis?.generatedAt || 0;
-        const isFresh = (Date.now() - timestamp) < CACHE_MAX_AGE_MS;
-        const matchesFingerprint = cached.fingerprint && cached.fingerprint === currentFingerprint;
-        if (analysis && analysis.headline && analysis.verdict && isFresh && matchesFingerprint) {
-          return { analysis, fromCache: true };
-        }
-      }
-    } catch (_) { /* ignore, proceed to generate */ }
-  }
-
-  // ── Build session data payload ────────────────────────────────────────────
-  const formatSession = (log: any) => ({
-    date: log.date,
-    durationMinutes: log.workoutDurationMinutes || null,
-    exercises: (log.exercises || [])
-      .filter((e: any) => !e.skipped)
-      .map((ex: any) => {
-        const completedSets = (ex.setsLog || []).filter((s: any) => s.completed);
-        const maxWeight     = Math.max(0, ...completedSets.map((s: any) => Number(s.weight) || 0));
-        const setsAtMax     = completedSets.filter((s: any) => Number(s.weight) === maxWeight);
-        const maxRepsAtMax  = Math.max(0, ...setsAtMax.map((s: any) => Number(s.reps) || 0));
-        const allOneRMs     = completedSets.map((s: any) => epley1RM(Number(s.weight) || 0, Number(s.reps) || 0));
-        const peak1RM       = allOneRMs.length > 0 ? Math.max(0, ...allOneRMs) : (maxWeight > 0 ? epley1RM(maxWeight, maxRepsAtMax) : null);
-        return {
-          name: ex.name,
-          muscle: canonicalizeMuscle(ex.muscle),
-          targetSets: ex.targetSets || 3,
-          completedSets: completedSets.length,
-          maxWeightKg: maxWeight > 0 ? maxWeight : null,
-          est1RM: peak1RM && peak1RM > 0 ? peak1RM : null,
-          setsDetail: completedSets.map((s: any) => ({
-            weight: Number(s.weight) || 0,
-            reps:   Number(s.reps)   || 0,
-          })),
-        };
-      }),
-    cardio: (log.cardio || []).filter((c: any) => c.completed).map((c: any) => ({
-      type:            c.type || 'Cardio',
-      durationMinutes: c.durationMinutes || 0,
-      distanceKm:      c.distanceKm || 0,
-    })),
+  const thisWeekSessions = gymLogs.filter(s => {
+    const t = new Date(s.date || 0).getTime();
+    return t >= anchorTime && t < nextMondayTime;
   });
 
-  const hasCompletedSetsOrCardio = (log: any) => {
-    const hasSets = (log.exercises || []).some((ex: any) => !ex.skipped && (ex.setsLog || []).some((s: any) => s.completed));
-    const hasCardio = (log.cardio || []).some((c: any) => c.completed);
-    return hasSets || hasCardio;
+  const prevWeekSessions = gymLogs.filter(s => {
+    const t = new Date(s.date || 0).getTime();
+    return t >= prevMondayTime && t < anchorTime;
+  });
+
+  const stats: PrecomputedGymStats = precomputedStats || {
+    thisWeekVolume: thisWeekSessions.reduce((acc, s) => acc + (s.totalVolume || 0), 0),
+    prevWeekVolume: prevWeekSessions.reduce((acc, s) => acc + (s.totalVolume || 0), 0),
+    volumeDeltaKg: 0,
+    volumeDeltaPct: 0,
+    thisWeekSets: thisWeekSessions.reduce((acc, s) => acc + (s.exercises || []).reduce((ea: number, e: any) => ea + (e.sets || []).length, 0), 0),
+    prevWeekSets: prevWeekSessions.reduce((acc, s) => acc + (s.exercises || []).reduce((ea: number, e: any) => ea + (e.sets || []).length, 0), 0),
+    sessionCount: thisWeekSessions.length,
+    plannedSessions: 4,
+    topLift: null,
+    muscleCompletion: {},
+    untrainedMuscles: [],
+    estimatedOneRMs: {},
   };
 
-  const thisWeekData = weekLogs.filter(hasCompletedSetsOrCardio).map(formatSession);
-  const prevWeekData = prevLogs.filter(hasCompletedSetsOrCardio).map(formatSession);
-
-  // ── 30-day progression per exercise ──────────────────────────────────────
-  const thirtyDayProgression: Record<string, { displayName: string; dates: string[]; maxWeights: number[]; est1RMs: number[]; volumes: number[] }> = {};
-  for (const log of thirtyDayLogs) {
-    for (const ex of log.exercises || []) {
-      if (ex.skipped) continue;
-      const completed = (ex.setsLog || []).filter((s: any) => s.completed);
-      if (!completed.length) continue;
-      const maxW    = Math.max(0, ...completed.map((s: any) => Number(s.weight) || 0));
-      const setsAtMax = completed.filter((s: any) => Number(s.weight) === maxW);
-      const maxReps = Math.max(0, ...setsAtMax.map((s: any) => Number(s.reps) || 0));
-      const vol     = completed.reduce((sum: number, s: any) => sum + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0);
-      const allRMs  = completed.map((s: any) => epley1RM(Number(s.weight) || 0, Number(s.reps) || 0));
-      const peak1RM = Math.max(0, ...allRMs, epley1RM(maxW, maxReps));
-      const key     = normalizeExerciseKey(ex.name);
-
-      if (!thirtyDayProgression[key]) {
-        thirtyDayProgression[key] = { displayName: ex.name, dates: [], maxWeights: [], est1RMs: [], volumes: [] };
-      }
-      thirtyDayProgression[key].displayName = ex.name;
-      thirtyDayProgression[key].dates.push(log.date);
-      thirtyDayProgression[key].maxWeights.push(maxW);
-      thirtyDayProgression[key].est1RMs.push(peak1RM);
-      thirtyDayProgression[key].volumes.push(vol);
-    }
+  if (!precomputedStats) {
+    stats.volumeDeltaKg = stats.thisWeekVolume - stats.prevWeekVolume;
+    stats.volumeDeltaPct = stats.prevWeekVolume > 0 ? (stats.volumeDeltaKg / stats.prevWeekVolume) * 100 : 0;
   }
 
-  // ── Pre-computed stats block for prompt ───────────────────────────────────
-  let statsBlock = '';
-  if (precomputedStats) {
-    const st  = precomputedStats;
-    const sign = (n: number) => n >= 0 ? '+' : '';
-    const muscleLines = Object.entries(st.muscleCompletion)
-      .map(([muscle, v]) => `  ${muscle}: ${v.done}/${v.planned} sets (${v.pct}%)`)
-      .join('\n');
-    const rmLines = Object.entries(st.estimatedOneRMs).slice(0, 6)
-      .map(([ex, rm]) => `  ${ex}: ~${rm} kg est. 1RM`)
-      .join('\n');
-    statsBlock = `
-AUTHORITATIVE PRE-COMPUTED STATS (use these exact numbers — do not invent different values):
-• This week volume : ${st.thisWeekVolume.toLocaleString()} kg
-• Last week volume : ${st.prevWeekVolume.toLocaleString()} kg
-• Volume delta     : ${sign(st.volumeDeltaKg)}${st.volumeDeltaKg.toLocaleString()} kg (${sign(st.volumeDeltaPct)}${st.volumeDeltaPct.toFixed(1)}%)
-• Total sets       : ${st.thisWeekSets} this week | ${st.prevWeekSets} last week | delta ${sign(st.thisWeekSets - st.prevWeekSets)}${st.thisWeekSets - st.prevWeekSets}
-• Sessions         : ${st.sessionCount}/${st.plannedSessions} planned
-• Top lift         : ${st.topLift ? `${st.topLift.name} — ${st.topLift.weight}kg × ${st.topLift.reps} reps` : 'none logged'}
-• Untrained        : ${st.untrainedMuscles.length > 0 ? st.untrainedMuscles.join(', ') : 'none — full coverage ✓'}
-Muscle completion:
-${muscleLines}
-Estimated 1RMs (Epley):
-${rmLines}
-`;
-  }
-
-  const athleteWeight = gymProfile?.weightKg ?? gymProfile?.bodyweightKg;
-  const athleteGoal = gymProfile?.goal ?? gymProfile?.primaryGoal;
-  const athleteExp = gymProfile?.experience ?? (gymProfile?.trainingExperienceMonths ? `${gymProfile.trainingExperienceMonths} months` : undefined);
-
-  const athleteCtx = gymProfile
-    ? `ATHLETE: ${athleteWeight ? `${athleteWeight}kg` : 'N/A'} bodyweight, Goal: ${athleteGoal || 'Hypertrophy/Strength'}, Level: ${athleteExp || 'Intermediate'}`
-    : 'ATHLETE: Hypertrophy / Strength focus, Intermediate level';
-
-  const prompt = `You are GAINS / S.A.R.A — an elite sports scientist and direct biomechanics coach. No generic advice. Quote real weights, real exercises, real numbers.
-
-Analyze this athlete's training week (${weekDates[0]} to ${weekDates[6]}), compare vs previous week, and contextualize with 30-day trends.
-
-${athleteCtx}
-${statsBlock}
-THIS WEEK'S SESSIONS:
-${JSON.stringify(thisWeekData, null, 2)}
-
-PREVIOUS WEEK'S SESSIONS:
-${JSON.stringify(prevWeekData, null, 2)}
-
-30-DAY PROGRESSION (exercise → max weights, est. 1RMs, volumes over time):
-${JSON.stringify(thirtyDayProgression, null, 2)}
-
-Return ONLY valid raw JSON matching this exact schema (no markdown, no text before/after the JSON):
-{
-  "headline": "<5-8 word punchy headline: training theme + overload state>",
-  "verdict": "<2-3 sentences using exact numbers from stats above: volume, sets, adherence, intensity. Be direct.>",
-  "score": <integer 0-100>,
-  "scoreGrade": <"A+" if score>=93 | "A" if >=85 | "B+" if >=75 | "B" if >=65 | "C" otherwise>,
-  "comparisonVsLastWeek": {
-    "volumeDeltaText": "<Exact delta text, e.g. '+3,250 kg (+15.4%) vs last week'>",
-    "keyOverloads": [
-      "<Exercise name: exact weight delta, e.g. 'Bench Press: 80kg→85kg, 6 reps — strength PR'>",
-      "<Second exercise with real weight/rep numbers>",
-      "<Third exercise or notable volume change>"
-    ],
-    "summary": "<1-2 sentences comparing session count and intensity changes, with real numbers>"
-  },
-  "thirtyDayTrend": {
-    "trajectory": "<1 sentence on 30-day 1RM / volume curve — is athlete progressing, plateauing, or fatigued?>",
-    "laggingMuscles": ["<Specific muscle with evidence of stagnation, or 'All groups progressing well'>"],
-    "fatigueIndicator": "<Brief CNS/muscular fatigue assessment based on 30-day density>"
-  },
-  "nextWeekDirectives": [
-    "<Specific primary compound lift directive with target weight/sets>",
-    "<Specific accessory/volume directive with muscle and exercise>",
-    "<Recovery or technique directive — practical and specific>"
-  ]
+  return generateWeeklyGymAnalysis(stats, thisWeekSessions, prevWeekSessions, gymLogs, forceRefresh);
 }
-
-HARD RULES: Only use numbers from the pre-computed stats block. No markdown asterisks. No numeric prefixes on directive strings. Output only the JSON object.`;
-
-  // ── Call Gemini with up to 2 retries ──────────────────────────────────────
-  let lastError: string | null = null;
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const response = await callProxy({
-        model: 'gemini-2.5-flash',
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
-        },
-      });
-
-      const { text } = parseProxyResponse(response);
-      const jsonStr  = extractJson(text);
-      const parsed   = JSON.parse(jsonStr) as WeeklyGymAnalysis;
-      parsed.generatedAt = Date.now();
-
-      // Sanitize all string arrays
-      if (Array.isArray(parsed.nextWeekDirectives)) {
-        parsed.nextWeekDirectives = parsed.nextWeekDirectives.map(sanitizeAiString).filter(Boolean);
-      }
-      if (parsed.comparisonVsLastWeek?.keyOverloads) {
-        parsed.comparisonVsLastWeek.keyOverloads = parsed.comparisonVsLastWeek.keyOverloads.map(sanitizeAiString).filter(Boolean);
-      }
-      if (parsed.thirtyDayTrend?.laggingMuscles) {
-        parsed.thirtyDayTrend.laggingMuscles = parsed.thirtyDayTrend.laggingMuscles.map(sanitizeAiString).filter(Boolean);
-      }
-
-      await AsyncStorage.setItem(
-        cacheKey,
-        JSON.stringify({
-          analysis: parsed,
-          timestamp: Date.now(),
-          weekMonday: mondayStr,
-          fingerprint: currentFingerprint
-        }),
-      );
-
-      return { analysis: parsed, fromCache: false };
-    } catch (err: any) {
-      lastError = err?.message || 'Unknown error';
-      console.warn(`[WeeklyGymAnalysis] Attempt ${attempt + 1} failed:`, lastError);
-      if (attempt === 0) await new Promise(r => setTimeout(r, 1500));
-    }
-  }
-
-  return { analysis: null, fromCache: false, error: lastError || 'Generation failed after 2 attempts' };
-}
-

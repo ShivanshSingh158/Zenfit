@@ -10,3 +10,4 @@ export * from './WeeklyGymReport';
 export * from './WeeklyHighlightsCarousel';
 export * from './WeeklyReportSkeleton';
 export * from './WorkoutSummaryProgressionChart';
+

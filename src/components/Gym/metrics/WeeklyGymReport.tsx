@@ -790,7 +790,7 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
 
   // Load from cache only (instant, 0ms).
   // NEVER auto-start Gemini generation automatically on view/render.
-  // Generation only runs when the user explicitly taps 'Generate GYM-GPT Analysis' or 'Retry'.
+  // Generation only runs when the user explicitly taps 'Generate Weekly Scientific Report' or 'Retry'.
   useEffect(() => {
     let isCurrent = true;
     setAiLoading(false);
@@ -895,16 +895,12 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1, minWidth: 0 }}>
                 <View style={st.aiSparkleBadge}>
-                  <Image
-                    source={require('../../../assets/images/sara-idle.png')}
-                    style={{ width: 22, height: 22 }}
-                    resizeMode="contain"
-                  />
+<Ionicons name="barbell" size={18} color="#a599ff" />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={st.aiSectionTitle} numberOfLines={1}>GYM-GPT • INTELLIGENCE</Text>
+                  <Text style={st.aiSectionTitle} numberOfLines={1}>SCIENTIFIC PERFORMANCE REPORT</Text>
                   <Text style={st.aiSectionSubtitle} numberOfLines={1}>
-                    S.A.R.A Biomechanics & Overload
+                    Deterministic Overload & Tonnage
                   </Text>
                 </View>
               </View>
@@ -938,11 +934,7 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
                 activeOpacity={0.7}
               >
                 <View style={st.aiCollapsedLeft}>
-                  <Image
-                    source={require('../../../assets/images/sara-idle.png')}
-                    style={{ width: 14, height: 14 }}
-                    resizeMode="contain"
-                  />
+<Ionicons name="barbell" size={12} color="#a599ff" />
                   <Text style={st.aiClickToOpenText}>Click to open</Text>
                   {aiAnalysis?.headline ? (
                     <>
@@ -1111,12 +1103,8 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
                     }}
                     activeOpacity={0.75}
                   >
-                    <Image
-                      source={require('../../../assets/images/sara-idle.png')}
-                      style={{ width: 18, height: 18 }}
-                      resizeMode="contain"
-                    />
-                    <Text style={st.aiGenerateBtnText}>Generate GYM-GPT Analysis</Text>
+<Ionicons name="analytics" size={16} color="#fff" />
+                    <Text style={st.aiGenerateBtnText}>Generate Weekly Scientific Report</Text>
                   </TouchableOpacity>
                 </View>
               )

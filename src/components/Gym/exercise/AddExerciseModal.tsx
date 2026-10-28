@@ -33,7 +33,6 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { getCustomPlanDay } from '../../../hooks/useGymLog';
 import { autoResolveExerciseVideoId } from '../../../services/exerciseVideoResolver';
 import { KNOWN_EXERCISE_VIDEOS, sanitizeName } from '../../../services/exerciseVideoDatabase';
-import { aiResolveExercise, AIExerciseInfo } from '../../../services/geminiProxy';
 import { GYM_PLAN } from '../../../data/gymPlan';
 import { EXERCISE_DATABASE } from '../../../data/exerciseDatabase';
 import { handleSyncError } from '../../../utils/errorUtils';
@@ -492,9 +491,6 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
   const [videoLink, setVideoLink] = useState('');
   const [savePermanently, setSavePermanently] = useState(false);
 
-  // AI resolver state
-  const [aiSuggestion, setAiSuggestion] = useState<AIExerciseInfo | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
 
   // Debounced search query for butter-smooth 60fps typing
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -744,8 +740,6 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
     setMuscle('None');
     setVideoLink('');
     setSavePermanently(false);
-    setAiSuggestion(null);
-    setAiLoading(false);
     onClose();
   };
 

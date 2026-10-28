@@ -95,7 +95,6 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
   const [logCardioFor, setLogCardioFor] = useState<GymCardioLog | null>(null);
   const [swapModalFor, setSwapModalFor] = useState<any | null>(null);
   const [showBodyMetrics, setShowBodyMetrics] = useState(false);
-  const [showAiModal, setShowAiModal] = useState(false);
   const [showPRSheet, setShowPRSheet] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [historyDrawerEx, setHistoryDrawerEx] = useState<{ name: string; id: string } | null>(null);
@@ -429,16 +428,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
               />
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={s.plainIconBtn}
-              onPress={() => {
-                hapticLight();
-                setShowAiModal(true);
-              }}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="sparkles" size={15} color={isDark ? '#FFFFFF' : '#000000'} />
-            </TouchableOpacity>
+
 
             <TouchableOpacity
               style={s.primaryActionBtn}
@@ -1021,18 +1011,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
         );
       })()}
 
-      {showAiModal && (() => {
-        const { ZenGymAiModal } = require('../../components/Gym/ZenGymAiModal');
-        return (
-          <ZenGymAiModal
-            visible={showAiModal}
-            onClose={() => setShowAiModal(false)}
-            workoutData={{
-              activeMuscles: activePlanDay?.focus || activePlanDay?.name || 'Workout',
-            }}
-          />
-        );
-      })()}
+
     </View>
   );
 });
