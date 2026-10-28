@@ -593,7 +593,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
 
             {/* ── In-Place Full Weekly Training Recap (Deferred dynamically on Sunday) ── */}
             {(() => {
-              const WeeklyGymReportComponent = require('../../components/Gym/WeeklyGymReport').default;
+              const WeeklyGymReportComponent = require('../../components/Gym/metrics/WeeklyGymReport').default;
               return (
                 <WeeklyGymReportComponent
                   gymLogs={gymLogs}
@@ -825,7 +825,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
 
       {/* ─── MODALS (Loaded strictly on-demand via dynamic require; 0ms Frame-0 impact) ─── */}
       {showSwapModal && (() => {
-        const { SwapRoutineModal } = require('../../components/Gym/SwapRoutineModal');
+        const { SwapRoutineModal } = require('../../components/Gym/schedule/SwapRoutineModal');
         return (
           <SwapRoutineModal
             visible={showSwapModal}
@@ -841,7 +841,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       })()}
 
       {showBodyMetrics && (() => {
-        const BodyMetricsSheet = require('../../components/Gym/BodyMetricsSheet').default;
+        const BodyMetricsSheet = require('../../components/Gym/metrics/BodyMetricsSheet').default;
         return (
           <BodyMetricsSheet
             visible={showBodyMetrics}
@@ -851,7 +851,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       })()}
 
       {showCardioModal && (() => {
-        const { AddCardioModal } = require('../../components/Gym/AddCardioModal');
+        const { AddCardioModal } = require('../../components/Gym/cardio/AddCardioModal');
         return (
           <AddCardioModal
             visible={showCardioModal}
@@ -865,7 +865,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       })()}
 
       {!!logCardioFor && (() => {
-        const { LogCardioModal } = require('../../components/Gym/LogCardioModal');
+        const { LogCardioModal } = require('../../components/Gym/cardio/LogCardioModal');
         return (
           <LogCardioModal
             visible={Boolean(logCardioFor)}
@@ -882,7 +882,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       })()}
 
       {showAddModal && (() => {
-        const AddExMod = require('../../components/Gym/AddExerciseModal');
+        const AddExMod = require('../../components/Gym/exercise/AddExerciseModal');
         const AddExerciseModalComponent = AddExMod.AddExerciseModal || AddExMod.default || AddExMod;
         if (!AddExerciseModalComponent) return null;
         return (
@@ -899,7 +899,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       })()}
 
       {deepDiveExercise && (() => {
-        const ExerciseDeepDiveModal = require('../../components/Gym/ExerciseDeepDiveModal').default;
+        const ExerciseDeepDiveModal = require('../../components/Gym/exercise/ExerciseDeepDiveModal').default;
         return (
           <ExerciseDeepDiveModal
             visible={Boolean(deepDiveExercise)}
@@ -911,7 +911,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       })()}
 
       {Boolean(exerciseMenuFor || cardioMenuFor) && (() => {
-        const { GymExerciseOptionsSheet } = require('../../components/Gym/GymExerciseOptionsSheet');
+        const { GymExerciseOptionsSheet } = require('../../components/Gym/exercise/GymExerciseOptionsSheet');
         return (
           <GymExerciseOptionsSheet
             exerciseMenuFor={exerciseMenuFor}
@@ -939,7 +939,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       })()}
 
       {!!swapModalFor && (() => {
-        const { ActiveSwapModal } = require('../../components/Gym/ActiveSwapModal');
+        const { ActiveSwapModal } = require('../../components/Gym/active/ActiveSwapModal');
         return (
           <ActiveSwapModal
             visible={Boolean(swapModalFor)}
@@ -969,7 +969,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       })()}
 
       {showPRSheet && (() => {
-        const PRHallOfFameSheet = require('../../components/Gym/PRHallOfFameSheet').default;
+        const PRHallOfFameSheet = require('../../components/Gym/metrics/PRHallOfFameSheet').default;
         return (
           <PRHallOfFameSheet
             visible={showPRSheet}
@@ -979,7 +979,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       })()}
 
       {showProfileModal && (() => {
-        const { GymProfileModal } = require('../../components/Gym/GymProfileModal');
+        const { GymProfileModal } = require('../../components/Gym/common/GymProfileModal');
         return (
           <GymProfileModal
             visible={showProfileModal}
@@ -989,7 +989,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       })()}
 
       {Boolean(historyDrawerEx) && (() => {
-        const { ExerciseHistoryDrawer } = require('../../components/Gym/ExerciseHistoryDrawer');
+        const { ExerciseHistoryDrawer } = require('../../components/Gym/exercise/ExerciseHistoryDrawer');
         return (
           <ExerciseHistoryDrawer
             visible={Boolean(historyDrawerEx)}
@@ -1001,7 +1001,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       })()}
 
       {detailModalEx && (() => {
-        const { ExerciseDetailModal } = require('../../components/Gym/ExerciseDetailModal');
+        const { ExerciseDetailModal } = require('../../components/Gym/exercise/ExerciseDetailModal');
         return (
           <ExerciseDetailModal
             visible={Boolean(detailModalEx)}
