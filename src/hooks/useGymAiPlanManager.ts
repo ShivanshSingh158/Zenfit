@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import type { MultiDayPlanEntry } from '../components/Gym/GymAiMultiDayPlanTypes';
+import type { MultiDayPlanEntry } from '../components/Gym/ai/GymAiMultiDayPlanTypes';
 import type { GymPlanDay } from '../types/gym.types';
 import { resolveExerciseTargetMuscle, getBiomechanicalPrescription } from '../utils/gymUtils';
 

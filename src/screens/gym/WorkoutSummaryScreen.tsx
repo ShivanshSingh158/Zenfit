@@ -27,7 +27,7 @@ import { computeOrGetHotCache, generateDatasetFingerprint } from '../../utils/ho
 
 // Extracted Sub-Components & Styles
 import { makeWorkoutSummaryStyles } from './workoutSummaryStyles';
-import WorkoutSummaryProgressionChart from '../../components/Gym/WorkoutSummaryProgressionChart';
+import WorkoutSummaryProgressionChart from '../../components/Gym/metrics/WorkoutSummaryProgressionChart';
 
 export default function WorkoutSummaryScreen() {
   const insets = useSafeAreaInsets();
@@ -391,7 +391,7 @@ export default function WorkoutSummaryScreen() {
               if (navigation.canGoBack()) {
                 (navigation as any).popToTop();
               } else {
-                (navigation as any).navigate('GymHome');
+                (navigation as any).navigate('MainTabs', { screen: 'Today' });
               }
             }}
           >

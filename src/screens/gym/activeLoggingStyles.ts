@@ -21,6 +21,17 @@ export const makeActiveLoggingStyles = (colors: any, isDark: boolean = true) => 
       borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border,
     },
     backBtn: { padding: SPACE.xs },
+    headerFinishBtn: {
+      backgroundColor: '#30D158',
+      paddingHorizontal: 12,
+      paddingVertical: 4.5,
+      borderRadius: RADIUS.full,
+    },
+    headerFinishText: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 12,
+      color: '#000000',
+    },
     headerTitle: { fontFamily: FONT_FAMILY.bold, fontSize: 13, color: colors.textMuted, letterSpacing: 1 },
     content: { flex: 1 },
     scrollContent: {

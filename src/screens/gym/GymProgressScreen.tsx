@@ -32,10 +32,10 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { FONT_FAMILY } from '../../theme/tokens';
 import { GymNavigationParamList } from '../../types/gym.types';
 
-import AnatomicalBodyMapCard from '../../components/Gym/AnatomicalBodyMapCard';
-import BodyMetricsHistoryChart, { WeightChartEntry } from '../../components/Gym/BodyMetricsHistoryChart';
-import BodyMetricsSheet from '../../components/Gym/BodyMetricsSheet';
-import BeforeAfterSlider from '../../components/Gym/BeforeAfterSlider';
+import AnatomicalBodyMapCard from '../../components/Gym/metrics/AnatomicalBodyMapCard';
+import BodyMetricsHistoryChart, { WeightChartEntry } from '../../components/Gym/metrics/BodyMetricsHistoryChart';
+import BodyMetricsSheet from '../../components/Gym/metrics/BodyMetricsSheet';
+import BeforeAfterSlider from '../../components/Gym/metrics/BeforeAfterSlider';
 
 const WEIGHT_LOGS_KEY = BOOT_KEYS.WEIGHT_LOGS;
 const LEGACY_WEIGHT_LOGS_KEY = 'zentrack_weight_logs_v1';
@@ -59,23 +59,30 @@ export default function GymProgressScreen() {
     getL1Sync<any[]>(WEIGHT_LOGS_KEY, null) || getL1Sync<any[]>(LEGACY_WEIGHT_LOGS_KEY, [])
   );
 
+  const prevSheetOpenRef = React.useRef(false);
+
   useEffect(() => {
-    AsyncStorage.getItem(WEIGHT_LOGS_KEY).then(raw => {
-      if (raw) {
-        try {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) setLocalWeightLogs(parsed);
-        } catch (_) {}
-      } else {
-        AsyncStorage.getItem(LEGACY_WEIGHT_LOGS_KEY).then(legacyRaw => {
-          if (!legacyRaw) return;
+    // Only re-read storage on initial mount or when sheet transitions from open -> closed
+    const shouldRead = !prevSheetOpenRef.current || (prevSheetOpenRef.current && !showWeighInSheet);
+    if (shouldRead) {
+      AsyncStorage.getItem(WEIGHT_LOGS_KEY).then(raw => {
+        if (raw) {
           try {
-            const parsed = JSON.parse(legacyRaw);
+            const parsed = JSON.parse(raw);
             if (Array.isArray(parsed)) setLocalWeightLogs(parsed);
           } catch (_) {}
-        });
-      }
-    });
+        } else {
+          AsyncStorage.getItem(LEGACY_WEIGHT_LOGS_KEY).then(legacyRaw => {
+            if (!legacyRaw) return;
+            try {
+              const parsed = JSON.parse(legacyRaw);
+              if (Array.isArray(parsed)) setLocalWeightLogs(parsed);
+            } catch (_) {}
+          });
+        }
+      });
+    }
+    prevSheetOpenRef.current = showWeighInSheet;
   }, [showWeighInSheet]);
 
   // Unified chronological weight & photo history (contextWeightLogs first, localWeightLogs second so fresh edits win)
@@ -151,7 +158,13 @@ export default function GymProgressScreen() {
 
       {/* ── Native Apple iOS Header ── */}
       <View style={styles.header}>
-        <Text style={[styles.largeTitle, { color: colors.textPrimary }]}>Body</Text>
+        <View style={{ flex: 1, paddingRight: 8 }}>
+          <Text style={[styles.largeTitle, { color: colors.textPrimary }]}>Body</Text>
+          <Text style={styles.headerSubtitle} numberOfLines={1}>
+            {currentWeight ? `${currentWeight} kg` : 'Body Hub'}
+            {bmi ? ` · BMI ${bmi} (${bmiClass?.label})` : ''}
+          </Text>
+        </View>
 
         <View style={styles.headerRight}>
           <TouchableOpacity
@@ -159,10 +172,11 @@ export default function GymProgressScreen() {
               hapticLight();
               setShowWeighInSheet(true);
             }}
-            style={[styles.iconBtn, { backgroundColor: isDark ? '#1C1C1E' : '#E5E5EA' }]}
-            activeOpacity={0.7}
+            style={[styles.weighInBtn, { backgroundColor: isDark ? '#FFFFFF' : '#000000' }]}
+            activeOpacity={0.8}
           >
-            <Ionicons name="scale-outline" size={19} color="#A599FF" />
+            <Ionicons name="scale-outline" size={13} color={isDark ? '#000000' : '#FFFFFF'} />
+            <Text style={[styles.weighInBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Weigh In</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -170,10 +184,10 @@ export default function GymProgressScreen() {
               hapticLight();
               navigation.navigate('GymProfile');
             }}
-            style={[styles.iconBtn, { backgroundColor: isDark ? '#1C1C1E' : '#E5E5EA' }]}
+            style={[styles.settingsIconBtn, { backgroundColor: isDark ? '#1C1C1E' : '#E5E5EA' }]}
             activeOpacity={0.7}
           >
-            <Ionicons name="settings-outline" size={19} color={colors.textPrimary} />
+            <Ionicons name="settings-outline" size={18} color={isDark ? '#FFFFFF' : '#000000'} />
           </TouchableOpacity>
         </View>
       </View>
@@ -181,10 +195,12 @@ export default function GymProgressScreen() {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        {/* ── SECTION 1: MUSCLE RECOVERY & ANATOMY ── */}
+        {/* ── SECTION 1: MUSCLE STATUS & WEEKLY GOAL ── */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeaderLabel}>MUSCLE RECOVERY & ANATOMY</Text>
+          <Text style={styles.sectionHeaderLabel}>MUSCLE STATUS & WEEKLY GOAL</Text>
+          <Text style={styles.sectionBadgeText}>THIS WEEK</Text>
         </View>
 
         <AnatomicalBodyMapCard
@@ -193,11 +209,14 @@ export default function GymProgressScreen() {
           variant="weekly"
           defaultMode="fatigue"
           style={bodyMapStyle}
+          onAddCorrectiveExercise={(exerciseName) => {
+            navigation.navigate('Today' as any);
+          }}
         />
 
         {/* ── SECTION 2: WEIGHT & BODY COMPOSITION (INLINE) ── */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeaderLabel}>WEIGHT & BODY COMPOSITION</Text>
+          <Text style={styles.sectionHeaderLabel}>WEIGHT & COMPOSITION</Text>
           <TouchableOpacity
             onPress={() => {
               hapticLight();
@@ -205,7 +224,7 @@ export default function GymProgressScreen() {
             }}
             activeOpacity={0.7}
           >
-            <Text style={styles.sectionActionText}>+ Weigh In</Text>
+            <Text style={styles.sectionActionText}>+ Record</Text>
           </TouchableOpacity>
         </View>
 
@@ -373,24 +392,46 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 6,
-    paddingTop: 8,
-    paddingBottom: 12,
+    paddingHorizontal: 12,
+    paddingTop: 4,
+    paddingBottom: 8,
   },
   largeTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 32,
-    letterSpacing: -0.6,
+    fontSize: 22,
+    letterSpacing: -0.3,
+    color: '#FFFFFF',
+  },
+  headerSubtitle: {
+    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+    marginTop: 2,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  weighInBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 5.5,
+    borderRadius: 999,
+  },
+  weighInBtnText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#000000',
+  },
+  settingsIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#1C1C1E',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -416,6 +457,12 @@ const styles = StyleSheet.create({
     fontFamily: FONT_FAMILY.bold,
     fontSize: 13,
     color: '#A599FF',
+  },
+  sectionBadgeText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 11,
+    color: '#30D158',
+    letterSpacing: 0.5,
   },
   iosCard: {
     borderRadius: 16,

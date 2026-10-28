@@ -1,3 +1,13 @@
+/**
+ * GymSplitsScreen.tsx — ZenFit
+ *
+ * Tab 2: Plan Hub (Zero-Clutter Apple iOS HIG Architecture)
+ * 3-Part Architecture:
+ * - Sub-Tab 1: 📅 Schedule (7-Day Program with Focused Day Inspector & Weekly Volume)
+ * - Sub-Tab 2: 📋 Routines (Custom Workout Library with Direct Start & Assignment)
+ * - Sub-Tab 3: 🗂️ Explore (Browse Pre-Built Splits & Programs, One-Tap Apply)
+ */
+
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
@@ -18,16 +28,18 @@ import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useGymPlan } from '../../contexts/domains/WellnessContext';
 import { GYM_PLAN, GYM_PLAN_ARNOLD, WEEKDAY_TO_PLAN } from '../../data/gymPlan';
+import { CURATED_SPLITS, CuratedSplit, REST_DAY_TEMPLATE } from '../../data/curatedSplits';
 import { GymPlanDay, GymPlanExercise, GymRoutine } from '../../types/gym.types';
-import { hapticLight, hapticMedium, hapticSuccess } from '../../utils/haptics';
+import { hapticLight, hapticMedium, hapticSuccess, hapticSelection } from '../../utils/haptics';
 import { getCanonicalExerciseName, resolveExerciseTargetMuscle } from '../../utils/gymUtils';
-import { FONT_FAMILY, IOS_DARK, SPACE } from '../../theme/tokens';
+import { FONT_FAMILY, IOS_DARK } from '../../theme/tokens';
+import { todayStr } from '../../hooks/useGymLog';
 
-import { WeeklyScheduleStrip } from '../../components/Gym/WeeklyScheduleStrip';
-import { RoutineEditorModal } from '../../components/Gym/RoutineEditorModal';
-import { ZenGymAiModal } from '../../components/Gym/ZenGymAiModal';
-import { GymTemplateModal } from '../../components/Gym/GymTemplateModal';
-import GymScheduleSettingsModal from '../../components/Gym/GymScheduleSettingsModal';
+import { RoutineEditorModal } from '../../components/Gym/schedule/RoutineEditorModal';
+import GymScheduleSettingsModal from '../../components/Gym/schedule/GymScheduleSettingsModal';
+import { AddExerciseModal } from '../../components/Gym/exercise/AddExerciseModal';
+
+type PlanSubTab = 'schedule' | 'routines' | 'explore';
 
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -52,15 +64,16 @@ export default function GymSplitsScreen() {
     assignRoutineToDay,
   } = useGymPlan();
 
-  // Modals
-  const [aiModalVisible, setAiModalVisible] = useState(false);
+  // ── Sub-Tab State ──────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<PlanSubTab>('schedule');
+
+  // ── Modals & Sheets ────────────────────────────────────────────────────────
   const [showScheduleSettings, setShowScheduleSettings] = useState(false);
-  const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [routineEditorVisible, setRoutineEditorVisible] = useState(false);
   const [editingRoutine, setEditingRoutine] = useState<GymRoutine | null>(null);
   const [editingDayIndex, setEditingDayIndex] = useState<number | null>(null);
 
-  // Day Selector: 1..7 for Monday..Sunday
+  // Day Selector (1 = Monday, 7 = Sunday)
   const currentDayOfWeek = new Date().getDay();
   const defaultDayIndex = currentDayOfWeek === 0 ? 7 : currentDayOfWeek;
   const [selectedDayIndex, setSelectedDayIndex] = useState<number>(defaultDayIndex);
@@ -68,35 +81,33 @@ export default function GymSplitsScreen() {
   // Quick Time Picker Modal State
   const [timePickerDayIndex, setTimePickerDayIndex] = useState<number | null>(null);
 
-  // Rename Day Modal State
-  const [renamingDay, setRenamingDay] = useState<{
-    dayIndex: number;
-    dayName: string;
-    currentRoutineName: string;
-    currentFocus: string;
-  } | null>(null);
-  const [renameInput, setRenameInput] = useState('');
-  const [renameFocusInput, setRenameFocusInput] = useState('');
+
+  // Add Exercise to Plan Modal State
+  const [showPlanAddModal, setShowPlanAddModal] = useState(false);
 
   // Assign Routine to Day Picker State
   const [assignRoutineTarget, setAssignRoutineTarget] = useState<GymRoutine | null>(null);
+
+  // Explore Filter
+  const [exploreFilter, setExploreFilter] = useState('All');
 
   const activeTemplate = userGymPlan?.templateId || 'ppl';
 
   const splitTitle = useMemo(() => {
     const customName = (userGymPlan as any)?.name;
     if (customName) return customName;
-    if (activeTemplate === 'arnold') return 'Arnold Split';
-    if (activeTemplate === 'ppl') return 'Push / Pull / Legs';
-    if (activeTemplate === 'upper_lower') return 'Upper / Lower';
-    if (activeTemplate === 'full_body') return 'Full Body';
+    if (activeTemplate === 'arnold' || activeTemplate === 'arnold_6day') return 'Arnold Split';
+    if (activeTemplate === 'ppl' || activeTemplate === 'ppl_6day') return 'Push / Pull / Legs';
+    if (activeTemplate === 'upper_lower' || activeTemplate === 'upper_lower_4day') return 'Upper / Lower';
+    if (activeTemplate === 'full_body' || activeTemplate === 'full_body_3day') return 'Full Body';
+    if (activeTemplate === 'bro_split_5day') return '5-Day Bro Split';
     return 'Weekly Split';
   }, [(userGymPlan as any)?.name, activeTemplate]);
 
   // Build resolved 7-day schedule
   const resolvedDays = useMemo(() => {
     const days: { dayIndex: number; dayName: string; planDay: GymPlanDay }[] = [];
-    const basePlan = activeTemplate === 'arnold' ? GYM_PLAN_ARNOLD : GYM_PLAN;
+    const basePlan = (activeTemplate === 'arnold' || activeTemplate === 'arnold_6day') ? GYM_PLAN_ARNOLD : GYM_PLAN;
 
     for (let i = 1; i <= 7; i++) {
       const custom = userGymPlan?.customDays?.[i];
@@ -141,22 +152,76 @@ export default function GymSplitsScreen() {
     return days;
   }, [userGymPlan, activeTemplate]);
 
+  // Currently Selected Day in Schedule
+  const activeDay = useMemo(() => {
+    return resolvedDays.find(d => d.dayIndex === selectedDayIndex) || resolvedDays[0];
+  }, [resolvedDays, selectedDayIndex]);
+
+  const defaultDayForActive = useMemo(() => {
+    const defaultDayId = WEEKDAY_TO_PLAN[activeDay.dayIndex] || 1;
+    const basePlan = activeTemplate === 'arnold' ? GYM_PLAN_ARNOLD : GYM_PLAN;
+    return basePlan.find(d => d.dayIndex === defaultDayId) || GYM_PLAN.find(d => d.dayIndex === defaultDayId);
+  }, [activeDay.dayIndex, activeTemplate]);
+
+  const isDayModifiedFromDefault = useMemo(() => {
+    if (Boolean(userGymPlan?.customDays?.[activeDay.dayIndex])) return true;
+    if (!defaultDayForActive) return false;
+    if (activeDay.planDay.name !== defaultDayForActive.name) return true;
+    if ((activeDay.planDay.exercises || []).length !== (defaultDayForActive.exercises || []).length) return true;
+    return false;
+  }, [userGymPlan?.customDays, activeDay, defaultDayForActive]);
+
+  const trainingDaysCount = useMemo(() => {
+    return resolvedDays.filter(d => !d.planDay.isRest && (d.planDay.exercises?.length || 0) > 0).length;
+  }, [resolvedDays]);
+
   // User Custom Routines list
   const customRoutinesList = useMemo<GymRoutine[]>(() => {
     if (!userGymPlan?.routines) return [];
     return Object.values(userGymPlan.routines).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   }, [userGymPlan?.routines]);
 
-  // Assign routine to specific day
+  // Weekly Planned Volume Audit
+  const weeklyPlannedAudit = useMemo(() => {
+    let totalSets = 0;
+    const muscleMap: Record<string, number> = {};
+
+    for (const d of resolvedDays) {
+      if (d.planDay.isRest) continue;
+      for (const ex of d.planDay.exercises || []) {
+        const sets = Number(ex.targetSets) || 3;
+        totalSets += sets;
+        const m = ex.muscle?.split('/')[0]?.trim() || 'Other';
+        muscleMap[m] = (muscleMap[m] || 0) + sets;
+      }
+    }
+
+    const topMuscles = Object.entries(muscleMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([m, s]) => `${m}: ${s}s`);
+
+    return { totalSets, topMuscles };
+  }, [resolvedDays]);
+
+  // Filtered Curated Splits for Explore
+  const filteredCuratedSplits = useMemo(() => {
+    if (exploreFilter === 'All') return CURATED_SPLITS;
+    const daysNum = parseInt(exploreFilter, 10);
+    return CURATED_SPLITS.filter(s => s.daysPerWeek === daysNum);
+  }, [exploreFilter]);
+
+  // ── Handlers ───────────────────────────────────────────────────────────────
   const handleAssignRoutineToDay = useCallback(
     async (dayIndex: number, routineId?: string, routine?: GymRoutine) => {
       await assignRoutineToDay(dayIndex, routineId, routine);
       hapticSuccess();
+      setAssignRoutineTarget(null);
+      setSelectedDayIndex(dayIndex);
     },
     [assignRoutineToDay]
   );
 
-  // Toggle Rest Day
   const handleToggleRest = useCallback(
     (dayIndex: number) => {
       const targetDay = resolvedDays.find(d => d.dayIndex === dayIndex);
@@ -179,83 +244,12 @@ export default function GymSplitsScreen() {
     [resolvedDays, updateMasterPlan]
   );
 
-  // Rename Day
-  const openRenameModal = useCallback(
-    (dayIndex: number) => {
-      const targetDay = resolvedDays.find(d => d.dayIndex === dayIndex);
-      if (!targetDay) return;
-      hapticLight();
-      setRenamingDay({
-        dayIndex,
-        dayName: targetDay.dayName,
-        currentRoutineName: targetDay.planDay.name,
-        currentFocus: targetDay.planDay.focus || '',
-      });
-      setRenameInput(targetDay.planDay.name);
-      setRenameFocusInput(targetDay.planDay.focus || '');
-    },
-    [resolvedDays]
-  );
-
-  const handleSaveRename = useCallback(() => {
-    if (!renamingDay) return;
-    const targetDay = resolvedDays.find(d => d.dayIndex === renamingDay.dayIndex);
-    if (!targetDay) return;
-    const trimmedName = renameInput.trim() || `Workout Day ${renamingDay.dayIndex}`;
-    const trimmedFocus = renameFocusInput.trim();
-    const updatedPlanDay: GymPlanDay = {
-      ...targetDay.planDay,
-      name: trimmedName,
-      focus: trimmedFocus,
-    };
-    updateMasterPlan(renamingDay.dayIndex, updatedPlanDay);
-    hapticSuccess();
-    setRenamingDay(null);
-  }, [renamingDay, renameInput, renameFocusInput, resolvedDays, updateMasterPlan]);
-
-  // Edit Time Presets
-  const handleSelectTimePreset = useCallback(
-    (timePreset: { time: string; end: string }) => {
-      if (timePickerDayIndex === null) return;
-      const targetDay = resolvedDays.find(d => d.dayIndex === timePickerDayIndex);
-      if (!targetDay) return;
-      hapticLight();
-      const updatedPlanDay: GymPlanDay = {
-        ...targetDay.planDay,
-        startTime: timePreset.time,
-        endTime: timePreset.end,
-      };
-      updateMasterPlan(timePickerDayIndex, updatedPlanDay);
-      hapticSuccess();
-      setTimePickerDayIndex(null);
-    },
-    [timePickerDayIndex, resolvedDays, updateMasterPlan]
-  );
-
-  // Edit Routine from Day Card
-  const handleEditRoutineFromDay = useCallback((planDay: GymPlanDay, dayIndex: number) => {
-    hapticLight();
-    const routineObj: GymRoutine = {
-      id: planDay.routineId || `rt_day_${dayIndex}`,
-      name: planDay.name,
-      subtitle: planDay.subtitle,
-      focus: planDay.focus,
-      exercises: planDay.exercises || [],
-      updatedAt: Date.now(),
-    };
-    setEditingRoutine(routineObj);
-    setEditingDayIndex(dayIndex);
-    setRoutineEditorVisible(true);
-  }, []);
-
-  // Routine Management Actions
-  const handleCreateRoutine = useCallback((dayIndex?: number | any) => {
+  const handleCreateRoutine = useCallback(() => {
     hapticMedium();
     setEditingRoutine(null);
-    const targetIdx = typeof dayIndex === 'number' ? dayIndex : (selectedDayIndex || null);
-    setEditingDayIndex(targetIdx);
+    setEditingDayIndex(activeTab === 'schedule' ? (selectedDayIndex || null) : null);
     setRoutineEditorVisible(true);
-  }, [selectedDayIndex]);
+  }, [activeTab, selectedDayIndex]);
 
   const handleEditRoutine = (routine: GymRoutine) => {
     hapticLight();
@@ -290,201 +284,705 @@ export default function GymSplitsScreen() {
     hapticSuccess();
   };
 
-  // Compute Muscle Set Volume Breakdown for Routine Card
-  const getRoutineMuscleVolume = (routineExercises: GymPlanExercise[]) => {
-    const vol: Record<string, number> = {};
-    let totalSets = 0;
-    for (const ex of routineExercises || []) {
-      const sets = Number(ex.targetSets) || 3;
-      totalSets += sets;
-      const m = ex.muscle?.split('/')[0]?.trim() || 'Other';
-      vol[m] = (vol[m] || 0) + sets;
+  const handleStartWorkout = useCallback(async (routine?: GymRoutine | GymPlanDay) => {
+    hapticMedium();
+    const todayDayIndex = currentDayOfWeek === 0 ? 7 : currentDayOfWeek;
+    const todayDateStr = todayStr();
+
+    if (routine && 'exercises' in routine && Array.isArray(routine.exercises) && routine.exercises.length > 0) {
+      const routineId = 'id' in routine ? (routine as GymRoutine).id : (routine as GymPlanDay).routineId;
+      await assignRoutineToDay(todayDayIndex, routineId, routine as any);
     }
-    const topMuscles = Object.entries(vol)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([m, s]) => `${m}: ${s}s`)
-      .join(' · ');
-    return { topMuscles, totalSets, mins: Math.round(totalSets * 2.5) };
+    navigation.navigate('ActiveLogging', { date: todayDateStr });
+  }, [currentDayOfWeek, assignRoutineToDay, navigation]);
+
+  const handleApplySplit = (split: CuratedSplit) => {
+    Alert.alert(
+      `Apply ${split.name}?`,
+      `This will update your 7-day schedule with the ${split.daysPerWeek}-day ${split.name} program.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Apply Program',
+          style: 'default',
+          onPress: () => {
+            const customDays: Record<number, GymPlanDay> = {};
+            for (let dayIndex = 1; dayIndex <= 7; dayIndex++) {
+              const workoutId = split.defaultDayMap[dayIndex];
+              if (!workoutId || workoutId === 'rest') {
+                customDays[dayIndex] = {
+                  ...REST_DAY_TEMPLATE,
+                  dayIndex,
+                };
+              } else {
+                const workout = split.workouts.find(w => w.id === workoutId);
+                if (workout) {
+                  customDays[dayIndex] = {
+                    dayIndex,
+                    name: workout.name,
+                    subtitle: workout.subtitle,
+                    focus: workout.focus,
+                    isRest: false,
+                    exercises: workout.exercises,
+                  };
+                } else {
+                  customDays[dayIndex] = {
+                    ...REST_DAY_TEMPLATE,
+                    dayIndex,
+                  };
+                }
+              }
+            }
+            updateFullMasterPlan(customDays);
+            hapticSuccess();
+            setActiveTab('schedule');
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteExerciseFromPlan = useCallback((dayIndex: number, exIndex: number, exName: string) => {
+    hapticLight();
+    Alert.alert(
+      'Remove from Weekly Plan',
+      `Remove "${exName}" from ${activeDay.dayName} (${activeDay.planDay.name}) for all future weeks?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove for All Weeks',
+          style: 'destructive',
+          onPress: async () => {
+            const currentExercises = activeDay.planDay.exercises || [];
+            const updatedExercises = currentExercises.filter((_, idx) => idx !== exIndex);
+            const updatedPlanDay: GymPlanDay = {
+              ...activeDay.planDay,
+              exercises: updatedExercises,
+            };
+            await updateMasterPlan(dayIndex, updatedPlanDay);
+            hapticSuccess();
+          },
+        },
+      ]
+    );
+  }, [activeDay, updateMasterPlan]);
+
+  const handleRestoreDefaultDay = useCallback((dayIndex: number) => {
+    hapticMedium();
+    const defaultDayId = WEEKDAY_TO_PLAN[dayIndex] || 1;
+    const basePlan = activeTemplate === 'arnold' ? GYM_PLAN_ARNOLD : GYM_PLAN;
+    const defaultDay = basePlan.find(d => d.dayIndex === defaultDayId) || GYM_PLAN.find(d => d.dayIndex === defaultDayId);
+    const exCount = defaultDay?.exercises?.length || 0;
+
+    Alert.alert(
+      `Restore Default ${activeDay.dayName}`,
+      `Restore ${activeDay.dayName} (${defaultDay?.name || 'Default'}) with all ${exCount} original exercises from your ${splitTitle}?\n\nThis will permanently update your weekly plan.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: `Restore All ${exCount} Exercises`,
+          style: 'default',
+          onPress: async () => {
+            if (defaultDay) {
+              await updateMasterPlan(dayIndex, {
+                ...defaultDay,
+                exercises: (defaultDay.exercises || []).map(ex => {
+                  const canonicalName = getCanonicalExerciseName(ex.name);
+                  return {
+                    ...ex,
+                    name: canonicalName,
+                    muscle: resolveExerciseTargetMuscle(canonicalName, ex.muscle).targetMuscle,
+                  };
+                }),
+              });
+            } else {
+              const newCustomDays = { ...(userGymPlan?.customDays || {}) };
+              delete newCustomDays[dayIndex];
+              await updateFullMasterPlan(newCustomDays);
+            }
+            hapticSuccess();
+          },
+        },
+      ]
+    );
+  }, [activeDay, activeTemplate, splitTitle, updateMasterPlan, updateFullMasterPlan, userGymPlan?.customDays]);
+
+  const formatTimeSlot = (timeStr?: string) => {
+    if (!timeStr) return null;
+    const parts = timeStr.split(':');
+    if (parts.length < 2) return timeStr;
+    const hour = parseInt(parts[0], 10);
+    const mins = parts[1];
+    if (isNaN(hour)) return timeStr;
+    const period = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour % 12 || 12;
+    return `${hour12}:${mins} ${period}`;
   };
 
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: isDark ? IOS_DARK.bgCanvas : colors.background }]}
-      edges={['top']}
-    >
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+    <SafeAreaView style={[styles.root, { backgroundColor: '#000000' }]} edges={['top']}>
+      <StatusBar style="light" />
 
-      {/* ── Top Header Bar (Apple HIG Large Title with Subtle Action Pills) ── */}
+      {/* ── Screen Header ──────────────────────────────────────────────────── */}
       <View style={styles.header}>
-        <View style={styles.headerTitleCol}>
-          <Text style={[styles.screenTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}>
-            Plan
-          </Text>
-          <Text style={styles.screenSubtitle} numberOfLines={1}>
-            {splitTitle} · 7-Day Schedule
+        <View style={{ flex: 1, paddingRight: 8 }}>
+          <Text style={styles.headerTitle}>Plan</Text>
+          <Text style={styles.headerSubtitle} numberOfLines={1}>
+            {splitTitle} · {trainingDaysCount}d training
           </Text>
         </View>
 
         <View style={styles.headerActions}>
           <TouchableOpacity
-            activeOpacity={0.7}
             onPress={() => {
               hapticLight();
               setShowScheduleSettings(true);
             }}
-            style={styles.headerIconBtn}
-            accessibilityLabel="Alarms and Schedule"
+            style={styles.iconBtn}
+            activeOpacity={0.7}
           >
-            <Ionicons name="alarm-outline" size={18} color={isDark ? '#FFFFFF' : '#000000'} />
+            <Ionicons name="alarm-outline" size={18} color="#FFFFFF" />
           </TouchableOpacity>
 
           <TouchableOpacity
-            activeOpacity={0.75}
-            onPress={() => handleCreateRoutine()}
-            style={styles.newRoutinePill}
-            accessibilityLabel="Add Routine"
+            onPress={handleCreateRoutine}
+            style={styles.primaryActionBtn}
+            activeOpacity={0.8}
           >
             <Ionicons name="add" size={14} color="#000000" />
-            <Text style={styles.newRoutinePillText}>Add Routine</Text>
+            <Text style={styles.primaryActionText}>Add Routine</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* ── Main Scrollable Plan Content ── */}
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {/* 1. Subtle Weekly Schedule Strip + Balance Pill + Direct Exercise Cards */}
-        <WeeklyScheduleStrip
-          resolvedDays={resolvedDays}
-          selectedDayIndex={selectedDayIndex}
-          onSelectDayIndex={setSelectedDayIndex}
-          onToggleRest={handleToggleRest}
-          onRenameDay={openRenameModal}
-          onEditTime={dayIdx => setTimePickerDayIndex(dayIdx)}
-          onEditRoutineExercises={handleEditRoutineFromDay}
-          onAssignRoutine={handleAssignRoutineToDay}
-          customRoutines={customRoutinesList}
-        />
-
-        {/* 2. Master Split Program */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>MASTER SPLIT PROGRAM</Text>
-          <TouchableOpacity onPress={() => setShowTemplateModal(true)} style={styles.createInlineBtn}>
-            <Text style={styles.createInlineText}>Explore Splits</Text>
-            <Ionicons name="chevron-forward" size={12} color="#A599FF" />
-          </TouchableOpacity>
-        </View>
-
+      {/* ── Apple iOS Segmented Control (Minimalist, Zero Pills) ───────────── */}
+      <View style={styles.segmentedTrack}>
         <TouchableOpacity
-          activeOpacity={0.8}
+          style={[styles.segmentBtn, activeTab === 'schedule' && styles.segmentBtnActive]}
           onPress={() => {
-            hapticLight();
-            setShowTemplateModal(true);
+            hapticSelection();
+            setActiveTab('schedule');
           }}
-          style={[
-            styles.activeSplitCard,
-            { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
-          ]}
+          activeOpacity={0.8}
         >
-          <View style={styles.splitIconBox}>
-            <Ionicons name="layers-outline" size={20} color="#A599FF" />
-          </View>
-          <View style={styles.splitTextCol}>
-            <View style={styles.splitBadgeRow}>
-              <Text style={styles.splitPreTitle}>CURRENT PROGRAM</Text>
-              <View style={styles.splitActiveBadge}>
-                <Text style={styles.splitActiveBadgeText}>Active</Text>
-              </View>
-            </View>
-            <Text style={[styles.splitTitleText, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}>
-              {splitTitle}
-            </Text>
-            <Text style={styles.splitSubText}>
-              Tap to browse Arnold, PPL, Upper/Lower, or custom splits
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color="#636366" />
-        </TouchableOpacity>
-
-        {/* 3. Custom Routines */}
-        <View style={[styles.sectionHeaderRow, { marginTop: 18 }]}>
-          <Text style={styles.sectionTitle}>MY ROUTINES</Text>
-          <TouchableOpacity onPress={handleCreateRoutine} style={styles.createInlineBtn}>
-            <Ionicons name="add" size={13} color="#000000" />
-            <Text style={styles.createInlineText}>New</Text>
-          </TouchableOpacity>
-        </View>
-
-        {customRoutinesList.length === 0 ? (
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={handleCreateRoutine}
+          <Text
             style={[
-              styles.emptyRoutinesSlimCard,
-              { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
+              styles.segmentText,
+              activeTab === 'schedule' ? styles.segmentTextActive : styles.segmentTextInactive,
             ]}
           >
-            <Ionicons name="add-circle-outline" size={18} color="#A599FF" style={{ marginRight: 8 }} />
-            <Text style={[styles.emptyRoutinesSlimText, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-              Create a custom routine for quick assignment
-            </Text>
-            <Ionicons name="chevron-forward" size={14} color="#636366" style={{ marginLeft: 'auto' }} />
-          </TouchableOpacity>
-        ) : (
-          customRoutinesList.map(rt => {
-            const { topMuscles, totalSets, mins } = getRoutineMuscleVolume(rt.exercises || []);
+            Schedule
+          </Text>
+        </TouchableOpacity>
 
-            return (
-              <TouchableOpacity
-                key={`custom-rt-${rt.id}`}
-                activeOpacity={0.75}
-                onPress={() => handleEditRoutine(rt)}
-                style={[
-                  styles.routineCard,
-                  { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
-                ]}
-              >
-                <View style={styles.routineCardMain}>
-                  <View style={styles.routineTitleCol}>
-                    <Text
-                      style={[styles.routineName, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
-                      numberOfLines={1}
+        <TouchableOpacity
+          style={[styles.segmentBtn, activeTab === 'routines' && styles.segmentBtnActive]}
+          onPress={() => {
+            hapticSelection();
+            setActiveTab('routines');
+          }}
+          activeOpacity={0.8}
+        >
+          <Text
+            style={[
+              styles.segmentText,
+              activeTab === 'routines' ? styles.segmentTextActive : styles.segmentTextInactive,
+            ]}
+          >
+            Routines
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.segmentBtn, activeTab === 'explore' && styles.segmentBtnActive]}
+          onPress={() => {
+            hapticSelection();
+            setActiveTab('explore');
+          }}
+          activeOpacity={0.8}
+        >
+          <Text
+            style={[
+              styles.segmentText,
+              activeTab === 'explore' ? styles.segmentTextActive : styles.segmentTextInactive,
+            ]}
+          >
+            Explore
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          SUB-TAB 1: 📅 SCHEDULE (Focused 7-Day Program with Zero Clutter)
+         ════════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'schedule' && (
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
+          {/* Program Overview Banner */}
+          <View style={styles.programBanner}>
+            <View style={{ flex: 1, paddingRight: 8 }}>
+              <Text style={styles.programPreTitle}>ACTIVE 7-DAY PROGRAM</Text>
+              <Text style={styles.programTitle}>{splitTitle}</Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => {
+                hapticSelection();
+                setActiveTab('explore');
+              }}
+              style={styles.changeSplitBtn}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.changeSplitBtnText}>Browse Splits →</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* 7-Day Apple Glide Selector Strip */}
+          <View style={styles.weekStripCard}>
+            <View style={styles.dayStripRow}>
+              {resolvedDays.map(d => {
+                const isSel = d.dayIndex === selectedDayIndex;
+                const isRest = Boolean(d.planDay.isRest);
+                const isToday = d.dayIndex === (currentDayOfWeek === 0 ? 7 : currentDayOfWeek);
+
+                return (
+                  <TouchableOpacity
+                    key={`day-strip-${d.dayIndex}`}
+                    onPress={() => {
+                      hapticLight();
+                      setSelectedDayIndex(d.dayIndex);
+                    }}
+                    style={[styles.dayColBtn, isSel && styles.dayColBtnActive]}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.dayColShort, isSel && styles.dayColShortActive]}>
+                      {DAY_SHORT[d.dayIndex - 1]}
+                    </Text>
+
+                    {/* Status Dot */}
+                    <View
+                      style={[
+                        styles.dayColDot,
+                        {
+                          backgroundColor: isRest ? '#48484A' : '#30D158',
+                        },
+                      ]}
+                    />
+
+                    {isToday && (
+                      <View style={styles.todayIndicatorDot} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Focused Day Card for Selected Day (NO CLUTTER!) */}
+          <View style={styles.focusedDayCard}>
+            {/* Card Header */}
+            <View style={styles.focusedDayHeader}>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={styles.focusedDayWeekday}>{activeDay.dayName}</Text>
+                  {activeDay.dayIndex === (currentDayOfWeek === 0 ? 7 : currentDayOfWeek) && (
+                    <View style={styles.todayPill}>
+                      <Text style={styles.todayPillText}>TODAY</Text>
+                    </View>
+                  )}
+                  {isDayModifiedFromDefault && (
+                    <TouchableOpacity
+                      onPress={() => handleRestoreDefaultDay(activeDay.dayIndex)}
+                      style={styles.restoreDefaultPill}
+                      activeOpacity={0.7}
                     >
-                      {rt.name}
-                    </Text>
-                    <Text style={styles.routineSubtitle} numberOfLines={1}>
-                      {rt.exercises?.length || 0} Movements · {totalSets} Sets · ~{mins} Mins
-                    </Text>
-                    {topMuscles ? (
-                      <Text style={styles.routineMuscles} numberOfLines={1}>
-                        {topMuscles}
+                      <Ionicons name="refresh-outline" size={11} color="#FF9F0A" />
+                      <Text style={styles.restoreDefaultPillText}>
+                        Restore Default ({defaultDayForActive?.exercises?.length || 7} Ex)
                       </Text>
-                    ) : null}
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <Text style={styles.focusedDayTitle}>{activeDay.planDay.name}</Text>
+                {activeDay.planDay.focus ? (
+                  <Text style={styles.focusedDayFocus}>{activeDay.planDay.focus}</Text>
+                ) : null}
+              </View>
+
+              {/* Time Slot Pill */}
+              <TouchableOpacity
+                onPress={() => setTimePickerDayIndex(activeDay.dayIndex)}
+                style={styles.timeSlotPill}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="time-outline" size={12} color="#8E8E93" />
+                <Text style={styles.timeSlotText}>
+                  {formatTimeSlot(activeDay.planDay.startTime) || 'Set Time'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.hairline} />
+
+            {/* Rest Day Presentation */}
+            {activeDay.planDay.isRest ? (
+              <View style={styles.restDayContainer}>
+                <Ionicons name="moon" size={32} color="#8E8E93" style={{ marginBottom: 6 }} />
+                <Text style={styles.restDayTitle}>Rest & Active Recovery</Text>
+                <Text style={styles.restDaySub}>
+                  Rest days allow muscle tissue supercompensation, central nervous system restoration, and glycogen replenishment.
+                </Text>
+
+                <TouchableOpacity
+                  onPress={() => handleToggleRest(activeDay.dayIndex)}
+                  style={styles.switchWorkoutBtn}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="barbell-outline" size={13} color="#FFFFFF" />
+                  <Text style={styles.switchWorkoutBtnText}>Switch to Workout Day</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              /* Workout Day Presentation */
+              <View style={{ gap: 8 }}>
+                {/* Exercises List */}
+                <View style={styles.exercisesListWrap}>
+                  {(activeDay.planDay.exercises || []).map((ex, idx) => (
+                    <View key={`${ex.name}-${idx}`} style={styles.exerciseItemRow}>
+                      <Text style={styles.exIndexNum}>{idx + 1}</Text>
+                      <View style={{ flex: 1, paddingRight: 8 }}>
+                        <Text style={styles.exNameText} numberOfLines={1}>{ex.name}</Text>
+                        <Text style={styles.exTargetText}>
+                          {ex.targetSets} sets · {ex.targetReps || '8–12'} reps
+                          {ex.muscle ? ` · ${ex.muscle}` : ''}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => handleDeleteExerciseFromPlan(activeDay.dayIndex, idx, ex.name)}
+                        style={styles.planExDeleteBtn}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="trash-outline" size={15} color="#FF453A" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+
+                  {(!activeDay.planDay.exercises || activeDay.planDay.exercises.length === 0) && (
+                    <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+                      <Text style={styles.emptyNote}>No exercises assigned to this day yet.</Text>
+                    </View>
+                  )}
+
+                  {/* Add Exercise to Plan Button (Saves for all future weeks) */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      hapticLight();
+                      setShowPlanAddModal(true);
+                    }}
+                    style={styles.planAddExerciseBtn}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="add-circle" size={16} color="#0A84FF" />
+                    <Text style={styles.planAddExerciseBtnText}>Add Exercise to {activeDay.dayName} (All Weeks)</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.hairline} />
+
+                {/* Day Action Buttons Row */}
+                <View style={styles.dayActionsRow}>
+                  <TouchableOpacity
+                    onPress={() => handleStartWorkout(activeDay.planDay)}
+                    style={styles.startWorkoutBtn}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="play" size={13} color="#000000" />
+                    <Text style={styles.startWorkoutBtnText}>Start Workout</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      hapticLight();
+                      const routineObj: GymRoutine = {
+                        id: activeDay.planDay.routineId || `rt_day_${activeDay.dayIndex}`,
+                        name: activeDay.planDay.name,
+                        subtitle: activeDay.planDay.subtitle,
+                        focus: activeDay.planDay.focus,
+                        exercises: activeDay.planDay.exercises || [],
+                        updatedAt: Date.now(),
+                      };
+                      setEditingRoutine(routineObj);
+                      setEditingDayIndex(activeDay.dayIndex);
+                      setRoutineEditorVisible(true);
+                    }}
+                    style={styles.secondaryDayBtn}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="create-outline" size={13} color="#FFFFFF" />
+                    <Text style={styles.secondaryDayBtnText}>Edit</Text>
+                  </TouchableOpacity>
+
+                  {isDayModifiedFromDefault && (
+                    <TouchableOpacity
+                      onPress={() => handleRestoreDefaultDay(activeDay.dayIndex)}
+                      style={[styles.secondaryDayBtn, { borderColor: 'rgba(255,159,10,0.3)', borderWidth: 1 }]}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="refresh-outline" size={13} color="#FF9F0A" />
+                      <Text style={[styles.secondaryDayBtnText, { color: '#FF9F0A' }]}>Restore</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <TouchableOpacity
+                    onPress={() => handleToggleRest(activeDay.dayIndex)}
+                    style={styles.secondaryDayBtn}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="moon-outline" size={13} color="#8E8E93" />
+                    <Text style={[styles.secondaryDayBtnText, { color: '#8E8E93' }]}>Mark Rest</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* Weekly Volume Planned Overview Card */}
+          <View style={styles.volumeOverviewCard}>
+            <Text style={styles.cardSectionLabel}>WEEKLY PLANNED VOLUME</Text>
+            <Text style={styles.volumeOverviewTotal}>
+              {weeklyPlannedAudit.totalSets} working sets across {trainingDaysCount} training days
+            </Text>
+            {weeklyPlannedAudit.topMuscles.length > 0 && (
+              <Text style={styles.volumeOverviewMuscles}>
+                {weeklyPlannedAudit.topMuscles.join('  ·  ')}
+              </Text>
+            )}
+          </View>
+
+        </ScrollView>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          SUB-TAB 2: 📋 ROUTINES (Dedicated Custom Routine Library)
+         ════════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'routines' && (
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
+          <View style={styles.routinesHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardSectionLabel}>SAVED ROUTINES ({customRoutinesList.length})</Text>
+              <Text style={styles.cardSubLabel}>Your custom workout templates</Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={handleCreateRoutine}
+              style={styles.primaryActionBtn}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add" size={14} color="#000000" />
+              <Text style={styles.primaryActionText}>New Routine</Text>
+            </TouchableOpacity>
+          </View>
+
+          {customRoutinesList.length === 0 ? (
+            <View style={styles.emptyRoutinesCard}>
+              <Ionicons name="barbell-outline" size={32} color="#8E8E93" />
+              <Text style={styles.emptyTitle}>No Custom Routines Yet</Text>
+              <Text style={styles.emptyNote}>
+                Build your own workout routines with custom sets, reps, and target muscles.
+              </Text>
+              <TouchableOpacity
+                onPress={handleCreateRoutine}
+                style={[styles.primaryActionBtn, { marginTop: 12 }]}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add" size={14} color="#000000" />
+                <Text style={styles.primaryActionText}>Create First Routine</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={{ gap: 10, marginTop: 4 }}>
+              {customRoutinesList.map(rt => {
+                const totalSets = (rt.exercises || []).reduce((acc, ex) => acc + (Number(ex.targetSets) || 3), 0);
+                const estMins = Math.round(totalSets * 2.5);
+
+                return (
+                  <View key={rt.id} style={styles.routineCard}>
+                    {/* Routine Header */}
+                    <View style={styles.routineCardHeader}>
+                      <View style={{ flex: 1, paddingRight: 8 }}>
+                        <Text style={styles.routineName}>{rt.name}</Text>
+                        <Text style={styles.routineSubtitle}>
+                          {rt.exercises?.length || 0} exercises · {totalSets} sets · ~{estMins}m
+                        </Text>
+                      </View>
+
+                      {/* Assign Quick Action */}
+                      <TouchableOpacity
+                        onPress={() => setAssignRoutineTarget(rt)}
+                        style={styles.assignPillBtn}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="calendar-outline" size={12} color="#FFFFFF" />
+                        <Text style={styles.assignPillText}>Assign to Day</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Exercises List Preview */}
+                    <View style={styles.routineExList}>
+                      {(rt.exercises || []).slice(0, 4).map((ex, i) => (
+                        <View key={`${ex.name}-${i}`} style={styles.routineExRow}>
+                          <Text style={styles.routineExDot}>•</Text>
+                          <Text style={styles.routineExName} numberOfLines={1}>
+                            {ex.name}:{' '}
+                            <Text style={styles.routineExSets}>
+                              {ex.targetSets} sets × {ex.targetReps || '8–12'}
+                            </Text>
+                          </Text>
+                        </View>
+                      ))}
+
+                      {(rt.exercises?.length || 0) > 4 && (
+                        <Text style={styles.routineMoreExText}>
+                          + {(rt.exercises?.length || 0) - 4} more exercise
+                          {(rt.exercises?.length || 0) - 4 === 1 ? '' : 's'}
+                        </Text>
+                      )}
+                    </View>
+
+                    <View style={styles.hairline} />
+
+                    {/* Footer Actions */}
+                    <View style={styles.routineFooterRow}>
+                      <TouchableOpacity
+                        onPress={() => handleStartWorkout(rt)}
+                        style={styles.startWorkoutBtn}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="play" size={13} color="#000000" />
+                        <Text style={styles.startWorkoutBtnText}>Start Workout</Text>
+                      </TouchableOpacity>
+
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TouchableOpacity
+                          onPress={() => handleEditRoutine(rt)}
+                          style={styles.secondaryDayBtn}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="create-outline" size={13} color="#FFFFFF" />
+                          <Text style={styles.secondaryDayBtnText}>Edit</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => handleDuplicateRoutine(rt)}
+                          style={styles.iconSquareBtn}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="copy-outline" size={14} color="#8E8E93" />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          onPress={() => handleDeleteRoutine(rt.id)}
+                          style={styles.iconSquareBtn}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="trash-outline" size={14} color="#FF453A" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+        </ScrollView>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          SUB-TAB 3: 🗂️ EXPLORE (Browse Pre-Built Splits with One-Tap Apply)
+         ════════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'explore' && (
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
+          {/* Filter Chips Bar */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipsRow}>
+            {['All', '3-Day', '4-Day', '5-Day', '6-Day'].map(f => {
+              const isSel = exploreFilter === f;
+              return (
+                <TouchableOpacity
+                  key={f}
+                  onPress={() => {
+                    hapticLight();
+                    setExploreFilter(f);
+                  }}
+                  style={[styles.filterChipBtn, isSel && styles.filterChipBtnActive]}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.filterChipText, isSel && styles.filterChipTextActive]}>{f}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {/* Master Split Programs List */}
+          <View style={{ gap: 12, marginTop: 6 }}>
+            {filteredCuratedSplits.map(split => {
+              const isActive =
+                activeTemplate === split.id ||
+                (split.id === 'ppl_6day' && activeTemplate === 'ppl') ||
+                (split.id === 'arnold_6day' && activeTemplate === 'arnold');
+
+              return (
+                <View key={split.id} style={styles.splitCard}>
+                  {/* Split Header */}
+                  <View style={styles.splitHeaderRow}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={styles.splitDaysBadge}>{split.daysPerWeek} DAYS / WK</Text>
+                        <Text style={styles.splitLevelBadge}>{split.level.toUpperCase()}</Text>
+                      </View>
+                      <Text style={styles.splitProgramTitle}>{split.name}</Text>
+                    </View>
+
+                    {isActive ? (
+                      <View style={styles.activeProgramBadge}>
+                        <Ionicons name="checkmark" size={12} color="#30D158" />
+                        <Text style={styles.activeProgramBadgeText}>Active</Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        onPress={() => handleApplySplit(split)}
+                        style={styles.applySplitBtn}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.applySplitBtnText}>Apply</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
 
-                  <View style={styles.routineRightActions}>
-                    <TouchableOpacity
-                      activeOpacity={0.7}
-                      onPress={e => {
-                        e.stopPropagation();
-                        setAssignRoutineTarget(rt);
-                      }}
-                      style={styles.cardAssignBtn}
-                    >
-                      <Ionicons name="calendar-outline" size={13} color="#A599FF" />
-                      <Text style={styles.cardAssignText}>Assign</Text>
-                    </TouchableOpacity>
-                    <Ionicons name="chevron-forward" size={16} color="#636366" style={{ marginLeft: 6 }} />
+                  <Text style={styles.splitDescription}>{split.description}</Text>
+
+                  {/* 7-Day Microcycle Preview */}
+                  <View style={styles.splitSchedulePreview}>
+                    <Text style={styles.splitScheduleLabel}>WEEKLY SCHEDULE</Text>
+                    <View style={styles.splitWorkoutsList}>
+                      {split.workouts.map(w => (
+                        <View key={w.id} style={styles.splitWorkoutTag}>
+                          <Text style={styles.splitWorkoutTagName}>{w.name}:</Text>
+                          <Text style={styles.splitWorkoutTagFocus} numberOfLines={1}>{w.subtitle}</Text>
+                        </View>
+                      ))}
+                    </View>
                   </View>
                 </View>
-              </TouchableOpacity>
-            );
-          })
-        )}
-      </ScrollView>
+              );
+            })}
+          </View>
+
+        </ScrollView>
+      )}
 
       {/* ── MODAL: ROUTINE BUILDER / EDITOR ── */}
       <RoutineEditorModal
@@ -495,25 +993,15 @@ export default function GymSplitsScreen() {
           setRoutineEditorVisible(false);
           setEditingDayIndex(null);
         }}
-        onSave={(savedRt, targetDayIndex) => {
-          saveCustomRoutine(savedRt);
-          if (targetDayIndex != null && targetDayIndex >= 1 && targetDayIndex <= 7) {
-            const targetDay = resolvedDays.find(d => d.dayIndex === targetDayIndex);
-            if (targetDay) {
-              const updatedPlanDay: GymPlanDay = {
-                ...targetDay.planDay,
-                routineId: savedRt.id,
-                name: savedRt.name,
-                subtitle: savedRt.subtitle,
-                focus: savedRt.focus,
-                exercises: savedRt.exercises,
-                isRest: false,
-              };
-              updateMasterPlan(targetDayIndex, updatedPlanDay);
-            }
-          }
+        onSave={async (savedRt, targetDayIndex) => {
+          await saveCustomRoutine(savedRt, targetDayIndex);
+          hapticSuccess();
           setRoutineEditorVisible(false);
+          setEditingRoutine(null);
           setEditingDayIndex(null);
+          if (targetDayIndex != null && targetDayIndex >= 1 && targetDayIndex <= 7) {
+            setSelectedDayIndex(targetDayIndex);
+          }
         }}
       />
 
@@ -523,14 +1011,10 @@ export default function GymSplitsScreen() {
         transparent
         animationType="fade"
         statusBarTranslucent
-        hardwareAccelerated
         onRequestClose={() => setAssignRoutineTarget(null)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setAssignRoutineTarget(null)}>
-          <Pressable
-            style={[styles.sheetCard, { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : '#FFFFFF' }]}
-            onPress={e => e.stopPropagation()}
-          >
+          <Pressable style={styles.sheetCard} onPress={e => e.stopPropagation()}>
             <View style={styles.sheetHeader}>
               <View>
                 <Text style={styles.sheetTitle}>Assign to Day</Text>
@@ -539,7 +1023,7 @@ export default function GymSplitsScreen() {
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setAssignRoutineTarget(null)}>
-                <Ionicons name="close" size={22} color="#8E8E93" />
+                <Ionicons name="close" size={20} color="#8E8E93" />
               </TouchableOpacity>
             </View>
 
@@ -548,16 +1032,17 @@ export default function GymSplitsScreen() {
                 <TouchableOpacity
                   key={`day-pick-${idx + 1}`}
                   style={styles.dayPickRow}
+                  activeOpacity={0.7}
                   onPress={() => {
                     if (assignRoutineTarget) {
-                      assignRoutineToDay(idx + 1, assignRoutineTarget.id, assignRoutineTarget);
-                      setAssignRoutineTarget(null);
-                      hapticSuccess();
+                      handleAssignRoutineToDay(idx + 1, assignRoutineTarget.id, assignRoutineTarget);
                     }
                   }}
                 >
-                  <Text style={[styles.dayPickName, { color: isDark ? '#FFFFFF' : '#000000' }]}>{dName}</Text>
-                  <Ionicons name="chevron-forward" size={15} color="#A599FF" />
+                  <Text style={styles.dayPickName}>{dName}</Text>
+                  <Text style={styles.dayPickCurrent}>
+                    {resolvedDays[idx]?.planDay.name || 'Rest'}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -565,29 +1050,25 @@ export default function GymSplitsScreen() {
         </Pressable>
       </Modal>
 
-      {/* ── MODAL: TIME SLOT PICKER ── */}
+      {/* ── MODAL: TIME PRESET PICKER ── */}
       <Modal
         visible={timePickerDayIndex !== null}
         transparent
         animationType="fade"
         statusBarTranslucent
-        hardwareAccelerated
         onRequestClose={() => setTimePickerDayIndex(null)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setTimePickerDayIndex(null)}>
-          <Pressable
-            style={[styles.sheetCard, { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : '#FFFFFF' }]}
-            onPress={e => e.stopPropagation()}
-          >
+          <Pressable style={styles.sheetCard} onPress={e => e.stopPropagation()}>
             <View style={styles.sheetHeader}>
               <View>
-                <Text style={styles.sheetTitle}>Gym Time Slot</Text>
+                <Text style={styles.sheetTitle}>Training Time Slot</Text>
                 <Text style={styles.sheetSubtitle}>
                   {timePickerDayIndex !== null ? DAY_NAMES[timePickerDayIndex - 1] : ''} Routine Schedule
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setTimePickerDayIndex(null)}>
-                <Ionicons name="close" size={22} color="#8E8E93" />
+                <Ionicons name="close" size={20} color="#8E8E93" />
               </TouchableOpacity>
             </View>
 
@@ -596,14 +1077,25 @@ export default function GymSplitsScreen() {
                 <TouchableOpacity
                   key={`preset-${preset.time}`}
                   activeOpacity={0.7}
-                  onPress={() => handleSelectTimePreset(preset)}
-                  style={[styles.timePresetRow, { backgroundColor: isDark ? IOS_DARK.bgElevatedInput : '#F2F2F7' }]}
+                  onPress={() => {
+                    if (timePickerDayIndex === null) return;
+                    const targetDay = resolvedDays.find(d => d.dayIndex === timePickerDayIndex);
+                    if (!targetDay) return;
+                    hapticLight();
+                    const updatedPlanDay: GymPlanDay = {
+                      ...targetDay.planDay,
+                      startTime: preset.time,
+                      endTime: preset.end,
+                    };
+                    updateMasterPlan(timePickerDayIndex, updatedPlanDay);
+                    hapticSuccess();
+                    setTimePickerDayIndex(null);
+                  }}
+                  style={styles.timePresetRow}
                 >
                   <View style={styles.timePresetLeft}>
-                    <Ionicons name={preset.icon as any} size={16} color="#A599FF" />
-                    <Text style={[styles.timePresetLabel, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-                      {preset.label}
-                    </Text>
+                    <Ionicons name={preset.icon as any} size={16} color="#FFFFFF" />
+                    <Text style={styles.timePresetLabel}>{preset.label}</Text>
                   </View>
                   <Text style={styles.timePresetValue}>
                     {preset.time} – {preset.end}
@@ -615,77 +1107,6 @@ export default function GymSplitsScreen() {
         </Pressable>
       </Modal>
 
-      {/* ── MODAL: RENAME DAY ── */}
-      <Modal
-        visible={renamingDay !== null}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        hardwareAccelerated
-        onRequestClose={() => setRenamingDay(null)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => setRenamingDay(null)}>
-          <Pressable
-            style={[styles.sheetCard, { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : '#FFFFFF' }]}
-            onPress={e => e.stopPropagation()}
-          >
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Rename {renamingDay?.dayName}</Text>
-              <TouchableOpacity onPress={() => setRenamingDay(null)}>
-                <Ionicons name="close" size={22} color="#8E8E93" />
-              </TouchableOpacity>
-            </View>
-
-            <TextInput
-              style={[styles.renameInput, { color: isDark ? '#FFFFFF' : '#000000' }]}
-              value={renameInput}
-              onChangeText={setRenameInput}
-              placeholder="Routine Title (e.g., Heavy Chest & Delts)"
-              placeholderTextColor="#8E8E93"
-            />
-
-            <TextInput
-              style={[styles.renameInput, { color: isDark ? '#FFFFFF' : '#000000', marginTop: 10 }]}
-              value={renameFocusInput}
-              onChangeText={setRenameFocusInput}
-              placeholder="Focus / Muscle Target"
-              placeholderTextColor="#8E8E93"
-            />
-
-            <TouchableOpacity onPress={handleSaveRename} style={styles.saveRenameBtn}>
-              <Text style={styles.saveRenameBtnText}>Save</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* ── MODAL: AI COACH S.A.R.A ── */}
-      <ZenGymAiModal
-        visible={aiModalVisible}
-        onClose={() => setAiModalVisible(false)}
-        userGymPlan={userGymPlan}
-        onGenerateWorkoutPlan={(planName, exList) => {
-          const newRt: GymRoutine = {
-            id: `rt_${Date.now()}`,
-            name: planName || 'AI Workout',
-            focus: 'AI Optimized Split',
-            subtitle: 'AI Optimized Split',
-            exercises: exList.map(e => ({
-              id: `ex_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-              name: e.name,
-              targetSets: e.sets || 3,
-              targetReps: e.reps || '8–12',
-              muscle: resolveExerciseTargetMuscle(e.name).targetMuscle,
-              restTimeSecs: 90,
-            })),
-            estimatedDurationMins: Math.round(exList.length * 3 * 2.5),
-            updatedAt: Date.now(),
-          };
-          saveCustomRoutine(newRt);
-          Alert.alert('AI Routine Created', `"${planName}" added to your custom routines!`);
-        }}
-      />
-
       {/* ── MODAL: SCHEDULE SETTINGS & ALARMS ── */}
       <GymScheduleSettingsModal
         visible={showScheduleSettings}
@@ -694,41 +1115,69 @@ export default function GymSplitsScreen() {
         onSaveWeekly={updateFullMasterPlan}
       />
 
-      {/* ── MODAL: CURATED TEMPLATES ── */}
-      <GymTemplateModal
-        visible={showTemplateModal}
-        onClose={() => setShowTemplateModal(false)}
-        onApply={(customDays, templateId, templateName) => {
-          updateFullMasterPlan(customDays);
+      {/* ── MODAL: ADD EXERCISE TO PLAN (ALL WEEKS) ── */}
+      <AddExerciseModal
+        visible={showPlanAddModal}
+        onClose={() => setShowPlanAddModal(false)}
+        onAdd={async (newEx: any) => {
+          const canonicalName = getCanonicalExerciseName(newEx.name);
+          const updatedExercises: GymPlanExercise[] = [
+            ...(activeDay.planDay.exercises || []),
+            {
+              id: newEx.exerciseId || `ex_plan_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              name: canonicalName,
+              muscle: resolveExerciseTargetMuscle(canonicalName, newEx.muscle).targetMuscle,
+              targetSets: Number(newEx.targetSets) || 3,
+              targetReps: newEx.targetReps || '8–12',
+              videoId: newEx.videoId,
+              restTimeSecs: newEx.restTimeSecs,
+            },
+          ];
+          const updatedPlanDay: GymPlanDay = {
+            ...activeDay.planDay,
+            exercises: updatedExercises,
+            isRest: false,
+          };
+          await updateMasterPlan(activeDay.dayIndex, updatedPlanDay);
+          hapticSuccess();
+          setShowPlanAddModal(false);
         }}
+        existingExerciseIds={(activeDay.planDay.exercises || []).map(e => e.id || e.name)}
       />
     </SafeAreaView>
   );
 }
 
+// ── Unified Apple iOS HIG Stylesheet ──────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
+    backgroundColor: '#000000',
   },
+  scrollContent: {
+    paddingHorizontal: 6,
+    paddingBottom: 110,
+    gap: 10,
+  },
+
+  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingTop: 4,
-    paddingBottom: 10,
+    paddingBottom: 8,
   },
-  headerTitleCol: {
-    flex: 1,
-  },
-  screenTitle: {
+  headerTitle: {
+    fontSize: 22,
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 26,
-    letterSpacing: -0.5,
+    letterSpacing: -0.3,
+    color: '#FFFFFF',
   },
-  screenSubtitle: {
+  headerSubtitle: {
+    fontSize: 12.5,
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 12,
     color: '#8E8E93',
     marginTop: 2,
   },
@@ -737,225 +1186,654 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  newRoutinePill: {
+  iconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#1C1C1E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 4,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 12,
     paddingVertical: 5.5,
     borderRadius: 999,
   },
-  newRoutinePillText: {
-    fontFamily: FONT_FAMILY.bold,
+  primaryActionText: {
     fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
     color: '#000000',
   },
-  headerIconBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+
+  // Segmented Control (Minimal, Subtle, No Pills)
+  segmentedTrack: {
+    flexDirection: 'row',
+    marginHorizontal: 6,
+    marginBottom: 8,
+    padding: 3,
+    borderRadius: 12,
+    backgroundColor: '#1C1C1E',
+    gap: 2,
+  },
+  segmentBtn: {
+    flex: 1,
+    paddingVertical: 7,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 9,
   },
-  scrollContent: {
-    paddingBottom: 130,
+  segmentBtnActive: {
+    backgroundColor: '#2C2C2E',
   },
-  sectionHeaderRow: {
+  segmentText: {
+    fontSize: 13,
+  },
+  segmentTextActive: {
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  segmentTextInactive: {
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+  },
+
+  // Program Banner in Schedule
+  programBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#1C1C1E',
+    borderRadius: 16,
+    padding: 14,
+  },
+  programPreTitle: {
+    fontSize: 10.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#8E8E93',
+    letterSpacing: 0.6,
+  },
+  programTitle: {
+    fontSize: 17,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+    marginTop: 2,
+  },
+  changeSplitBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  changeSplitBtnText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+
+  // 7-Day Day Selector Strip
+  weekStripCard: {
+    backgroundColor: '#1C1C1E',
+    borderRadius: 16,
+    padding: 10,
+  },
+  dayStripRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 8,
   },
-  sectionTitle: {
-    fontFamily: FONT_FAMILY.bold,
+  dayColBtn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderRadius: 10,
+    gap: 4,
+  },
+  dayColBtnActive: {
+    backgroundColor: '#2C2C2E',
+  },
+  dayColShort: {
     fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+  },
+  dayColShortActive: {
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  dayColDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  todayIndicatorDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#FFFFFF',
+  },
+
+  // Focused Day Card
+  focusedDayCard: {
+    backgroundColor: '#1C1C1E',
+    borderRadius: 16,
+    padding: 14,
+    gap: 10,
+  },
+  focusedDayHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  focusedDayWeekday: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.bold,
     color: '#8E8E93',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
-  createInlineBtn: {
+  todayPill: {
+    backgroundColor: '#2C2C2E',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  todayPillText: {
+    fontSize: 9,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  restoreDefaultPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 10,
-    paddingVertical: 4.5,
+    gap: 4,
+    backgroundColor: 'rgba(255,159,10,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,159,10,0.35)',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: 999,
   },
-  createInlineText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11.5,
-    color: '#000000',
-  },
-  activeSplitCard: {
-    marginHorizontal: 16,
-    borderRadius: 16,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  splitIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: 'rgba(165, 153, 255, 0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  splitTextCol: {
-    flex: 1,
-  },
-  splitBadgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 2,
-  },
-  splitPreTitle: {
-    fontFamily: FONT_FAMILY.bold,
+  restoreDefaultPillText: {
     fontSize: 10,
-    color: '#8E8E93',
-    letterSpacing: 0.6,
-  },
-  splitActiveBadge: {
-    backgroundColor: 'rgba(48, 209, 88, 0.15)',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 3,
-  },
-  splitActiveBadgeText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 9,
-    color: '#30D158',
+    color: '#FF9F0A',
   },
-  splitTitleText: {
+  focusedDayTitle: {
+    fontSize: 18,
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 15,
+    color: '#FFFFFF',
+    marginTop: 2,
   },
-  splitSubText: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11.5,
+  focusedDayFocus: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
     color: '#8E8E93',
     marginTop: 2,
   },
-  emptyRoutinesSlimCard: {
-    marginHorizontal: 16,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+  timeSlotPill: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#2C2C2E',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
-  emptyRoutinesSlimText: {
+  timeSlotText: {
+    fontSize: 11.5,
     fontFamily: FONT_FAMILY.medium,
+    color: '#FFFFFF',
+  },
+  hairline: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(84, 84, 88, 0.36)',
+  },
+
+  // Rest Day Display
+  restDayContainer: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+  },
+  restDayTitle: {
+    fontSize: 15,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  restDaySub: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#8E8E93',
+    textAlign: 'center',
+    lineHeight: 17,
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  switchWorkoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#2C2C2E',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+  },
+  switchWorkoutBtnText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+
+  // Exercises List in Focused Day
+  exercisesListWrap: {
+    gap: 8,
+  },
+  exerciseItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  exIndexNum: {
+    width: 18,
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#8E8E93',
+    textAlign: 'center',
+  },
+  exNameText: {
     fontSize: 13,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
   },
-  routineCard: {
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 16,
-    padding: 13,
+  exTargetText: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+    marginTop: 1,
+  },
+  emptyNote: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#8E8E93',
+  },
+  planExDeleteBtn: {
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,69,58,0.1)',
+  },
+  planAddExerciseBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(10,132,255,0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(10,132,255,0.25)',
+    borderStyle: 'dashed',
+    borderRadius: 10,
+    paddingVertical: 9,
+    marginTop: 4,
   },
-  routineCardMain: {
+  planAddExerciseBtnText: {
+    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#0A84FF',
+  },
+
+  // Day Actions Row
+  dayActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingTop: 2,
   },
-  routineTitleCol: {
-    flex: 1,
+  startWorkoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
   },
-  routineName: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 15,
-  },
-  routineSubtitle: {
-    fontFamily: FONT_FAMILY.regular,
+  startWorkoutBtnText: {
     fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#000000',
+  },
+  secondaryDayBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#2C2C2E',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  secondaryDayBtnText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#FFFFFF',
+  },
+
+  // Weekly Volume Overview Card
+  volumeOverviewCard: {
+    backgroundColor: '#1C1C1E',
+    borderRadius: 16,
+    padding: 14,
+    gap: 4,
+  },
+  cardSectionLabel: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#8E8E93',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  cardSubLabel: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#636366',
+    marginTop: 2,
+  },
+  volumeOverviewTotal: {
+    fontSize: 14,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+    marginTop: 2,
+  },
+  volumeOverviewMuscles: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
     color: '#8E8E93',
     marginTop: 2,
   },
-  routineMuscles: {
+
+  // Routines Sub-Tab
+  routinesHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    marginTop: 4,
+  },
+  emptyRoutinesCard: {
+    backgroundColor: '#1C1C1E',
+    borderRadius: 16,
+    padding: 28,
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+  },
+  emptyTitle: {
+    fontSize: 15,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+    marginTop: 4,
+  },
+  routineCard: {
+    backgroundColor: '#1C1C1E',
+    borderRadius: 16,
+    padding: 14,
+    gap: 10,
+  },
+  routineCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  routineName: {
+    fontSize: 16,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  routineSubtitle: {
+    fontSize: 12,
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 11,
-    color: '#A599FF',
-    marginTop: 3,
+    color: '#8E8E93',
+    marginTop: 2,
   },
-  routineRightActions: {
+  assignPillBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  cardAssignBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: 'rgba(165, 153, 255, 0.12)',
-    paddingHorizontal: 8,
+    gap: 4,
+    backgroundColor: '#2C2C2E',
+    paddingHorizontal: 10,
     paddingVertical: 5,
+    borderRadius: 999,
+  },
+  assignPillText: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  routineExList: {
+    gap: 4,
+  },
+  routineExRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  routineExDot: {
+    fontSize: 11,
+    color: '#8E8E93',
+  },
+  routineExName: {
+    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+    flex: 1,
+  },
+  routineExSets: {
+    fontFamily: FONT_FAMILY.regular,
+    color: '#8E8E93',
+  },
+  routineMoreExText: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+    paddingLeft: 10,
+    marginTop: 2,
+  },
+  routineFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 2,
+  },
+  iconSquareBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    backgroundColor: '#2C2C2E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Explore Sub-Tab
+  filterChipsRow: {
+    gap: 6,
+    paddingVertical: 4,
+  },
+  filterChipBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#1C1C1E',
+  },
+  filterChipBtnActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+  },
+  filterChipTextActive: {
+    fontFamily: FONT_FAMILY.bold,
+    color: '#000000',
+  },
+  splitCard: {
+    backgroundColor: '#1C1C1E',
+    borderRadius: 16,
+    padding: 14,
+    gap: 8,
+  },
+  splitHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  splitDaysBadge: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#8E8E93',
+    letterSpacing: 0.5,
+  },
+  splitLevelBadge: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#8E8E93',
+    letterSpacing: 0.5,
+  },
+  splitProgramTitle: {
+    fontSize: 17,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+    marginTop: 2,
+  },
+  activeProgramBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(48, 209, 88, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 6,
   },
-  cardAssignText: {
-    fontFamily: FONT_FAMILY.medium,
+  activeProgramBadgeText: {
     fontSize: 11,
-    color: '#A599FF',
+    fontFamily: FONT_FAMILY.bold,
+    color: '#30D158',
   },
+  applySplitBtn: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 5.5,
+    borderRadius: 999,
+  },
+  applySplitBtnText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#000000',
+  },
+  splitDescription: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#8E8E93',
+    lineHeight: 16,
+  },
+  splitSchedulePreview: {
+    backgroundColor: '#26262A',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 4,
+    gap: 4,
+  },
+  splitScheduleLabel: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#8E8E93',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  splitWorkoutsList: {
+    gap: 3,
+  },
+  splitWorkoutTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  splitWorkoutTagName: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  splitWorkoutTagFocus: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#8E8E93',
+    flex: 1,
+  },
+
+  // Modal Sheets
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    justifyContent: 'flex-end',
   },
   sheetCard: {
-    borderRadius: 18,
-    padding: 16,
+    backgroundColor: '#1C1C1E',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 18,
+    paddingBottom: 36,
+    gap: 12,
   },
   sheetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+    alignItems: 'flex-start',
   },
   sheetTitle: {
+    fontSize: 17,
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 16,
+    color: '#FFFFFF',
   },
   sheetSubtitle: {
-    fontFamily: FONT_FAMILY.regular,
     fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
     color: '#8E8E93',
     marginTop: 2,
   },
   dayPickList: {
-    gap: 2,
+    gap: 6,
+    marginTop: 6,
   },
   dayPickRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(84, 84, 88, 0.15)',
+    backgroundColor: '#2C2C2E',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
   },
   dayPickName: {
-    fontFamily: FONT_FAMILY.bold,
     fontSize: 14,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  dayPickCurrent: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
   },
   timePresetsList: {
     gap: 8,
+    marginTop: 6,
   },
   timePresetRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 10,
+    backgroundColor: '#2C2C2E',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     borderRadius: 10,
   },
   timePresetLeft: {
@@ -964,32 +1842,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   timePresetLabel: {
-    fontFamily: FONT_FAMILY.bold,
     fontSize: 13,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
   },
   timePresetValue: {
-    fontFamily: FONT_FAMILY.medium,
     fontSize: 12,
-    color: '#8E8E93',
-  },
-  renameInput: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 14,
-  },
-  saveRenameBtn: {
-    backgroundColor: '#6C5CE7',
-    borderRadius: 12,
-    paddingVertical: 10,
-    alignItems: 'center',
-    marginTop: 14,
-  },
-  saveRenameBtnText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 14,
-    color: '#FFFFFF',
+    color: '#8E8E93',
   },
 });

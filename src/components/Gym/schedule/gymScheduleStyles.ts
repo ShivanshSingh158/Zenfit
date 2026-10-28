@@ -1,0 +1,167 @@
+import { StyleSheet } from 'react-native';
+import { FONT_FAMILY, FONT_SIZE, SPACE, RADIUS } from '../../../theme/tokens';
+
+export const makeGymScheduleStyles = (colors: any, isDark: boolean = true) =>
+  StyleSheet.create({
+    overlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.82)',
+      justifyContent: 'flex-end',
+    },
+    card: {
+      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
+      borderTopLeftRadius: RADIUS.xxl,
+      borderTopRightRadius: RADIUS.xxl,
+      height: '88%',
+      maxHeight: '92%',
+      borderTopWidth: 0,
+      overflow: 'hidden',
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: SPACE.lg,
+      paddingVertical: 16,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : colors.border,
+    },
+    title: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 18,
+      color: colors.textPrimary,
+    },
+    closeBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    contentContainer: {
+      paddingHorizontal: SPACE.lg,
+      paddingTop: 16,
+      paddingBottom: 36,
+    },
+    description: {
+      fontFamily: FONT_FAMILY.body,
+      fontSize: 13,
+      color: colors.textSecondary,
+      lineHeight: 18,
+      marginBottom: 16,
+    },
+    dayRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7',
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      marginBottom: 8,
+      borderWidth: 0,
+    },
+    dayRowRest: {
+      backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7',
+      borderWidth: 0,
+    },
+    dayIconBox: {
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 12,
+    },
+    dayInfo: {
+      flex: 1,
+      marginRight: 10,
+    },
+    dayName: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 14.5,
+      color: colors.textPrimary,
+    },
+    dayNameRest: {
+      color: colors.textPrimary,
+    },
+    planFocus: {
+      fontFamily: FONT_FAMILY.body,
+      fontSize: 11.5,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    planFocusRest: {
+      color: colors.textSecondary,
+    },
+    timeBlock: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    timeText: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 12,
+      color: colors.textPrimary,
+      textAlign: 'right',
+    },
+    timeSubText: {
+      fontFamily: FONT_FAMILY.body,
+      fontSize: 10,
+      color: colors.textTertiary,
+      textAlign: 'right',
+      marginTop: 1,
+    },
+    notSetText: {
+      fontFamily: FONT_FAMILY.medium,
+      fontSize: 11.5,
+      color: colors.textTertiary,
+    },
+    saveBtn: {
+      backgroundColor: isDark ? '#FFFFFF' : '#000000',
+      borderRadius: 999,
+      paddingVertical: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 12,
+    },
+    saveBtnText: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 14.5,
+      color: isDark ? '#000000' : '#FFFFFF',
+    },
+    editContainer: {
+      paddingBottom: 24,
+    },
+    editHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 16,
+      paddingBottom: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : colors.border,
+    },
+    settingRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 13,
+      paddingHorizontal: 14,
+      backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7',
+      borderRadius: 12,
+      marginBottom: 8,
+      borderWidth: 0,
+    },
+    settingLabel: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 13.5,
+      color: colors.textPrimary,
+    },
+    settingSub: {
+      fontFamily: FONT_FAMILY.body,
+      fontSize: 11,
+      color: colors.textMuted,
+      marginTop: 2,
+    },
+  });

@@ -21,7 +21,11 @@ import { deepSanitize, getMonotonicTimestamp } from '../utils/firebaseUtils';
 import { awardXP } from '../services/xpSystem';
 import { getPreviousExerciseSession, buildExerciseHistoryIndex, normalizeExerciseKey, resolveExerciseTargetMuscle, mergeGymLogMonotonic, getCanonicalExerciseName } from '../utils/gymUtils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { dismissActiveWorkoutNotification } from '../services/activeWorkoutNotificationService';
+import {
+  dismissActiveWorkoutNotification,
+  showWorkoutInProgressNotification,
+  showWorkoutCompletedNotification,
+} from '../services/activeWorkoutNotificationService';
 import { safeWrite } from '../utils/safeWrite';
 import { buildLiveWorkoutWidgetData, saveCachedLiveWorkoutData, updateLiveWorkoutWidget } from '../services/widgetSyncService';
 import { setActiveWorkoutFlag } from '../components/BackgroundNotificationWatcher';
@@ -829,9 +833,20 @@ export function useGymLog(dateStr: string) {
       }
       const updated = { ...prev, exercises, workoutStartTime, updatedAt: Date.now() };
       saveLog(updated);
+      if (updated.workoutStartTime && !updated.completed) {
+        const completedCount = (updated.exercises || []).reduce(
+          (sum: number, ex: any) => sum + (ex.setsLog || []).filter((s: any) => s.completed).length, 0
+        );
+        const name = planDay?.name || resolvePlanDay(userGymPlan, updated.dayPlanIndex ?? planIdx)?.name || 'Workout';
+        showWorkoutInProgressNotification({
+          workoutName: name,
+          completedSets: completedCount,
+          dateStr,
+        }).catch(() => {});
+      }
       return updated;
     });
-  }, [saveLog]);
+  }, [saveLog, planDay, userGymPlan, planIdx, dateStr]);
 
   const toggleSetComplete = useCallback((exerciseIndex: number, setIndex: number) => {
     setLog(prev => {
@@ -860,9 +875,20 @@ export function useGymLog(dateStr: string) {
       }
       const updated = { ...prev, exercises, workoutStartTime, updatedAt: Date.now() };
       saveLog(updated);
+      if (updated.workoutStartTime && !updated.completed) {
+        const completedCount = (updated.exercises || []).reduce(
+          (sum: number, ex: any) => sum + (ex.setsLog || []).filter((s: any) => s.completed).length, 0
+        );
+        const name = planDay?.name || resolvePlanDay(userGymPlan, updated.dayPlanIndex ?? planIdx)?.name || 'Workout';
+        showWorkoutInProgressNotification({
+          workoutName: name,
+          completedSets: completedCount,
+          dateStr,
+        }).catch(() => {});
+      }
       return updated;
     });
-  }, [saveLog]);
+  }, [saveLog, planDay, userGymPlan, planIdx, dateStr]);
 
   const deleteExercise = useCallback((exerciseId: string) => {
     setLog(prev => {
@@ -1128,6 +1154,17 @@ export function useGymLog(dateStr: string) {
       };
       saveLog(updated);
       recordExerciseToLedger(updatedExercise.name, updatedExercise.setsLog, dateStr);
+      if (updated.workoutStartTime && !updated.completed) {
+        const completedCount = (updated.exercises || []).reduce(
+          (sum: number, ex: any) => sum + (ex.setsLog || []).filter((s: any) => s.completed).length, 0
+        );
+        const name = planDay?.name || resolvePlanDay(userGymPlan, updated.dayPlanIndex ?? planIdx)?.name || 'Workout';
+        showWorkoutInProgressNotification({
+          workoutName: name,
+          completedSets: completedCount,
+          dateStr,
+        }).catch(() => {});
+      }
       return updated;
     });
 
@@ -1314,6 +1351,13 @@ export function useGymLog(dateStr: string) {
     // full notification reschedule (cancel all + schedule 50+ alarms) in the background.
     setActiveWorkoutFlag(true);
 
+    const workoutName = planDay?.name || resolvePlanDay(userGymPlan, planIdx)?.name || 'Workout';
+    showWorkoutInProgressNotification({
+      workoutName,
+      completedSets: 0,
+      dateStr,
+    }).catch(() => {});
+
     InteractionManager.runAfterInteractions(() => {
       try {
         const sessionDate = dateStr;
@@ -1403,7 +1447,18 @@ export function useGymLog(dateStr: string) {
       completed: true,
       updatedAt: Date.now(),
     })).catch(() => {});
-    dismissActiveWorkoutNotification().catch(() => {});
+
+    // Show workout completed notification & dismiss persistent ongoing notification
+    const completedSetsCount = (updated.exercises || []).reduce(
+      (sum: number, ex: any) => sum + (ex.setsLog || []).filter((s: any) => s.completed).length, 0
+    );
+    const workoutName = planDay?.name || resolvePlanDay(userGymPlan, updated.dayPlanIndex ?? planIdx)?.name || 'Workout';
+    showWorkoutCompletedNotification({
+      workoutName,
+      completedSets: completedSetsCount,
+      durationMinutes: duration,
+      dateStr: sessionDate,
+    }).catch(() => {});
 
     // PERF FIX: Re-enable scheduling now that workout is done.
     // gym_workout_completed event in BackgroundNotificationWatcher also clears this flag,

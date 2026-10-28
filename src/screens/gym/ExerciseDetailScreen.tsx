@@ -24,8 +24,8 @@ import { autoResolveExerciseVideoId } from '../../services/exerciseVideoResolver
 
 // Extracted Sub-Components & Styles
 import { makeExerciseDetailStyles } from './exerciseDetailStyles';
-import ExercisePastSessions from '../../components/Gym/ExercisePastSessions';
-import ExerciseAnimationCard from '../../components/Gym/ExerciseAnimationCard';
+import ExercisePastSessions from '../../components/Gym/exercise/ExercisePastSessions';
+import ExerciseAnimationCard from '../../components/Gym/exercise/ExerciseAnimationCard';
 
 const ALL_CANONICAL_KEYS = Object.keys(MUSCLE_CANONICAL);
 
@@ -55,30 +55,31 @@ export default function ExerciseDetailScreen() {
   const { log, updateExercise, deleteExercise } = useGymLog(date);
 
   const currentExercise = useMemo(() => {
+    const targetParamKey = paramName ? normalizeExerciseKey(paramName) : '';
     if (log?.exercises) {
-      const found = log.exercises.find(e => e.exerciseId === exerciseId || (paramName && e.name === paramName));
+      const found = log.exercises.find(e => e.exerciseId === exerciseId || (paramName && (e.name === paramName || (targetParamKey && normalizeExerciseKey(e.name) === targetParamKey))));
       if (found) return found;
     }
     if (dayIndex && userGymPlan?.customDays?.[dayIndex]?.exercises) {
-      const found = userGymPlan.customDays[dayIndex].exercises.find((e: any) => e.id === exerciseId || (paramName && e.name === paramName));
+      const found = userGymPlan.customDays[dayIndex].exercises.find((e: any) => e.id === exerciseId || (paramName && (e.name === paramName || (targetParamKey && normalizeExerciseKey(e.name) === targetParamKey))));
       if (found) return found;
     }
     if (userGymPlan?.customDays) {
       for (const d of Object.values(userGymPlan.customDays)) {
-        const found = d?.exercises?.find((e: any) => e.id === exerciseId || (paramName && e.name === paramName));
+        const found = d?.exercises?.find((e: any) => e.id === exerciseId || (paramName && (e.name === paramName || (targetParamKey && normalizeExerciseKey(e.name) === targetParamKey))));
         if (found) return found;
       }
     }
     for (const day of GYM_PLAN) {
-      const found = day.exercises.find(e => e.id === exerciseId || (paramName && e.name === paramName));
+      const found = day.exercises.find(e => e.id === exerciseId || (paramName && (e.name === paramName || (targetParamKey && normalizeExerciseKey(e.name) === targetParamKey))));
       if (found) return found;
     }
     for (const day of GYM_PLAN_ARNOLD) {
-      const found = day.exercises.find(e => e.id === exerciseId || (paramName && e.name === paramName));
+      const found = day.exercises.find(e => e.id === exerciseId || (paramName && (e.name === paramName || (targetParamKey && normalizeExerciseKey(e.name) === targetParamKey))));
       if (found) return found;
     }
     const dbFound = EXERCISE_DATABASE.find(
-      e => e.id === exerciseId || (paramName && (e.name === paramName || e.aliases?.includes(paramName)))
+      e => e.id === exerciseId || (paramName && (e.name === paramName || (targetParamKey && normalizeExerciseKey(e.name) === targetParamKey) || e.aliases?.includes(paramName)))
     );
     if (dbFound) {
       return {
@@ -227,11 +228,12 @@ export default function ExerciseDetailScreen() {
     const exName = name || currentExercise?.name || 'this exercise';
     Alert.alert(
       'Remove Exercise',
-      `How would you like to remove "${exName}"?`,
+      `Remove "${exName}" from today's workout? This removes it for today only and keeps your weekly plan unchanged.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Today Only',
+          text: 'Remove from Today',
+          style: 'destructive',
           onPress: () => {
             if (!log) return;
             const found = log.exercises.find(e => e.exerciseId === exerciseId);
@@ -241,37 +243,10 @@ export default function ExerciseDetailScreen() {
               navigation.goBack();
             }
           }
-        },
-        {
-          text: 'Today & All Future Days',
-          style: 'destructive',
-          onPress: async () => {
-            if (!log) return;
-            const found = log.exercises.find(e => e.exerciseId === exerciseId);
-            if (found) {
-              hapticMedium();
-              deleteExercise(exerciseId);
-
-              if (date) {
-                const planIdx = planDayIndexForDate(date);
-                const currentMasterDay = getCustomPlanDay(userGymPlan?.customDays, planIdx) || GYM_PLAN.find(d => d.dayIndex === planIdx);
-                if (currentMasterDay) {
-                  const targetName = (exName || '').toLowerCase().trim();
-                  const updatedExercises = currentMasterDay.exercises.filter((e: any) => {
-                    const isIdMatch = (e.id && e.id === exerciseId) || (e.exerciseId && e.exerciseId === exerciseId);
-                    const isNameMatch = targetName && (e.name || '').toLowerCase().trim() === targetName;
-                    return !(isIdMatch || isNameMatch);
-                  });
-                  await updateMasterPlan(planIdx, { ...currentMasterDay, exercises: updatedExercises });
-                }
-              }
-              navigation.goBack();
-            }
-          }
         }
       ]
     );
-  }, [name, currentExercise?.name, log, exerciseId, date, userGymPlan, updateMasterPlan, deleteExercise, navigation]);
+  }, [name, currentExercise?.name, log, exerciseId, deleteExercise, navigation]);
 
   const handleSave = useCallback(async () => {
     if (!currentExercise) {

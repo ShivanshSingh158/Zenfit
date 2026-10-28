@@ -23,8 +23,8 @@ import { useTheme } from '../../contexts/ThemeContext';
 
 // Extracted Sub-Components & Styles
 import { makeExerciseSwapStyles } from './exerciseSwapStyles';
-import TemplateSwapCard from '../../components/Gym/TemplateSwapCard';
-import AiSwapCard from '../../components/Gym/AiSwapCard';
+import TemplateSwapCard from '../../components/Gym/ai/TemplateSwapCard';
+import AiSwapCard from '../../components/Gym/ai/AiSwapCard';
 
 export interface AiSwapRecommendation {
   id: string;

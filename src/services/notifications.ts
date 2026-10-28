@@ -15,7 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { GymLog } from '../contexts/MobileDataContext';
 import { UserGymPlanDoc } from '../types/gym.types';
-import { planDayIndexForDate, resolvePlanDay } from '../data/gymPlan';
+import { GYM_PLAN, planDayIndexForDate, resolvePlanDay } from '../data/gymPlan';
 import { formatLocalDateStr } from '../utils/dateUtils';
 import {
   ensureNotificationChannels,
@@ -29,6 +29,8 @@ import {
   GYM_WORKOUT_POOLS,
   GYM_REST_DAY_TITLES,
   GYM_REST_DAY_POOLS,
+  getWeeklyPerformanceTier,
+  getWeeklyReportNotificationCopy,
 } from './notificationPools';
 
 export { requestNotificationPermissions, ensureNotificationChannels, PRIORITY, ALARM_CAP };
@@ -126,6 +128,55 @@ export interface ScheduleParams {
   holidays?: any[];
 }
 
+function computeWeeklyTrainingSummary(
+  gymLogs: GymLog[],
+  userGymPlan: UserGymPlanDoc | null,
+  restDateStr: string
+) {
+  const anchor = new Date(restDateStr + 'T12:00:00');
+  const past7Dates = new Set<string>();
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(anchor);
+    d.setDate(d.getDate() - i);
+    past7Dates.add(formatLocalDateStr(d));
+  }
+
+  const logsInWindow = (gymLogs || []).filter(l => l?.date && past7Dates.has(l.date.slice(0, 10)));
+  const completedLogs = logsInWindow.filter(l => l.completed || (Array.isArray(l.exercises) && l.exercises.length > 0));
+  const completedSessions = completedLogs.length;
+
+  let totalSets = 0;
+  let totalVolumeKg = 0;
+  for (const log of completedLogs) {
+    for (const ex of log.exercises || []) {
+      if ((ex as any).skipped) continue;
+      for (const s of ex.setsLog || []) {
+        if (s.completed && !s.isWarmup) {
+          totalSets++;
+          totalVolumeKg += (Number(s.weight) || 0) * (Number(s.reps) || 0);
+        }
+      }
+    }
+  }
+
+  let plannedWorkoutDays = 0;
+  for (let i = 1; i <= 7; i++) {
+    const day = userGymPlan?.customDays?.[i] || GYM_PLAN.find(p => p.dayIndex === i);
+    if (day && !day.isRest) plannedWorkoutDays++;
+  }
+  if (plannedWorkoutDays === 0) plannedWorkoutDays = 4;
+
+  const tier = getWeeklyPerformanceTier(completedSessions, totalSets, totalVolumeKg, plannedWorkoutDays);
+
+  return {
+    completedSessions,
+    totalSets,
+    totalVolumeKg,
+    plannedWorkoutDays,
+    tier,
+  };
+}
+
 // ── Single Source of Truth Scheduler ──────────────────────────────────────────
 
 export async function scheduleAllNotifications(params: ScheduleParams): Promise<void> {
@@ -187,7 +238,7 @@ export async function scheduleGymNotifications(params: ScheduleParams): Promise<
     // 6. Cancel existing scheduled gym reminders (leave active rest timers intact)
     const alarmsToCancel = existingAlarms.filter(a => {
       const id = a.identifier || '';
-      return id.startsWith('gym_workout_') || id.startsWith('gym_rest_') || id.startsWith('gym_inactivity_');
+      return id.startsWith('gym_workout_') || id.startsWith('gym_rest_') || id.startsWith('gym_inactivity_') || id.startsWith('gym_weekly_report_');
     });
 
     await Promise.all(
@@ -224,7 +275,17 @@ export async function scheduleGymNotifications(params: ScheduleParams): Promise<
 
       const planIdx = planDayIndexForDate(dateStr);
       const planDay = resolvePlanDay(userGymPlan, planIdx);
-      const triggerTime = dateAtHM(targetDate, hours, minutes);
+
+      // Extract day-specific scheduled time (e.g. from customDays[planIdx].startTime)
+      let dayHours = hours;
+      let dayMinutes = minutes;
+      const scheduledTimeStr = planDay?.startTime || userGymPlan?.customDays?.[planIdx]?.startTime;
+      if (scheduledTimeStr) {
+        const parsed = parseTimeString(scheduledTimeStr);
+        dayHours = parsed.hours;
+        dayMinutes = parsed.minutes;
+      }
+      const triggerTime = dateAtHM(targetDate, dayHours, dayMinutes);
 
       // Only schedule if trigger time is in the future
       if (triggerTime.getTime() <= now.getTime()) {
@@ -267,32 +328,94 @@ export async function scheduleGymNotifications(params: ScheduleParams): Promise<
 
         scheduledCount++;
       } else if (planDay && planDay.isRest && restDayEnabled) {
-        // Rest & Recovery Day Notification
-        const title = getRandomMessage(GYM_REST_DAY_TITLES);
-        const body = getRandomMessage(GYM_REST_DAY_POOLS());
+        // Compute user's actual weekly performance leading into this rest day
+        const summary = computeWeeklyTrainingSummary(gymLogs, userGymPlan, dateStr);
 
-        await Notifications.scheduleNotificationAsync({
-          identifier: `gym_rest_${dateStr}`,
-          content: {
-            title,
-            body,
-            sound: 'default',
-            priority: Notifications.AndroidNotificationPriority.HIGH,
-            data: {
-              type: 'gym_rest',
-              dateStr,
+        // Pseudo-random deterministic daytime time (between 10:30 AM and 12:15 PM)
+        let hash = 0;
+        for (let i = 0; i < dateStr.length; i++) {
+          hash = ((hash << 5) - hash) + dateStr.charCodeAt(i);
+          hash |= 0;
+        }
+        const absHash = Math.abs(hash);
+        const randHour = 10 + (absHash % 2); // 10 or 11
+        const randMin = 15 + (absHash % 45); // 15 to 59 (e.g. 10:37 AM, 11:22 AM)
+        const primaryTriggerTime = dateAtHM(targetDate, randHour, randMin);
+
+        // Follow-up reminder: 4.5 hours later (between 3:00 PM and 4:45 PM on that same rest day)
+        const followUpTriggerTime = new Date(primaryTriggerTime.getTime() + (4 * 60 + 30) * 60 * 1000);
+
+        // 1. Primary Weekly Report Notification (tailored to whether user worked hard, good, or light)
+        if (primaryTriggerTime.getTime() > now.getTime()) {
+          const primaryCopy = getWeeklyReportNotificationCopy({
+            tier: summary.tier,
+            completedSessions: summary.completedSessions,
+            totalSets: summary.totalSets,
+            totalVolumeKg: summary.totalVolumeKg,
+            isFollowUp: false,
+          });
+
+          await Notifications.scheduleNotificationAsync({
+            identifier: `gym_weekly_report_${dateStr}`,
+            content: {
+              title: primaryCopy.title,
+              body: primaryCopy.body,
+              sound: 'default',
+              priority: Notifications.AndroidNotificationPriority.HIGH,
+              data: {
+                type: 'weekly_report',
+                dateStr,
+                isFollowUp: false,
+              },
+              categoryIdentifier: 'gym_weekly_report',
             },
-          },
-          trigger: {
-            type: Notifications.SchedulableTriggerInputTypes.DATE,
-            date: triggerTime,
-            channelId: 'gym_recovery',
-          },
-        }).catch(err => {
-          console.warn(`[Notifications] Failed to schedule rest day reminder for ${dateStr}:`, err);
-        });
+            trigger: {
+              type: Notifications.SchedulableTriggerInputTypes.DATE,
+              date: primaryTriggerTime,
+              channelId: 'gym_recovery',
+            },
+          }).catch(err => {
+            console.warn(`[Notifications] Failed to schedule weekly report reminder for ${dateStr}:`, err);
+          });
 
-        scheduledCount++;
+          scheduledCount++;
+        }
+
+        // 2. Follow-Up Reminder Notification (4-5 hours later, different message copy)
+        if (followUpTriggerTime.getTime() > now.getTime()) {
+          const followUpCopy = getWeeklyReportNotificationCopy({
+            tier: summary.tier,
+            completedSessions: summary.completedSessions,
+            totalSets: summary.totalSets,
+            totalVolumeKg: summary.totalVolumeKg,
+            isFollowUp: true,
+          });
+
+          await Notifications.scheduleNotificationAsync({
+            identifier: `gym_weekly_report_reminder_${dateStr}`,
+            content: {
+              title: followUpCopy.title,
+              body: followUpCopy.body,
+              sound: 'default',
+              priority: Notifications.AndroidNotificationPriority.HIGH,
+              data: {
+                type: 'weekly_report',
+                dateStr,
+                isFollowUp: true,
+              },
+              categoryIdentifier: 'gym_weekly_report',
+            },
+            trigger: {
+              type: Notifications.SchedulableTriggerInputTypes.DATE,
+              date: followUpTriggerTime,
+              channelId: 'gym_recovery',
+            },
+          }).catch(err => {
+            console.warn(`[Notifications] Failed to schedule weekly report follow-up for ${dateStr}:`, err);
+          });
+
+          scheduledCount++;
+        }
       }
     }
 

@@ -37,8 +37,8 @@ import { GYM_PLAN, resolvePlanDay } from '../../data/gymPlan';
 import { makeStyles } from './gymHomeStyles';
 
 // ─── Core Frame-0 Components (Rendered directly on Today's active workout surface) ───
-import GymWorkoutBanner from '../../components/Gym/GymWorkoutBanner';
-import GymExerciseDraggableRow from '../../components/Gym/GymExerciseDraggableRow';
+import GymWorkoutBanner from '../../components/Gym/active/GymWorkoutBanner';
+import GymExerciseDraggableRow from '../../components/Gym/exercise/GymExerciseDraggableRow';
 
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -126,6 +126,24 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     }
     return dates;
   }, [weekOffset, today]);
+
+  const weekMonthYearText = useMemo(() => {
+    if (weekDates.length === 0) return '';
+    try {
+      const [y1, m1] = weekDates[0].split('-');
+      const [y2, m2] = weekDates[6].split('-');
+      const d1 = new Date(Number(y1), Number(m1) - 1, 1);
+      const mName1 = MONTHS_SHORT[d1.getMonth()];
+      if (m1 === m2) {
+        return `${mName1.toUpperCase()} ${y1}`;
+      }
+      const d2 = new Date(Number(y2), Number(m2) - 1, 1);
+      const mName2 = MONTHS_SHORT[d2.getMonth()];
+      return `${mName1.toUpperCase()} – ${mName2.toUpperCase()} ${y2}`;
+    } catch {
+      return '';
+    }
+  }, [weekDates]);
 
   // Formatted date strings for Compact Structural Header (0ms static lookup; zero ICU bridge overhead)
   const { headerTitleText, headerDateText } = useMemo(() => {
@@ -385,56 +403,53 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
 
   return (
     <View style={s.root}>
-      {/* ─── 1. COMPACT STRUCTURAL HEADER (Zero wasted vertical space) ─────────── */}
+      {/* ─── 1. COMPACT APPLE HIG HEADER ─────────────────────────────────────── */}
       <View style={[s.headerContainer, { paddingTop: insets.top + 4 }]}>
         <View style={s.headerRow}>
           <View style={s.headerTitleGroup}>
             <Text style={s.headerTitle}>{headerTitleText}</Text>
-            <Text style={s.headerDateBadge}>{headerDateText}</Text>
+            <Text style={s.headerSubtitle} numberOfLines={1}>
+              {headerDateText} · {routineTitle}
+            </Text>
           </View>
 
-          {/* Plain Icon Buttons (20px, no pill wrappers) */}
           <View style={s.headerActions}>
             <TouchableOpacity
               style={s.plainIconBtn}
               onPress={() => {
                 hapticLight();
-                setShowAddModal(true);
-              }}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name="add"
-                size={22}
-                color={isDark ? IOS_DARK.accent : colors.accentPrimary}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={s.plainIconBtn}
-              onPress={() => {
                 setShowSwapModal(true);
               }}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               activeOpacity={0.7}
             >
               <Ionicons
                 name="swap-horizontal-outline"
-                size={20}
-                color={isDark ? IOS_DARK.labelSecondary : colors.textSecondary}
+                size={16}
+                color={isDark ? '#FFFFFF' : '#000000'}
               />
             </TouchableOpacity>
 
             <TouchableOpacity
               style={s.plainIconBtn}
               onPress={() => {
+                hapticLight();
                 setShowAiModal(true);
               }}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               activeOpacity={0.7}
             >
-              <Ionicons name="sparkles" size={20} color={IOS_DARK.accent} />
+              <Ionicons name="sparkles" size={15} color={isDark ? '#FFFFFF' : '#000000'} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={s.primaryActionBtn}
+              onPress={() => {
+                hapticLight();
+                setShowAddModal(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add" size={14} color={isDark ? '#000000' : '#FFFFFF'} />
+              <Text style={s.primaryActionText}>Add</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -451,56 +466,90 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* WEEK CALENDAR STRIP: Pure typography, no border boxes around days */}
-        <View style={s.weekStrip}>
-          <TouchableOpacity
-            onPress={() => {
-              setWeekOffset(prev => prev - 1);
-              setSelectedDate(prev => dateStrOffset(-7, prev));
-            }}
-            style={s.weekNavBtn}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Ionicons name="chevron-back" size={17} color={isDark ? IOS_DARK.labelSecondary : colors.textTertiary} />
-          </TouchableOpacity>
+        {/* WEEK CALENDAR STRIP: Apple Inset Grouped Card with Real-time Status Dots */}
+        <View style={s.weekStripCard}>
+          <View style={s.weekStripHeaderRow}>
+            <Text style={s.weekStripMonthText}>{weekMonthYearText}</Text>
+            <View style={s.weekNavBtns}>
+              {selectedDate !== today && (
+                <TouchableOpacity
+                  onPress={() => {
+                    hapticLight();
+                    setWeekOffset(0);
+                    setSelectedDate(today);
+                  }}
+                  style={s.weekTodayBtn}
+                  activeOpacity={0.7}
+                >
+                  <Text style={s.weekTodayBtnText}>Today</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                onPress={() => {
+                  hapticLight();
+                  setWeekOffset(prev => prev - 1);
+                  setSelectedDate(prev => dateStrOffset(-7, prev));
+                }}
+                style={s.weekNavBtn}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="chevron-back" size={14} color={isDark ? '#FFFFFF' : '#000000'} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  hapticLight();
+                  setWeekOffset(prev => prev + 1);
+                  setSelectedDate(prev => dateStrOffset(7, prev));
+                }}
+                style={s.weekNavBtn}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="chevron-forward" size={14} color={isDark ? '#FFFFFF' : '#000000'} />
+              </TouchableOpacity>
+            </View>
+          </View>
 
           <View style={s.weekDaysContainer}>
             {weekDates.map(date => {
               const isSelected = date === selectedDate;
+              const isToday = date === today;
               const [yyyy, mm, dd] = date.split('-');
               const dateObj = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
               const dateNum = dateObj.getDate();
-              const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-              const dateDay = days[dateObj.getDay()];
+              const dayOfWeek = dateObj.getDay();
+              const dateDay = DAYS_SHORT[dayOfWeek];
+
+              // Determine workout status dot for this day
+              const logForDay = (gymLogs || []).find((l: any) => l.date === date);
+              const isDone = Boolean(logForDay?.completed);
+              const planDayIdx = dayOfWeek === 0 ? 7 : dayOfWeek;
+              const customDay = userGymPlan?.customDays?.[planDayIdx];
+              const isRest = customDay ? Boolean(customDay.isRest) : (planDayIdx === 7);
+
+              const dotColor = isDone
+                ? '#30D158'
+                : isRest
+                ? '#48484A'
+                : (isToday ? '#FF9F0A' : '#636366');
 
               return (
                 <TouchableOpacity
                   key={date}
-                  style={s.dayCol}
+                  style={[s.dayCol, isSelected && s.dayColActive]}
                   onPress={() => {
+                    hapticLight();
                     setSelectedDate(date);
                   }}
                   activeOpacity={0.7}
                 >
                   <Text style={[s.dayLetter, isSelected && s.dayLetterActive]}>{dateDay}</Text>
-                  <View style={[s.dayPill, isSelected && s.dayPillActive]}>
-                    <Text style={[s.dayNum, isSelected && s.dayNumActive]}>{dateNum}</Text>
-                  </View>
+                  <Text style={[s.dayNum, isSelected && s.dayNumActive]}>{dateNum}</Text>
+                  <View style={[s.dayDot, { backgroundColor: dotColor }]} />
+                  {isToday && <View style={s.dayTodayDot} />}
                 </TouchableOpacity>
               );
             })}
           </View>
-
-          <TouchableOpacity
-            onPress={() => {
-              setWeekOffset(prev => prev + 1);
-              setSelectedDate(prev => dateStrOffset(7, prev));
-            }}
-            style={s.weekNavBtn}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Ionicons name="chevron-forward" size={17} color={isDark ? IOS_DARK.labelSecondary : colors.textTertiary} />
-          </TouchableOpacity>
         </View>
 
         {isEffectiveRest ? (
@@ -544,21 +593,11 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
                   hapticLight();
                   setShowAddModal(true);
                 }}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  borderRadius: 10,
-                  backgroundColor: isDark ? IOS_DARK.bgElevatedInput : '#F2F2F7',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-                activeOpacity={0.7}
+                style={s.primaryActionBtn}
+                activeOpacity={0.8}
               >
-                <Ionicons name="add" size={14} color={isDark ? IOS_DARK.labelPrimary : colors.textPrimary} />
-                <Text style={{ fontSize: 12, fontFamily: FONT_FAMILY.bold, color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary }}>
-                  Log
-                </Text>
+                <Ionicons name="add" size={14} color={isDark ? '#000000' : '#FFFFFF'} />
+                <Text style={s.primaryActionText}>Log Workout</Text>
               </TouchableOpacity>
             </View>
 
@@ -718,7 +757,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
                     setShowCardioModal(true);
                   }}
                 >
-                  <Ionicons name="add" size={14} color={isDark ? IOS_DARK.accent : colors.accentPrimary} />
+                  <Ionicons name="add" size={14} color={isDark ? '#000000' : '#FFFFFF'} />
                   <Text style={s.sectionActionText}>Add</Text>
                 </TouchableOpacity>
               </View>
@@ -853,16 +892,17 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       })()}
 
       {showAddModal && (() => {
-        const { AddExerciseModal } = require('../../components/Gym/AddExerciseModal');
+        const AddExMod = require('../../components/Gym/AddExerciseModal');
+        const AddExerciseModalComponent = AddExMod.AddExerciseModal || AddExMod.default || AddExMod;
+        if (!AddExerciseModalComponent) return null;
         return (
-          <AddExerciseModal
+          <AddExerciseModalComponent
             visible={showAddModal}
             onClose={() => setShowAddModal(false)}
             onAdd={(newEx: any) => {
               addExercise(newEx);
               setShowAddModal(false);
             }}
-            planDay={activePlanDay}
             existingExerciseIds={existingExerciseIds}
           />
         );

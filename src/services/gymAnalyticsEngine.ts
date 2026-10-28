@@ -24,6 +24,7 @@ import {
   resolveExerciseTargetMuscle,
   normalizeExerciseKey,
   getVolumeMultiplier,
+  formatIndianDatePretty,
 } from '../utils/gymUtils';
 import { computeOrGetHotCache, generateDatasetFingerprint } from '../utils/hotCacheStore';
 import { dateStrOffset, todayStr } from '../data/gymPlan';
@@ -122,6 +123,83 @@ export interface SessionCardItem {
   topAnchorSets: Array<{ exerciseName: string; weight: number; reps: number; label: string }>;
 }
 
+export interface WeeklyTrendItem {
+  weekLabel: string;
+  startMonday: string;
+  endSunday: string;
+  workoutCount: number;
+  totalVolumeKg: number;
+  cardioMinutes: number;
+  isCurrentWeek: boolean;
+}
+
+export interface DetailedSessionExercise {
+  name: string;
+  muscle?: string;
+  workingSets: Array<{ setNumber: number; weight: number; reps: number; completed: boolean; rir?: number }>;
+  summaryText: string;
+}
+
+export interface DetailedSessionLog {
+  id: string;
+  date: string;
+  formattedDate: string;
+  splitTag: 'Push' | 'Pull' | 'Legs' | 'Upper' | 'Lower' | 'Full Body' | 'Cardio' | 'Session';
+  durationMinutes: number;
+  totalVolumeKg: number;
+  totalSets: number;
+  exerciseCount: number;
+  exercises: DetailedSessionExercise[];
+  cardio: Array<{ type: string; durationMinutes: number | null; distanceKm: number | null; calories: number | null }>;
+  notes?: string;
+}
+
+export interface ExerciseTimelineSession {
+  date: string;
+  shortDate: string;
+  topWeight: number;
+  topReps: number;
+  sessionVolume: number;
+  workingSetsCount: number;
+  sets: Array<{ setNumber: number; weight: number; reps: number; rir?: number }>;
+}
+
+export interface ExerciseHistoryProfile {
+  name: string;
+  category: string;
+  muscle: string;
+  totalSessions: number;
+  firstLoggedDate: string;
+  lastLoggedDate: string;
+  allTimeBestWeight: number;
+  allTimeBestReps: number;
+  allTimeBestVolume: number;
+  sessions: ExerciseTimelineSession[];
+  progressionStatus: {
+    status: 'progressing' | 'consolidating' | 'stalled' | 'baseline';
+    message: string;
+    deltaWeight: number;
+    deltaReps: number;
+  };
+}
+
+export interface WeeklyMuscleVolumeRow {
+  muscle: string;
+  directSets: number;
+  targetSets: number;
+  color: string;
+}
+
+export interface WeeklySummaryKPIs {
+  workoutsThisWeek: number;
+  volumeThisWeekKg: number;
+  trainingDurationMins: number;
+  cardioMinutes: number;
+  cardioDistanceKm: number;
+  avgWorkoutsPerWeek: number;
+  currentStreak: number;
+}
+
 export interface UnifiedAnalyticsData {
   allExercisePRs: ExercisePRSummary[];
   anchorLifts: {
@@ -140,6 +218,11 @@ export interface UnifiedAnalyticsData {
   };
   pinnedLifts: PinnedLiftSummary[];
   sessionCards: SessionCardItem[];
+  weeklyTrends: WeeklyTrendItem[];
+  exerciseProfiles: ExerciseHistoryProfile[];
+  detailedLogs: DetailedSessionLog[];
+  muscleWeeklySets: WeeklyMuscleVolumeRow[];
+  weeklySummary: WeeklySummaryKPIs;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -649,6 +732,339 @@ export function computeUnifiedAnalytics(gymLogs: GymDayLog[]): UnifiedAnalyticsD
     // Reverse sessionCards so newest workouts appear at the top of Workout Logs
     sessionCards.reverse();
 
+    // ── Detailed Session Logs (Comprehensive Workout Diary) ──
+    const detailedLogs: DetailedSessionLog[] = [];
+    for (const log of chronoLogs) {
+      const splitTag = determineWorkoutSplit(log.exercises || []);
+      const exList: DetailedSessionExercise[] = [];
+      let sessVolume = 0;
+      let sessSets = 0;
+
+      for (const ex of log.exercises || []) {
+        if (ex.skipped || !ex.name) continue;
+        const validSets = (ex.setsLog || []).filter(s => s && s.completed && !s.isWarmup && s.setType !== 'warmup');
+        if (validSets.length === 0) continue;
+
+        const workingSets = validSets.map((s, idx) => ({
+          setNumber: s.setNumber || idx + 1,
+          weight: Number(s.weight ?? (s as any).weightKg) || 0,
+          reps: Number(s.reps) || 0,
+          completed: s.completed,
+          rir: s.rir,
+        }));
+
+        sessSets += workingSets.length;
+        const mult = getVolumeMultiplier(ex.name);
+        for (const ws of workingSets) {
+          sessVolume += ws.weight * ws.reps * mult;
+        }
+
+        const setsPreview = workingSets.slice(0, 3).map(s => `${s.weight > 0 ? `${s.weight}kg` : 'BW'} × ${s.reps}`).join(', ');
+        const summaryText = `${workingSets.length} set${workingSets.length > 1 ? 's' : ''} (${setsPreview}${workingSets.length > 3 ? '...' : ''})`;
+
+        const { canonicalGroup } = resolveExerciseTargetMuscle(ex.name, ex.muscle);
+        exList.push({
+          name: ex.name.trim(),
+          muscle: canonicalGroup,
+          workingSets,
+          summaryText,
+        });
+      }
+
+      const cardioList = (log.cardio || []).filter(c => c && c.completed).map(c => ({
+        type: c.type || 'Cardio',
+        durationMinutes: c.durationMinutes ?? null,
+        distanceKm: c.distanceKm ?? null,
+        calories: c.calories ?? null,
+      }));
+
+      if (exList.length > 0 || cardioList.length > 0) {
+        detailedLogs.push({
+          id: log.id || log.date,
+          date: log.date,
+          formattedDate: formatIndianDatePretty(log.date),
+          splitTag,
+          durationMinutes: log.workoutDurationMinutes || 0,
+          totalVolumeKg: Math.round(sessVolume),
+          totalSets: sessSets,
+          exerciseCount: exList.length,
+          exercises: exList,
+          cardio: cardioList,
+          notes: log.notes?.trim() || undefined,
+        });
+      }
+    }
+    detailedLogs.reverse(); // Newest first
+
+    // ── Exercise History Profiles (Trajectories Over Time) ──
+    const exerciseProfileMap = new Map<string, ExerciseHistoryProfile>();
+
+    for (const log of chronoLogs) {
+      for (const ex of log.exercises || []) {
+        if (ex.skipped || !ex.name) continue;
+        const validSets = (ex.setsLog || []).filter(s => s && s.completed && !s.isWarmup && s.setType !== 'warmup');
+        if (validSets.length === 0) continue;
+
+        const exName = ex.name.trim();
+        const normKey = normalizeExerciseKey(exName);
+        const { canonicalGroup } = resolveExerciseTargetMuscle(exName, ex.muscle);
+        const category = categorizeMuscleGroup(canonicalGroup);
+        const mult = getVolumeMultiplier(exName);
+
+        let prof = exerciseProfileMap.get(normKey);
+        if (!prof) {
+          prof = {
+            name: exName,
+            category,
+            muscle: canonicalGroup,
+            totalSessions: 0,
+            firstLoggedDate: log.date,
+            lastLoggedDate: log.date,
+            allTimeBestWeight: 0,
+            allTimeBestReps: 0,
+            allTimeBestVolume: 0,
+            sessions: [],
+            progressionStatus: {
+              status: 'baseline',
+              message: 'Baseline session logged',
+              deltaWeight: 0,
+              deltaReps: 0,
+            },
+          };
+          exerciseProfileMap.set(normKey, prof);
+        }
+
+        let sessTopWeight = 0;
+        let sessTopReps = 0;
+        let sessVol = 0;
+
+        const sessionSets = validSets.map((s, idx) => {
+          const w = Number(s.weight ?? (s as any).weightKg) || 0;
+          const r = Number(s.reps) || 0;
+          sessVol += w * r * mult;
+          if (w > sessTopWeight || (w === sessTopWeight && r > sessTopReps)) {
+            sessTopWeight = w;
+            sessTopReps = r;
+          }
+          return {
+            setNumber: s.setNumber || idx + 1,
+            weight: w,
+            reps: r,
+            rir: s.rir,
+          };
+        });
+
+        prof.totalSessions += 1;
+        prof.lastLoggedDate = log.date;
+        if (sessTopWeight > prof.allTimeBestWeight) {
+          prof.allTimeBestWeight = sessTopWeight;
+          prof.allTimeBestReps = sessTopReps;
+        }
+        if (sessVol > prof.allTimeBestVolume) {
+          prof.allTimeBestVolume = Math.round(sessVol);
+        }
+
+        prof.sessions.push({
+          date: log.date,
+          shortDate: log.date.slice(5).replace('-', '/'),
+          topWeight: sessTopWeight,
+          topReps: sessTopReps,
+          sessionVolume: Math.round(sessVol),
+          workingSetsCount: sessionSets.length,
+          sets: sessionSets,
+        });
+      }
+    }
+
+    // Compute Progression / Plateau Status for each profile
+    for (const prof of exerciseProfileMap.values()) {
+      const sessLen = prof.sessions.length;
+      if (sessLen <= 1) {
+        prof.progressionStatus = {
+          status: 'baseline',
+          message: 'Baseline session logged',
+          deltaWeight: 0,
+          deltaReps: 0,
+        };
+      } else {
+        const last = prof.sessions[sessLen - 1];
+        const prev = prof.sessions[sessLen - 2];
+        const deltaW = Math.round((last.topWeight - prev.topWeight) * 10) / 10;
+        const deltaR = last.topReps - prev.topReps;
+
+        if (deltaW > 0) {
+          prof.progressionStatus = {
+            status: 'progressing',
+            message: `+${deltaW} kg load added vs last session`,
+            deltaWeight: deltaW,
+            deltaReps: deltaR,
+          };
+        } else if (deltaW === 0 && deltaR > 0) {
+          prof.progressionStatus = {
+            status: 'progressing',
+            message: `+${deltaR} reps added at same weight`,
+            deltaWeight: 0,
+            deltaReps: deltaR,
+          };
+        } else if (sessLen >= 3) {
+          const s1 = prof.sessions[sessLen - 3];
+          const s2 = prof.sessions[sessLen - 2];
+          const s3 = prof.sessions[sessLen - 1];
+          if (s3.topWeight <= s2.topWeight && s2.topWeight <= s1.topWeight && s3.topReps <= s2.topReps) {
+            prof.progressionStatus = {
+              status: 'stalled',
+              message: '3 sessions without weight or rep increase',
+              deltaWeight: deltaW,
+              deltaReps: deltaR,
+            };
+          } else {
+            prof.progressionStatus = {
+              status: 'consolidating',
+              message: 'Volume consolidation at current working load',
+              deltaWeight: deltaW,
+              deltaReps: deltaR,
+            };
+          }
+        } else {
+          prof.progressionStatus = {
+            status: 'consolidating',
+            message: 'Building volume at working load',
+            deltaWeight: deltaW,
+            deltaReps: deltaR,
+          };
+        }
+      }
+    }
+
+    const exerciseProfiles = Array.from(exerciseProfileMap.values()).sort((a, b) => b.totalSessions - a.totalSessions);
+
+    // ── Weekly Trends (Last 8 Weeks) ──
+    const weeklyTrends: WeeklyTrendItem[] = [];
+    const now = new Date();
+    const dayOfWeek = (now.getDay() + 6) % 7; // 0=Mon, 6=Sun
+    const currMonday = new Date(now);
+    currMonday.setDate(now.getDate() - dayOfWeek);
+    currMonday.setHours(0, 0, 0, 0);
+
+    const fmtDateIso = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    for (let i = 7; i >= 0; i--) {
+      const mon = new Date(currMonday);
+      mon.setDate(currMonday.getDate() - i * 7);
+      const sun = new Date(mon);
+      sun.setDate(mon.getDate() + 6);
+
+      const startMonday = fmtDateIso(mon);
+      const endSunday = fmtDateIso(sun);
+      const isCurrentWeek = i === 0;
+
+      const weekLabel = isCurrentWeek
+        ? 'This Wk'
+        : `${MONTH_NAMES[mon.getMonth()]} ${mon.getDate()}`;
+
+      let workoutCount = 0;
+      let totalVolumeKg = 0;
+      let cardioMinutes = 0;
+
+      for (const log of chronoLogs) {
+        if (log.date >= startMonday && log.date <= endSunday) {
+          let hasWork = false;
+          let sessVol = 0;
+          for (const ex of log.exercises || []) {
+            if (ex.skipped) continue;
+            const valid = (ex.setsLog || []).filter(s => s && s.completed && !s.isWarmup);
+            if (valid.length > 0) {
+              hasWork = true;
+              const mult = getVolumeMultiplier(ex.name);
+              for (const ws of valid) {
+                sessVol += (Number(ws.weight) || 0) * (Number(ws.reps) || 0) * mult;
+              }
+            }
+          }
+
+          let sessCardioMins = 0;
+          for (const c of log.cardio || []) {
+            if (c && c.completed) {
+              hasWork = true;
+              sessCardioMins += Number(c.durationMinutes) || 0;
+            }
+          }
+
+          if (hasWork) {
+            workoutCount++;
+            totalVolumeKg += sessVol;
+            cardioMinutes += sessCardioMins;
+          }
+        }
+      }
+
+      weeklyTrends.push({
+        weekLabel,
+        startMonday,
+        endSunday,
+        workoutCount,
+        totalVolumeKg: Math.round(totalVolumeKg),
+        cardioMinutes,
+        isCurrentWeek,
+      });
+    }
+
+    // ── Muscle Weekly Sets Breakdown (Direct Working Sets in Last 7 Days) ──
+    const targetMap: Record<string, number> = {
+      Chest: 14,
+      Back: 16,
+      Shoulders: 14,
+      Quads: 12,
+      'Glutes & Hams': 12,
+      Arms: 14,
+      Core: 8,
+    };
+
+    const muscleWeeklySets: WeeklyMuscleVolumeRow[] = [
+      { muscle: 'Chest', directSets: weeklyDirectSets.Chest || 0, targetSets: targetMap.Chest, color: '#FF6B6B' },
+      { muscle: 'Back', directSets: weeklyDirectSets.Back || 0, targetSets: targetMap.Back, color: '#4DABF7' },
+      { muscle: 'Shoulders', directSets: weeklyDirectSets.Delts || 0, targetSets: targetMap.Shoulders, color: '#9775FA' },
+      { muscle: 'Quads', directSets: weeklyDirectSets.Quads || 0, targetSets: targetMap.Quads, color: '#FF922B' },
+      { muscle: 'Glutes & Hams', directSets: weeklyDirectSets['Glutes & Hams'] || 0, targetSets: targetMap['Glutes & Hams'], color: '#FF7849' },
+      { muscle: 'Arms', directSets: weeklyDirectSets.Arms || 0, targetSets: targetMap.Arms, color: '#38D9A9' },
+    ];
+
+    // Weekly Summary KPIs
+    const currWeekData = weeklyTrends[weeklyTrends.length - 1];
+    const avgWorkoutsPerWeek = weeklyTrends.length > 0
+      ? Math.round((weeklyTrends.reduce((acc, w) => acc + w.workoutCount, 0) / weeklyTrends.length) * 10) / 10
+      : 0;
+
+    let weeklyTrainingDurationMins = 0;
+    let weeklyCardioDistKm = 0;
+    for (const log of chronoLogs) {
+      if (log.date >= sevenDaysAgoStr) {
+        weeklyTrainingDurationMins += Number(log.workoutDurationMinutes) || 0;
+        for (const c of log.cardio || []) {
+          if (c && c.completed) {
+            weeklyCardioDistKm += Number(c.distanceKm) || 0;
+          }
+        }
+      }
+    }
+
+    const weeklySummary: WeeklySummaryKPIs = {
+      workoutsThisWeek: currWeekData?.workoutCount || 0,
+      volumeThisWeekKg: currWeekData?.totalVolumeKg || 0,
+      trainingDurationMins: weeklyTrainingDurationMins,
+      cardioMinutes: currWeekData?.cardioMinutes || 0,
+      cardioDistanceKm: Math.round(weeklyCardioDistKm * 10) / 10,
+      avgWorkoutsPerWeek,
+      currentStreak: 0,
+    };
+
     return {
       allExercisePRs: allSummaries,
       anchorLifts: {
@@ -676,6 +1092,11 @@ export function computeUnifiedAnalytics(gymLogs: GymDayLog[]): UnifiedAnalyticsD
       },
       pinnedLifts,
       sessionCards,
+      weeklyTrends,
+      exerciseProfiles,
+      detailedLogs,
+      muscleWeeklySets,
+      weeklySummary,
     };
   });
 }

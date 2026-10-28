@@ -25,10 +25,10 @@ import {
   EquipmentCategory,
 } from '../../utils/equipmentResolver';
 
-import { VaultEquipmentModal } from '../../components/Gym/VaultEquipmentModal';
-import { VaultMuscleModal } from '../../components/Gym/VaultMuscleModal';
-import { CreateCustomExerciseModal, CustomExerciseItem } from '../../components/Gym/CreateCustomExerciseModal';
-import { AddToDaySheet } from '../../components/Gym/AddToDaySheet';
+import { VaultEquipmentModal } from '../../components/Gym/exercise/VaultEquipmentModal';
+import { VaultMuscleModal } from '../../components/Gym/exercise/VaultMuscleModal';
+import { CreateCustomExerciseModal, CustomExerciseItem } from '../../components/Gym/exercise/CreateCustomExerciseModal';
+import { AddToDaySheet } from '../../components/Gym/schedule/AddToDaySheet';
 
 const CUSTOM_EXERCISES_STORAGE_KEY = '@zenfit_custom_exercises';
 const ITEM_LAYOUT_HEIGHT = 80;

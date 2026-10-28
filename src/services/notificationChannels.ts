@@ -80,6 +80,17 @@ export async function ensureNotificationChannels(): Promise<void> {
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     });
 
+    // 4. Ongoing Workout in Progress (Persistent Notification like Hevy)
+    await Notifications.setNotificationChannelAsync('workout_in_progress', {
+      name: 'Workout in Progress',
+      description: 'Persistent ongoing notification during an active workout session',
+      importance: Notifications.AndroidImportance.LOW,
+      sound: null,
+      enableVibrate: false,
+      showBadge: false,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+
     // 4. Default fallback channel
     await Notifications.setNotificationChannelAsync('default', {
       name: 'ZenFit Notifications',
@@ -128,6 +139,10 @@ export async function requestNotificationPermissions(): Promise<boolean> {
       { identifier: 'WORKOUT_DONE_SET', buttonTitle: '✓ Done Set', options: { opensAppToForeground: false } },
       { identifier: 'WORKOUT_ADD_WEIGHT', buttonTitle: '+2.5kg', options: { opensAppToForeground: false } },
       { identifier: 'WORKOUT_NEXT_EXERCISE', buttonTitle: '⏭ Next', options: { opensAppToForeground: false } },
+    ]);
+
+    await Notifications.setNotificationCategoryAsync('gym_weekly_report', [
+      { identifier: 'VIEW_REPORT', buttonTitle: '📊 View Full Report', options: { opensAppToForeground: true } },
     ]);
 
     if (final !== 'granted') {

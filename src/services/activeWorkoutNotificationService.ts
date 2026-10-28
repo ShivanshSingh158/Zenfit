@@ -1,15 +1,10 @@
-/**
- * activeWorkoutNotificationService.ts — ZenTrack Mobile
- *
- * Persistent Lock Screen Active Workout HUD & Rest Timer Notification.
- * Provides live set tracking, rest countdown, and interactive buttons (+2.5kg, Done Set, Skip Rest)
- * directly on the lockscreen without needing to unlock the phone.
- */
-
 import * as Notifications from 'expo-notifications';
 import { Platform, DeviceEventEmitter } from 'react-native';
+import { requestNotificationPermissions } from './notificationChannels';
 
-const WORKOUT_NOTIFICATION_ID = 'zentrack_active_workout_hud';
+export const WORKOUT_NOTIFICATION_ID = 'zentrack_active_workout_hud';
+export const WORKOUT_IN_PROGRESS_NOTIF_ID = 'zenfit_workout_in_progress';
+export const WORKOUT_COMPLETED_NOTIF_ID = 'zenfit_workout_completed';
 
 export interface ActiveWorkoutNotificationPayload {
   exerciseName: string;
@@ -25,10 +20,7 @@ export interface ActiveWorkoutNotificationPayload {
 let lastNotificationState: ActiveWorkoutNotificationPayload | null = null;
 let isNotificationActive = false;
 
-// ── 2-second debounce for HUD updates ────────────────────────────────────────
-// Every set completion fires updateActiveWorkoutNotification. Without debouncing,
-// rapid taps cause the OS to continuously re-post the notification to the top of
-// the shade and "bump" the lockscreen display. Coalescing to 2s gives a smooth UX.
+// ── 1.5-second debounce for HUD / sets updates ─────────────────────────────
 let _hudUpdateDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let _pendingHudPayload: ActiveWorkoutNotificationPayload | null = null;
 
@@ -39,16 +31,110 @@ function formatRestTime(seconds: number): string {
 }
 
 /**
- * Updates or presents the lock screen active workout / rest timer notification.
- * NOTE: OS notification shade updates for rest timer and set logging are disabled
- * per user preference to prevent notification flooding. In-app floating HUD and audio
- * timer cues remain active.
+ * Shows or updates the ongoing, persistent "Workout in Progress" notification.
+ * This stays pinned on Android (like Hevy / Strava) with sticky: true until the workout ends.
+ */
+export async function showWorkoutInProgressNotification(params: {
+  workoutName?: string;
+  completedSets?: number;
+  totalSets?: number;
+  dateStr?: string;
+}): Promise<void> {
+  try {
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') {
+      const ok = await requestNotificationPermissions();
+      if (!ok) return;
+    }
+
+    const name = params.workoutName || 'Workout';
+    const completedCount = params.completedSets ?? 0;
+    const body = `${name} · ${completedCount} set${completedCount === 1 ? '' : 's'} completed`;
+
+    await Notifications.scheduleNotificationAsync({
+      identifier: WORKOUT_IN_PROGRESS_NOTIF_ID,
+      content: {
+        title: 'Workout in Progress',
+        body,
+        sound: undefined,
+        sticky: true, // Persistent ongoing notification on Android (cannot be swiped away while active)
+        priority: Notifications.AndroidNotificationPriority.LOW,
+        categoryIdentifier: 'active_workout',
+        data: {
+          type: 'ACTIVE_WORKOUT_IN_PROGRESS',
+          date: params.dateStr,
+        },
+      },
+      trigger: Platform.OS === 'android' ? ({ channelId: 'workout_in_progress' } as any) : null,
+    });
+    isNotificationActive = true;
+  } catch (err) {
+    console.warn('[Notification] Failed to present workout in progress notification:', err);
+  }
+}
+
+/**
+ * Shows the "Workout Completed" notification and removes the ongoing persistent notification.
+ * The completion notification is a standard notification that the user can dismiss.
+ */
+export async function showWorkoutCompletedNotification(params: {
+  workoutName?: string;
+  completedSets?: number;
+  durationMinutes?: number;
+  dateStr?: string;
+}): Promise<void> {
+  try {
+    // 1. Dismiss persistent ongoing notification
+    await dismissActiveWorkoutNotification();
+
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') return;
+
+    const name = params.workoutName || 'Workout';
+    const completedCount = params.completedSets ?? 0;
+    const duration = params.durationMinutes ? ` in ${params.durationMinutes}m` : '';
+    const body = `${name} · ${completedCount} sets finished${duration}`;
+
+    // 2. Post clean, normal completion notification (can be swiped away)
+    await Notifications.scheduleNotificationAsync({
+      identifier: WORKOUT_COMPLETED_NOTIF_ID,
+      content: {
+        title: 'Workout Completed',
+        body,
+        sound: 'default',
+        sticky: false, // Standard notification, removable
+        priority: Notifications.AndroidNotificationPriority.DEFAULT,
+        data: {
+          type: 'WORKOUT_COMPLETED',
+          date: params.dateStr,
+        },
+      },
+      trigger: Platform.OS === 'android' ? ({ channelId: 'gym_reminders' } as any) : null,
+    });
+  } catch (err) {
+    console.warn('[Notification] Failed to present workout completed notification:', err);
+  }
+}
+
+/**
+ * Updates or presents the lock screen active workout notification
  */
 export async function updateActiveWorkoutNotification(
-  _payload: ActiveWorkoutNotificationPayload
+  payload: ActiveWorkoutNotificationPayload
 ): Promise<void> {
-  // Always dismiss any lingering lockscreen HUD notification
-  await dismissActiveWorkoutNotification();
+  if (_hudUpdateDebounceTimer) {
+    clearTimeout(_hudUpdateDebounceTimer);
+  }
+  _pendingHudPayload = payload;
+  _hudUpdateDebounceTimer = setTimeout(() => {
+    _hudUpdateDebounceTimer = null;
+    if (_pendingHudPayload) {
+      showWorkoutInProgressNotification({
+        workoutName: _pendingHudPayload.exerciseName,
+        completedSets: _pendingHudPayload.currentSet,
+      });
+    }
+  }, 1200);
 }
 
 /**
@@ -57,13 +143,13 @@ export async function updateActiveWorkoutNotification(
 export async function dismissActiveWorkoutNotification(): Promise<void> {
   isNotificationActive = false;
   lastNotificationState = null;
-  // Cancel any pending debounced update
   if (_hudUpdateDebounceTimer) {
     clearTimeout(_hudUpdateDebounceTimer);
     _hudUpdateDebounceTimer = null;
     _pendingHudPayload = null;
   }
   try {
+    await Notifications.dismissNotificationAsync(WORKOUT_IN_PROGRESS_NOTIF_ID);
     await Notifications.dismissNotificationAsync(WORKOUT_NOTIFICATION_ID);
   } catch {}
 }
@@ -72,11 +158,39 @@ export function isWorkoutNotificationActive(): boolean {
   return isNotificationActive;
 }
 
+/**
+ * Cancels and dismisses any pending weekly report primary or follow-up notifications for this date
+ */
+export async function dismissWeeklyReportFollowUp(dateStr: string): Promise<void> {
+  if (!dateStr) return;
+  try {
+    await Notifications.cancelScheduledNotificationAsync(`gym_weekly_report_reminder_${dateStr}`);
+    await Notifications.dismissNotificationAsync(`gym_weekly_report_reminder_${dateStr}`);
+    await Notifications.cancelScheduledNotificationAsync(`gym_weekly_report_${dateStr}`);
+    await Notifications.dismissNotificationAsync(`gym_weekly_report_${dateStr}`);
+  } catch {}
+}
+
 // ─── Notification Action Handler Listener ────────────────────────────────────
 export function registerActiveWorkoutNotificationListeners() {
   const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
     const actionId = response.actionIdentifier;
-    const notificationData = response.notification.request.content.data;
+    const notificationData = response.notification.request.content.data as any;
+
+    // 1. Weekly Report Notification Click
+    if (notificationData?.type === 'weekly_report' || actionId === 'VIEW_REPORT') {
+      const restDateStr = typeof notificationData?.dateStr === 'string' ? notificationData.dateStr : undefined;
+      if (restDateStr) {
+        dismissWeeklyReportFollowUp(restDateStr).catch(() => {});
+      }
+      try {
+        const { openWeeklyReportScreen } = require('../navigation/navigationService');
+        openWeeklyReportScreen(restDateStr);
+      } catch (e) {
+        DeviceEventEmitter.emit('open_weekly_report', { date: restDateStr });
+      }
+      return;
+    }
 
     if (notificationData?.type !== 'ACTIVE_WORKOUT_HUD' && !actionId.startsWith('WORKOUT_') && !actionId.startsWith('REST_')) {
       return;

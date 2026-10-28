@@ -59,7 +59,6 @@ export function canonicalizeGymRoutine(routine: GymRoutine): GymRoutine {
 
 function canonicalizeUserGymPlan(plan: UserGymPlanDoc | null): UserGymPlanDoc | null {
   if (!plan) return null;
-  if (plan.schemaVersion === 2) return plan;
   const newCustomDays: Record<string, any> = {};
   if (plan.customDays && typeof plan.customDays === 'object') {
     for (const [key, day] of Object.entries(plan.customDays)) {
@@ -67,9 +66,8 @@ function canonicalizeUserGymPlan(plan: UserGymPlanDoc | null): UserGymPlanDoc | 
     }
   }
 
-  let canonicalRoutines: Record<string, GymRoutine> | undefined = undefined;
+  let canonicalRoutines: Record<string, GymRoutine> = {};
   if (plan.routines && typeof plan.routines === 'object') {
-    canonicalRoutines = {};
     for (const [id, rt] of Object.entries(plan.routines)) {
       canonicalRoutines[id] = canonicalizeGymRoutine(rt);
     }
@@ -78,8 +76,8 @@ function canonicalizeUserGymPlan(plan: UserGymPlanDoc | null): UserGymPlanDoc | 
   return {
     ...plan,
     schemaVersion: 2,
-    customDays: newCustomDays,
-    routines: canonicalRoutines || plan.routines,
+    customDays: Object.keys(newCustomDays).length > 0 ? newCustomDays : (plan.customDays || {}),
+    routines: Object.keys(canonicalRoutines).length > 0 ? canonicalRoutines : (plan.routines || {}),
   };
 }
 
@@ -99,7 +97,7 @@ export interface GymPlanContextType {
   updateMasterPlan: (dayIndex: number, planDay: GymPlanDay) => Promise<void>;
   updateFullMasterPlan: (newCustomDays: Record<number, GymPlanDay>) => Promise<void>;
   applyMasterTemplate: (templateId: 'arnold' | 'ppl', schedulePattern?: 'mon_sun' | 'tue_mon' | 'wed_sun' | 'mon_fri') => Promise<Record<number, GymPlanDay> | undefined>;
-  saveCustomRoutine: (routine: GymRoutine) => Promise<void>;
+  saveCustomRoutine: (routine: GymRoutine, assignedDayIndex?: number | null) => Promise<void>;
   deleteCustomRoutine: (routineId: string) => Promise<void>;
   assignRoutineToDay: (dayIndex: number, routineId?: string, routine?: GymRoutine) => Promise<void>;
   saveRoutineFolders: (folders: GymRoutineFolder[]) => Promise<void>;
@@ -455,6 +453,7 @@ export function WellnessProvider({
           const rawPlan = docSnap.exists() ? ({ id: docSnap.id, ...docSnap.data() } as unknown as UserGymPlanDoc) : null;
           const plan = canonicalizeUserGymPlan(rawPlan);
           updateL1Cache('userGymPlan', plan);
+          userGymPlanRef.current = plan;
           setUserGymPlan(prev => {
             if (prev?.id === plan?.id && prev?.updatedAt && plan?.updatedAt && prev.updatedAt === plan.updatedAt) {
               return prev;
@@ -544,18 +543,19 @@ export function WellnessProvider({
   }, [user?.uid, openSubscriptions]);
 
   const updateMasterPlan = useCallback(async (dayIndex: number, planDay: GymPlanDay) => {
-    if (!user) return;
+    const userId = user?.uid || 'local_user';
     const currentPlan = userGymPlanRef.current;
-    const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
     const canonicalDay = canonicalizeGymPlanDay(planDay);
     const newCustomDays = { ...(currentPlan?.customDays || {}), [dayIndex]: canonicalDay };
     const now = Date.now();
     const updatedPlan: UserGymPlanDoc = {
-      id: user.uid,
-      userId: user.uid,
+      ...(currentPlan || { userId }),
+      id: userId,
+      userId,
       schemaVersion: 2,
       templateId: currentPlan?.templateId,
       schedulePattern: currentPlan?.schedulePattern,
+      routines: currentPlan?.routines || {},
       customDays: newCustomDays,
       updatedAt: now,
     };
@@ -565,31 +565,35 @@ export function WellnessProvider({
     InteractionManager.runAfterInteractions(() => {
       writeWellnessCache({ userGymPlan: updatedPlan }, false);
     });
-    const payload = { userId: user.uid, customDays: newCustomDays, updatedAt: now };
-    await safeWrite(
-      () => setDoc(docRef, payload, { merge: true }),
-      COLLECTION.USER_GYM_PLANS,
-      'set',
-      payload,
-      user.uid
-    );
+    if (user) {
+      const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
+      const payload = { userId: user.uid, customDays: newCustomDays, updatedAt: now };
+      await safeWrite(
+        () => setDoc(docRef, payload, { merge: true }),
+        COLLECTION.USER_GYM_PLANS,
+        'set',
+        payload,
+        user.uid
+      );
+    }
   }, [user?.uid]);
 
   const updateFullMasterPlan = useCallback(async (newCustomDays: Record<number, GymPlanDay>) => {
-    if (!user) return;
+    const userId = user?.uid || 'local_user';
     const currentPlan = userGymPlanRef.current;
-    const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
     const canonicalCustomDays: Record<number, GymPlanDay> = {};
     for (const [k, d] of Object.entries(newCustomDays)) {
       canonicalCustomDays[Number(k)] = canonicalizeGymPlanDay(d);
     }
     const now = Date.now();
     const updatedPlan: UserGymPlanDoc = {
-      id: user.uid,
-      userId: user.uid,
+      ...(currentPlan || { userId }),
+      id: userId,
+      userId,
       schemaVersion: 2,
       templateId: currentPlan?.templateId,
       schedulePattern: currentPlan?.schedulePattern,
+      routines: currentPlan?.routines || {},
       customDays: canonicalCustomDays,
       updatedAt: now,
     };
@@ -599,14 +603,17 @@ export function WellnessProvider({
     InteractionManager.runAfterInteractions(() => {
       writeWellnessCache({ userGymPlan: updatedPlan }, false);
     });
-    const payload = { userId: user.uid, customDays: canonicalCustomDays, updatedAt: now };
-    await safeWrite(
-      () => setDoc(docRef, payload, { merge: true }),
-      COLLECTION.USER_GYM_PLANS,
-      'set',
-      payload,
-      user.uid
-    );
+    if (user) {
+      const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
+      const payload = { userId: user.uid, customDays: canonicalCustomDays, updatedAt: now };
+      await safeWrite(
+        () => setDoc(docRef, payload, { merge: true }),
+        COLLECTION.USER_GYM_PLANS,
+        'set',
+        payload,
+        user.uid
+      );
+    }
   }, [user?.uid]);
 
   const applyMasterTemplate = useCallback(async (
@@ -614,6 +621,7 @@ export function WellnessProvider({
     schedulePattern: 'mon_sun' | 'tue_mon' | 'wed_sun' | 'mon_fri' = 'mon_sun'
   ) => {
     if (!user) return;
+    const currentPlan = userGymPlanRef.current;
     const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
     const selectedPlan = templateId === 'ppl' ? GYM_PLAN_PPL : GYM_PLAN_ARNOLD;
 
@@ -655,11 +663,13 @@ export function WellnessProvider({
 
     const now = Date.now();
     const updatedPlan: UserGymPlanDoc = {
+      ...(currentPlan || { userId: user.uid }),
       id: user.uid,
       userId: user.uid,
       schemaVersion: 2,
       templateId,
       schedulePattern,
+      routines: currentPlan?.routines || {},
       customDays: newCustomDays,
       updatedAt: now,
     };
@@ -710,10 +720,8 @@ export function WellnessProvider({
     return newCustomDays;
   }, [user?.uid]);
 
-  const saveCustomRoutine = useCallback(async (routine: GymRoutine) => {
-    if (!user) return;
+  const saveCustomRoutine = useCallback(async (routine: GymRoutine, assignedDayIndex?: number | null) => {
     const currentPlan = userGymPlanRef.current;
-    const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
     const canonical = canonicalizeGymRoutine(routine);
     const existingRoutines = { ...(currentPlan?.routines || {}) };
     existingRoutines[canonical.id] = canonical;
@@ -735,12 +743,31 @@ export function WellnessProvider({
       }
     }
 
+    // Schedule to target day if specified (1 = Mon ... 7 = Sun)
+    if (assignedDayIndex != null && assignedDayIndex >= 1 && assignedDayIndex <= 7) {
+      const existingDay = existingCustomDays[assignedDayIndex];
+      existingCustomDays[assignedDayIndex] = {
+        ...(existingDay || { dayIndex: assignedDayIndex }),
+        dayIndex: assignedDayIndex,
+        routineId: canonical.id,
+        name: canonical.name,
+        subtitle: canonical.subtitle,
+        focus: canonical.focus || canonical.subtitle || 'Strength & Hypertrophy',
+        exercises: canonical.exercises,
+        isRest: false,
+      };
+      daysUpdated = true;
+    }
+
     const now = Date.now();
+    const effectiveUid = user?.uid || currentPlan?.userId || 'local_user';
     const updatedPlan: UserGymPlanDoc = {
-      ...(currentPlan || { userId: user.uid, customDays: {} }),
-      id: user.uid,
-      userId: user.uid,
+      ...(currentPlan || { userId: effectiveUid, customDays: {} }),
+      id: effectiveUid,
+      userId: effectiveUid,
       schemaVersion: 2,
+      templateId: currentPlan?.templateId,
+      schedulePattern: currentPlan?.schedulePattern,
       routines: existingRoutines,
       customDays: existingCustomDays,
       updatedAt: now,
@@ -753,28 +780,61 @@ export function WellnessProvider({
       writeWellnessCache({ userGymPlan: updatedPlan }, false);
     });
 
-    const payload: any = {
-      userId: user.uid,
-      routines: existingRoutines,
-      updatedAt: now,
-    };
-    if (daysUpdated) {
-      payload.customDays = existingCustomDays;
+    // Clear any unstarted active draft or log for the assigned day so it immediately displays the updated routine
+    if (assignedDayIndex != null && assignedDayIndex >= 1 && assignedDayIndex <= 7) {
+      try {
+        const todayObj = new Date();
+        const currentDayOfWeek = todayObj.getDay();
+        const mondayOffset = currentDayOfWeek === 0 ? -6 : 1 - currentDayOfWeek;
+        const monday = new Date(todayObj);
+        monday.setDate(todayObj.getDate() + mondayOffset);
+        const targetDate = new Date(monday);
+        targetDate.setDate(monday.getDate() + (assignedDayIndex - 1));
+        const targetDateStr = formatLocalDateStr(targetDate);
+
+        if (effectiveUid) {
+          AsyncStorage.removeItem(`gym_active_draft_${effectiveUid}_${targetDateStr}`).catch(() => {});
+        }
+        setGymLogs(prev => {
+          const next = prev.filter(l => {
+            if (l.date !== targetDateStr) return true;
+            const hasLoggedSets = (l.exercises || []).some((ex: any) =>
+              (ex.setsLog || []).some((s: any) => s.completed || (s.weight != null && Number(s.weight) > 0) || (s.reps != null && Number(s.reps) > 0))
+            );
+            return l.completed || l.workoutStartTime || hasLoggedSets;
+          });
+          updateL1Cache('gymLogs', next);
+          writeWellnessCache({ gymLogs: next }, true);
+          return next;
+        });
+      } catch (e) {
+        console.warn('[Wellness] Error clearing draft for assigned day:', e);
+      }
     }
 
-    await safeWrite(
-      () => setDoc(docRef, payload, { merge: true }),
-      COLLECTION.USER_GYM_PLANS,
-      'set',
-      payload,
-      user.uid
-    );
+    if (user?.uid) {
+      const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
+      const payload: any = {
+        userId: user.uid,
+        routines: existingRoutines,
+        updatedAt: now,
+      };
+      if (daysUpdated) {
+        payload.customDays = existingCustomDays;
+      }
+
+      await safeWrite(
+        () => setDoc(docRef, payload, { merge: true }),
+        COLLECTION.USER_GYM_PLANS,
+        'set',
+        payload,
+        user.uid
+      );
+    }
   }, [user?.uid]);
 
   const deleteCustomRoutine = useCallback(async (routineId: string) => {
-    if (!user) return;
     const currentPlan = userGymPlanRef.current;
-    const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
     const existingRoutines = { ...(currentPlan?.routines || {}) };
     delete existingRoutines[routineId];
 
@@ -792,11 +852,14 @@ export function WellnessProvider({
     }
 
     const now = Date.now();
+    const effectiveUid = user?.uid || currentPlan?.userId || 'local_user';
     const updatedPlan: UserGymPlanDoc = {
-      ...(currentPlan || { userId: user.uid, customDays: {} }),
-      id: user.uid,
-      userId: user.uid,
+      ...(currentPlan || { userId: effectiveUid, customDays: {} }),
+      id: effectiveUid,
+      userId: effectiveUid,
       schemaVersion: 2,
+      templateId: currentPlan?.templateId,
+      schedulePattern: currentPlan?.schedulePattern,
       routines: existingRoutines,
       customDays: existingCustomDays,
       updatedAt: now,
@@ -809,22 +872,25 @@ export function WellnessProvider({
       writeWellnessCache({ userGymPlan: updatedPlan }, false);
     });
 
-    const payload: any = {
-      userId: user.uid,
-      routines: existingRoutines,
-      updatedAt: now,
-    };
-    if (daysUpdated) {
-      payload.customDays = existingCustomDays;
-    }
+    if (user?.uid) {
+      const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
+      const payload: any = {
+        userId: user.uid,
+        routines: existingRoutines,
+        updatedAt: now,
+      };
+      if (daysUpdated) {
+        payload.customDays = existingCustomDays;
+      }
 
-    await safeWrite(
-      () => setDoc(docRef, payload, { merge: true }),
-      COLLECTION.USER_GYM_PLANS,
-      'set',
-      payload,
-      user.uid
-    );
+      await safeWrite(
+        () => setDoc(docRef, payload, { merge: true }),
+        COLLECTION.USER_GYM_PLANS,
+        'set',
+        payload,
+        user.uid
+      );
+    }
   }, [user?.uid]);
 
   const assignRoutineToDay = useCallback(async (
@@ -832,9 +898,7 @@ export function WellnessProvider({
     routineId?: string,
     routine?: GymRoutine
   ) => {
-    if (!user) return;
     const currentPlan = userGymPlanRef.current;
-    const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
     const targetRoutine = routine || (routineId && currentPlan?.routines ? currentPlan.routines[routineId] : undefined);
 
     let updatedDay: GymPlanDay;
@@ -869,10 +933,12 @@ export function WellnessProvider({
 
     const newCustomDays = { ...(currentPlan?.customDays || {}), [dayIndex]: updatedDay };
     const now = Date.now();
+    const effectiveUid = user?.uid || currentPlan?.userId || 'local_user';
     const updatedPlan: UserGymPlanDoc = {
-      ...(currentPlan || { userId: user.uid, customDays: {} }),
-      id: user.uid,
-      userId: user.uid,
+      ...(currentPlan || { userId: effectiveUid, customDays: {} }),
+      id: effectiveUid,
+      userId: effectiveUid,
+      routines: currentPlan?.routines || {},
       customDays: newCustomDays,
       updatedAt: now,
     };
@@ -884,14 +950,47 @@ export function WellnessProvider({
       writeWellnessCache({ userGymPlan: updatedPlan }, false);
     });
 
-    const payload = { userId: user.uid, customDays: newCustomDays, updatedAt: now };
-    await safeWrite(
-      () => setDoc(docRef, payload, { merge: true }),
-      COLLECTION.USER_GYM_PLANS,
-      'set',
-      payload,
-      user.uid
-    );
+    // Clear any unstarted active draft or log for the assigned day so it immediately displays the updated routine
+    try {
+      const todayObj = new Date();
+      const currentDayOfWeek = todayObj.getDay();
+      const mondayOffset = currentDayOfWeek === 0 ? -6 : 1 - currentDayOfWeek;
+      const monday = new Date(todayObj);
+      monday.setDate(todayObj.getDate() + mondayOffset);
+      const targetDate = new Date(monday);
+      targetDate.setDate(monday.getDate() + (dayIndex - 1));
+      const targetDateStr = formatLocalDateStr(targetDate);
+
+      if (effectiveUid) {
+        AsyncStorage.removeItem(`gym_active_draft_${effectiveUid}_${targetDateStr}`).catch(() => {});
+      }
+      setGymLogs(prev => {
+        const next = prev.filter(l => {
+          if (l.date !== targetDateStr) return true;
+          const hasLoggedSets = (l.exercises || []).some((ex: any) =>
+            (ex.setsLog || []).some((s: any) => s.completed || (s.weight != null && Number(s.weight) > 0) || (s.reps != null && Number(s.reps) > 0))
+          );
+          return l.completed || l.workoutStartTime || hasLoggedSets;
+        });
+        updateL1Cache('gymLogs', next);
+        writeWellnessCache({ gymLogs: next }, true);
+        return next;
+      });
+    } catch (e) {
+      console.warn('[Wellness] Error clearing draft for assigned day:', e);
+    }
+
+    if (user?.uid) {
+      const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
+      const payload = { userId: user.uid, customDays: newCustomDays, updatedAt: now };
+      await safeWrite(
+        () => setDoc(docRef, payload, { merge: true }),
+        COLLECTION.USER_GYM_PLANS,
+        'set',
+        payload,
+        user.uid
+      );
+    }
   }, [user?.uid]);
 
   const saveRoutineFolders = useCallback(async (folders: GymRoutineFolder[]) => {

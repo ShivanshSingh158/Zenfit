@@ -1,11 +1,11 @@
 /**
  * GymHistoryScreen.tsx — ZenFit
  *
- * Tab 3: 📊 Performance & Analytics Hub
- * 3-Pill Unified Architecture with Generous Spacing & Zero Overflow:
- * - Sub-Tab 1: [ 📈 Trends ] (Overload Scorecard, Pinned Core Lifts, Effective Volume Zone Bars, Effort Quality)
- * - Sub-Tab 2: [ 📜 Logs ] (18w Consistency Heatmap, Split Filters, Upgraded Session Cards with Top Sets & PR Badges)
- * - Sub-Tab 3: [ 🏆 Trophy ] (Auto-Personalized Top 3 Anchor Lifts, Recent PR Feed, 4-Bracket Rep-Max Matrix)
+ * Tab 3: Analytics Hub (Subtle, Apple iOS HIG Architecture)
+ * 3-Part Athlete Analytics:
+ * - Part 1: 📅 Consistency & Weekly Overview (Habit Heatmap, 8-Week Workload Bar Chart, Weekly Muscle Sets, Cardio)
+ * - Part 2: 📈 Exercises (Deep-Dive Trajectory Over Time, Progression & Plateau Status, Historical Set Diary)
+ * - Part 3: 📜 Logs (Full Workout Diary with Working Sets, Cardio & Notes)
  */
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -18,20 +18,21 @@ import {
   Modal,
   TextInput,
   useWindowDimensions,
+  DeviceEventEmitter,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, { Circle, Defs, LinearGradient, Stop, Path, Line } from 'react-native-svg';
+import Svg, { Circle, Defs, LinearGradient, Stop, Path, Line, Rect, G, Text as SvgText } from 'react-native-svg';
 import { StatusBar } from 'expo-status-bar';
 import { hapticSelection, hapticLight, hapticMedium } from '../../utils/haptics';
 
-import { FONT_FAMILY } from '../../theme/tokens';
+import { FONT_FAMILY, IOS_DARK } from '../../theme/tokens';
 import { useGymLogs, useGymPlan } from '../../contexts/domains/WellnessContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { GymNavigationParamList } from '../../types/gym.types';
-import { todayStr, dateStrOffset } from '../../hooks/useGymLog';
+import { todayStr } from '../../hooks/useGymLog';
 import {
   calculateGymStreak,
   formatIndianDatePretty,
@@ -39,34 +40,31 @@ import {
 import {
   computeUnifiedAnalytics,
   UnifiedAnalyticsData,
-  ExercisePRSummary,
-  PinnedLiftSummary,
+  ExerciseHistoryProfile,
+  DetailedSessionLog,
+  WeeklyTrendItem,
 } from '../../services/gymAnalyticsEngine';
 
-// Existing Charts & Sheets
 import ConsistencyHeatmap from '../../components/Gym/Charts/ConsistencyHeatmap';
-import WeeklyGymReport from '../../components/Gym/WeeklyGymReport';
-import VolumeZoneRadarBar from '../../components/Gym/VolumeZoneRadarBar';
+import WeeklyGymReport from '../../components/Gym/metrics/WeeklyGymReport';
 
-type AnalyticsSubTab = 'trends' | 'logs' | 'trophy';
-type TimeRange = '7d' | '30d' | '90d' | '1y' | 'all';
-type ExCurveMode = '1rm' | 'top' | 'effort';
-type SplitFilter = 'All' | 'Push' | 'Pull' | 'Legs' | 'PRs';
+type AnalyticsSubTab = 'consistency' | 'exercises' | 'logs';
+type ExerciseChartMetric = 'weight' | 'volume';
+type SplitFilter = 'All' | 'Push' | 'Pull' | 'Legs' | 'Upper' | 'Lower' | 'Cardio';
 
-const CHART_HEIGHT = 130;
-const PAD = 14;
-const INITIAL_LOGS_PAGE_SIZE = 20;
+const CHART_H = 140;
+const CHART_PAD = 14;
+const INITIAL_LOGS_PAGE_SIZE = 25;
 
-function generateSmoothSvgPath(coords: Array<{ x: number; y: number }>): string {
-  const valid = (coords || []).filter(
-    c => c && typeof c.x === 'number' && typeof c.y === 'number' && Number.isFinite(c.x) && Number.isFinite(c.y)
-  );
-  if (valid.length === 0) return '';
-  if (valid.length === 1) return `M ${valid[0].x.toFixed(1)},${valid[0].y.toFixed(1)}`;
-  let path = `M ${valid[0].x.toFixed(1)},${valid[0].y.toFixed(1)}`;
-  for (let i = 0; i < valid.length - 1; i++) {
-    const xMid = ((valid[i].x + valid[i + 1].x) / 2).toFixed(1);
-    path += ` C ${xMid},${valid[i].y.toFixed(1)} ${xMid},${valid[i + 1].y.toFixed(1)} ${valid[i + 1].x.toFixed(1)},${valid[i + 1].y.toFixed(1)}`;
+function generateSmoothCurve(coords: Array<{ x: number; y: number }>): string {
+  if (!coords || coords.length === 0) return '';
+  if (coords.length === 1) return `M ${coords[0].x.toFixed(1)},${coords[0].y.toFixed(1)}`;
+  let path = `M ${coords[0].x.toFixed(1)},${coords[0].y.toFixed(1)}`;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const p0 = coords[i];
+    const p1 = coords[i + 1];
+    const midX = ((p0.x + p1.x) / 2).toFixed(1);
+    path += ` C ${midX},${p0.y.toFixed(1)} ${midX},${p1.y.toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)}`;
   }
   return path;
 }
@@ -76,164 +74,208 @@ export default function GymHistoryScreen() {
   const { colors, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<GymNavigationParamList>>();
   const { width } = useWindowDimensions();
-  const safeChartWidth = Math.max(260, (width || 360) - 52);
+  const safeChartWidth = Math.max(260, (width || 360) - 44);
 
   const { gymLogs } = useGymLogs();
   const { userGymPlan } = useGymPlan();
-
   const route = useRoute<any>();
 
-  // Navigation State (defaults to trends or route.params?.tab)
-  const [activeTab, setActiveTab] = useState<AnalyticsSubTab>(route?.params?.tab || 'trends');
-  const [timeRange, setTimeRange] = useState<TimeRange>('30d');
+  // ── Navigation & Tab State ──────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<AnalyticsSubTab>(() => {
+    const param = route?.params?.tab;
+    if (param === 'trends') return 'consistency';
+    if (param === 'trophy') return 'exercises';
+    if (param === 'logs') return 'logs';
+    if (param === 'consistency' || param === 'exercises') return param;
+    return 'consistency';
+  });
+
+  useEffect(() => {
+    const param = route?.params?.tab;
+    if (param === 'trends' || param === 'consistency') setActiveTab('consistency');
+    else if (param === 'trophy' || param === 'exercises') setActiveTab('exercises');
+    else if (param === 'logs') setActiveTab('logs');
+  }, [route?.params?.tab]);
+
   const [showWeeklyReportModal, setShowWeeklyReportModal] = useState(false);
 
   useEffect(() => {
-    if (route?.params?.tab && ['trends', 'logs', 'trophy'].includes(route.params.tab)) {
-      setActiveTab(route.params.tab);
+    if (route?.params?.openWeeklyReport) {
+      setShowWeeklyReportModal(true);
     }
-  }, [route?.params?.tab]);
+  }, [route?.params?.openWeeklyReport]);
 
-  // Logs Sub-Tab State
-  const [logsSearchQuery, setLogsSearchQuery] = useState('');
-  const [splitFilter, setSplitFilter] = useState<SplitFilter>('All');
-  const [visibleLogsCount, setVisibleLogsCount] = useState(INITIAL_LOGS_PAGE_SIZE);
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('open_weekly_report', () => {
+      setShowWeeklyReportModal(true);
+    });
+    return () => sub.remove();
+  }, []);
 
-  // Trophy Sub-Tab State
-  const [selectedMatrixEx, setSelectedMatrixEx] = useState<string | null>(null);
-
-  // Trends Expanded Lift Curve State (defaults to null so rows stay compact)
-  const [expandedPinnedEx, setExpandedPinnedEx] = useState<string | null>(null);
-  const [pinnedCurveMode, setPinnedCurveMode] = useState<ExCurveMode>('1rm');
-
-  // Colors & Card Tokens
-  const cardBg = isDark ? '#1C1C1E' : '#FFFFFF';
-  const elevatedBg = isDark ? '#26262A' : '#EAEAEF';
-  const separatorColor = isDark ? 'rgba(84, 84, 88, 0.3)' : 'rgba(60, 60, 67, 0.15)';
-
-  // Master Analytics Precompute
+  // ── Master Analytics Engine Data ────────────────────────────────────────────
   const analyticsData: UnifiedAnalyticsData = useMemo(() => {
     return computeUnifiedAnalytics(gymLogs || []);
   }, [gymLogs]);
 
-  // Streak & Heatmap data
   const streak = useMemo(() => calculateGymStreak(gymLogs, userGymPlan), [gymLogs, userGymPlan]);
-  const heatmapData = useMemo(() => {
-    return analyticsData.sessionCards.map(s => ({
-      date: s.date.slice(0, 10),
-      volume: Math.max(s.volumeKg, 100),
-    }));
-  }, [analyticsData.sessionCards]);
 
   const totalLifetimeVolumeKg = useMemo(() => {
-    return analyticsData.sessionCards.reduce((acc, s) => acc + s.volumeKg, 0);
-  }, [analyticsData.sessionCards]);
+    return analyticsData.detailedLogs.reduce((acc, s) => acc + s.totalVolumeKg, 0);
+  }, [analyticsData.detailedLogs]);
 
-  // Filtered Session Cards for Logs Sub-Tab
-  const filteredSessions = useMemo(() => {
-    let list = analyticsData.sessionCards;
+  const heatmapData = useMemo(() => {
+    return analyticsData.detailedLogs.map(s => ({
+      date: s.date.slice(0, 10),
+      volume: Math.max(s.totalVolumeKg, 100),
+    }));
+  }, [analyticsData.detailedLogs]);
 
-    if (splitFilter === 'PRs') {
-      list = list.filter(s => s.prCount > 0);
+  // ── Sub-Tab 1: Consistency State ───────────────────────────────────────────
+  const [selectedWeekIndex, setSelectedWeekIndex] = useState<number | null>(null);
+
+  const selectedWeekItem: WeeklyTrendItem | null = useMemo(() => {
+    if (selectedWeekIndex != null && analyticsData.weeklyTrends[selectedWeekIndex]) {
+      return analyticsData.weeklyTrends[selectedWeekIndex];
+    }
+    return analyticsData.weeklyTrends[analyticsData.weeklyTrends.length - 1] || null;
+  }, [analyticsData.weeklyTrends, selectedWeekIndex]);
+
+  // ── Sub-Tab 2: Exercises State ─────────────────────────────────────────────
+  const [exerciseSearchQuery, setExerciseSearchQuery] = useState('');
+  const [selectedExName, setSelectedExName] = useState<string | null>(null);
+  const [exerciseChartMetric, setExerciseChartMetric] = useState<ExerciseChartMetric>('weight');
+  const [selectedDataPointIdx, setSelectedDataPointIdx] = useState<number | null>(null);
+
+  const filteredExerciseProfiles = useMemo(() => {
+    let list = analyticsData.exerciseProfiles;
+    if (exerciseSearchQuery.trim()) {
+      const q = exerciseSearchQuery.toLowerCase().trim();
+      list = list.filter(p => p.name.toLowerCase().includes(q) || p.muscle.toLowerCase().includes(q));
+    }
+    return list;
+  }, [analyticsData.exerciseProfiles, exerciseSearchQuery]);
+
+  const activeExerciseProfile: ExerciseHistoryProfile | null = useMemo(() => {
+    if (selectedExName) {
+      const found = analyticsData.exerciseProfiles.find(p => p.name === selectedExName);
+      if (found) return found;
+    }
+    return filteredExerciseProfiles[0] || null;
+  }, [analyticsData.exerciseProfiles, filteredExerciseProfiles, selectedExName]);
+
+  // Exercise Curve Data Coordinates
+  const { curveCoords, curveLinePath, curveAreaPath } = useMemo(() => {
+    if (!activeExerciseProfile || activeExerciseProfile.sessions.length === 0) {
+      return { curveCoords: [], curveLinePath: '', curveAreaPath: '' };
+    }
+    const pts = activeExerciseProfile.sessions;
+    const vals = pts.map(p => (exerciseChartMetric === 'weight' ? p.topWeight : p.sessionVolume));
+    const minV = Math.min(...vals);
+    const maxV = Math.max(...vals);
+    const range = maxV - minV || 1;
+
+    const coords = pts.map((p, i) => {
+      const v = exerciseChartMetric === 'weight' ? p.topWeight : p.sessionVolume;
+      const x = CHART_PAD + (i / Math.max(1, pts.length - 1)) * (safeChartWidth - CHART_PAD * 2);
+      const y = CHART_H - CHART_PAD - ((v - minV) / range) * (CHART_H - CHART_PAD * 2);
+      return {
+        x: Number.isFinite(x) ? x : CHART_PAD,
+        y: Number.isFinite(y) ? y : CHART_H - CHART_PAD,
+        val: v,
+        date: p.shortDate,
+        fullDate: p.date,
+        reps: p.topReps,
+      };
+    });
+
+    const linePath = generateSmoothCurve(coords);
+    const areaPath =
+      coords.length > 0
+        ? `${linePath} L ${coords[coords.length - 1].x.toFixed(1)},${CHART_H - CHART_PAD} L ${coords[0].x.toFixed(1)},${CHART_H - CHART_PAD} Z`
+        : '';
+
+    return { curveCoords: coords, curveLinePath: linePath, curveAreaPath: areaPath };
+  }, [activeExerciseProfile, exerciseChartMetric, safeChartWidth]);
+
+  // ── Sub-Tab 3: Logs State ──────────────────────────────────────────────────
+  const [logsSearchQuery, setLogsSearchQuery] = useState('');
+  const [splitFilter, setSplitFilter] = useState<SplitFilter>('All');
+  const [visibleLogsCount, setVisibleLogsCount] = useState(INITIAL_LOGS_PAGE_SIZE);
+
+  const filteredDetailedLogs = useMemo(() => {
+    let list = analyticsData.detailedLogs;
+
+    if (splitFilter === 'Cardio') {
+      list = list.filter(s => s.cardio.length > 0);
     } else if (splitFilter !== 'All') {
       list = list.filter(s => s.splitTag.toLowerCase() === splitFilter.toLowerCase());
     }
 
     if (logsSearchQuery.trim()) {
       const q = logsSearchQuery.toLowerCase().trim();
-      list = list.filter(s =>
-        s.date.includes(q) ||
-        s.splitTag.toLowerCase().includes(q) ||
-        s.topAnchorSets.some(t => t.exerciseName.toLowerCase().includes(q))
+      list = list.filter(
+        s =>
+          s.date.includes(q) ||
+          s.splitTag.toLowerCase().includes(q) ||
+          s.exercises.some(e => e.name.toLowerCase().includes(q) || (e.muscle && e.muscle.toLowerCase().includes(q))) ||
+          (s.notes && s.notes.toLowerCase().includes(q))
       );
     }
 
     return list;
-  }, [analyticsData.sessionCards, splitFilter, logsSearchQuery]);
+  }, [analyticsData.detailedLogs, splitFilter, logsSearchQuery]);
 
-  const displayedSessions = useMemo(() => {
-    return filteredSessions.slice(0, visibleLogsCount);
-  }, [filteredSessions, visibleLogsCount]);
+  const displayedDetailedLogs = useMemo(() => {
+    return filteredDetailedLogs.slice(0, visibleLogsCount);
+  }, [filteredDetailedLogs, visibleLogsCount]);
 
-  // Active matrix exercise in Trophy Room
-  const activeMatrixSummary: ExercisePRSummary | null = useMemo(() => {
-    if (selectedMatrixEx) {
-      const found = analyticsData.allExercisePRs.find(p => p.exerciseName === selectedMatrixEx);
-      if (found) return found;
+  // ── Actions ────────────────────────────────────────────────────────────────
+  const handleOpenWorkoutSummary = useCallback(
+    (dateStr: string) => {
+      navigation.navigate('WorkoutSummary', { date: dateStr, readOnly: true });
+    },
+    [navigation]
+  );
+
+  const handleRepeatWorkout = useCallback(
+    (dateStr: string) => {
+      hapticMedium();
+      navigation.navigate('ActiveLogging', { date: todayStr() });
+    },
+    [navigation]
+  );
+
+  // Surface Tokens
+  const cardBg = '#1C1C1E';
+  const elevatedBg = '#2C2C2E';
+  const hairlineColor = 'rgba(84, 84, 88, 0.36)';
+
+  // Format Helper for Volume
+  const formatVol = (kg: number) => {
+    if (kg >= 1000000) return `${(kg / 1000000).toFixed(1)}M kg`;
+    if (kg >= 1000) return `${(kg / 1000).toFixed(1)}k kg`;
+    return `${kg} kg`;
+  };
+
+  const formatDuration = (mins: number) => {
+    if (mins >= 60) {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      return m > 0 ? `${h}h ${m}m` : `${h}h`;
     }
-    return analyticsData.allExercisePRs[0] || null;
-  }, [analyticsData.allExercisePRs, selectedMatrixEx]);
-
-  // Active expanded pinned lift in Trends
-  const activeExpandedLift: PinnedLiftSummary | null = useMemo(() => {
-    if (expandedPinnedEx) {
-      const found = analyticsData.pinnedLifts.find(l => l.exerciseName === expandedPinnedEx);
-      if (found) return found;
-    }
-    return null;
-  }, [analyticsData.pinnedLifts, expandedPinnedEx]);
-
-  // Pinned Lift Curve SVG Coordinates
-  const { expCoords, expLinePath, expAreaPath } = useMemo(() => {
-    if (!activeExpandedLift || activeExpandedLift.history.length === 0) {
-      return { expCoords: [], expLinePath: '', expAreaPath: '' };
-    }
-    const pts = activeExpandedLift.history.length > 8 ? activeExpandedLift.history.slice(-8) : activeExpandedLift.history;
-    const vals = pts.map(p =>
-      pinnedCurveMode === 'top' ? p.weight : pinnedCurveMode === '1rm' ? p.e1rm : p.rir
-    );
-    const minV = Math.min(...vals);
-    const maxV = Math.max(...vals);
-    const range = (maxV - minV) || 1;
-
-    const coords = pts.map((p, i) => {
-      const v = pinnedCurveMode === 'top' ? p.weight : pinnedCurveMode === '1rm' ? p.e1rm : p.rir;
-      const x = PAD + (i / Math.max(1, pts.length - 1)) * (safeChartWidth - PAD * 2);
-      const y = CHART_HEIGHT - PAD - ((v - minV) / range) * (CHART_HEIGHT - PAD * 2);
-      return {
-        x: Number.isFinite(x) ? x : PAD,
-        y: Number.isFinite(y) ? y : CHART_HEIGHT - PAD,
-        val: v,
-        date: p.shortDate,
-      };
-    });
-
-    const linePath = generateSmoothSvgPath(coords);
-    const areaPath = coords.length > 0
-      ? `${linePath} L ${coords[coords.length - 1].x.toFixed(1)},${CHART_HEIGHT - PAD} L ${coords[0].x.toFixed(1)},${CHART_HEIGHT - PAD} Z`
-      : '';
-
-    return { expCoords: coords, expLinePath: linePath, expAreaPath: areaPath };
-  }, [activeExpandedLift, pinnedCurveMode, safeChartWidth]);
-
-  // Handlers
-  const handleOpenWorkoutSummary = useCallback((dateStr: string) => {
-    navigation.navigate('WorkoutSummary', { date: dateStr, readOnly: true });
-  }, [navigation]);
-
-  const handleRepeatWorkout = useCallback((dateStr: string) => {
-    hapticMedium();
-    navigation.navigate('ActiveLogging', { date: todayStr() });
-  }, [navigation]);
+    return `${mins}m`;
+  };
 
   return (
-    <SafeAreaView
-      style={[
-        styles.root,
-        {
-          backgroundColor: isDark ? '#000000' : colors.background,
-        },
-      ]}
-      edges={['top']}
-    >
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+    <SafeAreaView style={[styles.root, { backgroundColor: '#000000' }]} edges={['top']}>
+      <StatusBar style="light" />
 
-      {/* ── Screen Header ── */}
-      <View style={styles.header}>
+      {/* ── Screen Header ──────────────────────────────────────────────────── */}
+      <View style={styles.headerContainer}>
         <View style={{ flex: 1, paddingRight: 8 }}>
-          <Text style={[styles.largeTitle, { color: colors.textPrimary }]}>Analytics</Text>
+          <Text style={styles.headerTitle}>Analytics</Text>
           <Text style={styles.headerSubtitle} numberOfLines={1}>
-            {streak}d streak · {analyticsData.sessionCards.length} workouts · {totalLifetimeVolumeKg >= 1000 ? `${(totalLifetimeVolumeKg / 1000).toFixed(1)}k` : totalLifetimeVolumeKg} kg moved
+            {streak}d streak · {analyticsData.detailedLogs.length} workouts · {formatVol(totalLifetimeVolumeKg)} moved
           </Text>
         </View>
 
@@ -242,32 +284,49 @@ export default function GymHistoryScreen() {
             hapticSelection();
             setShowWeeklyReportModal(true);
           }}
-          style={[styles.coachReportPill, { backgroundColor: cardBg }]}
-          activeOpacity={0.75}
+          style={styles.coachReportBtn}
+          activeOpacity={0.8}
         >
-          <Ionicons name="sparkles" size={13} color="#A599FF" />
-          <Text style={[styles.coachReportPillText, { color: colors.textPrimary }]}>Coach Report</Text>
+          <Ionicons name="sparkles" size={13} color="#FFFFFF" />
+          <Text style={styles.coachReportBtnText}>Coach Report</Text>
         </TouchableOpacity>
       </View>
 
-      {/* ── 3-Pill Unified Segmented Control (Concise & Zero Wrapping) ── */}
+      {/* ── Native Apple iOS Segmented Control (Minimalist, Subtle, Zero Pills) ── */}
       <View style={[styles.segmentedTrack, { backgroundColor: cardBg }]}>
         <TouchableOpacity
-          style={[styles.segmentBtn, activeTab === 'trends' && { backgroundColor: elevatedBg }]}
+          style={[styles.segmentBtn, activeTab === 'consistency' && { backgroundColor: elevatedBg }]}
           onPress={() => {
             hapticSelection();
-            setActiveTab('trends');
+            setActiveTab('consistency');
           }}
           activeOpacity={0.8}
         >
           <Text
             style={[
               styles.segmentText,
-              { color: activeTab === 'trends' ? colors.textPrimary : '#8E8E93' },
-              activeTab === 'trends' && styles.segmentTextActive,
+              activeTab === 'consistency' ? styles.segmentTextActive : styles.segmentTextInactive,
             ]}
           >
-            📈 Trends
+            Consistency
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.segmentBtn, activeTab === 'exercises' && { backgroundColor: elevatedBg }]}
+          onPress={() => {
+            hapticSelection();
+            setActiveTab('exercises');
+          }}
+          activeOpacity={0.8}
+        >
+          <Text
+            style={[
+              styles.segmentText,
+              activeTab === 'exercises' ? styles.segmentTextActive : styles.segmentTextInactive,
+            ]}
+          >
+            Exercises
           </Text>
         </TouchableOpacity>
 
@@ -282,295 +341,535 @@ export default function GymHistoryScreen() {
           <Text
             style={[
               styles.segmentText,
-              { color: activeTab === 'logs' ? colors.textPrimary : '#8E8E93' },
-              activeTab === 'logs' && styles.segmentTextActive,
+              activeTab === 'logs' ? styles.segmentTextActive : styles.segmentTextInactive,
             ]}
           >
-            📜 Logs
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.segmentBtn, activeTab === 'trophy' && { backgroundColor: elevatedBg }]}
-          onPress={() => {
-            hapticSelection();
-            setActiveTab('trophy');
-          }}
-          activeOpacity={0.8}
-        >
-          <Text
-            style={[
-              styles.segmentText,
-              { color: activeTab === 'trophy' ? colors.textPrimary : '#8E8E93' },
-              activeTab === 'trophy' && styles.segmentTextActive,
-            ]}
-          >
-            🏆 Trophy
+            Logs
           </Text>
         </TouchableOpacity>
       </View>
 
       {/* ════════════════════════════════════════════════════════════════════════
-          SUB-TAB 1: 📈 OVERVIEW & TRENDS (The Brain)
+          PART 1: 📅 CONSISTENCY & WEEKLY OVERVIEW (The Habit & Volume Reality)
          ════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'trends' && (
+      {activeTab === 'consistency' && (
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
-          {/* Time Range Filter Pills */}
-          <View style={[styles.timeRangeBar, { backgroundColor: cardBg }]}>
-            {(['7d', '30d', '90d', '1y', 'all'] as TimeRange[]).map(r => {
-              const isSelected = timeRange === r;
-              return (
-                <TouchableOpacity
-                  key={r}
-                  style={[styles.timePill, isSelected && { backgroundColor: elevatedBg }]}
-                  onPress={() => {
-                    hapticSelection();
-                    setTimeRange(r);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.timePillText, { color: isSelected ? colors.textPrimary : '#8E8E93' }]}>
-                    {r.toUpperCase()}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+          {/* 1. Weekly Overview KPI Card */}
+          <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
+            <Text style={styles.cardSectionLabel}>WEEKLY OVERVIEW</Text>
+
+            <View style={styles.kpiGrid}>
+              <View style={styles.kpiCol}>
+                <Text style={styles.kpiValue}>{analyticsData.weeklySummary.workoutsThisWeek}</Text>
+                <Text style={styles.kpiLabel}>SESSIONS</Text>
+              </View>
+
+              <View style={styles.kpiCol}>
+                <Text style={styles.kpiValue}>
+                  {analyticsData.weeklySummary.volumeThisWeekKg >= 1000
+                    ? `${(analyticsData.weeklySummary.volumeThisWeekKg / 1000).toFixed(1)}k`
+                    : analyticsData.weeklySummary.volumeThisWeekKg}
+                </Text>
+                <Text style={styles.kpiLabel}>KG MOVED</Text>
+              </View>
+
+              <View style={styles.kpiCol}>
+                <Text style={styles.kpiValue}>
+                  {formatDuration(analyticsData.weeklySummary.trainingDurationMins)}
+                </Text>
+                <Text style={styles.kpiLabel}>TRAINED</Text>
+              </View>
+
+              <View style={styles.kpiCol}>
+                <Text style={styles.kpiValue}>{analyticsData.weeklySummary.avgWorkoutsPerWeek}</Text>
+                <Text style={styles.kpiLabel}>AVG / WK</Text>
+              </View>
+            </View>
           </View>
 
-          {/* Card 1: Weekly Overload Scorecard (Integrated Recap) */}
-          <View style={[styles.iosCard, { backgroundColor: cardBg }]}>
+          {/* 2. 8-Week Workload Bar Chart */}
+          <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
             <View style={styles.cardHeaderRow}>
               <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={styles.cardSectionLabel}>WEEKLY OVERLOAD SCORECARD</Text>
-                <Text style={styles.cardSubLabel}>
-                  {analyticsData.weeklyScorecard.progressedCount} of {analyticsData.weeklyScorecard.evaluatedCount} exercises progressed this week
-                </Text>
-              </View>
-              <View style={styles.greenDeltaBadge}>
-                <Text style={styles.greenDeltaText}>
-                  +{analyticsData.weeklyScorecard.netStrengthDeltaPct}% Strength
-                </Text>
+                <Text style={styles.cardSectionLabel}>WORKLOAD & SESSIONS (LAST 8 WEEKS)</Text>
+                <Text style={styles.cardSubLabel}>Weekly volume trend and training frequency</Text>
               </View>
             </View>
 
-            {/* Progression State Breakdown Pills */}
-            <View style={styles.statePillsRow}>
-              <View style={[styles.statePill, { backgroundColor: 'rgba(48, 209, 88, 0.12)' }]}>
-                <View style={[styles.stateDot, { backgroundColor: '#30D158' }]} />
-                <Text style={[styles.stateText, { color: '#30D158' }]}>
-                  {analyticsData.weeklyScorecard.weightUnlocks} Weight Unlocks
+            {/* Selected Week Inspection Box */}
+            {selectedWeekItem && (
+              <View style={[styles.weekInspectBox, { backgroundColor: elevatedBg }]}>
+                <Text style={styles.weekInspectTitle}>
+                  {selectedWeekItem.isCurrentWeek ? 'Current Week' : `Week of ${selectedWeekItem.weekLabel}`}
+                </Text>
+                <Text style={styles.weekInspectDetails}>
+                  {formatVol(selectedWeekItem.totalVolumeKg)} · {selectedWeekItem.workoutCount} workout
+                  {selectedWeekItem.workoutCount === 1 ? '' : 's'}
+                  {selectedWeekItem.cardioMinutes > 0 ? ` · ${selectedWeekItem.cardioMinutes}m cardio` : ''}
                 </Text>
               </View>
+            )}
 
-              <View style={[styles.statePill, { backgroundColor: 'rgba(10, 132, 255, 0.12)' }]}>
-                <View style={[styles.stateDot, { backgroundColor: '#0A84FF' }]} />
-                <Text style={[styles.stateText, { color: '#0A84FF' }]}>
-                  {analyticsData.weeklyScorecard.repBuilds} Rep Builds
-                </Text>
-              </View>
+            {/* 8-Week SVG Bar Chart */}
+            <View style={{ alignItems: 'center', marginTop: 12 }}>
+              {(() => {
+                const maxVol = Math.max(...analyticsData.weeklyTrends.map(w => w.totalVolumeKg), 1);
+                const chartHeight = 90;
+                const barWidth = 24;
+                const gap = (safeChartWidth - 8 * barWidth) / 7;
 
-              <View style={[styles.statePill, { backgroundColor: 'rgba(255, 159, 10, 0.12)' }]}>
-                <View style={[styles.stateDot, { backgroundColor: '#FF9F0A' }]} />
-                <Text style={[styles.stateText, { color: '#FF9F0A' }]}>
-                  {analyticsData.weeklyScorecard.plateaus} Plateau
-                </Text>
-              </View>
+                return (
+                  <Svg width={safeChartWidth} height={chartHeight + 24}>
+                    {analyticsData.weeklyTrends.map((w, idx) => {
+                      const isSel = selectedWeekIndex === idx || (selectedWeekIndex == null && w.isCurrentWeek);
+                      const barH = Math.max(8, (w.totalVolumeKg / maxVol) * chartHeight);
+                      const x = idx * (barWidth + gap);
+                      const y = chartHeight - barH;
+                      const barColor = w.isCurrentWeek ? '#FFFFFF' : isSel ? '#FFFFFF' : '#8E8E93';
+                      const opacity = isSel ? 1 : 0.6;
 
-              {analyticsData.weeklyScorecard.deloads > 0 && (
-                <View style={[styles.statePill, { backgroundColor: 'rgba(191, 90, 242, 0.12)' }]}>
-                  <View style={[styles.stateDot, { backgroundColor: '#BF5AF2' }]} />
-                  <Text style={[styles.stateText, { color: '#BF5AF2' }]}>
-                    {analyticsData.weeklyScorecard.deloads} Deload
-                  </Text>
-                </View>
-              )}
+                      return (
+                        <G
+                          key={w.startMonday}
+                          onPress={() => {
+                            hapticLight();
+                            setSelectedWeekIndex(idx);
+                          }}
+                        >
+                          {/* Background Track */}
+                          <Rect
+                            x={x}
+                            y={0}
+                            width={barWidth}
+                            height={chartHeight}
+                            rx={4}
+                            fill="#2C2C2E"
+                            opacity={0.5}
+                          />
+
+                          {/* Value Fill Bar */}
+                          <Rect
+                            x={x}
+                            y={y}
+                            width={barWidth}
+                            height={barH}
+                            rx={4}
+                            fill={barColor}
+                            opacity={opacity}
+                          />
+
+                          {/* Workout Count Label */}
+                          <SvgText
+                            x={x + barWidth / 2}
+                            y={chartHeight + 16}
+                            fill={isSel ? '#FFFFFF' : '#8E8E93'}
+                            fontSize={10}
+                            fontFamily={FONT_FAMILY.medium}
+                            textAnchor="middle"
+                          >
+                            {w.workoutCount > 0 ? `${w.workoutCount}x` : '—'}
+                          </SvgText>
+                        </G>
+                      );
+                    })}
+                  </Svg>
+                );
+              })()}
             </View>
 
-            <TouchableOpacity
-              onPress={() => setShowWeeklyReportModal(true)}
-              style={styles.coachReportInlineBtn}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.coachReportInlineBtnText}>View Full Coach Report & Volume Landmarks →</Text>
-            </TouchableOpacity>
+            <View style={styles.chartFootnoteRow}>
+              <Text style={styles.chartFootnote}>Tap any week column to inspect load</Text>
+              <Text style={styles.chartFootnote}>8w Trend</Text>
+            </View>
           </View>
 
-          {/* Card 2: Pinned Core Lifts Matrix */}
-          <View style={[styles.iosCard, { backgroundColor: cardBg }]}>
+          {/* 3. 18-Week Consistency Grid */}
+          <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
             <View style={styles.cardHeaderRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.cardSectionLabel}>CORE LIFTS PROGRESSION</Text>
-                <Text style={styles.cardSubLabel}>Top tracked compound lifts & 30-day delta</Text>
+                <Text style={styles.cardSectionLabel}>18-WEEK CONSISTENCY GRID</Text>
+                <Text style={styles.cardSubLabel}>All recorded workout sessions & rest days</Text>
               </View>
             </View>
 
-            <View style={styles.pinnedLiftsContainer}>
-              {analyticsData.pinnedLifts.map(lift => {
-                const isExpanded = expandedPinnedEx === lift.exerciseName;
+            <ConsistencyHeatmap data={heatmapData} />
+          </View>
+
+          {/* 4. Weekly Muscle Sets (Direct Volume Reality) */}
+          <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
+            <View style={styles.cardHeaderRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardSectionLabel}>WEEKLY MUSCLE SETS</Text>
+                <Text style={styles.cardSubLabel}>Direct working sets logged this week (10–16 benchmark)</Text>
+              </View>
+            </View>
+
+            <View style={{ gap: 10, marginTop: 4 }}>
+              {analyticsData.muscleWeeklySets.map(m => {
+                const pct = Math.min(100, Math.round((m.directSets / m.targetSets) * 100));
+                const isOptimal = m.directSets >= 8 && m.directSets <= 18;
+
                 return (
-                  <View key={lift.exerciseName} style={styles.pinnedLiftItem}>
-                    <TouchableOpacity
-                      onPress={() => {
-                        hapticLight();
-                        setExpandedPinnedEx(prev => prev === lift.exerciseName ? null : lift.exerciseName);
-                      }}
-                      style={[styles.pinnedLiftHeaderRow, isExpanded && { backgroundColor: elevatedBg }]}
-                      activeOpacity={0.7}
-                    >
-                      <View style={{ flex: 1, paddingRight: 8 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={[styles.pinnedLiftName, { color: colors.textPrimary }]} numberOfLines={1}>
-                            {lift.exerciseName}
-                          </Text>
-                          <Text style={styles.pinnedLiftCategoryBadge}>{lift.category}</Text>
-                        </View>
-                        <Text style={styles.pinnedLiftBestSet}>
-                          Best: {lift.currentBestWeight > 0 ? `${lift.currentBestWeight} kg` : 'BW'} × {lift.currentBestReps} · {lift.currentBestE1RM} kg e1RM
-                        </Text>
-                      </View>
+                  <View key={m.muscle} style={styles.muscleSetRow}>
+                    <View style={styles.muscleSetInfo}>
+                      <Text style={styles.muscleSetName}>{m.muscle}</Text>
+                      <Text style={[styles.muscleSetCount, isOptimal && { color: '#FFFFFF' }]}>
+                        {m.directSets} {m.directSets === 1 ? 'set' : 'sets'}
+                      </Text>
+                    </View>
 
-                      {/* Sparkline & Delta Badge */}
-                      <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                        <View style={[styles.deltaBadgeSmall, lift.delta30dPct >= 0 ? styles.deltaGreen : styles.deltaGray]}>
-                          <Text style={lift.delta30dPct >= 0 ? styles.deltaGreenText : styles.deltaGrayText}>
-                            {lift.delta30dPct >= 0 ? `+${lift.delta30dPct}%` : `${lift.delta30dPct}%`}
-                          </Text>
-                        </View>
-
-                        {lift.sparklinePoints.length >= 2 && (
-                          <Svg width={64} height={22}>
-                            <Path
-                              d={generateSmoothSvgPath(lift.sparklinePoints)}
-                              fill="none"
-                              stroke="#30D158"
-                              strokeWidth={2}
-                            />
-                          </Svg>
-                        )}
-                      </View>
-                    </TouchableOpacity>
-
-                    {/* Interactive 3-Curve Expansion */}
-                    {isExpanded && (
-                      <View style={styles.expandedCurveBox}>
-                        <View style={[styles.miniSegRow, { backgroundColor: isDark ? '#141418' : '#E5E5EA' }]}>
-                          {(['1rm', 'top', 'effort'] as ExCurveMode[]).map(m => (
-                            <TouchableOpacity
-                              key={m}
-                              onPress={() => {
-                                hapticLight();
-                                setPinnedCurveMode(m);
-                              }}
-                              style={[styles.miniSegBtn, pinnedCurveMode === m && { backgroundColor: elevatedBg }]}
-                            >
-                              <Text style={[styles.miniSegText, { color: pinnedCurveMode === m ? colors.textPrimary : '#8E8E93' }]}>
-                                {m === '1rm' ? 'Est. 1RM' : m === 'top' ? 'Top Weight' : 'Effort (RIR)'}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-
-                        {expCoords.length >= 2 ? (
-                          <View style={{ alignItems: 'center', marginTop: 10 }}>
-                            <Svg width={safeChartWidth} height={CHART_HEIGHT}>
-                              <Defs>
-                                <LinearGradient id="expGrad" x1="0" y1="0" x2="0" y2="1">
-                                  <Stop offset="0" stopColor="#30D158" stopOpacity={0.25} />
-                                  <Stop offset="1" stopColor="#30D158" stopOpacity={0.0} />
-                                </LinearGradient>
-                              </Defs>
-                              <Line
-                                x1={PAD}
-                                y1={CHART_HEIGHT / 2}
-                                x2={safeChartWidth - PAD}
-                                y2={CHART_HEIGHT / 2}
-                                stroke={separatorColor}
-                                strokeDasharray="3 3"
-                              />
-                              <Path d={expAreaPath} fill="url(#expGrad)" />
-                              <Path d={expLinePath} fill="none" stroke="#30D158" strokeWidth={2.5} />
-                              {expCoords.map((pt, i) => (
-                                <Circle key={i} cx={pt.x} cy={pt.y} r={3.5} fill="#30D158" />
-                              ))}
-                            </Svg>
-                          </View>
-                        ) : (
-                          <Text style={styles.emptyHintText}>Log more sessions to generate telemetry curve.</Text>
-                        )}
-                      </View>
-                    )}
+                    {/* Progress Bar Track */}
+                    <View style={styles.muscleBarTrack}>
+                      <View
+                        style={[
+                          styles.muscleBarFill,
+                          {
+                            width: `${pct}%`,
+                            backgroundColor: '#FFFFFF',
+                          },
+                        ]}
+                      />
+                    </View>
                   </View>
                 );
               })}
             </View>
           </View>
 
-          {/* Card 3: Interactive Volume Radar & MEV vs MRV Zones */}
-          <VolumeZoneRadarBar
-            volumes={analyticsData.effectiveMuscleVolumes}
-            title="VOLUME LANDMARKS"
-            subtitle="Weekly sets vs MEV & MRV thresholds"
-          />
+          {/* 5. Cardio & Conditioning Summary (if present) */}
+          {analyticsData.weeklySummary.cardioMinutes > 0 && (
+            <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
+              <Text style={styles.cardSectionLabel}>CARDIO & CONDITIONING (LAST 7 DAYS)</Text>
 
-          {/* Card 4: Effort Quality (Hypertrophy Tension vs Submaximal) */}
-          <View style={[styles.iosCard, { backgroundColor: cardBg }]}>
-            <View style={styles.cardHeaderRow}>
-              <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={styles.cardSectionLabel}>EFFORT QUALITY & INTENSITY</Text>
-                <Text style={styles.cardSubLabel}>Hypertrophy tension sets vs feeler sets</Text>
-              </View>
-              <Text style={[styles.cardHighlightValue, { color: '#30D158' }]}>
-                {analyticsData.effortQuality.hypertrophySweetSpotPct}% Stimulus
-              </Text>
-            </View>
+              <View style={styles.kpiGrid}>
+                <View style={styles.kpiCol}>
+                  <Text style={styles.kpiValue}>{analyticsData.weeklySummary.cardioMinutes}m</Text>
+                  <Text style={styles.kpiLabel}>TIME</Text>
+                </View>
 
-            {/* Split Progress Track */}
-            <View style={styles.effortBarTrack}>
-              <View
-                style={[
-                  styles.effortBarFillSweet,
-                  { width: `${analyticsData.effortQuality.hypertrophySweetSpotPct}%` },
-                ]}
-              />
-              <View
-                style={[
-                  styles.effortBarFillSub,
-                  { width: `${100 - analyticsData.effortQuality.hypertrophySweetSpotPct}%` },
-                ]}
-              />
-            </View>
+                <View style={styles.kpiCol}>
+                  <Text style={styles.kpiValue}>{analyticsData.weeklySummary.cardioDistanceKm} km</Text>
+                  <Text style={styles.kpiLabel}>DISTANCE</Text>
+                </View>
 
-            <View style={styles.effortLegendRow}>
-              <View style={styles.effortLegendItem}>
-                <View style={[styles.stateDot, { backgroundColor: '#30D158' }]} />
-                <Text style={styles.effortLegendText}>0–2 RIR (Hypertrophy Tension)</Text>
-              </View>
-              <View style={styles.effortLegendItem}>
-                <View style={[styles.stateDot, { backgroundColor: '#8E8E93' }]} />
-                <Text style={styles.effortLegendText}>3+ RIR (Feeler / Warmup)</Text>
+                <View style={styles.kpiCol}>
+                  <Text style={styles.kpiValue}>{analyticsData.weeklySummary.workoutsThisWeek}</Text>
+                  <Text style={styles.kpiLabel}>SESSIONS</Text>
+                </View>
               </View>
             </View>
-          </View>
+          )}
 
         </ScrollView>
       )}
 
       {/* ════════════════════════════════════════════════════════════════════════
-          SUB-TAB 2: 📜 WORKOUT LOGS (The Audit Trail)
+          PART 2: 📈 EXERCISES (Deep-Dive Trajectory Over Time)
+         ════════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'exercises' && (
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
+          {/* Exercise Search Input */}
+          <View style={[styles.searchBar, { backgroundColor: cardBg }]}>
+            <Ionicons name="search" size={15} color="#8E8E93" style={{ marginRight: 8 }} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search exercise in your history..."
+              placeholderTextColor="#8E8E93"
+              value={exerciseSearchQuery}
+              onChangeText={setExerciseSearchQuery}
+            />
+            {exerciseSearchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setExerciseSearchQuery('')}>
+                <Ionicons name="close-circle" size={16} color="#8E8E93" />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Horizontal Exercise Selector Chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.horizontalChipsScroll}
+          >
+            {filteredExerciseProfiles.map(p => {
+              const isSel = p.name === activeExerciseProfile?.name;
+              return (
+                <TouchableOpacity
+                  key={p.name}
+                  onPress={() => {
+                    hapticLight();
+                    setSelectedExName(p.name);
+                    setSelectedDataPointIdx(null);
+                  }}
+                  style={[styles.exChipBtn, isSel ? styles.exChipBtnActive : styles.exChipBtnInactive]}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.exChipText, isSel ? styles.exChipTextActive : styles.exChipTextInactive]}>
+                    {p.name}
+                  </Text>
+                  <Text style={[styles.exChipCount, isSel ? styles.exChipCountActive : styles.exChipCountInactive]}>
+                    {p.totalSessions}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {activeExerciseProfile ? (
+            <>
+              {/* Selected Exercise Overview Card */}
+              <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
+                <View style={styles.cardHeaderRow}>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text style={styles.exHeroTitle} numberOfLines={1}>
+                      {activeExerciseProfile.name}
+                    </Text>
+                    <Text style={styles.exHeroSubtitle}>
+                      {activeExerciseProfile.muscle} · {activeExerciseProfile.category}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.kpiGrid}>
+                  <View style={styles.kpiCol}>
+                    <Text style={styles.kpiValue}>
+                      {activeExerciseProfile.allTimeBestWeight > 0
+                        ? `${activeExerciseProfile.allTimeBestWeight} kg`
+                        : 'BW'}
+                    </Text>
+                    <Text style={styles.kpiLabel}>TOP LOAD</Text>
+                  </View>
+
+                  <View style={styles.kpiCol}>
+                    <Text style={styles.kpiValue}>{activeExerciseProfile.totalSessions}</Text>
+                    <Text style={styles.kpiLabel}>SESSIONS</Text>
+                  </View>
+
+                  <View style={styles.kpiCol}>
+                    <Text style={styles.kpiValue}>
+                      {activeExerciseProfile.allTimeBestVolume >= 1000
+                        ? `${(activeExerciseProfile.allTimeBestVolume / 1000).toFixed(1)}k`
+                        : activeExerciseProfile.allTimeBestVolume}
+                    </Text>
+                    <Text style={styles.kpiLabel}>MAX VOL</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Progression / Plateau Status Box */}
+              <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
+                <Text style={styles.cardSectionLabel}>PROGRESSION AUDIT</Text>
+
+                <View style={styles.statusRow}>
+                  <View
+                    style={[
+                      styles.statusDot,
+                      {
+                        backgroundColor:
+                          activeExerciseProfile.progressionStatus.status === 'progressing'
+                            ? '#30D158'
+                            : activeExerciseProfile.progressionStatus.status === 'stalled'
+                            ? '#FF9F0A'
+                            : '#8E8E93',
+                      },
+                    ]}
+                  />
+                  <Text style={styles.statusMessage}>
+                    {activeExerciseProfile.progressionStatus.message}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Performance Trajectory Curve */}
+              <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
+                <View style={styles.cardHeaderRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardSectionLabel}>TRAJECTORY OVER TIME</Text>
+                    <Text style={styles.cardSubLabel}>
+                      {exerciseChartMetric === 'weight'
+                        ? 'Top working load lifted per session'
+                        : 'Total session volume (kg) per session'}
+                    </Text>
+                  </View>
+
+                  {/* Toggle Metric */}
+                  <View style={[styles.metricToggleTrack, { backgroundColor: elevatedBg }]}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        hapticLight();
+                        setExerciseChartMetric('weight');
+                      }}
+                      style={[
+                        styles.metricToggleBtn,
+                        exerciseChartMetric === 'weight' && { backgroundColor: '#FFFFFF' },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.metricToggleText,
+                          { color: exerciseChartMetric === 'weight' ? '#000000' : '#8E8E93' },
+                        ]}
+                      >
+                        Weight
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => {
+                        hapticLight();
+                        setExerciseChartMetric('volume');
+                      }}
+                      style={[
+                        styles.metricToggleBtn,
+                        exerciseChartMetric === 'volume' && { backgroundColor: '#FFFFFF' },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.metricToggleText,
+                          { color: exerciseChartMetric === 'volume' ? '#000000' : '#8E8E93' },
+                        ]}
+                      >
+                        Volume
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Selected Data Point Tooltip */}
+                {selectedDataPointIdx != null && curveCoords[selectedDataPointIdx] && (
+                  <View style={[styles.dataPointTooltip, { backgroundColor: elevatedBg }]}>
+                    <Text style={styles.tooltipText}>
+                      {formatIndianDatePretty(curveCoords[selectedDataPointIdx].fullDate)}: {' '}
+                      <Text style={{ fontFamily: FONT_FAMILY.bold, color: '#FFFFFF' }}>
+                        {exerciseChartMetric === 'weight'
+                          ? `${curveCoords[selectedDataPointIdx].val} kg × ${curveCoords[selectedDataPointIdx].reps} reps`
+                          : formatVol(curveCoords[selectedDataPointIdx].val)}
+                      </Text>
+                    </Text>
+                  </View>
+                )}
+
+                {/* SVG Bezier Curve */}
+                {curveCoords.length >= 2 ? (
+                  <View style={{ alignItems: 'center', marginTop: 10 }}>
+                    <Svg width={safeChartWidth} height={CHART_H}>
+                      <Defs>
+                        <LinearGradient id="curveGrad" x1="0" y1="0" x2="0" y2="1">
+                          <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.16} />
+                          <Stop offset="1" stopColor="#FFFFFF" stopOpacity={0.0} />
+                        </LinearGradient>
+                      </Defs>
+
+                      {/* Hairline Grid Guide */}
+                      <Line
+                        x1={CHART_PAD}
+                        y1={CHART_H / 2}
+                        x2={safeChartWidth - CHART_PAD}
+                        y2={CHART_H / 2}
+                        stroke={hairlineColor}
+                        strokeDasharray="3 3"
+                      />
+
+                      <Path d={curveAreaPath} fill="url(#curveGrad)" />
+                      <Path d={curveLinePath} fill="none" stroke="#FFFFFF" strokeWidth={2.2} />
+
+                      {curveCoords.map((pt, i) => {
+                        const isPtSel = selectedDataPointIdx === i;
+                        return (
+                          <G
+                            key={i}
+                            onPress={() => {
+                              hapticLight();
+                              setSelectedDataPointIdx(i);
+                            }}
+                          >
+                            <Circle
+                              cx={pt.x}
+                              cy={pt.y}
+                              r={isPtSel ? 6 : 3.5}
+                              fill="#FFFFFF"
+                            />
+                            {isPtSel && (
+                              <Circle
+                                cx={pt.x}
+                                cy={pt.y}
+                                r={9}
+                                fill="none"
+                                stroke="#FFFFFF"
+                                strokeWidth={1.5}
+                              />
+                            )}
+                          </G>
+                        );
+                      })}
+                    </Svg>
+                  </View>
+                ) : (
+                  <Text style={styles.emptyNote}>
+                    Log at least 2 sessions to render the progress trajectory curve.
+                  </Text>
+                )}
+              </View>
+
+              {/* Session-by-Session Historical Set Log */}
+              <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
+                <Text style={styles.cardSectionLabel}>
+                  PAST WORKOUTS ({activeExerciseProfile.sessions.length})
+                </Text>
+
+                <View style={{ gap: 8, marginTop: 8 }}>
+                  {activeExerciseProfile.sessions
+                    .slice()
+                    .reverse()
+                    .map(sess => (
+                      <View key={sess.date} style={[styles.pastExSessRow, { backgroundColor: elevatedBg }]}>
+                        <View style={styles.pastExSessHeader}>
+                          <Text style={styles.pastExSessDate}>{formatIndianDatePretty(sess.date)}</Text>
+                          <Text style={styles.pastExSessVol}>{formatVol(sess.sessionVolume)}</Text>
+                        </View>
+
+                        <View style={styles.pastExSetsWrap}>
+                          {sess.sets.map((st, idx) => (
+                            <Text key={idx} style={styles.pastExSetText}>
+                              Set {st.setNumber}:{' '}
+                              <Text style={{ fontFamily: FONT_FAMILY.bold, color: '#FFFFFF' }}>
+                                {st.weight > 0 ? `${st.weight} kg` : 'BW'} × {st.reps}
+                              </Text>
+                              {idx < sess.sets.length - 1 ? '   ·   ' : ''}
+                            </Text>
+                          ))}
+                        </View>
+                      </View>
+                    ))}
+                </View>
+              </View>
+            </>
+          ) : (
+            <View style={[styles.insetCard, { backgroundColor: cardBg, alignItems: 'center', paddingVertical: 28 }]}>
+              <Ionicons name="barbell-outline" size={32} color="#8E8E93" />
+              <Text style={styles.emptyTitle}>No Exercises Found</Text>
+              <Text style={styles.emptyNote}>Log workouts in the Today tab to generate exercise history.</Text>
+            </View>
+          )}
+
+        </ScrollView>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          PART 3: 📜 LOGS (Comprehensive Workout Diary)
          ════════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'logs' && (
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
-          {/* 18-Week Consistency Heatmap */}
-          <ConsistencyHeatmap data={heatmapData} />
-
           {/* Search Input Bar */}
-          <View style={[styles.searchBarWrap, { backgroundColor: cardBg }]}>
-            <Ionicons name="search" size={16} color="#8E8E93" style={{ marginRight: 8 }} />
+          <View style={[styles.searchBar, { backgroundColor: cardBg }]}>
+            <Ionicons name="search" size={15} color="#8E8E93" style={{ marginRight: 8 }} />
             <TextInput
-              style={[styles.searchInput, { color: colors.textPrimary }]}
-              placeholder="Search by split or exercise name..."
+              style={styles.searchInput}
+              placeholder="Search by split, exercise, or notes..."
               placeholderTextColor="#8E8E93"
               value={logsSearchQuery}
               onChangeText={setLogsSearchQuery}
@@ -582,96 +881,122 @@ export default function GymHistoryScreen() {
             )}
           </View>
 
-          {/* Split Filter Pills */}
-          <View style={[styles.splitFilterBar, { backgroundColor: cardBg }]}>
-            {(['All', 'Push', 'Pull', 'Legs', 'PRs'] as SplitFilter[]).map(f => {
-              const isSelected = splitFilter === f;
+          {/* Split Filter Horizontal Scroll */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.horizontalChipsScroll}
+          >
+            {(['All', 'Push', 'Pull', 'Legs', 'Upper', 'Lower', 'Cardio'] as SplitFilter[]).map(f => {
+              const isSel = splitFilter === f;
               return (
                 <TouchableOpacity
                   key={f}
-                  style={[styles.splitPill, isSelected && { backgroundColor: elevatedBg }]}
                   onPress={() => {
-                    hapticSelection();
+                    hapticLight();
                     setSplitFilter(f);
                   }}
-                  activeOpacity={0.7}
+                  style={[styles.splitFilterBtn, isSel ? styles.splitFilterBtnActive : styles.splitFilterBtnInactive]}
+                  activeOpacity={0.8}
                 >
-                  <Text style={[styles.splitPillText, { color: isSelected ? colors.textPrimary : '#8E8E93' }]}>
-                    {f === 'PRs' ? '⭐ PRs' : f}
+                  <Text
+                    style={[
+                      styles.splitFilterText,
+                      isSel ? styles.splitFilterTextActive : styles.splitFilterTextInactive,
+                    ]}
+                  >
+                    {f}
                   </Text>
                 </TouchableOpacity>
               );
             })}
+          </ScrollView>
+
+          {/* Past Sessions List */}
+          <View style={styles.logsCountHeader}>
+            <Text style={styles.cardSectionLabel}>PAST WORKOUTS ({filteredDetailedLogs.length})</Text>
           </View>
 
-          {/* Session Cards List */}
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionHeaderLabel}>
-              PAST SESSIONS ({filteredSessions.length})
-            </Text>
-          </View>
-
-          {displayedSessions.length === 0 ? (
-            <View style={[styles.iosCard, { backgroundColor: cardBg, alignItems: 'center', paddingVertical: 32 }]}>
-              <Ionicons name="barbell-outline" size={32} color="#8E8E93" />
-              <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No Sessions Match Filter</Text>
-              <Text style={styles.emptySub}>Try adjusting search query or split filters.</Text>
+          {displayedDetailedLogs.length === 0 ? (
+            <View style={[styles.insetCard, { backgroundColor: cardBg, alignItems: 'center', paddingVertical: 32 }]}>
+              <Ionicons name="calendar-outline" size={32} color="#8E8E93" />
+              <Text style={styles.emptyTitle}>No Workouts Match Filter</Text>
+              <Text style={styles.emptyNote}>Try adjusting your split filters or search keyword.</Text>
             </View>
           ) : (
             <View style={{ gap: 10 }}>
-              {displayedSessions.map(session => (
+              {displayedDetailedLogs.map(session => (
                 <View key={session.id} style={[styles.sessionCard, { backgroundColor: cardBg }]}>
-                  {/* Card Header */}
-                  <View style={styles.sessionCardHeader}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Text style={[styles.sessionSplitTag, { color: '#0A84FF' }]}>
-                        {session.splitTag.toUpperCase()}
-                      </Text>
-                      <Text style={[styles.sessionDateText, { color: colors.textPrimary }]}>
-                        {formatIndianDatePretty(session.date)}
-                      </Text>
+                  {/* Session Header */}
+                  <View style={styles.sessionHeaderRow}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <Text style={styles.sessionSplitTag}>{session.splitTag.toUpperCase()}</Text>
+                      <Text style={styles.sessionDateText}>{session.formattedDate}</Text>
                     </View>
 
-                    {session.prCount > 0 && (
-                      <View style={styles.prGoldBadge}>
-                        <Ionicons name="trophy" size={11} color="#FFD700" />
-                        <Text style={styles.prGoldBadgeText}>{session.prCount} PR{session.prCount > 1 ? 's' : ''}</Text>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={styles.sessionSummaryMetrics}>
+                        {session.durationMinutes > 0 ? `${session.durationMinutes}m · ` : ''}
+                        {formatVol(session.totalVolumeKg)}
+                      </Text>
+                      <Text style={styles.sessionSubMetrics}>
+                        {session.totalSets} working sets · {session.exerciseCount} exercises
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={[styles.hairline, { backgroundColor: hairlineColor }]} />
+
+                  {/* Exercises & Working Sets Preview */}
+                  <View style={{ gap: 5, paddingVertical: 4 }}>
+                    {session.exercises.slice(0, 5).map((ex, i) => (
+                      <View key={`${ex.name}-${i}`} style={styles.sessExRow}>
+                        <Text style={styles.sessExDot}>•</Text>
+                        <Text style={styles.sessExName} numberOfLines={1}>
+                          {ex.name}:{' '}
+                          <Text style={styles.sessExSetsText}>{ex.summaryText}</Text>
+                        </Text>
                       </View>
+                    ))}
+
+                    {session.exercises.length > 5 && (
+                      <Text style={styles.sessMoreExText}>
+                        + {session.exercises.length - 5} more exercise
+                        {session.exercises.length - 5 === 1 ? '' : 's'}
+                      </Text>
                     )}
                   </View>
 
-                  {/* Session Metrics Bar */}
-                  <Text style={styles.sessionMetricsSummary}>
-                    {session.totalSets} working sets · {session.exerciseCount} exercises
-                    {session.duration ? ` · ${session.duration}m` : ''}
-                    {session.volumeKg > 0 ? ` · ${session.volumeKg.toLocaleString()} kg` : ''}
-                  </Text>
-
-                  {/* Top 3 Anchor Working Sets Preview */}
-                  {session.topAnchorSets.length > 0 && (
-                    <View style={styles.topSetsContainer}>
-                      {session.topAnchorSets.map((ts, i) => (
-                        <View key={`${ts.exerciseName}-${i}`} style={styles.topSetRow}>
-                          <View style={styles.topSetDot} />
-                          <Text style={[styles.topSetExerciseName, { color: colors.textPrimary }]} numberOfLines={1}>
-                            {ts.exerciseName}:
-                          </Text>
-                          <Text style={styles.topSetLabel}>{ts.label}</Text>
-                        </View>
+                  {/* Cardio Preview (if present) */}
+                  {session.cardio.length > 0 && (
+                    <View style={styles.sessCardioWrap}>
+                      {session.cardio.map((c, i) => (
+                        <Text key={i} style={styles.sessCardioText}>
+                          🏃 {c.type}: {c.durationMinutes ? `${c.durationMinutes}m` : ''}
+                          {c.distanceKm ? ` · ${c.distanceKm} km` : ''}
+                          {c.calories ? ` · ${c.calories} kcal` : ''}
+                        </Text>
                       ))}
                     </View>
                   )}
 
-                  <View style={[styles.cardDivider, { backgroundColor: separatorColor }]} />
+                  {/* Notes Preview (if present) */}
+                  {session.notes ? (
+                    <Text style={styles.sessNotesText} numberOfLines={2}>
+                      📝 {session.notes}
+                    </Text>
+                  ) : null}
 
-                  {/* Card Footer Actions */}
-                  <View style={styles.sessionCardFooter}>
+                  <View style={[styles.hairline, { backgroundColor: hairlineColor }]} />
+
+                  {/* Footer Actions */}
+                  <View style={styles.sessionFooterRow}>
                     <TouchableOpacity
                       onPress={() => handleRepeatWorkout(session.date)}
                       style={styles.repeatBtn}
-                      activeOpacity={0.7}
+                      activeOpacity={0.8}
                     >
-                      <Ionicons name="repeat" size={14} color="#A599FF" />
+                      <Ionicons name="repeat" size={13} color="#000000" />
                       <Text style={styles.repeatBtnText}>Repeat Workout</Text>
                     </TouchableOpacity>
 
@@ -680,257 +1005,30 @@ export default function GymHistoryScreen() {
                       style={styles.detailsBtn}
                       activeOpacity={0.7}
                     >
-                      <Text style={[styles.detailsBtnText, { color: colors.textPrimary }]}>Details</Text>
-                      <Ionicons name="chevron-forward" size={14} color="#8E8E93" />
+                      <Text style={styles.detailsBtnText}>Details</Text>
+                      <Ionicons name="chevron-forward" size={13} color="#8E8E93" />
                     </TouchableOpacity>
                   </View>
                 </View>
               ))}
 
-              {filteredSessions.length > visibleLogsCount && (
+              {filteredDetailedLogs.length > visibleLogsCount && (
                 <TouchableOpacity
                   onPress={() => {
                     hapticSelection();
                     setVisibleLogsCount(prev => prev + 25);
                   }}
                   style={[styles.loadMoreBtn, { backgroundColor: cardBg }]}
-                  activeOpacity={0.7}
+                  activeOpacity={0.8}
                 >
                   <Text style={styles.loadMoreBtnText}>
-                    Show More ({filteredSessions.length - visibleLogsCount} remaining)
+                    Show More ({filteredDetailedLogs.length - visibleLogsCount} remaining)
                   </Text>
-                  <Ionicons name="chevron-down" size={15} color="#A599FF" />
+                  <Ionicons name="chevron-down" size={14} color="#FFFFFF" />
                 </TouchableOpacity>
               )}
             </View>
           )}
-
-        </ScrollView>
-      )}
-
-      {/* ════════════════════════════════════════════════════════════════════════
-          SUB-TAB 3: 🏆 TROPHY ROOM (PRs & Milestones)
-         ════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'trophy' && (
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-
-          {/* Hero Card: Auto-Personalized "Top 3 Anchor Lifts" (Spacious Row List) */}
-          <View style={[styles.iosCard, { backgroundColor: cardBg }]}>
-            <View style={styles.cardHeaderRow}>
-              <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={styles.cardSectionLabel}>TOP 3 ANCHOR LIFTS SHOWCASE</Text>
-                <Text style={styles.cardSubLabel}>Auto-detected #1 Push, Pull, and Leg anchors</Text>
-              </View>
-              <View style={styles.anchorTotalBadge}>
-                <Ionicons name="trophy" size={13} color="#FFD700" />
-                <Text style={styles.anchorTotalText}>
-                  {analyticsData.anchorLifts.totalAnchorE1RM} kg Score
-                </Text>
-              </View>
-            </View>
-
-            {/* 3 Spacious Full-Width Podium Rows with Golden Trophy Badges */}
-            <View style={styles.anchorListContainer}>
-              {/* Push Anchor - Gold Podium */}
-              <View style={[styles.anchorRowItem, styles.podiumGoldCard]}>
-                <View style={styles.trophyRankBadgeGold}>
-                  <Text style={styles.trophyRankEmoji}>🥇</Text>
-                  <Text style={styles.trophyRankTextGold}>PUSH</Text>
-                </View>
-                <View style={{ flex: 1, marginHorizontal: 10 }}>
-                  <Text style={[styles.anchorRowExName, { color: colors.textPrimary }]} numberOfLines={1}>
-                    {analyticsData.anchorLifts.push?.exerciseName || 'Bench / Push Press'}
-                  </Text>
-                  <Text style={styles.anchorRowSubText}>
-                    {analyticsData.anchorLifts.push?.bestE1RM ? `Best e1RM: ${analyticsData.anchorLifts.push.bestE1RM} kg` : 'Log a push exercise'}
-                  </Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.anchorRowSetTextGold}>
-                    {analyticsData.anchorLifts.push?.formattedSet || '—'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Pull Anchor - Silver Podium */}
-              <View style={[styles.anchorRowItem, styles.podiumSilverCard]}>
-                <View style={styles.trophyRankBadgeSilver}>
-                  <Text style={styles.trophyRankEmoji}>🥈</Text>
-                  <Text style={styles.trophyRankTextSilver}>PULL</Text>
-                </View>
-                <View style={{ flex: 1, marginHorizontal: 10 }}>
-                  <Text style={[styles.anchorRowExName, { color: colors.textPrimary }]} numberOfLines={1}>
-                    {analyticsData.anchorLifts.pull?.exerciseName || 'Row / Pulldown'}
-                  </Text>
-                  <Text style={styles.anchorRowSubText}>
-                    {analyticsData.anchorLifts.pull?.bestE1RM ? `Best e1RM: ${analyticsData.anchorLifts.pull.bestE1RM} kg` : 'Log a pull exercise'}
-                  </Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.anchorRowSetTextSilver}>
-                    {analyticsData.anchorLifts.pull?.formattedSet || '—'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Legs Anchor - Bronze Podium */}
-              <View style={[styles.anchorRowItem, styles.podiumBronzeCard]}>
-                <View style={styles.trophyRankBadgeBronze}>
-                  <Text style={styles.trophyRankEmoji}>🥉</Text>
-                  <Text style={styles.trophyRankTextBronze}>LEGS</Text>
-                </View>
-                <View style={{ flex: 1, marginHorizontal: 10 }}>
-                  <Text style={[styles.anchorRowExName, { color: colors.textPrimary }]} numberOfLines={1}>
-                    {analyticsData.anchorLifts.legs?.exerciseName || 'Squat / Leg Press'}
-                  </Text>
-                  <Text style={styles.anchorRowSubText}>
-                    {analyticsData.anchorLifts.legs?.bestE1RM ? `Best e1RM: ${analyticsData.anchorLifts.legs.bestE1RM} kg` : 'Log a leg exercise'}
-                  </Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.anchorRowSetTextBronze}>
-                    {analyticsData.anchorLifts.legs?.formattedSet || '—'}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* Recent PR Feed (Last 30 Days) with Golden Trophy & Milestone Badges */}
-          <View style={[styles.iosCard, { backgroundColor: cardBg }]}>
-            <View style={styles.cardHeaderRow}>
-              <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={styles.cardSectionLabel}>RECENT PR FEED (LAST 30 DAYS)</Text>
-                <Text style={styles.cardSubLabel}>Heaviest loads, rep records, and e1RM milestones</Text>
-              </View>
-              <View style={styles.prHeaderGoldBadge}>
-                <Ionicons name="trophy" size={12} color="#FFD700" />
-                <Text style={styles.prCountHeaderBadge}>{analyticsData.recentPRs.length} PRs Unlocked</Text>
-              </View>
-            </View>
-
-            {analyticsData.recentPRs.length === 0 ? (
-              <Text style={styles.emptyHintText}>Log sets in your workouts to trigger personal record unlocks!</Text>
-            ) : (
-              <View style={{ gap: 8, marginTop: 4 }}>
-                {analyticsData.recentPRs.slice(0, 8).map(pr => {
-                  const isWeightPR = pr.type === 'weight';
-                  const isRepPR = pr.type === 'rep';
-                  const badgeIcon = isWeightPR ? 'trophy' : isRepPR ? 'repeat' : 'flash';
-                  const badgeColor = isWeightPR ? '#FFD700' : isRepPR ? '#30D158' : '#A599FF';
-
-                  return (
-                    <View key={pr.id} style={[styles.prFeedRow, { backgroundColor: elevatedBg, borderColor: `${badgeColor}30` }]}>
-                      {/* Golden Trophy / Milestone Badge Icon */}
-                      <View style={[styles.prFeedIconBox, { backgroundColor: `${badgeColor}18`, borderColor: `${badgeColor}40` }]}>
-                        <Ionicons
-                          name={badgeIcon}
-                          size={15}
-                          color={badgeColor}
-                        />
-                      </View>
-
-                      <View style={{ flex: 1, marginHorizontal: 8 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <Text style={[styles.prFeedExercise, { color: colors.textPrimary }]} numberOfLines={1}>
-                            {pr.exerciseName}
-                          </Text>
-                          <Text style={styles.prFeedDate}>{formatIndianDatePretty(pr.date)}</Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                          <Text style={styles.prFeedValText}>{pr.currentValueText}</Text>
-                          <View style={[styles.prDiffPill, { backgroundColor: `${badgeColor}18`, borderColor: `${badgeColor}35` }]}>
-                            <Text style={[styles.prDiffPillText, { color: badgeColor }]}>{pr.diffText}</Text>
-                          </View>
-                        </View>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-          </View>
-
-          {/* Exercise 4-Bracket Rep-Max Matrix */}
-          <View style={[styles.iosCard, { backgroundColor: cardBg }]}>
-            <View style={styles.cardHeaderRow}>
-              <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={styles.cardSectionLabel}>REP-MAX MATRIX (1RM / 5RM / 8RM / 12RM)</Text>
-                <Text style={styles.cardSubLabel}>Honoring hypertrophy lifters across all rep brackets</Text>
-              </View>
-            </View>
-
-            {/* Exercise Selector Chips */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 8 }}>
-              {analyticsData.allExercisePRs.slice(0, 15).map(ex => {
-                const isSel = ex.exerciseName === activeMatrixSummary?.exerciseName;
-                return (
-                  <TouchableOpacity
-                    key={ex.exerciseName}
-                    onPress={() => {
-                      hapticLight();
-                      setSelectedMatrixEx(ex.exerciseName);
-                    }}
-                    style={[styles.exPillChip, isSel ? { backgroundColor: '#A599FF' } : { backgroundColor: elevatedBg }]}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.exPillChipText, { color: isSel ? '#000000' : colors.textPrimary }]}>
-                      {ex.exerciseName}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-
-            {/* 4 Brackets Grid (Generous 2-Column with 48% Width) */}
-            {activeMatrixSummary && (
-              <View style={styles.bracketGrid}>
-                {/* 1-3RM Max Power */}
-                <View style={[styles.bracketCard, { backgroundColor: elevatedBg }]}>
-                  <Text style={styles.bracketTitle}>1–3 RM (POWER)</Text>
-                  <Text style={[styles.bracketWeightText, { color: colors.textPrimary }]}>
-                    {activeMatrixSummary.repBrackets['1-3RM'] ? `${activeMatrixSummary.repBrackets['1-3RM'].weight} kg` : '—'}
-                  </Text>
-                  <Text style={styles.bracketSubText}>
-                    {activeMatrixSummary.repBrackets['1-3RM'] ? `× ${activeMatrixSummary.repBrackets['1-3RM'].reps} reps` : 'No lift yet'}
-                  </Text>
-                </View>
-
-                {/* 4-6RM Strength */}
-                <View style={[styles.bracketCard, { backgroundColor: elevatedBg }]}>
-                  <Text style={styles.bracketTitle}>4–6 RM (STRENGTH)</Text>
-                  <Text style={[styles.bracketWeightText, { color: colors.textPrimary }]}>
-                    {activeMatrixSummary.repBrackets['4-6RM'] ? `${activeMatrixSummary.repBrackets['4-6RM'].weight} kg` : '—'}
-                  </Text>
-                  <Text style={styles.bracketSubText}>
-                    {activeMatrixSummary.repBrackets['4-6RM'] ? `× ${activeMatrixSummary.repBrackets['4-6RM'].reps} reps` : 'No lift yet'}
-                  </Text>
-                </View>
-
-                {/* 7-10RM Hypertrophy */}
-                <View style={[styles.bracketCard, { backgroundColor: elevatedBg }]}>
-                  <Text style={styles.bracketTitle}>7–10 RM (GROWTH)</Text>
-                  <Text style={[styles.bracketWeightText, { color: '#30D158' }]}>
-                    {activeMatrixSummary.repBrackets['7-10RM'] ? `${activeMatrixSummary.repBrackets['7-10RM'].weight} kg` : '—'}
-                  </Text>
-                  <Text style={styles.bracketSubText}>
-                    {activeMatrixSummary.repBrackets['7-10RM'] ? `× ${activeMatrixSummary.repBrackets['7-10RM'].reps} reps` : 'No lift yet'}
-                  </Text>
-                </View>
-
-                {/* 11-15RM Endurance / Pump */}
-                <View style={[styles.bracketCard, { backgroundColor: elevatedBg }]}>
-                  <Text style={styles.bracketTitle}>11–15 RM (PUMP)</Text>
-                  <Text style={[styles.bracketWeightText, { color: colors.textPrimary }]}>
-                    {activeMatrixSummary.repBrackets['11-15RM'] ? `${activeMatrixSummary.repBrackets['11-15RM'].weight} kg` : '—'}
-                  </Text>
-                  <Text style={styles.bracketSubText}>
-                    {activeMatrixSummary.repBrackets['11-15RM'] ? `× ${activeMatrixSummary.repBrackets['11-15RM'].reps} reps` : 'No lift yet'}
-                  </Text>
-                </View>
-              </View>
-            )}
-          </View>
 
         </ScrollView>
       )}
@@ -942,93 +1040,113 @@ export default function GymHistoryScreen() {
           animationType="slide"
           onRequestClose={() => setShowWeeklyReportModal(false)}
         >
-          <SafeAreaView style={{ flex: 1, backgroundColor: isDark ? '#000000' : colors.background }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: '#000000' }}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Weekly Training Report</Text>
+              <Text style={styles.modalTitle}>Weekly Training Report</Text>
               <TouchableOpacity
                 onPress={() => setShowWeeklyReportModal(false)}
-                style={[styles.modalCloseBtn, { backgroundColor: cardBg }]}
+                style={styles.modalCloseBtn}
+                activeOpacity={0.7}
               >
-                <Ionicons name="close" size={18} color={colors.textPrimary} />
+                <Ionicons name="close" size={20} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 6, paddingBottom: 40 }}>
-              <WeeklyGymReport
-                gymLogs={gymLogs}
-                weekAnchorDate={todayStr()}
-                userGymPlan={userGymPlan}
-              />
-            </ScrollView>
+
+            <WeeklyGymReport
+              gymLogs={gymLogs || []}
+              weekAnchorDate={todayStr()}
+              userGymPlan={userGymPlan}
+            />
           </SafeAreaView>
         </Modal>
       )}
-
     </SafeAreaView>
   );
 }
 
+// ── Unified Apple iOS HIG Stylesheet ──────────────────────────────────────────
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 10,
+  root: {
+    flex: 1,
+    backgroundColor: '#000000',
   },
-  largeTitle: {
+  scrollContent: {
+    paddingHorizontal: 6,
+    paddingBottom: 110,
+    gap: 10,
+  },
+
+  // Header
+  headerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  headerTitle: {
+    fontSize: 22,
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 27,
-    letterSpacing: -0.5,
+    letterSpacing: -0.3,
+    color: '#FFFFFF',
   },
   headerSubtitle: {
+    fontSize: 12.5,
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 11.5,
     color: '#8E8E93',
     marginTop: 2,
   },
-  coachReportPill: {
+  coachReportBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    paddingHorizontal: 10,
+    backgroundColor: '#1C1C1E',
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 14,
+    borderRadius: 999,
   },
-  coachReportPillText: {
-    fontFamily: FONT_FAMILY.bold,
+  coachReportBtnText: {
     fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
   },
+
+  // Segmented Control (Minimal, Subtle, No Pills)
   segmentedTrack: {
     flexDirection: 'row',
-    marginHorizontal: 16,
-    marginBottom: 10,
+    marginHorizontal: 6,
+    marginBottom: 8,
     padding: 3,
-    borderRadius: 10,
-    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#1C1C1E',
+    gap: 2,
   },
   segmentBtn: {
     flex: 1,
-    justifyContent: 'center',
+    paddingVertical: 7,
     alignItems: 'center',
-    borderRadius: 8,
+    justifyContent: 'center',
+    borderRadius: 9,
   },
   segmentText: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 12.5,
+    fontSize: 13,
   },
   segmentTextActive: {
     fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
   },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 150,
+  segmentTextInactive: {
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
   },
-  iosCard: {
+
+  // Inset Cards
+  insetCard: {
+    backgroundColor: '#1C1C1E',
     borderRadius: 16,
-    padding: 15,
-    marginBottom: 12,
+    padding: 14,
+    borderWidth: 0,
   },
   cardHeaderRow: {
     flexDirection: 'row',
@@ -1037,385 +1155,404 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   cardSectionLabel: {
+    fontSize: 11,
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
     color: '#8E8E93',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
   },
   cardSubLabel: {
-    fontFamily: FONT_FAMILY.regular,
     fontSize: 11.5,
-    color: '#8E8E93',
-    marginTop: 2,
-  },
-  cardHighlightValue: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13.5,
-  },
-  greenDeltaBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    backgroundColor: 'rgba(48, 209, 88, 0.14)',
-  },
-  greenDeltaText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11.5,
-    color: '#30D158',
-  },
-  statePillsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  statePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  stateDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  stateText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-  },
-  coachReportInlineBtn: {
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
-    marginTop: 4,
-  },
-  coachReportInlineBtnText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    color: '#A599FF',
-  },
-  timeRangeBar: {
-    flexDirection: 'row',
-    padding: 2,
-    borderRadius: 10,
-    marginBottom: 10,
-  },
-  timePill: {
-    flex: 1,
-    paddingVertical: 6,
-    alignItems: 'center',
-    borderRadius: 8,
-  },
-  timePillText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11.5,
-  },
-  pinnedLiftsContainer: {
-    marginTop: 4,
-  },
-  pinnedLiftItem: {
-    marginBottom: 3,
-  },
-  pinnedLiftHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    borderRadius: 10,
-  },
-  pinnedLiftName: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13.5,
-    maxWidth: 155,
-  },
-  pinnedLiftCategoryBadge: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 10,
-    color: '#8E8E93',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
+    color: '#636366',
+    marginTop: 2,
   },
-  pinnedLiftBestSet: {
-    fontFamily: FONT_FAMILY.regular,
+
+  // KPI Grid
+  kpiGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    paddingTop: 6,
+  },
+  kpiCol: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  kpiValue: {
+    fontSize: 20,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  kpiLabel: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#8E8E93',
+    letterSpacing: 0.5,
+    marginTop: 3,
+  },
+
+  // 8-Week Workload Bar Chart
+  weekInspectBox: {
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 6,
+  },
+  weekInspectTitle: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  weekInspectDetails: {
     fontSize: 11.5,
+    fontFamily: FONT_FAMILY.medium,
     color: '#8E8E93',
     marginTop: 2,
   },
-  deltaBadgeSmall: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  deltaGreen: {
-    backgroundColor: 'rgba(48, 209, 88, 0.14)',
-  },
-  deltaGray: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  deltaGreenText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10.5,
-    color: '#30D158',
-  },
-  deltaGrayText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10.5,
-    color: '#8E8E93',
-  },
-  expandedCurveBox: {
-    marginTop: 6,
-    paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  miniSegRow: {
+  chartFootnoteRow: {
     flexDirection: 'row',
-    borderRadius: 8,
-    padding: 2,
-    alignSelf: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    paddingHorizontal: 4,
   },
-  miniSegBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 6,
+  chartFootnote: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#636366',
   },
-  miniSegText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
+
+  // Muscle Sets Rows
+  muscleSetRow: {
+    gap: 4,
   },
-  emptyHintText: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11.5,
+  muscleSetInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  muscleSetName: {
+    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#FFFFFF',
+  },
+  muscleSetCount: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
     color: '#8E8E93',
-    textAlign: 'center',
-    marginVertical: 12,
   },
-  volumeLandmarkGuide: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-    color: '#30D158',
+  muscleBarTrack: {
+    height: 4,
+    backgroundColor: '#2C2C2E',
+    borderRadius: 2,
+    overflow: 'hidden',
   },
-  muscleBarHeader: {
+  muscleBarFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+
+  // Search & Chips
+  searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
+    height: 38,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    backgroundColor: '#1C1C1E',
   },
-  muscleDot: {
+  searchInput: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#FFFFFF',
+    paddingVertical: 0,
+  },
+  horizontalChipsScroll: {
+    gap: 6,
+    paddingVertical: 2,
+  },
+  exChipBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  exChipBtnActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  exChipBtnInactive: {
+    backgroundColor: '#1C1C1E',
+  },
+  exChipText: {
+    fontSize: 12,
+  },
+  exChipTextActive: {
+    fontFamily: FONT_FAMILY.bold,
+    color: '#000000',
+  },
+  exChipTextInactive: {
+    fontFamily: FONT_FAMILY.medium,
+    color: '#FFFFFF',
+  },
+  exChipCount: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.bold,
+  },
+  exChipCountActive: {
+    color: '#000000',
+    opacity: 0.6,
+  },
+  exChipCountInactive: {
+    color: '#8E8E93',
+  },
+
+  // Exercise Hero
+  exHeroTitle: {
+    fontSize: 18,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  exHeroSubtitle: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+    marginTop: 2,
+  },
+
+  // Progression Status
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  statusDot: {
     width: 7,
     height: 7,
     borderRadius: 3.5,
   },
-  muscleNameText: {
-    fontFamily: FONT_FAMILY.bold,
+  statusMessage: {
     fontSize: 12.5,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#FFFFFF',
+    flex: 1,
   },
-  muscleDetailSub: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 10.5,
+
+  // Trajectory Metric Toggle
+  metricToggleTrack: {
+    flexDirection: 'row',
+    borderRadius: 8,
+    padding: 2,
+  },
+  metricToggleBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  metricToggleText: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.bold,
+  },
+  dataPointTooltip: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginTop: 4,
+    alignSelf: 'flex-start',
+  },
+  tooltipText: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.medium,
     color: '#8E8E93',
   },
-  muscleSetCount: {
-    fontFamily: FONT_FAMILY.bold,
+  emptyNote: {
     fontSize: 12,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#8E8E93',
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  emptyTitle: {
+    fontSize: 15,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+    marginTop: 8,
+  },
+
+  // Past Exercise Sessions
+  pastExSessRow: {
+    borderRadius: 10,
+    padding: 10,
+    gap: 4,
+  },
+  pastExSessHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  pastExSessDate: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  pastExSessVol: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.medium,
     color: '#8E8E93',
   },
-  statusTag: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
+  pastExSetsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 2,
   },
-  statusOptimal: { backgroundColor: 'rgba(48, 209, 88, 0.12)' },
-  statusLow: { backgroundColor: 'rgba(255, 159, 10, 0.12)' },
-  statusHigh: { backgroundColor: 'rgba(255, 69, 58, 0.12)' },
-  statusTagText: {
+  pastExSetText: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+  },
+
+  // Split Filter Chips in Logs
+  splitFilterBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  splitFilterBtnActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  splitFilterBtnInactive: {
+    backgroundColor: '#1C1C1E',
+  },
+  splitFilterText: {
+    fontSize: 12,
+  },
+  splitFilterTextActive: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 9.5,
+    color: '#000000',
   },
-  zoneTrack: {
-    height: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 3,
-    overflow: 'hidden',
+  splitFilterTextInactive: {
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
   },
-  zoneFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  effortBarTrack: {
-    height: 8,
-    borderRadius: 4,
-    overflow: 'hidden',
-    flexDirection: 'row',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    marginTop: 6,
-    marginBottom: 8,
-  },
-  effortBarFillSweet: {
-    backgroundColor: '#30D158',
-    height: '100%',
-  },
-  effortBarFillSub: {
-    backgroundColor: '#8E8E93',
-    height: '100%',
-  },
-  effortLegendRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
+  logsCountHeader: {
+    paddingHorizontal: 4,
     marginTop: 4,
   },
-  effortLegendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  effortLegendText: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 11,
-    color: '#8E8E93',
-  },
-  searchBarWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    marginBottom: 8,
-  },
-  searchInput: {
-    flex: 1,
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 13,
-    padding: 0,
-  },
-  splitFilterBar: {
-    flexDirection: 'row',
-    padding: 2,
-    borderRadius: 10,
-    marginBottom: 10,
-  },
-  splitPill: {
-    flex: 1,
-    paddingVertical: 6,
-    alignItems: 'center',
-    borderRadius: 8,
-  },
-  splitPillText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11.5,
-  },
-  sectionHeaderRow: {
-    paddingHorizontal: 4,
-    marginBottom: 6,
-  },
-  sectionHeaderLabel: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11.5,
-    color: '#8E8E93',
-    letterSpacing: 0.5,
-  },
+
+  // Session Cards (Workout Diary)
   sessionCard: {
-    borderRadius: 14,
-    padding: 13,
+    backgroundColor: '#1C1C1E',
+    borderRadius: 16,
+    padding: 14,
+    gap: 8,
   },
-  sessionCardHeader: {
+  sessionHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
   sessionSplitTag: {
+    fontSize: 11,
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    letterSpacing: 0.5,
+    color: '#FFFFFF',
+    letterSpacing: 0.6,
   },
   sessionDateText: {
+    fontSize: 14,
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 13.5,
+    color: '#FFFFFF',
+    marginTop: 2,
   },
-  prGoldBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255, 215, 0, 0.15)',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  prGoldBadgeText: {
+  sessionSummaryMetrics: {
+    fontSize: 12.5,
     fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  sessionSubMetrics: {
     fontSize: 11,
-    color: '#FFD700',
-  },
-  sessionMetricsSummary: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.medium,
     color: '#8E8E93',
     marginTop: 2,
-    marginBottom: 6,
   },
-  topSetsContainer: {
-    gap: 3,
-    paddingVertical: 4,
+  hairline: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: 2,
   },
-  topSetRow: {
+  sessExRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  topSetDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#0A84FF',
-  },
-  topSetExerciseName: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 12,
-    maxWidth: 160,
-  },
-  topSetLabel: {
-    fontFamily: FONT_FAMILY.bold,
+  sessExDot: {
     fontSize: 12,
     color: '#8E8E93',
   },
-  cardDivider: {
-    height: StyleSheet.hairlineWidth,
-    marginVertical: 8,
+  sessExName: {
+    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+    flex: 1,
   },
-  sessionCardFooter: {
+  sessExSetsText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#8E8E93',
+  },
+  sessMoreExText: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+    marginTop: 2,
+    paddingLeft: 12,
+  },
+  sessCardioWrap: {
+    paddingVertical: 2,
+  },
+  sessCardioText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+  },
+  sessNotesText: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+    fontStyle: 'italic',
+  },
+  sessionFooterRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 2,
   },
   repeatBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    paddingVertical: 4,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 5.5,
+    borderRadius: 999,
   },
   repeatBtnText: {
+    fontSize: 11.5,
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    color: '#A599FF',
+    color: '#000000',
   },
   detailsBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 2,
     paddingVertical: 4,
   },
   detailsBtnText: {
-    fontFamily: FONT_FAMILY.bold,
     fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
   },
   loadMoreBtn: {
     flexDirection: 'row',
@@ -1423,276 +1560,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 12,
-    borderRadius: 12,
+    borderRadius: 14,
     marginTop: 4,
   },
   loadMoreBtnText: {
-    fontFamily: FONT_FAMILY.bold,
     fontSize: 12.5,
-    color: '#A599FF',
-  },
-  emptyTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 15,
-    marginTop: 8,
+    color: '#FFFFFF',
   },
-  emptySub: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 12,
-    color: '#8E8E93',
-    marginTop: 3,
-  },
-  anchorTotalBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(255, 215, 0, 0.15)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  anchorTotalText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    color: '#FFD700',
-  },
-  anchorListContainer: {
-    gap: 7,
-    marginTop: 6,
-  },
-  anchorRowItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-  },
-  podiumGoldCard: {
-    backgroundColor: 'rgba(255, 215, 0, 0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 215, 0, 0.35)',
-  },
-  podiumSilverCard: {
-    backgroundColor: 'rgba(224, 224, 224, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(224, 224, 224, 0.25)',
-  },
-  podiumBronzeCard: {
-    backgroundColor: 'rgba(205, 127, 50, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(205, 127, 50, 0.25)',
-  },
-  trophyRankBadgeGold: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255, 215, 0, 0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 215, 0, 0.4)',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  trophyRankBadgeSilver: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(224, 224, 224, 0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(224, 224, 224, 0.35)',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  trophyRankBadgeBronze: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(205, 127, 50, 0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(205, 127, 50, 0.35)',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  trophyRankEmoji: {
-    fontSize: 11,
-  },
-  trophyRankTextGold: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#FFD700',
-    letterSpacing: 0.6,
-  },
-  trophyRankTextSilver: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#E0E0E0',
-    letterSpacing: 0.6,
-  },
-  trophyRankTextBronze: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#CD7F32',
-    letterSpacing: 0.6,
-  },
-  anchorCategoryPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  anchorCategoryPillText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    letterSpacing: 0.6,
-  },
-  anchorRowExName: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-  },
-  anchorRowSubText: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11,
-    color: '#8E8E93',
-    marginTop: 1,
-  },
-  anchorRowSetText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-    color: '#FFD700',
-  },
-  anchorRowSetTextGold: {
-    fontFamily: FONT_FAMILY.mono,
-    fontSize: 13,
-    color: '#FFD700',
-    fontWeight: '700',
-  },
-  anchorRowSetTextSilver: {
-    fontFamily: FONT_FAMILY.mono,
-    fontSize: 13,
-    color: '#E0E0E0',
-    fontWeight: '700',
-  },
-  anchorRowSetTextBronze: {
-    fontFamily: FONT_FAMILY.mono,
-    fontSize: 13,
-    color: '#CD7F32',
-    fontWeight: '700',
-  },
-  prHeaderGoldBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(255, 215, 0, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 215, 0, 0.3)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  prCountHeaderBadge: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-    color: '#FFD700',
-  },
-  prFeedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 11,
-  },
-  prFeedIconBox: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  prFeedExercise: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-    maxWidth: 160,
-  },
-  prFeedDate: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11,
-    color: '#8E8E93',
-  },
-  prFeedValText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    color: '#30D158',
-  },
-  prDiffPill: {
-    backgroundColor: 'rgba(48, 209, 88, 0.14)',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
-  },
-  prDiffPillText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#30D158',
-  },
-  exPillChip: {
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  exPillChipText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-  },
-  bracketGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 8,
-    marginTop: 10,
-  },
-  bracketCard: {
-    width: '48.5%',
-    padding: 11,
-    borderRadius: 12,
-  },
-  bracketTitle: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#8E8E93',
-    letterSpacing: 0.5,
-  },
-  bracketWeightText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 16,
-    marginTop: 3,
-  },
-  bracketSubText: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 11,
-    color: '#8E8E93',
-    marginTop: 1,
-  },
+
+  // Modal
   modalHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomColor: 'rgba(84, 84, 88, 0.36)',
   },
   modalTitle: {
-    fontFamily: FONT_FAMILY.bold,
     fontSize: 17,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
   },
   modalCloseBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: 4,
   },
 });

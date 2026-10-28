@@ -6,6 +6,8 @@
  * Ensures historical weights & reps preload seamlessly across any synonym.
  */
 
+import { EXERCISE_DATABASE } from './exerciseDatabase';
+
 export const EXERCISE_ALIAS_MAP: Record<string, string> = {
   "inclinedumbbellpress": "inclinedumbbellpress",
   "inclinedumbbellbenchpress": "inclinedumbbellpress",
@@ -791,15 +793,252 @@ export const EXERCISE_ALIAS_MAP: Record<string, string> = {
   "sideplankwithhipdips": "sideplankwithhipdips",
   "heavysuitcasecarry": "heavysuitcasecarry",
   "kettlebellwindmill": "kettlebellwindmill",
-  "birddogonbenchwithresistanceband": "birddogonbenchwithresistanceband"
+  "birddogonbenchwithresistanceband": "birddogonbenchwithresistanceband",
+};
+
+const EXPLICIT_CUSTOM_ALIASES: Record<string, string> = {
+  // ── Explicit High-Priority Machine, Dumbbell, Barbell & Cable Mappings ────
+  // 1. Pec Deck / Chest Fly (Machine) / Butterfly
+  "chestflymachine": "pecdeckfly",
+  "machinechestfly": "pecdeckfly",
+  "pecdeckfly": "pecdeckfly",
+  "pecdeck": "pecdeckfly",
+  "butterflypecdeck": "pecdeckfly",
+  "pecdeckflyes": "pecdeckfly",
+  "seatedmachinefly": "pecdeckfly",
+  "pecfly": "pecdeckfly",
+  "butterflymachine": "pecdeckfly",
+  "butterflymachinefly": "pecdeckfly",
+  "machinefly": "pecdeckfly",
+  "pausedmachinechestfly": "pecdeckfly",
+  "isometricsqueezemachinefly": "pecdeckfly",
+  "chestfly": "pecdeckfly",
+
+  // 2. Incline Dumbbell Press / Incline Bench Press (Dumbbell)
+  "inclinedumbellpress": "inclinedumbbellpress",
+  "inclinebenchpressdumbbell": "inclinedumbbellpress",
+  "inclinebenchpressdb": "inclinedumbbellpress",
+  "inclinechestpressdumbbell": "inclinedumbbellpress",
+  "inclinechestpressdb": "inclinedumbbellpress",
+  "inclinedumbellbenchpress": "inclinedumbbellpress",
+  "dumbellinclinepress": "inclinedumbbellpress",
+  "dumbellinclinebenchpress": "inclinedumbbellpress",
+
+  // 3. Seated Shoulder Press (Machine) / Machine Shoulder Press
+  "seatedshoulderpressmachine": "machineoverheadpress",
+  "machineseatedshoulderpress": "machineoverheadpress",
+  "machineshoulderpress": "machineoverheadpress",
+  "seatedmachineshoulderpress": "machineoverheadpress",
+  "shoulderpressmachine": "machineoverheadpress",
+  "shoulderpressmachineplates": "machineoverheadpress",
+  "seatedshoulderpress": "machineoverheadpress",
+
+  // 4. Wrist Curl (Machine) / Wrist Curls
+  "wristcurlmachine": "machinewristcurls",
+  "wristculmachine": "machinewristcurls",
+  "machinewristcurls": "machinewristcurls",
+  "machinewristcurl": "machinewristcurls",
+  "machinewristcul": "machinewristcurls",
+  "machinewristculs": "machinewristcurls",
+  "wristcurls": "machinewristcurls",
+  "wristcurl": "machinewristcurls",
+  "wristcul": "machinewristcurls",
+  "wristculs": "machinewristcurls",
+  "dumbbellwristcurls": "machinewristcurls",
+  "dumbbellwristcurl": "machinewristcurls",
+  "seatedwristcurl": "machinewristcurls",
+  "seatedwristcurls": "machinewristcurls",
+  "forearmcurls": "machinewristcurls",
+  "seatedpalmsupwristcurl": "machinewristcurls",
+
+  // 5. Rear Delt Reverse Fly (Machine) / Reverse Pec Deck
+  "reardeltreverseflymachine": "reversepecdeckfly",
+  "machinereardeltreversefly": "reversepecdeckfly",
+  "reardeltreversefly": "reversepecdeckfly",
+  "reversepecdeck": "reversepecdeckfly",
+  "reversepecdeckfly": "reversepecdeckfly",
+  "reversepecdeckreardelts": "reversepecdeckfly",
+  "reardeltflymachine": "reversepecdeckfly",
+  "machinereversefly": "reversepecdeckfly",
+
+  // 6. Hack Squat (Machine) / Leg Extension (Machine) / Calf Raises
+  "hacksquatmachine": "hacksquat",
+  "machinehacksquat": "hacksquat",
+  "legextensionmachine": "legextensions",
+  "machinelegextension": "legextensions",
+  "standingcalfraisemachine": "standingcalfraise",
+  "machinestandingcalfraise": "standingcalfraise",
+  "standingmachinecalfraise": "standingcalfraise",
+  "inclinechestpressmachine": "inclinemachinepress",
+  "machineinclinechestpress": "inclinemachinepress",
+  "inclinechestmachinepress": "inclinemachinepress",
+  "seatedlegcurlmachine": "seatedlegcurl",
+  "machineseatedlegcurl": "seatedlegcurl",
+  "hipabductionmachine": "hipabductionmachine",
+  "machinehipabduction": "hipabductionmachine",
+  "crunchmachine": "cablecrunch",
+  "machinecrunch": "cablecrunch",
+  "abcrunchmachine": "cablecrunch",
+
+  // 7. Behind the Back Wrist Curl (Barbell)
+  "behindthebackwristcurlbarbell": "standingbehindbackwristcurls",
+  "behindthebackwristcurl": "standingbehindbackwristcurls",
+  "behindthebackbarbellwristcurl": "standingbehindbackwristcurls",
+  "barbellwristcurlsbehindback": "standingbehindbackwristcurls",
+  "standingbehindbackwristcurls": "standingbehindbackwristcurls",
 };
 
 /**
+ * Normalizes common typos, equipment tags, and plurals.
+ */
+export function sanitizeExerciseString(name?: string | null): string {
+  if (!name) return '';
+  let s = name.toLowerCase().trim();
+
+  // Normalize common gym typos
+  s = s.replace(/dumbell/g, 'dumbbell');
+  s = s.replace(/barbel/g, 'barbell');
+  s = s.replace(/\bcul\b/g, 'curl').replace(/\bculs\b/g, 'curls');
+  s = s.replace(/wrist\s*cul/g, 'wrist curl');
+  s = s.replace(/sholder/g, 'shoulder');
+  s = s.replace(/flyes/g, 'fly');
+  s = s.replace(/crossovers/g, 'crossover');
+  s = s.replace(/presses/g, 'press');
+  s = s.replace(/raises/g, 'raise');
+  s = s.replace(/extensions/g, 'extension');
+  s = s.replace(/shrugs/g, 'shrug');
+  s = s.replace(/pushdowns/g, 'pushdown');
+  s = s.replace(/pulldowns/g, 'pulldown');
+
+  return s.replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Universal compiled bidirectional alias map.
+ * Dynamically synthesizes EXERCISE_ALIAS_MAP and EXERCISE_DATABASE
+ * into a single unified equivalence partition so every historical
+ * exercise name links seamlessly to new mapped names.
+ */
+let _masterCanonicalIndex: Map<string, string> | null = null;
+
+export function getMasterCanonicalIndex(): Map<string, string> {
+  if (_masterCanonicalIndex) return _masterCanonicalIndex;
+
+  const parent = new Map<string, string>();
+
+  function find(i: string): string {
+    if (!parent.has(i)) parent.set(i, i);
+    if (parent.get(i) !== i) {
+      parent.set(i, find(parent.get(i)!));
+    }
+    return parent.get(i)!;
+  }
+
+  function union(i: string, j: string) {
+    if (!i || !j) return;
+    const rootI = find(i);
+    const rootJ = find(j);
+    if (rootI !== rootJ) {
+      // Prioritize existing canonical key in EXERCISE_ALIAS_MAP
+      const iHasCanonical = EXERCISE_ALIAS_MAP[rootI] === rootI;
+      const jHasCanonical = EXERCISE_ALIAS_MAP[rootJ] === rootJ;
+      if (iHasCanonical && !jHasCanonical) {
+        parent.set(rootJ, rootI);
+      } else {
+        parent.set(rootI, rootJ);
+      }
+    }
+  }
+
+  // 1. Seed with static EXERCISE_ALIAS_MAP and EXPLICIT_CUSTOM_ALIASES
+  for (const [alias, canonical] of Object.entries(EXERCISE_ALIAS_MAP)) {
+    const cleanAlias = sanitizeExerciseString(alias);
+    const cleanCanonical = sanitizeExerciseString(canonical);
+    if (cleanAlias && cleanCanonical) {
+      union(cleanAlias, cleanCanonical);
+    }
+  }
+  for (const [alias, canonical] of Object.entries(EXPLICIT_CUSTOM_ALIASES)) {
+    const cleanAlias = sanitizeExerciseString(alias);
+    const cleanCanonical = sanitizeExerciseString(canonical);
+    if (cleanAlias && cleanCanonical) {
+      union(cleanAlias, cleanCanonical);
+    }
+  }
+
+  // 2. Transitive union over all EXERCISE_DATABASE entries and aliases
+  if (Array.isArray(EXERCISE_DATABASE)) {
+    for (const dbEntry of EXERCISE_DATABASE) {
+      if (!dbEntry?.name) continue;
+      const primaryKey = sanitizeExerciseString(dbEntry.name);
+      if (!primaryKey) continue;
+
+      if (Array.isArray(dbEntry.aliases)) {
+        for (const alias of dbEntry.aliases) {
+          if (!alias) continue;
+          const cleanAlias = sanitizeExerciseString(alias);
+          if (cleanAlias) {
+            union(primaryKey, cleanAlias);
+
+            // Permute machine prefix vs suffix
+            if (cleanAlias.endsWith('machine')) {
+              const flipped = 'machine' + cleanAlias.slice(0, -7);
+              union(primaryKey, flipped);
+            } else if (cleanAlias.startsWith('machine')) {
+              const flipped = cleanAlias.slice(7) + 'machine';
+              union(primaryKey, flipped);
+            }
+          }
+        }
+      }
+
+      // Permute machine prefix vs suffix for the primary name
+      if (primaryKey.endsWith('machine')) {
+        const flipped = 'machine' + primaryKey.slice(0, -7);
+        union(primaryKey, flipped);
+      } else if (primaryKey.startsWith('machine')) {
+        const flipped = primaryKey.slice(7) + 'machine';
+        union(primaryKey, flipped);
+      }
+    }
+  }
+
+  // 3. Flatten into O(1) direct lookup map
+  const compiled = new Map<string, string>();
+  for (const key of parent.keys()) {
+    compiled.set(key, find(key));
+  }
+
+  _masterCanonicalIndex = compiled;
+  return _masterCanonicalIndex;
+}
+
+/**
  * Resolves any exercise variation, abbreviation, or alias to its canonical normalized key.
- * e.g. "pec deck", "Pec Deck Fly", "Machine Chest Fly" -> "pecdeckfly"
+ * e.g. "pec deck", "Pec Deck Fly", "Chest Fly (Machine)" -> "pecdeckfly"
  */
 export function getCanonicalExerciseKey(name?: string | null): string {
   if (!name) return '';
-  const raw = name.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
-  return EXERCISE_ALIAS_MAP[raw] || raw;
+  const raw = sanitizeExerciseString(name);
+  if (!raw) return '';
+
+  const index = getMasterCanonicalIndex();
+  const direct = index.get(raw);
+  if (direct) return direct;
+
+  // Handle machine inversion fallbacks
+  if (raw.endsWith('machine')) {
+    const withoutMachine = raw.slice(0, -7);
+    const flipped = 'machine' + withoutMachine;
+    const match = index.get(flipped) || index.get(withoutMachine);
+    if (match) return match;
+  } else if (raw.startsWith('machine')) {
+    const withoutMachine = raw.slice(7);
+    const flipped = withoutMachine + 'machine';
+    const match = index.get(flipped) || index.get(withoutMachine);
+    if (match) return match;
+  }
+
+  return raw;
 }
+

@@ -57,6 +57,11 @@ function MainTabs() {
 
       {/* Backward-compatibility aliases */}
       <Tab.Screen
+        name="GymHome"
+        component={GymHomeScreen}
+        options={{ tabBarItemStyle: { display: 'none' }, tabBarButton: () => null }}
+      />
+      <Tab.Screen
         name="Splits"
         getComponent={() => require('../screens/gym/GymSplitsScreen').default}
         options={{ tabBarItemStyle: { display: 'none' }, tabBarButton: () => null }}

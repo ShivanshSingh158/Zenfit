@@ -24,16 +24,16 @@ import { playSetCompleteTone } from '../../services/gymSoundSynthesizer';
 import { GymNavigationParamList } from '../../types/gym.types';
 
 import { makeActiveLoggingStyles } from './activeLoggingStyles';
-import WorkoutTimer from '../../components/Gym/WorkoutTimer';
-import SetList from '../../components/Gym/SetList';
-import ActiveExerciseHeader from '../../components/Gym/ActiveExerciseHeader';
-import ActiveExerciseVideo from '../../components/Gym/ActiveExerciseVideo';
-import { StickyLoggingDock } from '../../components/Gym/StickyLoggingDock';
-import SupersetPickerModal from '../../components/Gym/SupersetPickerModal';
-import ActiveSwapModal from '../../components/Gym/ActiveSwapModal';
-import AnimatedRestTimer from '../../components/Gym/AnimatedRestTimer';
-import ExerciseDeepDiveModal from '../../components/Gym/ExerciseDeepDiveModal';
-import { WorkoutKeypad } from '../../components/Gym/WorkoutKeypad';
+import WorkoutTimer from '../../components/Gym/active/WorkoutTimer';
+import SetList from '../../components/Gym/active/SetList';
+import ActiveExerciseHeader from '../../components/Gym/active/ActiveExerciseHeader';
+import ActiveExerciseVideo from '../../components/Gym/active/ActiveExerciseVideo';
+import { StickyLoggingDock } from '../../components/Gym/active/StickyLoggingDock';
+import SupersetPickerModal from '../../components/Gym/exercise/SupersetPickerModal';
+import ActiveSwapModal from '../../components/Gym/active/ActiveSwapModal';
+import AnimatedRestTimer from '../../components/Gym/active/AnimatedRestTimer';
+import ExerciseDeepDiveModal from '../../components/Gym/exercise/ExerciseDeepDiveModal';
+import { WorkoutKeypad } from '../../components/Gym/active/WorkoutKeypad';
 import { insertWarmupLadder } from '../../utils/warmupGenerator';
 import { dismissActiveWorkoutNotification } from '../../services/activeWorkoutNotificationService';
 import {
@@ -44,6 +44,7 @@ import {
   computeInitialSetInputs,
 } from '../../utils/activeLoggingMath';
 import { useActiveWidgetSync } from '../../hooks/useActiveWidgetSync';
+import { useGymProfile, setAutoTimerEnabledGlobal, isAutoTimerEnabledSync } from '../../hooks/useGymProfile';
 
 export { parseUpperTargetReps };
 
@@ -84,6 +85,22 @@ export default function ActiveLoggingScreen() {
   }
 
   const insets = useSafeAreaInsets();
+  const { gymProfile, saveGymProfile } = useGymProfile();
+  const [autoTimerEnabled, setAutoTimerEnabled] = useState<boolean>(() => isAutoTimerEnabledSync());
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('auto_timer_setting_changed', (val: boolean) => {
+      setAutoTimerEnabled(val);
+    });
+    return () => sub.remove();
+  }, []);
+
+  const handleToggleTimer = useCallback(() => {
+    const nextVal = !autoTimerEnabled;
+    setAutoTimerEnabled(nextVal);
+    setAutoTimerEnabledGlobal(nextVal);
+    saveGymProfile({ autoTimer: nextVal }).catch(() => {});
+  }, [autoTimerEnabled, saveGymProfile]);
 
   // Prevent phone screen from locking or sleeping during active workout
   useKeepAwake();
@@ -684,6 +701,87 @@ export default function ActiveLoggingScreen() {
     };
   }, [flushPendingInputs]);
 
+  const promptFinishWorkout = useCallback(() => {
+    flushPendingInputs();
+    const { exercises: allExs } = stateRef.current;
+
+    // Detect incomplete exercises (exercises where some or all sets are uncompleted)
+    const incompleteExercises = allExs
+      .map((ex, idx) => {
+        const totalSets = ex.setsLog?.length || 0;
+        const completedSets = (ex.setsLog || []).filter((s: any) => s.completed).length;
+        return {
+          index: idx,
+          name: ex.name,
+          totalSets,
+          completedSets,
+        };
+      })
+      .filter(item => item.completedSets < item.totalSets || item.totalSets === 0);
+
+    if (incompleteExercises.length > 0) {
+      hapticMedium();
+      const firstUnfinished = incompleteExercises[0];
+      const count = incompleteExercises.length;
+      
+      const summaryList = incompleteExercises
+        .slice(0, 4)
+        .map(e => `• ${e.name} (${e.completedSets}/${e.totalSets} sets done)`)
+        .join('\n');
+      const extraCount = count > 4 ? `\n...and ${count - 4} more` : '';
+
+      Alert.alert(
+        count === 1 ? '1 Exercise Still Incomplete ⚠️' : `${count} Exercises Still Incomplete ⚠️`,
+        `You still have ${count} ${count === 1 ? 'exercise' : 'exercises'} left in today's workout:\n\n${summaryList}${extraCount}\n\nWould you like to jump to ${firstUnfinished.name} to complete it, or finish your workout anyway?`,
+        [
+          {
+            text: `Go to ${firstUnfinished.name.split(' (')[0]}`,
+            style: 'default',
+            onPress: () => {
+              hapticSelection();
+              setActiveExIndex(firstUnfinished.index);
+              scrollToActivePill(firstUnfinished.index);
+            },
+          },
+          {
+            text: 'Finish Workout Anyway',
+            style: 'destructive',
+            onPress: async () => {
+              clearRestTimer();
+              await endWorkout(true);
+              const sessionDate = date || targetDateStr;
+              navigation.replace('WorkoutSummary', { date: sessionDate });
+            },
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+        ]
+      );
+      return;
+    }
+
+    hapticSuccess();
+    Alert.alert(
+      'Finish Workout? 🏁',
+      "You've completed all exercises for today's session! Would you like to finish and view your workout summary?",
+      [
+        { text: 'Keep Editing', style: 'cancel' },
+        {
+          text: 'Finish Workout',
+          style: 'default',
+          onPress: async () => {
+            clearRestTimer();
+            await endWorkout(true);
+            const sessionDate = date || targetDateStr;
+            navigation.replace('WorkoutSummary', { date: sessionDate });
+          },
+        },
+      ]
+    );
+  }, [clearRestTimer, endWorkout, flushPendingInputs, navigation, date, targetDateStr, scrollToActivePill]);
+
   const handleLogSet = useCallback(() => {
     if (isLoggingSetRef.current) return;
     const { exercise, setInputs: curInputs, overloadSuggestion: curOverload, realExerciseIndex: curRealIdx, exercises: allExs, activeExIndex: curActiveIdx, resolvedLastSessionSets: pastSets } = stateRef.current;
@@ -759,14 +857,21 @@ export default function ActiveLoggingScreen() {
       supersetJumpTimerRef.current = setTimeout(() => setActiveExIndex(nextJumpIdx), 400);
     } else {
       const isExComplete = newEx.setsLog.length > 0 && newEx.setsLog.every(s => s.completed);
-      if (isExComplete && curActiveIdx < allExs.length - 1) {
-        if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
-        autoAdvanceTimerRef.current = setTimeout(() => {
-          setActiveExIndex(curActiveIdx + 1);
-        }, 550);
+      if (isExComplete) {
+        if (curActiveIdx < allExs.length - 1) {
+          if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
+          autoAdvanceTimerRef.current = setTimeout(() => {
+            setActiveExIndex(curActiveIdx + 1);
+          }, 550);
+        } else {
+          if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
+          autoAdvanceTimerRef.current = setTimeout(() => {
+            promptFinishWorkout();
+          }, 450);
+        }
       }
     }
-  }, [logSetAndStartTimer]);
+  }, [logSetAndStartTimer, promptFinishWorkout]);
 
   const handleAdjustWeight = useCallback((delta: number) => {
     const { exercise, setInputs: curInputs, overloadSuggestion: curOverload } = stateRef.current;
@@ -864,13 +969,9 @@ export default function ActiveLoggingScreen() {
       if (supersetJumpTimerRef.current) clearTimeout(supersetJumpTimerRef.current);
       setActiveExIndex(curIdx + 1);
     } else {
-      hapticSuccess();
-      clearRestTimer();
-      await endWorkout(true);
-      const sessionDate = date || targetDateStr;
-      navigation.replace('WorkoutSummary', { date: sessionDate });
+      promptFinishWorkout();
     }
-  }, [flushPendingInputs, clearRestTimer, endWorkout, navigation, date, targetDateStr]);
+  }, [flushPendingInputs, promptFinishWorkout]);
 
   const handleDeleteSet = useCallback((idx: number) => {
     const { exercise, realExerciseIndex: curRealIdx } = stateRef.current;
@@ -1183,11 +1284,18 @@ export default function ActiveLoggingScreen() {
         supersetJumpTimerRef.current = setTimeout(() => setActiveExIndex(nextJumpIdx), 400);
       } else {
         const isExComplete = targetCompleted && newEx.setsLog.length > 0 && newEx.setsLog.every(s => s.completed);
-        if (isExComplete && curActiveIdx < allExs.length - 1) {
-          if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
-          autoAdvanceTimerRef.current = setTimeout(() => {
-            setActiveExIndex(curActiveIdx + 1);
-          }, 550);
+        if (isExComplete) {
+          if (curActiveIdx < allExs.length - 1) {
+            if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
+            autoAdvanceTimerRef.current = setTimeout(() => {
+              setActiveExIndex(curActiveIdx + 1);
+            }, 550);
+          } else {
+            if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
+            autoAdvanceTimerRef.current = setTimeout(() => {
+              promptFinishWorkout();
+            }, 450);
+          }
         }
       }
     } else {
@@ -1198,7 +1306,7 @@ export default function ActiveLoggingScreen() {
       hapticLight();
       updateExercise(curRealIdx, newEx);
     }
-  }, [logSetAndStartTimer, updateExercise]);
+  }, [logSetAndStartTimer, updateExercise, promptFinishWorkout]);
 
   const handleCycleSetType = useCallback((setIdx: number) => {
     const { exercise, realExerciseIndex: curRealIdx } = stateRef.current;
@@ -1426,9 +1534,14 @@ export default function ActiveLoggingScreen() {
       } else {
         // All sets completed!
         setActiveKeypad(null);
+        if (stateRef.current.activeExIndex === stateRef.current.exercises.length - 1) {
+          setTimeout(() => {
+            promptFinishWorkout();
+          }, 450);
+        }
       }
     }
-  }, [activeKeypad, handleToggleSetComplete]);
+  }, [activeKeypad, handleToggleSetComplete, promptFinishWorkout]);
 
   // Reset custom workout keypad when switching exercises so Mode 1 (Sticky Dock) is shown by default
   useEffect(() => {
@@ -1578,7 +1691,7 @@ export default function ActiveLoggingScreen() {
         </View>
       )}
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
 
         {/* Apple iOS HIG Header: Back Button + Live WorkoutTimer + Deep Dive Stats */}
         <View style={styles.header}>
@@ -1597,16 +1710,27 @@ export default function ActiveLoggingScreen() {
             </View>
           </View>
 
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => {
-              hapticSelection();
-              setDeepDiveVisible(true);
-            }}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Ionicons name="stats-chart-outline" size={20} color={isDark ? 'rgba(255,255,255,0.85)' : colors.textPrimary} />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              onPress={promptFinishWorkout}
+              style={styles.headerFinishBtn}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.headerFinishText}>Finish</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.backBtn}
+              onPress={() => {
+                hapticSelection();
+                setDeepDiveVisible(true);
+              }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Ionicons name="stats-chart-outline" size={20} color={isDark ? 'rgba(255,255,255,0.85)' : colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* 1-Tap Horizontal Exercise Switcher Carousel Strip (Jump in 0ms) */}
@@ -1708,6 +1832,7 @@ export default function ActiveLoggingScreen() {
               onRepeatPrevious={handleRepeatPreviousSet}
               colors={colors}
               styles={styles}
+              gymLogs={gymLogs}
               onSwapPress={handleSwapPress}
               onSupersetPress={handleSupersetPress}
               onVideoToggle={handleVideoToggle}
@@ -1763,6 +1888,9 @@ export default function ActiveLoggingScreen() {
               activeKeypadField={activeKeypad}
               isFieldSelected={isFieldSelected}
               onAddSet={handleAddSet}
+              isAllComplete={isAllComplete}
+              isLastExercise={activeExIndex === exercises.length - 1}
+              onFinishWorkout={promptFinishWorkout}
             />
 
           </ScrollView>
@@ -1936,6 +2064,8 @@ export default function ActiveLoggingScreen() {
           selectedRir={dockSelectedRir}
           isAllComplete={isAllComplete}
           isLastExercise={activeExIndex === exercises.length - 1}
+          isTimerEnabled={autoTimerEnabled && exercise?.restTimeSecs !== 0}
+          onToggleTimer={handleToggleTimer}
           onSelectRir={handleSetRIR}
           onQuickAdjustRep={handleAdjustReps}
           onLogSetAndRest={isAllComplete ? handleNextExercise : handleLogSet}

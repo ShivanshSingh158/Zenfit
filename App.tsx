@@ -23,6 +23,8 @@ loadBootManifest().catch(() => {});
 
 import { registerDeferredOtaSync } from './src/services/otaUpdateService';
 import { ensureNotificationChannels, requestNotificationPermissions } from './src/services/notifications';
+import { registerActiveWorkoutNotificationListeners } from './src/services/activeWorkoutNotificationService';
+import { navigationRef } from './src/navigation/navigationService';
 
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { PortalProvider } from './src/contexts/PortalContext';
@@ -113,6 +115,7 @@ function MainRoot() {
 
   return (
     <NavigationContainer
+      ref={navigationRef}
       theme={isDark ? ZEN_DARK_THEME : ZEN_LIGHT_THEME}
       onReady={() => {
         setNavReady(true);
@@ -144,6 +147,9 @@ export default function App() {
       requestNotificationPermissions().catch(() => {});
     });
 
+    // Register active workout and weekly report notification click listeners
+    const unsubscribeNotif = registerActiveWorkoutNotificationListeners();
+
     // Tier-1 Silent Background OTA Update Sync (ZenTrack WhatsApp / Discord Pattern):
     // 0ms startup delay; silently downloads new bundles in the background, ready on next launch
     const unsubscribeOta = registerDeferredOtaSync();
@@ -156,6 +162,7 @@ export default function App() {
     return () => {
       clearTimeout(safetyTimer);
       unsubscribeOta?.();
+      unsubscribeNotif?.();
     };
   }, []);
 

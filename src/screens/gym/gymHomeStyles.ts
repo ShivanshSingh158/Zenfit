@@ -29,11 +29,11 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
     gap: 10,
   },
 
-  // ── Top Header: Compact Structural Row + Plain Icons ───────────────────────
+  // ── Top Header: Compact Structural Row + Apple Actions ─────────────────────
   headerContainer: {
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     paddingTop: 4,
-    paddingBottom: 2,
+    paddingBottom: 6,
   },
   headerRow: {
     flexDirection: 'row',
@@ -41,9 +41,8 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
     alignItems: 'center',
   },
   headerTitleGroup: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 8,
+    flex: 1,
+    paddingRight: 8,
   },
   headerTitle: {
     fontSize: 22,
@@ -51,46 +50,105 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
     letterSpacing: -0.3,
     color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
   },
-  headerDateBadge: {
-    fontSize: 13,
+  headerSubtitle: {
+    fontSize: 12.5,
     fontFamily: FONT_FAMILY.medium,
     color: isDark ? IOS_DARK.labelSecondary : colors.textTertiary,
+    marginTop: 2,
+  },
+  headerDateBadge: {
+    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.medium,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textTertiary,
+    marginTop: 2,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
   plainIconBtn: {
-    padding: 4,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: isDark ? '#1C1C1E' : '#E5E5EA',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  primaryActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: isDark ? '#FFFFFF' : '#000000',
+    paddingHorizontal: 12,
+    paddingVertical: 5.5,
+    borderRadius: 999,
+  },
+  primaryActionText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? '#000000' : '#FFFFFF',
+  },
 
-  // ── Week Strip: Typographic with no border boxes ──────────────────────────
-  weekStrip: {
+  // ── Week Strip: Inset Grouped Apple Calendar Card ─────────────────────────
+  weekStripCard: {
+    backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface,
+    borderRadius: 16,
+    padding: 10,
+    borderWidth: 0,
+    gap: 8,
+  },
+  weekStripHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 0,
-    marginBottom: 0,
+    paddingHorizontal: 4,
+  },
+  weekStripMonthText: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.bold,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: isDark ? IOS_DARK.labelSecondary : colors.textTertiary,
+  },
+  weekNavBtns: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  weekNavBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: isDark ? '#2C2C2E' : '#E5E5EA',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  weekTodayBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: isDark ? '#2C2C2E' : '#E5E5EA',
+  },
+  weekTodayBtnText: {
+    fontSize: 10.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? '#FFFFFF' : '#000000',
   },
   weekDaysContainer: {
     flexDirection: 'row',
-    flex: 1,
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 2,
-  },
-  weekNavBtn: {
-    padding: 4,
-    justifyContent: 'center',
     alignItems: 'center',
   },
   dayCol: {
+    flex: 1,
     alignItems: 'center',
-    gap: 3,
-    width: 34,
+    paddingVertical: 7,
+    borderRadius: 10,
+    gap: 4,
+  },
+  dayColActive: {
+    backgroundColor: isDark ? '#2C2C2E' : '#E5E5EA',
   },
   dayLetter: {
     fontSize: 11,
@@ -101,20 +159,6 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
     color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
     fontFamily: FONT_FAMILY.bold,
   },
-  dayPill: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
-  dayPillActive: {
-    backgroundColor: isDark ? IOS_DARK.accent : colors.accentPrimary,
-    borderRadius: 15,
-    overflow: 'hidden',
-  },
   dayNum: {
     fontSize: 13,
     color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
@@ -122,9 +166,21 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
     textAlign: 'center',
   },
   dayNumActive: {
-    color: isDark ? '#000000' : '#FFFFFF',
-    fontWeight: '700',
+    color: isDark ? '#FFFFFF' : '#000000',
+    fontFamily: FONT_FAMILY.bold,
     textAlign: 'center',
+  },
+  dayDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  dayTodayDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#FFFFFF',
+    marginTop: -2,
   },
 
   // ── Sections & Inset Grouped Lists ────────────────────────────────────────
@@ -139,7 +195,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
     marginBottom: 2,
   },
   sectionLabel: {
-    fontSize: 13,
+    fontSize: 11,
     fontFamily: FONT_FAMILY.bold,
     color: isDark ? IOS_DARK.labelSecondary : colors.textTertiary,
     letterSpacing: 0.6,
@@ -174,19 +230,17 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
 
   // ── Hero Exercise Card & Fused Superset Containers ────────────────────────
   exerciseCardContainer: {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+    backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface,
     borderRadius: 16,
     marginBottom: 8,
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.06)' : colors.border,
+    borderWidth: 0,
     overflow: 'hidden',
   },
   supersetCardContainer: {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+    backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface,
     borderRadius: 16,
     marginBottom: 8,
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,159,10,0.22)' : 'rgba(217,119,6,0.2)',
+    borderWidth: 0,
     borderLeftWidth: 3.5,
     borderLeftColor: '#FF9F0A',
     overflow: 'hidden',
