@@ -98,6 +98,9 @@ export interface MuscleEffectiveVolume {
   effectiveSets: number;
   status: 'low' | 'optimal' | 'high';
   color: string;
+  dynamicMev?: number;
+  dynamicMrv?: number;
+  progressionRatePct?: number;
 }
 
 export interface PinnedLiftSummary {
@@ -684,7 +687,22 @@ export function computeUnifiedAnalytics(gymLogs: GymDayLog[]): UnifiedAnalyticsD
       const d = weeklyDirectSets[m] || 0;
       const s = weeklySynergistSets[m] || 0;
       const eff = Math.round((d + s) * 10) / 10;
-      const status: 'low' | 'optimal' | 'high' = eff < 6 ? 'low' : eff <= 16 ? 'optimal' : 'high';
+
+      // Dynamic Individualized MEV / MRV Calibration:
+      // If user is progressing (slope >= +0.5%), dynamic MEV is calibrated to their current volume
+      const dynamicMev = netStrengthDeltaPct >= 0.5 ? Math.min(6, Math.max(4, eff - 1)) : 8;
+      const dynamicMrv = netStrengthDeltaPct < -1.0 ? Math.max(12, eff - 2) : 20;
+
+      let status: 'low' | 'optimal' | 'high' = 'optimal';
+      if (eff < dynamicMev && netStrengthDeltaPct <= 0) {
+        status = 'low';
+      } else if (eff > dynamicMrv && netStrengthDeltaPct < 0) {
+        status = 'high';
+      } else {
+        // Progressing or within personalized adaptive recovery capacity
+        status = 'optimal';
+      }
+
       return {
         muscleGroup: m,
         directSets: d,
@@ -692,6 +710,9 @@ export function computeUnifiedAnalytics(gymLogs: GymDayLog[]): UnifiedAnalyticsD
         effectiveSets: eff,
         status,
         color: MUSCLE_PALETTE[m] || '#A599FF',
+        dynamicMev,
+        dynamicMrv,
+        progressionRatePct: netStrengthDeltaPct,
       };
     });
 

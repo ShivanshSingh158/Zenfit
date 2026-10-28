@@ -1,11 +1,11 @@
 /**
- * effortEngine.ts — ZenTrack Mobile
+ * effortEngine.ts — ZenFit Biomechanical Effort & RIR Engine
  *
  * RIR (Reps in Reserve) & RPE (Rating of Perceived Exertion) Dual-Scale Engine:
- * - High-precision Automatic RIR Inference based on relative load, rep decay, and set sequencing
+ * - Rest-Interval Aware Automatic RIR Inference incorporating ATP-PCr Resynthesis Kinetics
  * - Real-time bidirectional conversion: RPE = 10 - RIR, RIR = 10 - RPE
- * - Hard Set classification (RIR <= 3 / RPE >= 7)
- * - Effort distribution and hypertrophy stimulus tracking
+ * - Hard Set classification (RIR <= 3 / RPE >= 7) for hypertrophic stimulus tracking
+ * - Relative Intensity evaluation against rolling e1RM
  */
 
 export const HARD_RIR_THRESHOLD = 3; // RIR <= 3 (RPE >= 7) drives muscle hypertrophy
@@ -18,6 +18,8 @@ export interface SetLike {
   reps?: number | string | null;
   rir?: number | null;
   rpe?: number | null;
+  restSeconds?: number | null;
+  restTimeSecs?: number | null;
   isWarmup?: boolean;
   completed?: boolean;
   [key: string]: any;
@@ -47,20 +49,21 @@ export function fromRIR(rir: number | null | undefined, scale: EffortScale = 'ri
 
 /**
  * High-Precision Automatic RIR Inference Engine:
- * Infers true Reps in Reserve (0 to 5) when user did not manually enter RIR.
+ * Incorporates Rest Time (delta t_rest) and ATP-PCr Resynthesis Kinetics.
  *
  * Evaluates:
- * 1. Relative Load (% of Top Set Weight in the current exercise session)
- * 2. Intra-Session Rep Drop-Off & Fatigue Dynamics across consecutive sets
- * 3. Final Working Set Exertion Rule
- * 4. Bodyweight & High Rep Exertion Heuristics
+ * 1. Explicit user RIR/RPE entry (highest priority)
+ * 2. Rest Duration & ATP-PCr resynthesis factor: RecoveryFactor = 1 - e^(-rest/90)
+ * 3. Expected Rep Decay vs Actual Rep Drop-Off
+ * 4. Relative Load vs Rolling e1RM
  */
 export function inferAutomaticRIR(
   currentSet: SetLike,
   exerciseSets?: SetLike[],
-  historicalMax1RM?: number | null
+  historicalMax1RM?: number | null,
+  restDurationSeconds?: number
 ): number {
-  // 1. Manual user entry takes highest priority if present
+  // 1. Manual user entry takes absolute priority if present
   if (currentSet.rir !== undefined && currentSet.rir !== null) {
     return Math.max(0, Math.min(10, Math.round(Number(currentSet.rir) * 10) / 10));
   }
@@ -104,19 +107,34 @@ export function inferAutomaticRIR(
     rir = 1; // Top / Peak working set
   }
 
-  // Step 2: Check intra-session set sequence and rep drop-off
+  // Step 2: Check intra-session set sequence, rest duration, and ATP-PCr kinetics
   const currentIdx = validSets.findIndex(s => s === currentSet);
   if (currentIdx > 0) {
     const prevSet = validSets[currentIdx - 1];
     const prevWeight = Number(prevSet.weight) || 0;
     const prevReps = Number(prevSet.reps) || 0;
 
-    // If same or higher weight but reps dropped significantly (fatigue accumulation)
-    if (weight >= prevWeight * 0.95 && prevReps > reps) {
-      const repDrop = prevReps - reps;
-      if (repDrop >= 3) {
-        rir = Math.max(0, rir - 2); // Heavy rep drop -> failure / RIR 0
-      } else if (repDrop >= 1) {
+    const restTime = Number(currentSet.restSeconds ?? currentSet.restTimeSecs ?? restDurationSeconds) || 90;
+    // ATP-PCr resynthesis: tau ~ 90s (half life 30-45s, complete neural recovery ~ 180s)
+    const recoveryFactor = 1 - Math.exp(-restTime / 90);
+    const expectedDrop = prevReps * 0.28 * (1 - 0.75 * recoveryFactor);
+    const actualDrop = prevReps - reps;
+
+    if (weight >= prevWeight * 0.95) {
+      if (restTime >= 180 && actualDrop <= 0) {
+        // Full ATP-PCr recovery with long rest: lifter maintained reps due to adequate rest
+        if (historicalMax1RM && historicalMax1RM > 0) {
+          // Infer from relative intensity via modified Brzycki:
+          const relRir = Math.max(0, Math.round(37 - (36 * weight) / historicalMax1RM - reps));
+          rir = Math.min(rir, relRir);
+        } else {
+          // Default heavy set at complete rest is working RIR 1-2, never junk volume
+          rir = Math.min(rir, 2);
+        }
+      } else if (actualDrop >= expectedDrop + 1) {
+        // Crossed true metabolic failure threshold
+        rir = Math.max(0, rir - 2);
+      } else if (actualDrop >= 1) {
         rir = Math.max(0, rir - 1);
       }
     }
@@ -142,69 +160,92 @@ export function inferAutomaticRIR(
 }
 
 /**
- * Checks if a set is a true Hard Working Set
+ * Checks if a set is a true Hard Working Set driving muscle hypertrophy
  */
 export function isHardSet(
   setOrRir: SetLike | number | null | undefined,
   exerciseSets?: SetLike[],
-  scale: EffortScale = 'rir'
+  scale: EffortScale = 'rir',
+  historicalMax1RM?: number | null,
+  restDurationSeconds?: number
 ): boolean {
   if (typeof setOrRir === 'number') {
     const rir = toRIR(setOrRir, scale);
     return rir !== null && rir <= HARD_RIR_THRESHOLD;
   }
   if (setOrRir && typeof setOrRir === 'object') {
-    const rir = inferAutomaticRIR(setOrRir, exerciseSets);
+    const rir = inferAutomaticRIR(setOrRir, exerciseSets, historicalMax1RM, restDurationSeconds);
     return rir <= HARD_RIR_THRESHOLD;
   }
   return true;
 }
 
-export interface EffortSummary {
-  totalSets: number;
-  ratedSets: number;
-  hardSets: number;
-  averageRIR: number | null;
-  averageRPE: number | null;
-  hardSetPercentage: number;
-}
-
 /**
- * Computes effort summary statistics for a collection of sets with automatic RIR inference
+ * Calculates Effort Distribution (Hard Sets vs Junk/Warmup sets)
  */
-export function calculateEffortSummary(
-  sets: (SetLike & { exerciseSets?: SetLike[] })[]
-): EffortSummary {
-  const completed = (sets || []).filter(s => s.completed !== false && !s.isWarmup);
-  let ratedCount = 0;
-  let rirSum = 0;
-  let hardCount = 0;
+export function calculateEffortDistribution(sets: SetLike[]): {
+  hardSets: number;
+  submaximalSets: number;
+  averageRIR: number | null;
+  hypertrophicStimulusScore: number; // 0 to 100
+} {
+  const valid = (sets || []).filter(s => s.completed !== false && !s.isWarmup);
+  if (!valid.length) {
+    return { hardSets: 0, submaximalSets: 0, averageRIR: null, hypertrophicStimulusScore: 0 };
+  }
 
-  for (const s of completed) {
-    const isManuallyRated = (s.rir !== undefined && s.rir !== null) || (s.rpe !== undefined && s.rpe !== null);
-    if (isManuallyRated) {
-      ratedCount++;
-    }
+  let hardSets = 0;
+  let submaximalSets = 0;
+  let totalRir = 0;
 
-    const rir = inferAutomaticRIR(s, s.exerciseSets || completed);
-    rirSum += rir;
+  for (const s of valid) {
+    const rir = inferAutomaticRIR(s, valid);
+    totalRir += rir;
     if (rir <= HARD_RIR_THRESHOLD) {
-      hardCount++;
+      hardSets++;
+    } else {
+      submaximalSets++;
     }
   }
 
-  const effectiveCount = completed.length;
-  const avgRIR = effectiveCount > 0 ? Math.round((rirSum / effectiveCount) * 10) / 10 : 2;
-  const avgRPE = Math.round((10 - avgRIR) * 10) / 10;
-  const hardPct = effectiveCount > 0 ? Math.round((hardCount / effectiveCount) * 100) : 100;
+  const avgRir = Math.round((totalRir / valid.length) * 10) / 10;
+  // Hypertrophic stimulus score scales with density of sets <= 2 RIR
+  const stimulusRatio = hardSets / valid.length;
+  const rirQuality = Math.max(0, 1 - avgRir / 4);
+  const score = Math.round((stimulusRatio * 0.6 + rirQuality * 0.4) * 100);
 
   return {
-    totalSets: completed.length,
-    ratedSets: ratedCount,
-    hardSets: hardCount,
-    averageRIR: avgRIR,
-    averageRPE: avgRPE,
-    hardSetPercentage: hardPct,
+    hardSets,
+    submaximalSets,
+    averageRIR: avgRir,
+    hypertrophicStimulusScore: Math.min(100, Math.max(0, score)),
   };
 }
 
+/**
+ * Calculates High-Level Effort Summary for Cards and Dashboards
+ */
+export function calculateEffortSummary(sets: SetLike[]): {
+  totalSets: number;
+  hardSets: number;
+  submaximalSets: number;
+  hardSetPercentage: number;
+  averageRIR: number | null;
+  averageRPE: number | null;
+  hypertrophicStimulusScore: number;
+} {
+  const dist = calculateEffortDistribution(sets);
+  const total = (sets || []).filter(s => s.completed !== false && !s.isWarmup).length;
+  const hardPct = total > 0 ? Math.round((dist.hardSets / total) * 100) : 0;
+  const avgRpe = dist.averageRIR !== null ? Math.round((10 - dist.averageRIR) * 10) / 10 : null;
+
+  return {
+    totalSets: total,
+    hardSets: dist.hardSets,
+    submaximalSets: dist.submaximalSets,
+    hardSetPercentage: hardPct,
+    averageRIR: dist.averageRIR,
+    averageRPE: avgRpe,
+    hypertrophicStimulusScore: dist.hypertrophicStimulusScore,
+  };
+}

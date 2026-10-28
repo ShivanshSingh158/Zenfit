@@ -263,3 +263,5 @@ export type GymNavigationParamList = {
   GymProfile: undefined;
 };
 
+export * from './exercise';
+

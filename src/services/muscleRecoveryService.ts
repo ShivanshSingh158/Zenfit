@@ -22,6 +22,7 @@ import { formatLocalDateStr, parseLocalDate } from '../utils/dateUtils';
 import { getVolumeMultiplier } from '../utils/gymUtils';
 import { SCIENTIFIC_BY_NAME, SCIENTIFIC_EXERCISE_MAP } from '../data/scientificExerciseMap';
 import { getCanonicalExerciseKey } from '../data/exerciseAliasMap';
+import { resolveExerciseBiometrics } from '../utils/exerciseClassifier';
 
 export const MUSCLES = [
   'trapezius',
@@ -262,24 +263,24 @@ export function getExerciseMuscleWeights(exercise: { name?: string; muscle?: str
 }
 
 export const MUSCLE_RECOVERY_SCALAR: Record<MuscleSlug, number> = {
-  quadriceps: 1.2,
-  hamstring: 1.2,
-  gluteal: 1.15,
-  'lower-back': 1.2,
-  'upper-back': 1.1,
-  chest: 1.1,
-  deltoids: 0.85,
-  trapezius: 0.9,
-  biceps: 0.8,
-  triceps: 0.85,
-  forearm: 0.7,
-  abs: 0.7,
-  obliques: 0.75,
-  serratus: 0.75,
-  adductors: 0.95,
-  'hip-flexors': 0.8,
-  calves: 0.75,
-  tibialis: 0.7,
+  quadriceps: 0.94, // 34h base tau (high vascularity & rapid recovery)
+  gluteal: 0.94,    // 34h base tau
+  hamstring: 1.39,  // 50h base tau (high eccentric micro-damage & sustained soreness)
+  biceps: 1.39,     // 50h base tau (high voluntary activation & eccentric vulnerability)
+  chest: 1.17,      // 42h base tau
+  'upper-back': 1.17, // 42h base tau
+  'lower-back': 1.28, // 46h base tau
+  deltoids: 0.78,   // 28h base tau
+  triceps: 0.78,    // 28h base tau
+  calves: 0.78,     // 28h base tau
+  abs: 0.78,        // 28h base tau
+  forearm: 0.72,    // 26h base tau
+  tibialis: 0.72,   // 26h base tau
+  adductors: 1.0,   // 36h base tau
+  trapezius: 1.0,   // 36h base tau
+  obliques: 0.78,   // 28h base tau
+  serratus: 0.78,   // 28h base tau
+  'hip-flexors': 1.0, // 36h base tau
 };
 
 export const SMALL_MUSCLE_SLUGS = new Set<MuscleSlug>([
@@ -482,6 +483,12 @@ export function calculateMuscleLevels(load: Record<MuscleSlug, number>): Record<
 
 export type FatigueState = 'ready' | 'recovering' | 'fatigued';
 
+export interface SystemicCnsRecoveryData {
+  cnsFatigueScore: number; // 0.0 (fresh) to 1.0+ (heavily taxed)
+  cnsReadinessPct: number; // 0 to 100%
+  isCnsOverreached: boolean; // true if cnsFatigueScore >= 0.65
+}
+
 export interface MuscleRecoveryData {
   fatigueScore: number; // 0.0 (fresh) to 1.0+ (heavily fatigued)
   fatigueLevel: number; // 0 (ready) to 4 (peak fatigue)
@@ -491,6 +498,8 @@ export interface MuscleRecoveryData {
   totalSets: number;
   estimatedRecoveryHours: number; // 0 if ready, or hours remaining until recovery threshold
   readinessPct: number; // 0 to 100% capacity
+  cnsFatigueScore?: number;
+  cnsReadinessPct?: number;
 }
 
 /**
@@ -501,59 +510,80 @@ export function calculateMuscleFatigue(
   anchorDateStr?: string
 ): Record<MuscleSlug, MuscleRecoveryData> {
   const now = resolveAnchorTimestamp(anchorDateStr);
-  // Hour-bucketed cache key so countdowns tick down accurately every hour
   const hourBucket = Math.floor(now / 3600000);
   const cacheKey = `muscle_fatigue_${generateDatasetFingerprint(logs, `${hourBucket}`)}`;
 
   return computeOrGetHotCache(cacheKey, () => {
     const out: Record<MuscleSlug, MuscleRecoveryData> = {} as any;
 
-    // Group sets per muscle PER SESSION (by log date/timestamp) so multi-exercise
-    // workouts don't add the base fatigue penalty multiple times!
     const muscleSessions: Record<MuscleSlug, Map<number, number>> = {} as any;
     MUSCLES.forEach(m => (muscleSessions[m] = new Map()));
+
+    let cnsFatiguePool = 0;
 
     for (const log of logs || []) {
       if (!log.date) continue;
       const logTime = resolveLogTimestamp(log);
-      // Ignore future logs or logs older than 10 days for acute fatigue
       if (logTime > now + 3600000 || now - logTime > 10 * 86400000) continue;
+      const hoursAgo = Math.max(0, (now - logTime) / 3600000);
+      const cnsDecay = Math.exp(-hoursAgo / 40);
 
       for (const ex of log.exercises || []) {
         if (ex.skipped) continue;
-        const completedSets = (ex.setsLog || []).filter((s: any) => s.completed && !s.isWarmup).length;
-        if (!completedSets) continue;
+        const validSets = (ex.setsLog || []).filter((s: any) => s.completed && !s.isWarmup);
+        if (!validSets.length) continue;
 
+        const biometrics = resolveExerciseBiometrics(ex.name, (ex as any).equipment);
         const weights = getExerciseMuscleWeights(ex);
-        for (const [slug, w] of Object.entries(weights)) {
-          if (slug in muscleSessions) {
-            const mSlug = slug as MuscleSlug;
-            const prev = muscleSessions[mSlug].get(logTime) || 0;
-            muscleSessions[mSlug].set(logTime, prev + completedSets * (w || 1));
+
+        for (const s of validSets) {
+          const rir = inferAutomaticRIR(s, validSets);
+          const effortScalar = Math.max(0.2, 1 - 0.18 * rir);
+          const setImpulse = effortScalar * biometrics.eccentricDamageScalar;
+
+          // Local tissue impulse
+          for (const [slug, w] of Object.entries(weights)) {
+            if (slug in muscleSessions) {
+              const mSlug = slug as MuscleSlug;
+              const prev = muscleSessions[mSlug].get(logTime) || 0;
+              muscleSessions[mSlug].set(logTime, prev + setImpulse * (w || 1));
+            }
           }
+
+          // Systemic CNS impulse (tau = 40h)
+          const weight = Number(s.weight) || 0;
+          const e1rm = weight > 0 ? weight * (1 + (Number(s.reps) || 8) / 30) : weight;
+          const loadFraction = e1rm > 0 ? Math.min(1.0, weight / e1rm) : 0.7;
+          const cnsImpulse = effortScalar * biometrics.cnsDemandScalar * loadFraction * 0.08;
+          cnsFatiguePool += cnsImpulse * cnsDecay;
         }
       }
     }
 
+    const cnsFatigueScore = Math.round(cnsFatiguePool * 100) / 100;
+    const cnsReadinessPct = Math.max(30, Math.min(100, Math.round((1 - Math.min(1, cnsFatigueScore / 1.0)) * 100)));
+
     MUSCLES.forEach(m => {
       const sessionMap = muscleSessions[m];
       const sizeScalar = MUSCLE_RECOVERY_SCALAR[m] || 1.0;
-      const tauHours = 36 * sizeScalar; // Tissue-specific recovery time constant
+      const tauBaseHours = 36 * sizeScalar;
 
       let totalFatigue = 0;
       let mostRecentTime: number | null = null;
       let totalSetsIn7Days = 0;
 
-      sessionMap.forEach((sessionSets, sessionTime) => {
+      sessionMap.forEach((sessionImpulse, sessionTime) => {
         if (!mostRecentTime || sessionTime > mostRecentTime) {
           mostRecentTime = sessionTime;
         }
         const hoursAgo = Math.max(0, (now - sessionTime) / 3600000);
         if (hoursAgo <= 168) {
-          totalSetsIn7Days += sessionSets;
+          totalSetsIn7Days += sessionImpulse;
         }
-        const decay = Math.exp(-hoursAgo / tauHours);
-        const intensityWeight = Math.min(1.5, (0.22 + sessionSets * 0.09) * sizeScalar);
+        // Dynamic non-linear tau scaling (volume spillover beyond 6 sets)
+        const tauEffective = tauBaseHours * (1 + 0.04 * Math.max(0, sessionImpulse - 6));
+        const decay = Math.exp(-hoursAgo / tauEffective);
+        const intensityWeight = Math.min(1.8, (0.20 + sessionImpulse * 0.08) * sizeScalar);
         totalFatigue += intensityWeight * decay;
       });
 
@@ -561,21 +591,17 @@ export function calculateMuscleFatigue(
         ? Math.max(0, Math.floor((now - mostRecentTime) / 86400000))
         : null;
 
-      // Clean, non-contradictory thresholds:
-      // <= 0.28: Ready (100%)
-      // 0.29 - 0.56: Recovering (Yellow)
-      // >= 0.57: Fatigued / Rest Priority (Red)
       const isPrime = totalFatigue <= 0.28;
       const isFatigued = totalFatigue >= 0.57;
       const state: FatigueState = isPrime ? 'ready' : isFatigued ? 'fatigued' : 'recovering';
       const fLevel = isPrime ? 0 : isFatigued ? (totalFatigue >= 0.85 ? 4 : 3) : (totalFatigue >= 0.42 ? 2 : 1);
 
       const hoursSince = mostRecentTime != null ? Math.max(0, (now - mostRecentTime) / 3600000) : 999;
-      const strengthScore = Math.min(1.0, 0.65 + 0.35 * (1 - Math.exp(-hoursSince / tauHours)));
+      const strengthScore = Math.min(1.0, 0.65 + 0.35 * (1 - Math.exp(-hoursSince / tauBaseHours)));
 
       let estimatedRecoveryHours = 0;
       if (!isPrime && totalFatigue > 0.28) {
-        estimatedRecoveryHours = Math.max(1, Math.round(tauHours * Math.log(totalFatigue / 0.28)));
+        estimatedRecoveryHours = Math.max(1, Math.round(tauBaseHours * Math.log(totalFatigue / 0.28)));
       }
 
       const readinessPct = isPrime
@@ -591,6 +617,8 @@ export function calculateMuscleFatigue(
         totalSets: Math.round(totalSetsIn7Days),
         estimatedRecoveryHours,
         readinessPct,
+        cnsFatigueScore,
+        cnsReadinessPct,
       };
     });
 
@@ -2025,4 +2053,19 @@ export function calculateAntagonisticPairs(
     },
   ];
   });
+}
+
+export function calculateSystemicCnsFatigue(
+  logs: GymDayLog[],
+  anchorDateStr?: string
+): SystemicCnsRecoveryData {
+  const fatigueMap = calculateMuscleFatigue(logs, anchorDateStr);
+  const firstMuscle = fatigueMap.chest || Object.values(fatigueMap)[0];
+  const cnsScore = firstMuscle?.cnsFatigueScore ?? 0;
+  const cnsReadiness = firstMuscle?.cnsReadinessPct ?? 100;
+  return {
+    cnsFatigueScore: cnsScore,
+    cnsReadinessPct: cnsReadiness,
+    isCnsOverreached: cnsScore >= 0.65,
+  };
 }

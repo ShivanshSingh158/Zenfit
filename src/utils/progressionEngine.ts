@@ -485,7 +485,7 @@ export function generateProgressionRecommendation(
   );
 
   // Compute EWMA e1RM across up to 6 sessions (alpha = 0.45 smooths single bad days)
-  const alpha = 0.45;
+  const alpha = 0.35; // Lowered from 0.45 to prevent acute bad days from skewing baseline
   let ewma1RM = digests[digests.length - 1].anchorSetE1RM;
   for (let i = digests.length - 2; i >= 0; i--) {
     ewma1RM = alpha * digests[i].anchorSetE1RM + (1 - alpha) * ewma1RM;
@@ -497,8 +497,9 @@ export function generateProgressionRecommendation(
   const relativeJumpPct = W > 0 ? Number(((deltaW / W) * 100).toFixed(1)) : 0;
 
   // Intra-workout fatigue buffer if user already did >= 4 hard sets for this muscle today
-  const intraWorkoutFatiguePenalty =
-    (recovery.alreadyLoggedSameMuscleSetsToday ?? 0) >= 4 ? 1 : 0;
+  const priorSets = recovery.alreadyLoggedSameMuscleSetsToday ?? 0;
+  const intraWorkoutFatiguePenalty = priorSets >= 4 ? Math.min(2, Math.floor((priorSets - 2) / 2)) : 0;
+  const intraWorkoutLoadFactor = priorSets >= 3 ? Math.max(0.92, 1 - 0.015 * (priorSets - 2)) : 1.0;
 
   const lastRepsList = last.workingSets.map((s) => s.reps);
   const lastRepsStr = lastRepsList.join(', ');
@@ -627,29 +628,26 @@ export function generateProgressionRecommendation(
   }
 
   // -------------------------------------------------------------------------
-  // STATE 7: REACTIVE DELOAD (2 Consecutive Regressions While Rested)
+  // STATE 7: REACTIVE DELOAD (3 Consecutive Regressions with High Fatigue)
   // -------------------------------------------------------------------------
-  const regressedTwice =
+  const regressedThreeTimes =
     prev !== undefined &&
     prev2 !== undefined &&
-    intraWorkoutFatiguePenalty === 0 &&
     last.anchorSetE1RM < prev.anchorSetE1RM * 0.97 &&
-    prev.anchorSetE1RM < prev2.anchorSetE1RM * 0.97;
+    prev.anchorSetE1RM < prev2.anchorSetE1RM * 0.97 &&
+    last.anchorSetE1RM < ewma1RM * 0.94;
 
   const failedFloorTwice =
     prev !== undefined &&
-    intraWorkoutFatiguePenalty === 0 &&
     last.workingSets[0].reps < Rmin - 1 &&
     prev.workingSets[0].reps < Rmin - 1 &&
     last.anchorWeight === prev.anchorWeight;
 
-  if (regressedTwice || failedFloorTwice) {
-    const deloadWeight =
-      failedFloorTwice && W > 0
-        ? snapToGymWeight(W * (1 - 0.1 * direction), deltaW || 2.5)
-        : W;
-    // Volume deload (cut 1 working set) preserves strength better than dropping load
-    const deloadSetsCount = failedFloorTwice ? N : Math.max(2, N - 1);
+  const hasHighSystemicFatigue = (recovery.recentPrimaryMuscleHardSets ?? 0) >= 12;
+
+  if (regressedThreeTimes && hasHighSystemicFatigue) {
+    const deloadWeight = W > 0 ? snapToGymWeight(W * 0.9, deltaW || 2.5) : 0;
+    const deloadSetsCount = Math.max(2, N - 1);
 
     const prescribedSets: SetPrescription[] = Array.from(
       { length: deloadSetsCount },
@@ -657,24 +655,22 @@ export function generateProgressionRecommendation(
         setNumber: i + 1,
         targetWeight: deloadWeight,
         targetReps: Rmin,
-        targetRir: 2,
+        targetRir: 3,
         role: 'DELOAD',
-        label: `${deloadWeight} kg × ${Rmin} (2 RIR)`,
+        label: `${deloadWeight} kg × ${Rmin} (3 RIR Deload)`,
       })
     );
 
     return {
       state: 'REACTIVE_DELOAD',
-      badgeLabel: 'Recovery Deload',
+      badgeLabel: 'Systemic Deload',
       badgeColor: '#BF5AF2',
-      headline: failedFloorTwice
-        ? `Reset load to ${deloadWeight} kg × ${deloadSetsCount} sets of ${Rmin}`
-        : `Volume Deload: ${deloadWeight} kg × ${deloadSetsCount} sets of ${Rmin} (Cut 1 set)`,
-      subheadline: 'Performance dipped across 2 consecutive sessions. Shedding local fatigue today restores progression.',
+      headline: `Deload: ${deloadWeight} kg × ${deloadSetsCount} sets of ${Rmin}`,
+      subheadline: '3 consecutive sessions of drop-off with high volume load. Shedding systemic fatigue today.',
       prescribedSets,
       totalTargetReps: deloadSetsCount * Rmin,
       recommendedWeight: deloadWeight,
-      weightDelta: failedFloorTwice ? -Number((W * 0.1).toFixed(1)) : 0,
+      weightDelta: -Math.round(W * 0.1),
       isDeload: true,
       lastSessionSummary,
       inferredMeta,
@@ -751,7 +747,7 @@ export function generateProgressionRecommendation(
   }
 
   // -------------------------------------------------------------------------
-  // STATE 4: PLATEAU BREAK (3 Consecutive Sessions Stuck at Same Weight & Volume)
+  // STATE 4: PLATEAU BREAK (3-4 Consecutive Sessions Stuck -> Rep Bracket Shift)
   // -------------------------------------------------------------------------
   const isStagnant3Sessions =
     prev !== undefined &&
@@ -761,49 +757,39 @@ export function generateProgressionRecommendation(
     Math.abs(last.totalRepsAtAnchor - prev.totalRepsAtAnchor) <= 1 &&
     Math.abs(prev.totalRepsAtAnchor - prev2.totalRepsAtAnchor) <= 1;
 
-  if (isStagnant3Sessions && deltaW > 0 && W > 0) {
-    const topSetWeight = Number((W + direction * deltaW).toFixed(2));
-    const topSetReps = Math.max(
-      Math.max(4, Rmin - 2),
-      predictRepsAtWeight(last.anchorSetE1RM, topSetWeight, 1)
+  if (isStagnant3Sessions && !hitTotalRepUnlock) {
+    // Biomechanical Plateau Breaker: Shift rep bracket to break neural accommodation
+    const isHighRep = Rmin >= 10;
+    const newTargetReps = isHighRep ? [6, 8] : [10, 12];
+    const loadShiftFactor = isHighRep ? 1.075 : 0.90;
+    const shiftedWeight = W > 0 ? snapToGymWeight(W * loadShiftFactor, deltaW || 2.5) : 0;
+
+    const shiftedCurve = buildIdealRepCurve(
+      N,
+      newTargetReps[1],
+      newTargetReps[0],
+      inferredMeta.isCompound
     );
 
-    const prescribedSets: SetPrescription[] = [
-      {
-        setNumber: 1,
-        targetWeight: topSetWeight,
-        targetReps: topSetReps,
-        targetRir: 1,
-        role: 'TOP_SET',
-        label: `Top Set: ${topSetWeight} kg × ${topSetReps}`,
-      },
-      ...Array.from({ length: Math.max(1, N - 1) }, (_, idx) => {
-        const setNum = idx + 2;
-        const backOffReps = Math.min(
-          effectiveRmax,
-          (lastRepsList[idx + 1] ?? Rmin) + 1
-        );
-        return {
-          setNumber: setNum,
-          targetWeight: W,
-          targetReps: backOffReps,
-          targetRir: 1,
-          role: 'BACK_OFF' as const,
-          label: `Back-Off: ${W} kg × ${backOffReps}`,
-        };
-      }),
-    ];
+    const prescribedSets: SetPrescription[] = shiftedCurve.map((r, i) => ({
+      setNumber: i + 1,
+      targetWeight: shiftedWeight,
+      targetReps: r,
+      targetRir: 1,
+      role: 'WORK',
+      label: `${shiftedWeight} kg × ${r}`,
+    }));
 
     return {
       state: 'PLATEAU_BREAK',
-      badgeLabel: 'Plateau Breaker (Wave Load)',
+      badgeLabel: 'Rep Bracket Shift',
       badgeColor: '#FF9F0A',
-      headline: `Set 1: ${topSetWeight} kg × ${topSetReps} → Back-off: ${W} kg`,
-      subheadline: `Stuck at ${W} kg for 3 sessions. Heavy Top Set triggers Post-Activation Potentiation (PAP) for your ${W} kg back-off sets.`,
+      headline: `Shift to ${newTargetReps[0]}–${newTargetReps[1]} Rep Bracket: ${shiftedWeight} kg`,
+      subheadline: `Stuck at ${W} kg for 3 sessions. Shifting rep window stimulates new motor units without forcing form breakdown.`,
       prescribedSets,
-      totalTargetReps: prescribedSets.reduce((a, b) => a + b.targetReps, 0),
-      recommendedWeight: topSetWeight,
-      weightDelta: direction * deltaW,
+      totalTargetReps: shiftedCurve.reduce((a, b) => a + b, 0),
+      recommendedWeight: shiftedWeight,
+      weightDelta: Number((shiftedWeight - W).toFixed(1)),
       isDeload: false,
       lastSessionSummary,
       inferredMeta,
