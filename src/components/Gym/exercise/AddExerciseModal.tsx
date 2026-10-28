@@ -408,60 +408,82 @@ function scoreExerciseMatch(
 ): number {
   const { nameLower, normName, nameTokens, aliasesLower: aliases, normAliases } = getEntryMeta(entry);
 
-  let score = 0;
-  if (entry.isCurated) score += 1500;
+  let matchScore = 0;
 
+  // 1. Exact & Substring Matches on Name or Aliases
   if (normName === normQuery || normAliases.includes(normQuery)) {
-    score += 5000;
+    matchScore += 5000;
   } else if (nameLower.startsWith(rawQuery) || normName.startsWith(normQuery)) {
-    score += 2000;
+    matchScore += 3000;
   } else if (aliases.some(a => a.startsWith(rawQuery))) {
-    score += 1800;
+    matchScore += 2500;
   } else if (nameLower.includes(rawQuery) || normName.includes(normQuery)) {
-    score += 1200;
+    matchScore += 1800;
   } else if (cleanedQuery !== rawQuery && nameLower.includes(cleanedQuery)) {
-    score += 1000;
+    matchScore += 1400;
   } else if (aliases.some(a => a.includes(rawQuery) || a.includes(cleanedQuery))) {
-    score += 900;
+    matchScore += 1200;
   }
 
+  // 2. Token Matching (e.g. multi-word "cable curl", "calf raise seated")
   if (queryTokens.length > 0) {
     let matchedTokenCount = 0;
     for (const qt of queryTokens) {
       if (nameTokens.includes(qt)) {
         matchedTokenCount += 1;
-        score += 250;
+        matchScore += 300;
       } else if (nameTokens.some(nt => nt.includes(qt) || qt.includes(nt))) {
         matchedTokenCount += 0.8;
-        score += 150;
+        matchScore += 200;
       } else if (aliases.some(a => a.includes(qt))) {
         matchedTokenCount += 0.7;
-        score += 120;
+        matchScore += 150;
       }
     }
     if (matchedTokenCount >= queryTokens.length) {
-      score += 1200;
+      matchScore += 1500;
     } else if (matchedTokenCount > 0) {
-      score += (matchedTokenCount / queryTokens.length) * 400;
+      matchScore += (matchedTokenCount / queryTokens.length) * 500;
     }
+  }
+
+  // Muscle category match (e.g. searching "biceps" or "chest")
+  const muscleLower = (entry.muscle || '').toLowerCase();
+  if (rawQuery.length >= 3 && muscleLower.includes(rawQuery)) {
+    matchScore += 1000;
+  }
+
+  // If there was NO actual text match, do NOT include this exercise in results!
+  if (matchScore <= 0) {
+    return 0;
+  }
+
+  // 3. Bonuses for matched exercises only
+  let totalScore = matchScore;
+
+  if (entry.isCurated) {
+    totalScore += 200;
   }
 
   if (categoryFilter && categoryFilter !== 'all') {
     if (checkCategoryMatch(entry.muscle, categoryFilter)) {
-      score += 800;
+      totalScore += 800;
+    } else {
+      // If user specifically picked a muscle filter and this doesn't match it, drop it
+      return 0;
     }
   }
 
   const tierWeights: Record<string, number> = {
-    'S Tier': 500,
-    'A+ Tier': 400,
-    'A Tier': 300,
-    'B Tier': 150,
-    'C Tier': 50,
+    'S Tier': 100,
+    'A+ Tier': 80,
+    'A Tier': 60,
+    'B Tier': 40,
+    'C Tier': 20,
   };
-  score += tierWeights[entry.tier || ''] || 0;
+  totalScore += tierWeights[entry.tier || ''] || 0;
 
-  return score;
+  return totalScore;
 }
 
 interface Props {
