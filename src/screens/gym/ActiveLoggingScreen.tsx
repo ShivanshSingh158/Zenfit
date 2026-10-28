@@ -34,6 +34,8 @@ import ActiveSwapModal from '../../components/Gym/active/ActiveSwapModal';
 import AnimatedRestTimer from '../../components/Gym/active/AnimatedRestTimer';
 import ExerciseDeepDiveModal from '../../components/Gym/exercise/ExerciseDeepDiveModal';
 import { WorkoutKeypad } from '../../components/Gym/active/WorkoutKeypad';
+import { PlateCalculatorModal } from '../../components/Gym/metrics/PlateCalculatorModal';
+import { resolveExerciseEquipment } from '../../utils/equipmentResolver';
 import { insertWarmupLadder } from '../../utils/warmupGenerator';
 import { dismissActiveWorkoutNotification } from '../../services/activeWorkoutNotificationService';
 import {
@@ -63,6 +65,7 @@ export default function ActiveLoggingScreen() {
   } | null>(null);
   const [isFieldSelected, setIsFieldSelected] = useState(true);
   const isFieldSelectedRef = useRef(true);
+  const [showPlateCalculator, setShowPlateCalculator] = useState(false);
 
   const {
     log,
@@ -478,6 +481,22 @@ export default function ActiveLoggingScreen() {
   const activeSetIndex = exercise ? exercise.setsLog.findIndex(s => !s.completed) : -1;
   const isAllComplete = activeSetIndex === -1;
 
+  // Smart Equipment-Aware Stepper calculation
+  const equipmentCategory = useMemo(() => {
+    if (!exercise?.name) return 'Barbell';
+    return resolveExerciseEquipment(exercise.name);
+  }, [exercise?.name]);
+
+  const smartWeightStep = useMemo(() => {
+    switch (equipmentCategory) {
+      case 'Dumbbell': return 2.0;
+      case 'Cable': return 2.5;
+      case 'Machine': return 5.0;
+      case 'Kettlebell': return 4.0;
+      default: return 2.5; // Barbell & default
+    }
+  }, [equipmentCategory]);
+
   // Active uncompleted set index and metadata for Bottom Dock
   const dockActiveSetIdx = activeSetIndex;
   const dockActiveSet = dockActiveSetIdx !== -1 ? exercise?.setsLog?.[dockActiveSetIdx] : null;
@@ -505,7 +524,7 @@ export default function ActiveLoggingScreen() {
 
   // Rest timer sits docked cleanly above whichever bottom bar is showing (keypad or sticky dock)
   const timerBottomOffset = isKeypadOpen
-    ? (Platform.OS === 'android' ? 260 : 285)
+    ? (Platform.OS === 'android' ? 225 : 235)
     : (Math.max(insets.bottom, 12) + 115);
 
 
@@ -576,15 +595,33 @@ export default function ActiveLoggingScreen() {
     if (!liveInputsRef.current[setIdx]) liveInputsRef.current[setIdx] = {};
     liveInputsRef.current[setIdx][field] = sanitized;
 
+    // Micro-Interaction #4: Propagate Down Cascade for uncompleted ghost weights
+    const curSets = stateRef.current.exercise?.setsLog || [];
     setSetInputs(prev => {
-      if (prev[setIdx] && prev[setIdx][field] === sanitized) return prev;
       const next = [...prev];
-      const curSet = stateRef.current.exercise?.setsLog?.[setIdx];
+      const curSet = curSets[setIdx];
       const current = next[setIdx] || {
         weight: curSet?.weight != null ? String(curSet.weight) : '',
         reps: curSet?.reps != null ? String(curSet.reps) : ''
       };
       next[setIdx] = { ...current, [field]: sanitized };
+
+      // If weight was updated on set k, cascade to any following unlogged & unedited sets
+      if (field === 'weight' && sanitized !== '') {
+        for (let j = setIdx + 1; j < next.length; j++) {
+          const subsequentSet = curSets[j];
+          const isSubsequentEdited = userEditedFieldsRef.current[j]?.weight;
+          if (subsequentSet && !subsequentSet.completed && !isSubsequentEdited) {
+            next[j] = {
+              ...(next[j] || { weight: '', reps: '' }),
+              weight: sanitized,
+            };
+            if (!liveInputsRef.current[j]) liveInputsRef.current[j] = {};
+            liveInputsRef.current[j].weight = sanitized;
+          }
+        }
+      }
+
       return next;
     });
   }, []);
@@ -1415,6 +1452,8 @@ export default function ActiveLoggingScreen() {
       case 'focusField': {
         const curSet = stateRef.current.exercise?.setsLog?.[idx];
         if (curSet?.completed) return;
+        isFieldSelectedRef.current = true;
+        setIsFieldSelected(true);
         setActiveKeypad({ setIndex: idx, field: payload });
         break;
       }
@@ -1426,10 +1465,23 @@ export default function ActiveLoggingScreen() {
     if (!activeKeypad) return;
     const { setIndex, field } = activeKeypad;
 
+    // If field is currently selected (first keypress upon opening/focusing), overwrite immediately!
+    if (isFieldSelectedRef.current) {
+      isFieldSelectedRef.current = false;
+      setIsFieldSelected(false);
+      if (key === '.') {
+        if (field === 'reps') return;
+        handleTextChange(setIndex, field, '0.');
+        return;
+      }
+      handleTextChange(setIndex, field, key);
+      return;
+    }
+
     const curVal = liveInputsRef.current[setIndex]?.[field] ?? stateRef.current.setInputs[setIndex]?.[field] ?? '';
     if (key === '.') {
       if (curVal.includes('.')) return;
-      if (field === 'reps') return; // Reps are whole numbers
+      if (field === 'reps') return;
       const nextVal = curVal === '' || curVal === '0' ? '0.' : curVal + '.';
       handleTextChange(setIndex, field, nextVal);
       return;
@@ -2033,11 +2085,7 @@ export default function ActiveLoggingScreen() {
               : ''
           }
           setNumber={activeKeypad ? (exercise?.setsLog?.[activeKeypad.setIndex]?.setNumber || activeKeypad.setIndex + 1) : 1}
-          stepSize={
-            activeKeypad?.field === 'weight'
-              ? 2.5
-              : 1
-          }
+          stepSize={smartWeightStep}
           selectedRir={
             activeKeypad
               ? (exercise?.setsLog?.[activeKeypad.setIndex]?.rir ?? 1)
@@ -2049,11 +2097,14 @@ export default function ActiveLoggingScreen() {
           onStepAdjust={handleKeypadStepAdjust}
           onSelectField={(f) => {
             if (activeKeypad && !exercise?.setsLog?.[activeKeypad.setIndex]?.completed) {
+              isFieldSelectedRef.current = true;
+              setIsFieldSelected(true);
               setActiveKeypad({ setIndex: activeKeypad.setIndex, field: f });
             }
           }}
           onSelectRir={handleSetRIR}
           onNextOrComplete={handleKeypadNextOrComplete}
+          onOpenPlateCalculator={() => setShowPlateCalculator(true)}
           onDismiss={() => setActiveKeypad(null)}
         />
       ) : (

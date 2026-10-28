@@ -1,5 +1,5 @@
-import React, { useCallback, useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, TextInput, StyleSheet, Alert } from 'react-native';
+import React, { useCallback, useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -7,16 +7,18 @@ import Animated, {
   withSequence,
   withRepeat,
   Easing,
+  runOnJS,
 } from 'react-native-reanimated';
+import { PanGestureHandler, PanGestureHandlerGestureEvent, PanGestureHandlerStateChangeEvent, State } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { GymSet } from '../../../types/gym.types';
 import { IOS_DARK, FONT_FAMILY } from '../../../theme/tokens';
-import { hapticLight, hapticMedium, hapticSelection } from '../../../utils/haptics';
+import { hapticLight, hapticMedium, hapticSelection, hapticSuccess } from '../../../utils/haptics';
 
 const BlinkingCursor: React.FC = React.memo(() => {
   const opacity = useSharedValue(1);
 
-  useEffect(() => {
+  React.useEffect(() => {
     opacity.value = withRepeat(
       withSequence(
         withTiming(0, { duration: 450, easing: Easing.linear }),
@@ -37,7 +39,7 @@ const BlinkingCursor: React.FC = React.memo(() => {
         {
           width: 2,
           height: 18,
-          backgroundColor: '#FFFFFF',
+          backgroundColor: '#a599ff',
           marginLeft: 2,
           borderRadius: 1,
         },
@@ -81,13 +83,12 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
   placeholderReps,
   activeKeypadField,
   isFieldSelected = false,
-  onTextChange,
-  onBlur,
+  onAction,
   onToggleComplete,
   onLongPress,
-  onAction,
 }) => {
   const checkScale = useSharedValue(1);
+  const translateX = useSharedValue(0);
 
   const animatedCheckStyle = useAnimatedStyle(() => ({
     transform: [{ scale: checkScale.value }],
@@ -110,6 +111,46 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
       onToggleComplete();
     }
   }, [idx, isCompleted, onAction, onToggleComplete, checkScale]);
+
+  // Swipe-to-Complete handler (Swipe right locks in ghost values and triggers rest timer)
+  const onSwipeComplete = useCallback(() => {
+    if (!isCompleted) {
+      hapticSuccess();
+      checkScale.value = withSequence(
+        withTiming(0.8, { duration: 50 }),
+        withTiming(1.2, { duration: 90 }),
+        withTiming(1.0, { duration: 50 })
+      );
+      if (onAction) {
+        onAction(idx, 'swipe');
+      } else if (onToggleComplete) {
+        onToggleComplete();
+      }
+    }
+  }, [idx, isCompleted, onAction, onToggleComplete, checkScale]);
+
+  const onGestureEvent = useCallback((event: PanGestureHandlerGestureEvent) => {
+    if (isCompleted) return;
+    const { translationX } = event.nativeEvent;
+    if (translationX > 0) {
+      translateX.value = Math.min(translationX, 80);
+    }
+  }, [isCompleted, translateX]);
+
+  const onHandlerStateChange = useCallback((event: PanGestureHandlerStateChangeEvent) => {
+    if (isCompleted) return;
+    if (event.nativeEvent.state === State.END || event.nativeEvent.state === State.CANCELLED) {
+      const { translationX } = event.nativeEvent;
+      if (translationX > 55) {
+        runOnJS(onSwipeComplete)();
+      }
+      translateX.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.quad) });
+    }
+  }, [isCompleted, onSwipeComplete, translateX]);
+
+  const rowAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
 
   const handleLongPressInternal = useCallback(() => {
     Alert.alert(
@@ -168,168 +209,178 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
     setBadgeColor = IOS_DARK.orange;
     setBadgeBg = 'rgba(255, 159, 10, 0.16)';
   } else if (isActive) {
-    setBadgeColor = IOS_DARK.accent;
+    setBadgeColor = '#a599ff';
   } else if (isCompleted) {
     setBadgeColor = IOS_DARK.labelSecondary;
   }
 
   const isWeightActive = !isCompleted && activeKeypadField === 'weight';
   const isRepsActive = !isCompleted && activeKeypadField === 'reps';
-  const isWeightSelected = isWeightActive && isFieldSelected;
-  const isRepsSelected = isRepsActive && isFieldSelected;
-
   const isFutureSet = !isCompleted && !isActive;
 
   return (
-    <View
-      style={[
-        rowStyles.rowContainer,
-        isActive && rowStyles.rowActive,
-        isCompleted && rowStyles.rowCompleted,
-        isFutureSet && rowStyles.rowFuture,
-      ]}
+    <PanGestureHandler
+      activeOffsetX={[-15, 15]}
+      failOffsetY={[-10, 10]}
+      onGestureEvent={onGestureEvent}
+      onHandlerStateChange={onHandlerStateChange}
+      enabled={!isCompleted}
     >
-      {/* 1. SET NUMBER COLUMN (Tap to cycle: Normal -> W -> D -> F) */}
-      <TouchableOpacity
-        onPress={isCompleted ? undefined : handleCycleTypeInternal}
-        onLongPress={handleLongPressInternal}
-        disabled={isCompleted}
-        style={rowStyles.colSet}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        activeOpacity={isCompleted ? 1 : 0.7}
+      <Animated.View
+        style={[
+          rowStyles.rowContainer,
+          isActive && rowStyles.rowActive,
+          isCompleted && rowStyles.rowCompleted,
+          isFutureSet && rowStyles.rowFuture,
+          rowAnimatedStyle,
+        ]}
       >
-        <View style={[
-          rowStyles.setBadgeWrap,
-          setBadgeBg !== 'transparent' && { backgroundColor: setBadgeBg }
-        ]}>
-          <Text
-            style={[
-              rowStyles.setNumberText,
-              { color: setBadgeColor },
-              (isActive || set.setType) && { fontFamily: FONT_FAMILY.bold },
-            ]}
-          >
-            {setBadgeText}
-          </Text>
-        </View>
-      </TouchableOpacity>
-
-      {/* 2. PREVIOUS PERFORMANCE COLUMN (Tap to copy) */}
-      <TouchableOpacity
-        onPress={isCompleted ? undefined : handleCopyPrevInternal}
-        disabled={isCompleted}
-        style={rowStyles.colPrev}
-        hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-        activeOpacity={isCompleted ? 1 : 0.7}
-      >
-        <Text style={rowStyles.prevText} numberOfLines={1}>
-          {prevText}
-        </Text>
-        {set.rir !== undefined && set.rir !== null && (
-          <Text style={rowStyles.rirBadge}>
-            {set.rir === 0 ? 'FAIL' : `${set.rir}RIR`}
-          </Text>
-        )}
-      </TouchableOpacity>
-
-      {/* 3. WEIGHT INPUT COLUMN */}
-      <TouchableOpacity
-        style={rowStyles.colInput}
-        activeOpacity={isCompleted ? 1 : 0.75}
-        disabled={isCompleted}
-        onPress={() => {
-          if (isCompleted) return;
-          hapticLight();
-          onAction?.(idx, 'focusField', 'weight');
-        }}
-      >
-        <View
-          style={[
-            rowStyles.numericInput,
-            isCompleted && rowStyles.numericInputCompleted,
-            isActive && rowStyles.numericInputActive,
-            isWeightActive && rowStyles.numericInputActiveKeypad,
-          ]}
+        {/* 1. SET NUMBER COLUMN (Tap to cycle: Normal -> W -> D -> F) */}
+        <TouchableOpacity
+          onPress={isCompleted ? undefined : handleCycleTypeInternal}
+          onLongPress={handleLongPressInternal}
+          disabled={isCompleted}
+          style={rowStyles.colSet}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          activeOpacity={isCompleted ? 1 : 0.7}
         >
-          <View style={rowStyles.textWithCursorContainer}>
+          <View style={[
+            rowStyles.setBadgeWrap,
+            setBadgeBg !== 'transparent' && { backgroundColor: setBadgeBg }
+          ]}>
             <Text
               style={[
-                rowStyles.numericInputText,
-                !displayWeight && !isWeightActive && { color: IOS_DARK.labelTertiary },
-                isCompleted && rowStyles.numericInputTextCompleted,
-                isWeightActive && rowStyles.numericInputTextActive,
+                rowStyles.setNumberText,
+                { color: setBadgeColor },
+                (isActive || set.setType) && { fontFamily: FONT_FAMILY.bold },
               ]}
-              numberOfLines={1}
             >
-              {displayWeight || (isWeightActive ? '' : (placeholderWeight || '0'))}
+              {setBadgeText}
             </Text>
-            {isWeightActive && <BlinkingCursor />}
           </View>
-        </View>
-      </TouchableOpacity>
+        </TouchableOpacity>
 
-      {/* 4. REPS INPUT COLUMN */}
-      <TouchableOpacity
-        style={rowStyles.colInput}
-        activeOpacity={isCompleted ? 1 : 0.75}
-        disabled={isCompleted}
-        onPress={() => {
-          if (isCompleted) return;
-          hapticLight();
-          onAction?.(idx, 'focusField', 'reps');
-        }}
-      >
-        <View
-          style={[
-            rowStyles.numericInput,
-            isCompleted && rowStyles.numericInputCompleted,
-            isActive && rowStyles.numericInputActive,
-            isRepsActive && rowStyles.numericInputActiveKeypad,
-          ]}
+        {/* 2. PREVIOUS PERFORMANCE COLUMN (Tap to copy) */}
+        <TouchableOpacity
+          onPress={isCompleted ? undefined : handleCopyPrevInternal}
+          disabled={isCompleted}
+          style={rowStyles.colPrev}
+          hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+          activeOpacity={isCompleted ? 1 : 0.7}
         >
-          <View style={rowStyles.textWithCursorContainer}>
-            <Text
-              style={[
-                rowStyles.numericInputText,
-                !displayReps && !isRepsActive && { color: IOS_DARK.labelTertiary },
-                isCompleted && rowStyles.numericInputTextCompleted,
-                isRepsActive && rowStyles.numericInputTextActive,
-              ]}
-              numberOfLines={1}
-            >
-              {displayReps || (isRepsActive ? '' : (placeholderReps || '10'))}
+          <Text style={rowStyles.prevText} numberOfLines={1}>
+            {prevText}
+          </Text>
+          {set.rir !== undefined && set.rir !== null && (
+            <Text style={rowStyles.rirBadge}>
+              {set.rir === 0 ? 'FAIL' : `${set.rir}RIR`}
             </Text>
-            {isRepsActive && <BlinkingCursor />}
-          </View>
-        </View>
-      </TouchableOpacity>
+          )}
+        </TouchableOpacity>
 
-      {/* 5. CHECKMARK BUTTON COLUMN (Width: 42) */}
-      <View style={rowStyles.colCheck}>
-        <Animated.View style={animatedCheckStyle}>
-          <TouchableOpacity
-            onPress={handleToggleCompleteInternal}
+        {/* 3. WEIGHT INPUT COLUMN (Auto highlight-on-focus) */}
+        <TouchableOpacity
+          style={rowStyles.colInput}
+          activeOpacity={isCompleted ? 1 : 0.75}
+          disabled={isCompleted}
+          onPress={() => {
+            if (isCompleted) return;
+            hapticLight();
+            onAction?.(idx, 'focusField', 'weight');
+          }}
+        >
+          <View
             style={[
-              rowStyles.checkCircle,
-              isCompleted && rowStyles.checkCircleCompleted,
-              isCompleted && set.isWarmup && { backgroundColor: IOS_DARK.orange, borderColor: IOS_DARK.orange },
+              rowStyles.numericInput,
+              isCompleted && rowStyles.numericInputCompleted,
+              isActive && rowStyles.numericInputActive,
+              isWeightActive && rowStyles.numericInputActiveKeypad,
+              isWeightActive && isFieldSelected && rowStyles.numericInputSelected,
             ]}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            activeOpacity={0.7}
           >
-            {isCompleted ? (
-              <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-            ) : (
-              <Ionicons
-                name="checkmark"
-                size={14}
-                color={isActive ? IOS_DARK.accent : 'rgba(255, 255, 255, 0.15)'}
-              />
-            )}
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
-    </View>
+            <View style={rowStyles.textWithCursorContainer}>
+              <Text
+                style={[
+                  rowStyles.numericInputText,
+                  !displayWeight && !isWeightActive && { color: IOS_DARK.labelTertiary },
+                  isCompleted && rowStyles.numericInputTextCompleted,
+                  isWeightActive && rowStyles.numericInputTextActive,
+                  isWeightActive && isFieldSelected && { backgroundColor: 'rgba(165, 153, 255, 0.35)', borderRadius: 4, paddingHorizontal: 3 },
+                ]}
+                numberOfLines={1}
+              >
+                {displayWeight || (isWeightActive ? '' : (placeholderWeight || '0'))}
+              </Text>
+              {isWeightActive && !isFieldSelected && <BlinkingCursor />}
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* 4. REPS INPUT COLUMN (Auto highlight-on-focus) */}
+        <TouchableOpacity
+          style={rowStyles.colInput}
+          activeOpacity={isCompleted ? 1 : 0.75}
+          disabled={isCompleted}
+          onPress={() => {
+            if (isCompleted) return;
+            hapticLight();
+            onAction?.(idx, 'focusField', 'reps');
+          }}
+        >
+          <View
+            style={[
+              rowStyles.numericInput,
+              isCompleted && rowStyles.numericInputCompleted,
+              isActive && rowStyles.numericInputActive,
+              isRepsActive && rowStyles.numericInputActiveKeypad,
+              isRepsActive && isFieldSelected && rowStyles.numericInputSelected,
+            ]}
+          >
+            <View style={rowStyles.textWithCursorContainer}>
+              <Text
+                style={[
+                  rowStyles.numericInputText,
+                  !displayReps && !isRepsActive && { color: IOS_DARK.labelTertiary },
+                  isCompleted && rowStyles.numericInputTextCompleted,
+                  isRepsActive && rowStyles.numericInputTextActive,
+                  isRepsActive && isFieldSelected && { backgroundColor: 'rgba(165, 153, 255, 0.35)', borderRadius: 4, paddingHorizontal: 3 },
+                ]}
+                numberOfLines={1}
+              >
+                {displayReps || (isRepsActive ? '' : (placeholderReps || '10'))}
+              </Text>
+              {isRepsActive && !isFieldSelected && <BlinkingCursor />}
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* 5. CHECKMARK BUTTON COLUMN (Width: 42) */}
+        <View style={rowStyles.colCheck}>
+          <Animated.View style={animatedCheckStyle}>
+            <TouchableOpacity
+              onPress={handleToggleCompleteInternal}
+              style={[
+                rowStyles.checkCircle,
+                isCompleted && rowStyles.checkCircleCompleted,
+                isCompleted && set.isWarmup && { backgroundColor: IOS_DARK.orange, borderColor: IOS_DARK.orange },
+              ]}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+            >
+              {isCompleted ? (
+                <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+              ) : (
+                <Ionicons
+                  name="checkmark"
+                  size={14}
+                  color={isActive ? '#a599ff' : 'rgba(255, 255, 255, 0.15)'}
+                />
+              )}
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </Animated.View>
+    </PanGestureHandler>
   );
 }, (prev, next) =>
   prev.idx === next.idx &&
@@ -369,12 +420,12 @@ const rowStyles = StyleSheet.create({
     minHeight: 48,
   },
   rowActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: 'rgba(165, 153, 255, 0.05)',
     borderLeftWidth: 3,
-    borderLeftColor: '#FFFFFF',
+    borderLeftColor: '#a599ff',
   },
   rowCompleted: {
-    backgroundColor: 'rgba(48, 209, 88, 0.05)',
+    backgroundColor: 'rgba(34, 197, 94, 0.05)',
     opacity: 0.9,
   },
   rowFuture: {
@@ -447,8 +498,12 @@ const rowStyles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.14)',
   },
   numericInputActiveKeypad: {
-    borderColor: '#FFFFFF',
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: '#a599ff',
+    backgroundColor: 'rgba(165, 153, 255, 0.12)',
+  },
+  numericInputSelected: {
+    borderColor: '#a599ff',
+    backgroundColor: 'rgba(165, 153, 255, 0.25)',
   },
   textWithCursorContainer: {
     flexDirection: 'row',
@@ -474,8 +529,8 @@ const rowStyles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   checkCircleCompleted: {
-    backgroundColor: IOS_DARK.green,
-    borderColor: IOS_DARK.green,
+    backgroundColor: '#22C55E',
+    borderColor: '#22C55E',
   },
 });
 
