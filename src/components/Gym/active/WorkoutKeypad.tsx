@@ -137,23 +137,9 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(({
           </TouchableOpacity>
         </View>
 
-        {/* Center: Contextual Tool (Plate Calculator in Weight, RIR Pill in Reps) */}
-        {isWeight ? (
-          onOpenPlateCalculator && (
-            <TouchableOpacity
-              onPress={() => {
-                hapticSelection();
-                onOpenPlateCalculator();
-              }}
-              style={styles.toolChip}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="disc-outline" size={13} color="#a599ff" />
-              <Text style={styles.toolChipText}>Plates</Text>
-            </TouchableOpacity>
-          )
-        ) : (
-          onSelectRir && (
+        {/* Right Group: Field Switcher Indicator */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {!isWeight && onSelectRir && (
             <TouchableOpacity
               onPress={() => {
                 hapticSelection();
@@ -163,27 +149,26 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(({
               activeOpacity={0.7}
             >
               <Text style={styles.toolChipText}>
-                {selectedRir === 0 ? '0 RIR (Max)' : `${selectedRir} RIR`}
+                {selectedRir === 0 ? '0 RIR' : `${selectedRir} RIR`}
               </Text>
-              <Ionicons name="chevron-down" size={11} color="#a599ff" />
+              <Ionicons name="chevron-down" size={10} color="#a599ff" />
             </TouchableOpacity>
-          )
-        )}
+          )}
 
-        {/* Right: Field Switcher Indicator */}
-        <TouchableOpacity
-          onPress={() => {
-            hapticSelection();
-            onSelectField(isWeight ? 'reps' : 'weight');
-          }}
-          style={styles.fieldToggleBtn}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.fieldToggleLabel}>
-            {isWeight ? 'KG' : 'REPS'}
-          </Text>
-          <Ionicons name="swap-horizontal" size={12} color="#8E8E93" />
-        </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => {
+              hapticSelection();
+              onSelectField(isWeight ? 'reps' : 'weight');
+            }}
+            style={styles.fieldToggleBtn}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.fieldToggleLabel}>
+              {isWeight ? 'KG' : 'REPS'}
+            </Text>
+            <Ionicons name="swap-horizontal" size={12} color="#8E8E93" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* ── 2. 4-COLUMN COMPACT NUMPAD GRID (~216px height) ── */}
