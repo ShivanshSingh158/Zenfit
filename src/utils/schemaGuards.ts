@@ -13,7 +13,7 @@ import {
   WaterLog, SleepLog, WeightLog, GymLog, AttendanceSubject,
   AttendanceLog, Assignment, Semester, SemesterSubject,
   LearningTopic, LearningSubTask, JobApplication, WeeklyReview, ContentLog
-} from '../contexts/MobileDataContext';
+} from '../types/legacy.types';
 import { resolveExerciseTargetMuscle } from './gymUtils';
 import { formatLocalDateStr } from './dateUtils';
 

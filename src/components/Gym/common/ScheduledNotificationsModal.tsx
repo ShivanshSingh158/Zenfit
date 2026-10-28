@@ -27,7 +27,7 @@ import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { FONT_FAMILY } from '../../../theme/tokens';
 import { impactAsync, notificationAsync, selectionAsync } from '../../../utils/haptics';
-import { GymLog } from '../../../contexts/MobileDataContext';
+import { GymLog } from '../../../types/gym.types';
 import { UserGymPlanDoc } from '../../../types/gym.types';
 import {
   scheduleGymNotifications,

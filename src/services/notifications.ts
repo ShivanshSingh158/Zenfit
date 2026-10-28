@@ -13,7 +13,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { GymLog } from '../contexts/MobileDataContext';
+import { GymLog } from '../types/gym.types';
 import { UserGymPlanDoc } from '../types/gym.types';
 import { GYM_PLAN, planDayIndexForDate, resolvePlanDay } from '../data/gymPlan';
 import { formatLocalDateStr } from '../utils/dateUtils';

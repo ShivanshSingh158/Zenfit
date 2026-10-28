@@ -11,7 +11,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Task, Habit, HabitLog } from '../contexts/MobileDataContext';
+import type { Task, Habit, HabitLog } from '../types/legacy.types';
 
 // ── Cache Keys ────────────────────────────────────────────────────────────────
 const KEYS = {
