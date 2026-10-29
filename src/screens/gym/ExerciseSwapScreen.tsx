@@ -345,6 +345,23 @@ export function ExerciseSwapScreen() {
   }, [log, originalExerciseId, updateExercise, gymLogs, date, userGymPlan, updateMasterPlan, navigation]);
 
   const renderSwapItem = useCallback(({ item }: { item: any }) => {
+    const aliasDisplay = (() => {
+      if (!item.aliases || item.aliases.length === 0) return null;
+      const cleanItemName = item.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const distinct = item.aliases.filter((a: string) => a.toLowerCase().replace(/[^a-z0-9]/g, '') !== cleanItemName);
+      if (distinct.length === 0) return null;
+
+      if (search && search.trim().length > 1) {
+        const q = search.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const matched = distinct.find((a: string) => a.toLowerCase().replace(/[^a-z0-9]/g, '').includes(q));
+        if (matched) {
+          const others = distinct.filter((a: string) => a !== matched).slice(0, 1);
+          return [matched, ...others].join(' • ');
+        }
+      }
+      return distinct.slice(0, 2).join(' • ');
+    })();
+
     return (
       <TouchableOpacity
         style={styles.exerciseCard}
@@ -353,6 +370,14 @@ export function ExerciseSwapScreen() {
       >
         <View style={styles.exerciseInfo}>
           <Text style={styles.exerciseName}>{item.name}</Text>
+          {aliasDisplay ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 1, marginBottom: 2 }}>
+              <Text style={{ fontSize: 11, color: '#A599FF', marginRight: 3, fontFamily: FONT_FAMILY.bold }}>↳</Text>
+              <Text style={{ fontSize: 10.5, color: 'rgba(255, 255, 255, 0.45)', fontFamily: FONT_FAMILY.medium }} numberOfLines={1}>
+                Also known as: <Text style={{ color: '#DDD6FE', fontFamily: FONT_FAMILY.bold }}>{aliasDisplay}</Text>
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.badgeRow}>
             <View style={[styles.muscleBadge, { backgroundColor: item.muscleBgColor }]}>
               <Text style={[styles.muscleBadgeText, { color: item.muscleColor }]}>{item.muscle}</Text>
@@ -371,7 +396,7 @@ export function ExerciseSwapScreen() {
         </View>
       </TouchableOpacity>
     );
-  }, [styles, handleSwap]);
+  }, [styles, handleSwap, search]);
 
   return (
     <SafeAreaView style={styles.safeArea}>

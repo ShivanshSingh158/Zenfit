@@ -783,9 +783,10 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
         styles={styles}
         isDark={isDark}
         isSelected={selectedEntry?.id === item.id}
+        searchQuery={searchQuery}
       />
     );
-  }, [colors, styles, isDark, selectedEntry, gymLogs]);
+  }, [colors, styles, isDark, selectedEntry, gymLogs, searchQuery]);
 
   return (
     <Modal

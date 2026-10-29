@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { resolveMuscleColor, getPreviousExerciseSession } from '../../../utils/gymUtils';
@@ -15,6 +15,7 @@ export interface ExerciseCardItemProps {
   styles: any;
   isDark?: boolean;
   isSelected?: boolean;
+  searchQuery?: string;
 }
 
 // ── Equipment Glyph & Icon Resolver ─────────────────────────────────────────
@@ -187,10 +188,39 @@ export const ExerciseCardItem: React.FC<ExerciseCardItemProps> = memo(({
   styles,
   isDark = true,
   isSelected,
+  searchQuery,
 }) => {
   const primaryMuscle = item.muscle || 'Mixed';
   const muscleColor = resolveMuscleColor(primaryMuscle);
   const { snippet } = getPastPerformanceSnippet(item.name, gymLogs);
+
+  // Resolve "Also known as" aliases
+  const aliasDisplay = useMemo(() => {
+    if (!item.aliases || item.aliases.length === 0) return null;
+    const cleanItemName = item.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // Filter out duplicates that match the main title
+    const distinct = item.aliases.filter(a => {
+      const cleanA = a.toLowerCase().replace(/[^a-z0-9]/g, '');
+      return cleanA !== cleanItemName;
+    });
+    if (distinct.length === 0) return null;
+
+    // If searching, prioritize the alias matching the query
+    if (searchQuery && searchQuery.trim().length > 1) {
+      const q = searchQuery.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      const matched = distinct.find(a => {
+        const cleanA = a.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return cleanA.includes(q) || q.includes(cleanA);
+      });
+      if (matched) {
+        const others = distinct.filter(a => a !== matched).slice(0, 1);
+        return [matched, ...others].join(' • ');
+      }
+    }
+
+    return distinct.slice(0, 2).join(' • ');
+  }, [item.name, item.aliases, searchQuery]);
 
   return (
     <TouchableOpacity
@@ -206,6 +236,16 @@ export const ExerciseCardItem: React.FC<ExerciseCardItemProps> = memo(({
           <Text style={styles.cardTitle} numberOfLines={1}>
             {item.name}
           </Text>
+
+          {aliasDisplay ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2, marginBottom: 2 }}>
+              <Text style={{ fontSize: 11, color: isDark ? '#A599FF' : '#6C5CE7', marginRight: 4, fontFamily: FONT_FAMILY.bold }}>↳</Text>
+              <Text style={{ fontSize: 11, color: isDark ? 'rgba(255, 255, 255, 0.50)' : 'rgba(0, 0, 0, 0.55)', fontFamily: FONT_FAMILY.medium }} numberOfLines={1}>
+                Also known as: <Text style={{ color: isDark ? '#DDD6FE' : '#4C1D95', fontFamily: FONT_FAMILY.bold }}>{aliasDisplay}</Text>
+              </Text>
+            </View>
+          ) : null}
+
           <View style={styles.cardMuscleRow}>
             <Text style={styles.cardMuscleText} numberOfLines={1}>
               {primaryMuscle}

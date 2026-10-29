@@ -292,6 +292,33 @@ export default function ExerciseLibraryScreen({ isEmbedded = false }: ExerciseLi
               )}
             </View>
 
+            {/* Also known as (Aliases) */}
+            {(() => {
+              if (!item.aliases || item.aliases.length === 0) return null;
+              const cleanItemName = item.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+              const distinct = item.aliases.filter(a => a.toLowerCase().replace(/[^a-z0-9]/g, '') !== cleanItemName);
+              if (distinct.length === 0) return null;
+
+              let displayAlias = distinct.slice(0, 2).join(' • ');
+              if (searchQuery && searchQuery.trim().length > 1) {
+                const q = searchQuery.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+                const matched = distinct.find(a => a.toLowerCase().replace(/[^a-z0-9]/g, '').includes(q));
+                if (matched) {
+                  const others = distinct.filter(a => a !== matched).slice(0, 1);
+                  displayAlias = [matched, ...others].join(' • ');
+                }
+              }
+
+              return (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 1, marginBottom: 2 }}>
+                  <Text style={{ fontSize: 11, color: isDark ? '#A599FF' : '#6C5CE7', marginRight: 3, fontFamily: FONT_FAMILY.bold }}>↳</Text>
+                  <Text style={{ fontSize: 10.5, color: isDark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.50)', fontFamily: FONT_FAMILY.medium }} numberOfLines={1}>
+                    Also known as: <Text style={{ color: isDark ? '#DDD6FE' : '#4C1D95', fontFamily: FONT_FAMILY.bold }}>{displayAlias}</Text>
+                  </Text>
+                </View>
+              );
+            })()}
+
             <View style={styles.cardMetaRow}>
               <Text style={[styles.metaMuscleText, { color: colors.accentPrimary || '#A599FF' }]}>
                 {item.muscle}

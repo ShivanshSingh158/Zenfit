@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, memo } from 'react';
+import React, { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, NativeSyntheticEvent, NativeScrollEvent, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { resolveMuscleColor } from '../../../utils/gymUtils';
@@ -46,18 +46,36 @@ const SuggestionRow = memo(({
   onPress,
   colors,
   styles,
+  searchQuery,
 }: {
   item: ExerciseCatalogEntry;
   index: number;
   onPress: (item: ExerciseCatalogEntry) => void;
   colors: any;
   styles: any;
+  searchQuery?: string;
 }) => {
   const muscleColor =
     item.muscle && item.muscle !== 'None'
       ? resolveMuscleColor(item.muscle)
       : colors.textTertiary;
   const tierTheme = item.tier && TIER_PILL_CONFIG[item.tier] ? TIER_PILL_CONFIG[item.tier] : null;
+
+  const aliasDisplay = useMemo(() => {
+    if (!item.aliases || item.aliases.length === 0) return null;
+    const cleanItemName = item.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const distinct = item.aliases.filter(a => a.toLowerCase().replace(/[^a-z0-9]/g, '') !== cleanItemName);
+    if (distinct.length === 0) return null;
+
+    if (searchQuery && searchQuery.trim().length > 1) {
+      const q = searchQuery.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      const matched = distinct.find(a => a.toLowerCase().replace(/[^a-z0-9]/g, '').includes(q));
+      if (matched) {
+        return matched;
+      }
+    }
+    return distinct.slice(0, 2).join(' • ');
+  }, [item.name, item.aliases, searchQuery]);
 
   return (
     <TouchableOpacity
@@ -98,6 +116,12 @@ const SuggestionRow = memo(({
             </View>
           )}
         </View>
+
+        {aliasDisplay ? (
+          <Text style={{ fontSize: 10.5, color: colors.textTertiary, marginTop: 1.5 }} numberOfLines={1}>
+            ↳ Also known as: <Text style={{ color: colors.accentPrimary || '#a599ff', fontFamily: FONT_FAMILY.medium }}>{aliasDisplay}</Text>
+          </Text>
+        ) : null}
 
         <Text style={[styles.suggestionMeta, { color: muscleColor, marginTop: 3 }]}>
           {item.muscle}
@@ -171,6 +195,7 @@ export const ExerciseSearchDropdown: React.FC<ExerciseSearchDropdownProps> = Rea
               onPress={onSelectSuggestion}
               colors={colors}
               styles={styles}
+              searchQuery={searchQuery}
             />
           ))}
 
