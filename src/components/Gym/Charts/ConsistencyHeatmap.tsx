@@ -125,6 +125,7 @@ export const ConsistencyHeatmap: React.FC<ConsistencyHeatmapProps> = React.memo(
         <ScrollView
           ref={scrollRef}
           horizontal
+          nestedScrollEnabled={true}
           showsHorizontalScrollIndicator={false}
           style={styles.scrollArea}
           contentContainerStyle={styles.scrollContent}

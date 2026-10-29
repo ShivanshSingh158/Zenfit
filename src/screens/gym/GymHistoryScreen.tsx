@@ -1052,11 +1052,19 @@ export default function GymHistoryScreen() {
               </TouchableOpacity>
             </View>
 
-            <WeeklyGymReport
-              gymLogs={gymLogs || []}
-              weekAnchorDate={todayStr()}
-              userGymPlan={userGymPlan}
-            />
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: 100 }}
+              showsVerticalScrollIndicator={true}
+              nestedScrollEnabled={true}
+              bounces={true}
+            >
+              <WeeklyGymReport
+                gymLogs={gymLogs || []}
+                weekAnchorDate={todayStr()}
+                userGymPlan={userGymPlan}
+              />
+            </ScrollView>
           </SafeAreaView>
         </Modal>
       )}

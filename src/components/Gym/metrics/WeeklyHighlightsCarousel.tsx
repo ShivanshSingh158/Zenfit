@@ -102,6 +102,7 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
       <ScrollView
         horizontal
         pagingEnabled
+        nestedScrollEnabled={true}
         showsHorizontalScrollIndicator={false}
         snapToInterval={cardWidth + 12}
         snapToAlignment="center"

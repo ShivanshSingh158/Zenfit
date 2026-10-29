@@ -17,7 +17,7 @@
  */
 
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Animated, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Animated, Image, ScrollView } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, RADIUS, FONT_FAMILY, FONT_SIZE } from '../../../theme/tokens';
@@ -57,6 +57,7 @@ interface Props {
   /** ISO date string of the week being viewed (any day in that week, YYYY-MM-DD) */
   weekAnchorDate: string;
   userGymPlan?: UserGymPlanDoc | any | null;
+  scrollable?: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -213,7 +214,7 @@ function ChangeBadge({ delta, unit = '' }: { delta: number; unit?: string }) {
   );
 }
 
-export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, weekAnchorDate, userGymPlan }: Props) {
+export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, weekAnchorDate, userGymPlan, scrollable = false }: Props) {
   const { colors, isDark } = useTheme();
   const st = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const weekDates = useMemo(() => getWeekRange(weekAnchorDate), [weekAnchorDate]);
@@ -811,7 +812,7 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
     };
   }, [weekAnchorDate]);
 
-  return (
+  const reportBody = (
     <View style={st.container}>
       {/* ── Title Header ──────────────────────────────────────────────────── */}
       <View style={st.titleRow}>
@@ -1396,6 +1397,22 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
       <View style={{ height: 40 }} />
     </View>
   );
+
+  if (scrollable) {
+    return (
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 80 }}
+        showsVerticalScrollIndicator={true}
+        nestedScrollEnabled={true}
+        bounces={true}
+      >
+        {reportBody}
+      </ScrollView>
+    );
+  }
+
+  return reportBody;
 });
 
 export default WeeklyGymReport;
