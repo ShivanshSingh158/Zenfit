@@ -14,3 +14,4 @@ export interface ExerciseBiometrics {
   cnsDemandScalar: number;              // 1.5 (Deadlift/Squat), 1.0 (Bench/Row), 0.3 (Curls/Laterals)
   voluntaryActivationBase: number;      // Intrinsic neural recovery rate of primary mover (0.85 to 1.25)
 }
+

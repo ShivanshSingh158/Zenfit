@@ -590,18 +590,6 @@ export default function GymSplitsScreen() {
                       <Text style={styles.todayPillText}>TODAY</Text>
                     </View>
                   )}
-                  {isDayModifiedFromDefault && (
-                    <TouchableOpacity
-                      onPress={() => handleRestoreDefaultDay(activeDay.dayIndex)}
-                      style={styles.restoreDefaultPill}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="refresh-outline" size={11} color="#FF9F0A" />
-                      <Text style={styles.restoreDefaultPillText}>
-                        Restore Default ({defaultDayForActive?.exercises?.length || 7} Ex)
-                      </Text>
-                    </TouchableOpacity>
-                  )}
                 </View>
                 <Text style={styles.focusedDayTitle}>{activeDay.planDay.name}</Text>
                 {activeDay.planDay.focus ? (
@@ -691,16 +679,7 @@ export default function GymSplitsScreen() {
                 <View style={styles.hairline} />
 
                 {/* Day Action Buttons Row */}
-                <View style={styles.dayActionsRow}>
-                  <TouchableOpacity
-                    onPress={() => handleStartWorkout(activeDay.planDay)}
-                    style={styles.startWorkoutBtn}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="play" size={13} color="#000000" />
-                    <Text style={styles.startWorkoutBtnText}>Start Workout</Text>
-                  </TouchableOpacity>
-
+                <View style={[styles.dayActionsRow, { gap: 8 }]}>
                   <TouchableOpacity
                     onPress={() => {
                       hapticLight();
@@ -716,31 +695,49 @@ export default function GymSplitsScreen() {
                       setEditingDayIndex(activeDay.dayIndex);
                       setRoutineEditorVisible(true);
                     }}
-                    style={styles.secondaryDayBtn}
+                    style={[
+                      styles.actionDayBtn,
+                      {
+                        backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                        borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+                      },
+                    ]}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="create-outline" size={13} color="#FFFFFF" />
-                    <Text style={styles.secondaryDayBtnText}>Edit</Text>
+                    <Ionicons name="create-outline" size={13} color={colors.textPrimary} />
+                    <Text style={[styles.actionDayBtnText, { color: colors.textPrimary }]} numberOfLines={1}>Edit</Text>
                   </TouchableOpacity>
 
                   {isDayModifiedFromDefault && (
                     <TouchableOpacity
                       onPress={() => handleRestoreDefaultDay(activeDay.dayIndex)}
-                      style={[styles.secondaryDayBtn, { borderColor: 'rgba(255,159,10,0.3)', borderWidth: 1 }]}
+                      style={[
+                        styles.actionDayBtn,
+                        {
+                          backgroundColor: isDark ? 'rgba(255, 159, 10, 0.12)' : 'rgba(255, 159, 10, 0.08)',
+                          borderColor: isDark ? 'rgba(255, 159, 10, 0.35)' : 'rgba(255, 159, 10, 0.25)',
+                        },
+                      ]}
                       activeOpacity={0.7}
                     >
                       <Ionicons name="refresh-outline" size={13} color="#FF9F0A" />
-                      <Text style={[styles.secondaryDayBtnText, { color: '#FF9F0A' }]}>Restore</Text>
+                      <Text style={[styles.actionDayBtnText, { color: '#FF9F0A' }]} numberOfLines={1}>Restore</Text>
                     </TouchableOpacity>
                   )}
 
                   <TouchableOpacity
                     onPress={() => handleToggleRest(activeDay.dayIndex)}
-                    style={styles.secondaryDayBtn}
+                    style={[
+                      styles.actionDayBtn,
+                      {
+                        backgroundColor: isDark ? 'rgba(165, 153, 255, 0.10)' : 'rgba(165, 153, 255, 0.08)',
+                        borderColor: isDark ? 'rgba(165, 153, 255, 0.25)' : 'rgba(165, 153, 255, 0.20)',
+                      },
+                    ]}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="moon-outline" size={13} color="#8E8E93" />
-                    <Text style={[styles.secondaryDayBtnText, { color: '#8E8E93' }]}>Mark Rest</Text>
+                    <Ionicons name="moon-outline" size={13} color="#A599FF" />
+                    <Text style={[styles.actionDayBtnText, { color: '#A599FF' }]} numberOfLines={1}>Mark Rest</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1483,6 +1480,21 @@ const styles = StyleSheet.create({
   },
 
   // Day Actions Row
+  actionDayBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 9,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  actionDayBtnText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+  },
   dayActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
