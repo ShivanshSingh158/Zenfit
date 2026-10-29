@@ -9,6 +9,8 @@
  */
 import * as FileSystem from 'expo-file-system/legacy';
 import rawExercises from '../data/exercises.json';
+import { EXERCISE_GIF_MAP } from '../data/exerciseGifMap';
+import { EXERCISE_DATABASE } from '../data/exerciseDatabase';
 
 export interface ExerciseDefinition {
   id: string;
@@ -160,12 +162,50 @@ function tokenize(str: string): string[] {
 }
 
 const EXERCISE_TOKENS = new Map<string, string[]>();
+const CANONICAL_ID_OR_NAME_TO_GIF = new Map<string, ExerciseDefinition>();
 
 EXERCISES.forEach(ex => {
   EXERCISE_BY_ID.set(ex.id, ex);
   EXERCISE_BY_NORM_NAME.set(normalize(ex.name), ex);
   EXERCISE_TOKENS.set(ex.id, tokenize(ex.name));
 });
+
+// Seed canonical 1-to-1 verified map from EXERCISE_DATABASE
+EXERCISE_DATABASE.forEach(curated => {
+  const gifId = EXERCISE_GIF_MAP[curated.id];
+  if (gifId && EXERCISE_BY_ID.has(gifId)) {
+    const gifDef = EXERCISE_BY_ID.get(gifId)!;
+    CANONICAL_ID_OR_NAME_TO_GIF.set(curated.id, gifDef);
+    CANONICAL_ID_OR_NAME_TO_GIF.set(normalize(curated.id), gifDef);
+    CANONICAL_ID_OR_NAME_TO_GIF.set(normalize(curated.name), gifDef);
+    (curated.aliases || []).forEach(alias => {
+      CANONICAL_ID_OR_NAME_TO_GIF.set(normalize(alias), gifDef);
+    });
+  }
+});
+
+// Seed custom gym routine nicknames
+const SPECIAL_ROUTINE_NICKNAMES: Record<string, string> = {
+  'cablefrontshoulderraises': '0162', // cable front raise
+  'cableskullcrusher': '0061', // barbell skull crusher
+  'cableskullcrushers': '0061',
+  'egyptiancablelateralraises': '0192', // cable one arm lateral raise
+  'crossbodytricepsextensioncable': '0241', // cable pushdown
+  'lateralraisemachine': '0584', // lever lateral raise
+  'chestflymachine': '0596', // lever seated fly
+  'inclinechestpressmachine': '1299', // lever incline chest press
+  'seatedshoulderpressmachine': '0603', // lever shoulder press
+  'legpressmachine': '0740', // sled 45 degree leg press
+  'hacksquatmachine': '0744', // sled hack squat
+  'legextensionmachine': '0585', // lever leg extension
+  'legcurlmachine': '0599', // lever seated leg curl
+};
+
+for (const [nickname, gifId] of Object.entries(SPECIAL_ROUTINE_NICKNAMES)) {
+  if (EXERCISE_BY_ID.has(gifId)) {
+    CANONICAL_ID_OR_NAME_TO_GIF.set(nickname, EXERCISE_BY_ID.get(gifId)!);
+  }
+}
 
 // CDN Base URLs (jsDelivr for high-speed global edge distribution)
 const CDN_PRIMARY_BASE = 'https://cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@main';
@@ -194,13 +234,34 @@ export function resolveExercise(nameOrId: string): ExerciseDefinition | null {
   if (!nameOrId) return null;
   const trimmed = nameOrId.trim();
 
+  // 0. Direct Canonical Verified Map Match (100% Precision Guarantee)
+  if (CANONICAL_ID_OR_NAME_TO_GIF.has(trimmed)) {
+    return CANONICAL_ID_OR_NAME_TO_GIF.get(trimmed)!;
+  }
+  const norm = normalize(trimmed);
+  if (CANONICAL_ID_OR_NAME_TO_GIF.has(norm)) {
+    return CANONICAL_ID_OR_NAME_TO_GIF.get(norm)!;
+  }
+
+  // Handle truncated UI strings (e.g. "Egyptian Cable Lateral Raises (Behind...")
+  let cleanedUiString = trimmed.replace(/\s*\([^)]*(\.{2,}|\u2026)?$/, '').trim();
+  if (!cleanedUiString) cleanedUiString = trimmed.replace(/(\.{2,}|\u2026)/g, '').trim();
+  if (cleanedUiString && cleanedUiString !== trimmed) {
+    if (CANONICAL_ID_OR_NAME_TO_GIF.has(cleanedUiString)) {
+      return CANONICAL_ID_OR_NAME_TO_GIF.get(cleanedUiString)!;
+    }
+    const cleanNorm = normalize(cleanedUiString);
+    if (CANONICAL_ID_OR_NAME_TO_GIF.has(cleanNorm)) {
+      return CANONICAL_ID_OR_NAME_TO_GIF.get(cleanNorm)!;
+    }
+  }
+
   // 1. Direct ID match
   if (EXERCISE_BY_ID.has(trimmed)) {
     return EXERCISE_BY_ID.get(trimmed)!;
   }
 
   // 2. Direct normalized match
-  const norm = normalize(trimmed);
   if (EXERCISE_BY_NORM_NAME.has(norm)) {
     return EXERCISE_BY_NORM_NAME.get(norm)!;
   }
