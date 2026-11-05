@@ -582,11 +582,11 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
                             : `${selectedData.weeklyRecovery.lastTrainedDaysAgo} days ago`
                         }${
                           (selectedData.weeklyRecovery.totalSets || 0) > 0
-                            ? ` (${selectedData.weeklyRecovery.totalSets} completed ${
+                            ? ` · ${selectedData.weeklyRecovery.totalSets} ${
                                 selectedData.weeklyRecovery.totalSets === 1 ? 'set' : 'sets'
-                              } this week)`
+                              } this week`
                             : ''
-                        }.`
+                        }`
                       : 'No sets logged for this muscle this week.'}
                   </Text>
                 </View>
@@ -605,7 +605,9 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
                     <Text
                       style={[styles.inspectorCountdownVal, { color: landmark.tierColor }]}
                     >
-                      {selectedData.weeklySets === 1 ? '1 set' : `${selectedData.weeklySets} sets`} · {landmark.tierLabel.replace(/\s*\(\d+\s*sets\)/i, '')}
+                      {selectedData.weeklySets === 0
+                        ? '0 sets · Untrained'
+                        : `${selectedData.weeklySets} ${selectedData.weeklySets === 1 ? 'set' : 'sets'} · ${landmark.tierLabel.replace(/\s*\(\d+\s*sets\)/i, '').replace(/^Not Trained Yet$/i, 'Untrained')}`}
                     </Text>
                   </View>
 
@@ -1431,8 +1433,9 @@ const styles = StyleSheet.create({
   inspectorMetaText: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 11,
-    color: '#636366',
-    marginTop: 2,
+    color: '#8E8E93',
+    marginTop: 4,
+    lineHeight: 15,
   },
 
   // Hypertrophy Landmark Gauge
