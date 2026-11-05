@@ -1,11 +1,11 @@
 /**
  * WorkoutMenuSheet.tsx — ZenFit
  *
- * Top-Level Active Workout Session Options Sheet (OpenGym v1.4 Pattern):
+ * Top-Level Active Workout Session Options Sheet (OpenGym Pattern):
  * Triggered by the top-right '⋯' three-dots menu during an active workout.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -30,12 +30,15 @@ export interface WorkoutMenuSheetProps {
 
 export const WorkoutMenuSheet: React.FC<WorkoutMenuSheetProps> = ({
   visible,
-  restDurationText = '1:30 rest · Sound cues on',
+  restDurationText = '1:30 rest · Sound',
   onOpenWorkoutSettings,
   onAddExercise,
+  onAddSessionNote,
   onDiscardWorkout,
   onClose,
 }) => {
+  const [showMoreExpanded, setShowMoreExpanded] = useState(false);
+
   return (
     <Modal
       visible={visible}
@@ -47,7 +50,7 @@ export const WorkoutMenuSheet: React.FC<WorkoutMenuSheetProps> = ({
         <Pressable style={styles.sheet} onPress={e => e.stopPropagation()}>
           <View style={styles.sheetHandle} />
 
-          {/* Option 1: Workout Settings Card (Green Highlight) */}
+          {/* Option 1: Workout Settings Card (Solid Green Icon Badge) */}
           <TouchableOpacity
             style={styles.settingsCard}
             onPress={() => {
@@ -58,16 +61,16 @@ export const WorkoutMenuSheet: React.FC<WorkoutMenuSheetProps> = ({
             activeOpacity={0.8}
           >
             <View style={styles.settingsIconBox}>
-              <Ionicons name="settings-sharp" size={17} color="#30D158" />
+              <Ionicons name="settings-sharp" size={19} color="#000000" />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.settingsTitle}>Workout settings</Text>
               <Text style={styles.settingsSubtitle}>{restDurationText}</Text>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#8E8E93" />
+            <Ionicons name="chevron-forward" size={17} color="#8E8E93" />
           </TouchableOpacity>
 
-          {/* Grouped Actions Box */}
+          {/* Option 2: Grouped Primary Actions */}
           <View style={styles.groupedCard}>
             <TouchableOpacity
               style={styles.menuRow}
@@ -79,26 +82,86 @@ export const WorkoutMenuSheet: React.FC<WorkoutMenuSheetProps> = ({
               activeOpacity={0.7}
             >
               <View style={styles.rowIcon}>
-                <Ionicons name="add-circle-outline" size={18} color="#FFFFFF" />
+                <Ionicons name="add-circle-outline" size={20} color="#FFFFFF" />
               </View>
               <Text style={styles.rowText}>Add exercise</Text>
             </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => {
+                hapticLight();
+                onClose();
+                onAddSessionNote?.();
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.rowIcon}>
+                <Ionicons name="document-text-outline" size={19} color="#FFFFFF" />
+              </View>
+              <Text style={styles.rowText}>Add session note</Text>
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            <View style={styles.menuRow}>
+              <View style={styles.rowIcon}>
+                <Ionicons name="albums-outline" size={19} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowText}>Layout</Text>
+                <Text style={styles.subText}>Cards</Text>
+              </View>
+            </View>
           </View>
 
-          {/* Discard Workout */}
-          <TouchableOpacity
-            style={styles.discardRow}
-            onPress={() => {
-              onClose();
-              onDiscardWorkout();
-            }}
-            activeOpacity={0.7}
-          >
-            <View style={styles.rowIcon}>
-              <Ionicons name="trash-outline" size={18} color="#FF453A" />
-            </View>
-            <Text style={styles.discardText}>Discard workout</Text>
-          </TouchableOpacity>
+          {/* Option 3: More (Expandable Group) */}
+          <View style={styles.groupedCard}>
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => {
+                hapticLight();
+                setShowMoreExpanded(prev => !prev);
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.rowIcon}>
+                <Ionicons name="ellipsis-horizontal" size={18} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowText}>More</Text>
+                <Text style={styles.subText} numberOfLines={1}>
+                  Add routine, Rename workout, Don't co...
+                </Text>
+              </View>
+              <Ionicons
+                name={showMoreExpanded ? 'chevron-up' : 'chevron-down'}
+                size={16}
+                color="#8E8E93"
+              />
+            </TouchableOpacity>
+
+            {showMoreExpanded && (
+              <>
+                <View style={styles.divider} />
+                <TouchableOpacity
+                  style={styles.menuRow}
+                  onPress={() => {
+                    onClose();
+                    onDiscardWorkout();
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.rowIcon}>
+                    <Ionicons name="trash-outline" size={18} color="#FF453A" />
+                  </View>
+                  <Text style={[styles.rowText, { color: '#FF453A' }]}>Discard workout</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
         </Pressable>
       </Pressable>
     </Modal>
@@ -110,7 +173,7 @@ export default WorkoutMenuSheet;
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
     justifyContent: 'flex-end',
   },
   sheet: {
@@ -119,15 +182,15 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 32,
+    paddingBottom: 36,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   sheetHandle: {
-    width: 36,
+    width: 38,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
     alignSelf: 'center',
     marginBottom: 16,
   },
@@ -137,37 +200,37 @@ const styles = StyleSheet.create({
     gap: 12,
     backgroundColor: '#1C1C1E',
     borderRadius: 14,
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 14,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: 'rgba(48, 209, 88, 0.25)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   settingsIconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: 'rgba(48, 209, 88, 0.15)',
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#30D158',
     alignItems: 'center',
     justifyContent: 'center',
   },
   settingsTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 14.5,
+    fontSize: 16,
     color: '#30D158',
   },
   settingsSubtitle: {
     fontFamily: FONT_FAMILY.regular,
-    fontSize: 11.5,
+    fontSize: 13,
     color: '#8E8E93',
-    marginTop: 1,
+    marginTop: 2,
   },
   groupedCard: {
     backgroundColor: '#1C1C1E',
     borderRadius: 14,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
     marginBottom: 12,
   },
   menuRow: {
@@ -178,29 +241,24 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   rowIcon: {
-    width: 24,
+    width: 28,
     alignItems: 'center',
     justifyContent: 'center',
   },
   rowText: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 14.5,
+    fontSize: 15.5,
     color: '#FFFFFF',
   },
-  discardRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1C1C1E',
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 69, 58, 0.2)',
+  subText: {
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: 12.5,
+    color: '#8E8E93',
+    marginTop: 2,
   },
-  discardText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 14.5,
-    color: '#FF453A',
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    marginLeft: 54,
   },
 });

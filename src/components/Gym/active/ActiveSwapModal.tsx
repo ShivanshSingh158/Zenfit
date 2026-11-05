@@ -1,11 +1,10 @@
 /**
  * ActiveSwapModal.tsx — ZenFit
  *
- * Biomechanical Exercise Swap Modal (Apple iOS HIG Architecture)
- * - Pure OLED #000000 / #1C1C1E inset grouped cards with 0px borders.
- * - Removed noisy rainbow badges (S-Tier, A-Tier, glowing SFR match pills).
- * - Clean exercise metadata (Target muscle · Equipment · Working sets & reps).
- * - Apple capsule "Swap" action button (#FFFFFF / #000000, radius 999).
+ * Biomechanical Exercise Swap Modal (OpenGym Architecture)
+ * - Mode 1: Search & Filter Chips (Same muscle, Chosen, Type, Equipment, Suggested substitutes)
+ * - Mode 2: Interactive 'By muscle' Front & Back Mannequin Body Map
+ * - High-speed instant WebP still thumbnails + 1-tap swap action
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
@@ -20,19 +19,24 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
+  ScrollView,
 } from 'react-native';
+import Svg, { Path, G } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
+import { Image as ExpoImage } from 'expo-image';
 import { FONT_FAMILY } from '../../../theme/tokens';
-import { useTheme } from '../../../contexts/ThemeContext';
 import {
   resolveExerciseTargetMuscle,
-  resolveMuscleColor,
   normalizeExerciseKey,
   getBiomechanicalPrescription,
+  canonicalizeMuscle,
 } from '../../../utils/gymUtils';
 import { getExerciseCatalogue } from '../exercise/AddExerciseModal';
 import { getEquipmentGlyph } from '../exercise/ExerciseCardItem';
 import { hapticLight, hapticSuccess, hapticSelection } from '../../../utils/haptics';
+import { resolveExercise, getExerciseStillPosterUrl } from '../../../services/exerciseMediaService';
+import { BODY_PATHS, getMergedInertPath, getMergedMusclePath } from '../metrics/bodyPaths';
+import { INERT } from '../../../services/muscleRecoveryService';
 
 export interface ActiveSwapModalProps {
   visible: boolean;
@@ -45,6 +49,35 @@ export interface ActiveSwapModalProps {
   onSelectSwap: (alt: any) => void;
 }
 
+const MUSCLE_COUNTS: Record<string, number> = {
+  Traps: 525,
+  Shoulders: 2348,
+  Chest: 890,
+  Back: 1140,
+  Biceps: 460,
+  Triceps: 512,
+  Abs: 680,
+  Quads: 920,
+  Hamstrings: 610,
+  Calves: 340,
+  Glutes: 580,
+};
+
+const MUSCLE_TO_SLUGS: Record<string, string[]> = {
+  Chest: ['chest'],
+  Back: ['upper-back', 'lower-back', 'trapezius'],
+  Shoulders: ['deltoids'],
+  Biceps: ['biceps'],
+  Triceps: ['triceps'],
+  Quads: ['quadriceps'],
+  Hamstrings: ['hamstring'],
+  Calves: ['calves'],
+  Abs: ['abs', 'obliques'],
+  Forearms: ['forearm'],
+  Glutes: ['gluteal'],
+  Traps: ['trapezius'],
+};
+
 export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
   visible,
   exercise,
@@ -53,16 +86,18 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
   onSelectSwap,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'recommended' | 'all'>('recommended');
+  const [viewMode, setViewMode] = useState<'list' | 'muscle'>('list');
+  const [selectedMuscle, setSelectedMuscle] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<string>('Any type');
+  const [selectedEquip, setSelectedEquip] = useState<string>('Any equipment');
 
   const currentKey = exercise?.name ? normalizeExerciseKey(exercise.name) : '';
   const fullCatalogue = useMemo(() => getExerciseCatalogue(), []);
   const { targetMuscle } = exercise
     ? resolveExerciseTargetMuscle(exercise.name, exercise.muscle)
     : { targetMuscle: 'Chest' };
-  const muscleAccentColor = resolveMuscleColor(targetMuscle);
 
-  // Clean and filter swap alternatives
+  // Recommended swaps from AI / preloaded list
   const recommendedSwaps = useMemo(() => {
     return (aiSwapList || []).filter(item => {
       if (!item?.name) return false;
@@ -70,106 +105,117 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
     });
   }, [aiSwapList, currentKey]);
 
-  // Combined search results
+  // Combined search and filtered results
   const displayItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+    const effectiveMuscle = selectedMuscle
+      ? selectedMuscle.toLowerCase()
+      : (viewMode === 'list' ? (targetMuscle || '').toLowerCase() : null);
 
-    // 1. Live Search Active: search both recommended and global catalogue
-    if (q) {
-      const seen = new Set<string>();
-      if (currentKey) seen.add(currentKey);
+    const seen = new Set<string>();
+    if (currentKey) seen.add(currentKey);
 
-      const combined: any[] = [];
+    const matchesFilter = (item: any) => {
+      const iMuscle = (item.muscle || '').toLowerCase();
+      const iName = (item.name || '').toLowerCase();
 
-      // A. Match in recommended swaps first (they have SFR reasons)
-      for (const item of recommendedSwaps) {
-        const key = normalizeExerciseKey(item.name);
-        if (seen.has(key)) continue;
-
-        const nameMatch = item.name.toLowerCase().includes(q);
-        const muscleMatch = item.muscle?.toLowerCase().includes(q);
-        const reasonMatch = item.reason?.toLowerCase().includes(q);
-
-        if (nameMatch || muscleMatch || reasonMatch) {
-          seen.add(key);
-          combined.push({
-            ...item,
-            isRecommended: true,
-          });
+      // Muscle filter
+      if (effectiveMuscle && !iMuscle.includes(effectiveMuscle) && !iName.includes(effectiveMuscle)) {
+        return false;
+      }
+      // Type filter
+      if (selectedType !== 'Any type') {
+        const t = selectedType.toLowerCase();
+        if (!iName.includes(t) && !(item.type || '').toLowerCase().includes(t)) {
+          return false;
         }
       }
-
-      // B. Match in global exercise catalogue
-      const catalogue = fullCatalogue;
-      for (const catEntry of catalogue) {
-        const key = normalizeExerciseKey(catEntry.name);
-        if (seen.has(key)) continue;
-
-        const nameMatch = catEntry.name.toLowerCase().includes(q);
-        const muscleMatch = catEntry.muscle?.toLowerCase().includes(q);
-        const aliasMatch = Array.isArray(catEntry.aliases) && catEntry.aliases.some((a: string) => a.toLowerCase().includes(q));
-
-        if (nameMatch || muscleMatch || aliasMatch) {
-          seen.add(key);
-          const rx = getBiomechanicalPrescription(catEntry.name, catEntry.muscle);
-          combined.push({
-            id: catEntry.id || key,
-            name: catEntry.name,
-            muscle: catEntry.muscle,
-            targetSets: catEntry.targetSets || rx.targetSets || 3,
-            targetReps: catEntry.targetReps || rx.targetReps || '8–12',
-            restTimeSecs: catEntry.restTimeSecs || rx.restTimeSecs || 90,
-            videoId: catEntry.videoId || '',
-            isRecommended: false,
-          });
+      // Equipment filter
+      if (selectedEquip !== 'Any equipment') {
+        const eq = selectedEquip.toLowerCase();
+        if (!iName.includes(eq) && !(item.equipment || '').toLowerCase().includes(eq)) {
+          return false;
         }
       }
+      // Text search
+      if (q) {
+        return iName.includes(q) || iMuscle.includes(q);
+      }
+      return true;
+    };
 
-      return combined.slice(0, 35);
+    const results: any[] = [];
+
+    // 1. Recommended items first
+    for (const item of recommendedSwaps) {
+      const key = normalizeExerciseKey(item.name);
+      if (seen.has(key)) continue;
+      if (matchesFilter(item)) {
+        seen.add(key);
+        results.push({ ...item, isRecommended: true });
+      }
     }
 
-    // 2. Idle State - Tab 1: Recommended SFR Swaps
-    if (activeTab === 'recommended') {
-      return recommendedSwaps.map(item => ({ ...item, isRecommended: true }));
-    }
-
-    // 3. Idle State - Tab 2: All Exercises catalogue
-    const catalogue = fullCatalogue;
-    const sameMuscleItems: any[] = [];
-    const otherItems: any[] = [];
-    const normTargetMuscle = (targetMuscle || '').toLowerCase();
-
-    for (const catEntry of catalogue) {
+    // 2. Full exercise catalogue items
+    for (const catEntry of fullCatalogue) {
       const key = normalizeExerciseKey(catEntry.name);
-      if (key === currentKey) continue;
-
-      const rx = getBiomechanicalPrescription(catEntry.name, catEntry.muscle);
-      const item = {
-        id: catEntry.id || key,
-        name: catEntry.name,
-        muscle: catEntry.muscle,
-        targetSets: catEntry.targetSets || rx.targetSets || 3,
-        targetReps: catEntry.targetReps || rx.targetReps || '8–12',
-        restTimeSecs: catEntry.restTimeSecs || rx.restTimeSecs || 90,
-        videoId: catEntry.videoId || '',
-        isRecommended: false,
-      };
-
-      if ((catEntry.muscle || '').toLowerCase().includes(normTargetMuscle)) {
-        sameMuscleItems.push(item);
-      } else {
-        otherItems.push(item);
+      if (seen.has(key)) continue;
+      if (matchesFilter(catEntry)) {
+        seen.add(key);
+        const rx = getBiomechanicalPrescription(catEntry.name, catEntry.muscle);
+        results.push({
+          id: catEntry.id || key,
+          name: catEntry.name,
+          muscle: catEntry.muscle,
+          targetSets: catEntry.targetSets || rx.targetSets || 3,
+          targetReps: catEntry.targetReps || rx.targetReps || '8–12',
+          restTimeSecs: catEntry.restTimeSecs || rx.restTimeSecs || 90,
+          videoId: catEntry.videoId || '',
+          isRecommended: false,
+        });
       }
+      if (results.length >= 60) break;
     }
 
-    return [...sameMuscleItems, ...otherItems];
-  }, [searchQuery, activeTab, recommendedSwaps, currentKey, targetMuscle]);
+    return results;
+  }, [searchQuery, selectedMuscle, selectedType, selectedEquip, viewMode, targetMuscle, recommendedSwaps, fullCatalogue, currentKey]);
 
   const handleSelect = useCallback((item: any) => {
     hapticSuccess();
     Keyboard.dismiss();
     onSelectSwap(item);
   }, [onSelectSwap]);
+
+  // Mannequin Path Rendering for Muscle View
+  const frontGeo = BODY_PATHS.male.front;
+  const backGeo = BODY_PATHS.male.back;
+  const frontInertD = getMergedInertPath(frontGeo, INERT);
+  const backInertD = getMergedInertPath(backGeo, INERT);
+
+  const renderMusclePath = (geo: any, slug: string) => {
+    const pathD = getMergedMusclePath(geo, slug);
+    if (!pathD) return null;
+
+    const activeSlugs = selectedMuscle ? (MUSCLE_TO_SLUGS[selectedMuscle] || []) : [];
+    const isSelected = activeSlugs.includes(slug);
+
+    return (
+      <Path
+        key={slug}
+        d={pathD}
+        fill={isSelected ? '#30D158' : '#2C2C2E'}
+        stroke={isSelected ? '#FFFFFF' : 'rgba(255, 255, 255, 0.1)'}
+        strokeWidth={isSelected ? 1.4 : 0.8}
+        onPress={() => {
+          hapticSelection();
+          const foundGroup = Object.entries(MUSCLE_TO_SLUGS).find(([_, slugs]) => slugs.includes(slug));
+          if (foundGroup) {
+            setSelectedMuscle(foundGroup[0]);
+          }
+        }}
+      />
+    );
+  };
 
   if (!visible || !exercise) return null;
 
@@ -181,8 +227,7 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <View style={localStyles.overlay}>
-        {/* Backdrop dismiss */}
+      <View style={styles.overlay}>
         <TouchableOpacity
           style={StyleSheet.absoluteFillObject}
           activeOpacity={1}
@@ -191,166 +236,273 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
 
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={localStyles.sheetContent}
+          style={styles.sheetContent}
         >
           {/* Top Drag Handle */}
-          <View style={localStyles.handleContainer}>
-            <View style={localStyles.handle} />
+          <View style={styles.handleContainer}>
+            <View style={styles.handle} />
           </View>
 
-          {/* Header */}
-          <View style={localStyles.header}>
-            <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={localStyles.title}>Swap Exercise</Text>
-              <Text style={localStyles.subtitle} numberOfLines={1}>
-                Swapping: {exercise.name} · {targetMuscle}
+          {/* Top Header Row */}
+          <View style={styles.header}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Swap exercise</Text>
+              <Text style={styles.subtitle} numberOfLines={1}>
+                Replacing {exercise.name.toLowerCase()}
               </Text>
             </View>
 
-            <TouchableOpacity
-              onPress={onClose}
-              style={localStyles.closeBtn}
-              activeOpacity={0.7}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons name="close" size={18} color="#8E8E93" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Search Bar */}
-          <View style={localStyles.searchBar}>
-            <Ionicons name="search-outline" size={16} color="#8E8E93" style={{ marginRight: 8 }} />
-            <TextInput
-              style={localStyles.searchInput}
-              placeholder="Search exercise alternatives..."
-              placeholderTextColor="#636366"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              autoCorrect={false}
-              autoCapitalize="words"
-              returnKeyType="search"
-            />
-            {searchQuery.length > 0 && (
+            {viewMode === 'list' ? (
               <TouchableOpacity
-                onPress={() => setSearchQuery('')}
+                onPress={() => {
+                  hapticSelection();
+                  setViewMode('muscle');
+                }}
+                style={styles.byMuscleBtn}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="body" size={14} color="#30D158" />
+                <Text style={styles.byMuscleText}>By muscle</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                onPress={() => {
+                  hapticSelection();
+                  setViewMode('list');
+                }}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Ionicons name="close-circle" size={16} color="#8E8E93" />
+                <Text style={styles.allBtnText}>All</Text>
               </TouchableOpacity>
             )}
           </View>
 
-          {/* Quick 1-Tap Machine Backup Card (openGym Pattern) */}
-          {recommendedSwaps.length > 0 && !searchQuery.trim() && (
-            <View style={localStyles.quickBackupCard}>
-              <View style={localStyles.quickBackupLeft}>
-                <View style={localStyles.quickBackupHeader}>
-                  <Ionicons name="flash" size={11} color="#FFD700" />
-                  <Text style={localStyles.quickBackupBadge}>MACHINE OCCUPIED? 1-TAP BACKUP</Text>
+          {/* ── Mode 2: Interactive Anatomical Mannequin Body Map ── */}
+          {viewMode === 'muscle' && (
+            <View style={styles.mannequinCard}>
+              <View style={styles.svgRow}>
+                <View style={styles.svgBox}>
+                  <Svg viewBox={frontGeo.vb} width="95" height="190">
+                    <G>
+                      <Path d={frontInertD} fill="#242426" stroke="rgba(255,255,255,0.08)" strokeWidth={0.8} />
+                      {Object.keys(frontGeo.p).map(slug => renderMusclePath(frontGeo, slug))}
+                    </G>
+                  </Svg>
                 </View>
-                <Text style={localStyles.quickBackupName} numberOfLines={1}>
-                  {recommendedSwaps[0].name}
-                </Text>
-                <Text style={localStyles.quickBackupSub} numberOfLines={1}>
-                  {recommendedSwaps[0].muscle || targetMuscle} · Same sets & reps preserved
-                </Text>
+
+                <View style={styles.svgBox}>
+                  <Svg viewBox={backGeo.vb} width="95" height="190">
+                    <G>
+                      <Path d={backInertD} fill="#242426" stroke="rgba(255,255,255,0.08)" strokeWidth={0.8} />
+                      {Object.keys(backGeo.p).map(slug => renderMusclePath(backGeo, slug))}
+                    </G>
+                  </Svg>
+                </View>
               </View>
 
-              <TouchableOpacity
-                style={localStyles.quickBackupBtn}
-                onPress={() => handleSelect(recommendedSwaps[0])}
-                activeOpacity={0.8}
+              {/* Muscle Counts Strip */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.muscleCountsStrip}
               >
-                <Ionicons name="flash" size={11} color="#000000" />
-                <Text style={localStyles.quickBackupBtnText}>Quick Swap</Text>
-              </TouchableOpacity>
+                {Object.entries(MUSCLE_COUNTS).map(([mName, count]) => {
+                  const isSel = selectedMuscle === mName;
+                  return (
+                    <TouchableOpacity
+                      key={mName}
+                      onPress={() => {
+                        hapticSelection();
+                        setSelectedMuscle(isSel ? null : mName);
+                      }}
+                      style={[styles.muscleCountPill, isSel && styles.muscleCountPillActive]}
+                    >
+                      <Text style={[styles.muscleCountName, isSel && styles.muscleCountNameActive]}>
+                        {mName}
+                      </Text>
+                      <Text style={styles.muscleCountNum}>{count}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              {/* Muscle Filter Indicator */}
+              {selectedMuscle && (
+                <View style={styles.selectedMuscleHeader}>
+                  <Text style={styles.selectedMuscleTitle}>Exercises for {selectedMuscle}</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      hapticLight();
+                      setSelectedMuscle(null);
+                    }}
+                  >
+                    <Text style={styles.clearSelectionText}>Clear selection</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           )}
 
-          {/* Segmented Control Track (Clean Apple HIG) */}
-          {!searchQuery.trim() && (
-            <View style={localStyles.segmentedTrack}>
-              <TouchableOpacity
-                style={[localStyles.segmentBtn, activeTab === 'recommended' && localStyles.segmentBtnActive]}
-                onPress={() => {
-                  hapticSelection();
-                  setActiveTab('recommended');
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={[localStyles.segmentText, activeTab === 'recommended' && localStyles.segmentTextActive]}>
-                  Recommended ({recommendedSwaps.length})
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[localStyles.segmentBtn, activeTab === 'all' && localStyles.segmentBtnActive]}
-                onPress={() => {
-                  hapticSelection();
-                  setActiveTab('all');
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={[localStyles.segmentText, activeTab === 'all' && localStyles.segmentTextActive]}>
-                  All Exercises
-                </Text>
-              </TouchableOpacity>
+          {/* Search Bar + Result Count */}
+          <View style={styles.searchRow}>
+            <View style={styles.searchBar}>
+              <Ionicons name="search" size={16} color="#8E8E93" style={{ marginRight: 8 }} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder={`Search ${fullCatalogue.length || 5631} exercises..`}
+                placeholderTextColor="#636366"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCorrect={false}
+                autoCapitalize="words"
+                returnKeyType="search"
+              />
+              <View style={styles.countBadge}>
+                <Text style={styles.countBadgeText}>{displayItems.length}</Text>
+              </View>
             </View>
-          )}
+            <TouchableOpacity style={styles.gridBtn} activeOpacity={0.7}>
+              <Ionicons name="grid-outline" size={17} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
 
-          {/* List of Swap Options */}
+          {/* Filter Pills Horizontal Strip */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterPillsStrip}
+            style={{ marginBottom: 10, flexGrow: 0 }}
+          >
+            {/* Same Muscle Pill */}
+            <TouchableOpacity
+              style={[
+                styles.filterPill,
+                (!selectedMuscle || selectedMuscle.toLowerCase() === targetMuscle.toLowerCase()) && styles.filterPillActive,
+              ]}
+              onPress={() => {
+                hapticSelection();
+                setSelectedMuscle(targetMuscle);
+              }}
+            >
+              <Ionicons name="body" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+              <Text style={styles.filterPillTextActive}>Same muscle: {targetMuscle.toLowerCase()}</Text>
+            </TouchableOpacity>
+
+            {/* Type Filter Pills */}
+            {['Any type', 'Strength', 'Calisthenics', 'Plyo'].map(type => {
+              const isSel = selectedType === type;
+              return (
+                <TouchableOpacity
+                  key={type}
+                  style={[styles.filterPill, isSel && styles.filterPillActive]}
+                  onPress={() => {
+                    hapticSelection();
+                    setSelectedType(type);
+                  }}
+                >
+                  <Text style={isSel ? styles.filterPillTextActive : styles.filterPillText}>
+                    {type}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+
+            {/* Equipment Filter Pills */}
+            {['Any equipment', 'Body Weight', 'Dumbbell'].map(eq => {
+              const isSel = selectedEquip === eq;
+              return (
+                <TouchableOpacity
+                  key={eq}
+                  style={[styles.filterPill, isSel && styles.filterPillActive]}
+                  onPress={() => {
+                    hapticSelection();
+                    setSelectedEquip(eq);
+                  }}
+                >
+                  <Text style={isSel ? styles.filterPillTextActive : styles.filterPillText}>
+                    {eq}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {/* Section Subheader */}
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionHeaderTitle}>Suggested substitutes</Text>
+            <Text style={styles.sectionHeaderSubtitle}>Same movement and muscle</Text>
+          </View>
+
+          {/* List of Exercises */}
           <FlatList
             data={displayItems}
             keyExtractor={(item, idx) => `${item.name}_${idx}`}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
-            contentContainerStyle={localStyles.listContent}
-            ListEmptyComponent={
-              <View style={localStyles.emptyContainer}>
-                <Ionicons name="search-outline" size={32} color="#48484A" style={{ marginBottom: 8 }} />
-                <Text style={localStyles.emptyTitle}>
-                  {searchQuery.trim() ? `No exercises matching "${searchQuery}"` : 'No alternatives available'}
-                </Text>
-                <Text style={localStyles.emptySub}>
-                  {searchQuery.trim() ? 'Try checking your spelling or searching by muscle group.' : 'Browse the All Exercises tab for other movements.'}
-                </Text>
-              </View>
-            }
+            contentContainerStyle={styles.listContent}
             renderItem={({ item }) => {
               const equip = getEquipmentGlyph(item.name);
               const mName = item.muscle || targetMuscle;
+              const def = resolveExercise(item.name);
+              const stillUrl = def ? getExerciseStillPosterUrl(def) : '';
 
               return (
-                <View style={localStyles.card}>
-                  <View style={localStyles.cardLeft}>
-                    <Text style={localStyles.exerciseName} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-
-                    <Text style={localStyles.metaSubtitle} numberOfLines={1}>
-                      {mName} · {equip.type} · {item.targetSets || 3} sets × {item.targetReps || '8–12'}
-                    </Text>
-
-                    {item.reason ? (
-                      <Text style={localStyles.reasonText} numberOfLines={2}>
-                        {item.reason}
-                      </Text>
-                    ) : null}
+                <TouchableOpacity
+                  style={styles.card}
+                  activeOpacity={0.7}
+                  onPress={() => handleSelect(item)}
+                >
+                  {/* Thumbnail Box */}
+                  <View style={styles.thumbBox}>
+                    {stillUrl ? (
+                      <ExpoImage
+                        source={{ uri: stillUrl }}
+                        style={styles.thumbImg}
+                        contentFit="cover"
+                        cachePolicy="disk"
+                      />
+                    ) : (
+                      <Ionicons name="barbell-outline" size={20} color="#8E8E93" />
+                    )}
                   </View>
 
-                  {/* Clean Apple Action Button */}
-                  <TouchableOpacity
-                    style={localStyles.swapActionBtn}
-                    activeOpacity={0.8}
-                    onPress={() => handleSelect(item)}
-                  >
-                    <Ionicons name="swap-horizontal" size={13} color="#000000" />
-                    <Text style={localStyles.swapActionText}>Swap</Text>
-                  </TouchableOpacity>
-                </View>
+                  {/* Exercise Info */}
+                  <View style={styles.cardInfo}>
+                    <Text style={styles.exerciseName} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text style={styles.metaSubtitle} numberOfLines={1}>
+                      {mName} · {equip.type}
+                    </Text>
+                  </View>
+
+                  {/* Swap Icon Button */}
+                  <View style={styles.swapIconBtn}>
+                    <Ionicons name="swap-horizontal" size={18} color="#FFFFFF" />
+                  </View>
+                </TouchableOpacity>
               );
             }}
+            ListFooterComponent={
+              <TouchableOpacity
+                style={styles.createOwnCard}
+                onPress={() => {
+                  hapticLight();
+                  onClose();
+                }}
+                activeOpacity={0.75}
+              >
+                <View style={styles.createOwnIconBox}>
+                  <Ionicons name="add" size={18} color="#FFFFFF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.createOwnTitle}>Create your own exercise</Text>
+                  <Text style={styles.createOwnSubtitle}>name + body part, and a photo or video if you like</Text>
+                </View>
+                <Ionicons name="add" size={18} color="#8E8E93" />
+              </TouchableOpacity>
+            }
           />
         </KeyboardAvoidingView>
       </View>
@@ -358,103 +510,226 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
   );
 });
 
-const localStyles = StyleSheet.create({
+export default ActiveSwapModal;
+
+const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
     justifyContent: 'flex-end',
   },
   sheetContent: {
-    backgroundColor: '#1C1C1E',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderWidth: 0,
-    paddingTop: 8,
-    paddingHorizontal: 14,
+    backgroundColor: '#121214',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 10,
+    paddingHorizontal: 16,
     paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    maxHeight: '88%',
+    maxHeight: '90%',
     flex: 1,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   handleContainer: {
     alignItems: 'center',
     paddingVertical: 6,
   },
   handle: {
-    width: 36,
+    width: 38,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.24)',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 6,
-    marginBottom: 8,
+    paddingVertical: 8,
+    marginBottom: 6,
   },
   title: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 18,
+    fontSize: 20,
     color: '#FFFFFF',
-    letterSpacing: -0.3,
+    letterSpacing: -0.4,
   },
   subtitle: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 12,
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: 13,
     color: '#8E8E93',
     marginTop: 2,
   },
-  closeBtn: {
-    width: 32,
-    height: 32,
+  byMuscleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#1C1C1E',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 16,
-    backgroundColor: '#2C2C2E',
+    borderWidth: 1,
+    borderColor: 'rgba(48, 209, 88, 0.3)',
+  },
+  byMuscleText: {
+    fontFamily: FONT_FAMILY.semibold,
+    fontSize: 13,
+    color: '#30D158',
+  },
+  allBtnText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 15,
+    color: '#30D158',
+  },
+  mannequinCard: {
+    backgroundColor: '#1C1C1E',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 12,
+  },
+  svgRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 20,
+    paddingVertical: 4,
+  },
+  svgBox: {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  searchBar: {
+  muscleCountsStrip: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  muscleCountPill: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     backgroundColor: '#2C2C2E',
     borderRadius: 12,
-    borderWidth: 0,
-    paddingHorizontal: 12,
-    height: 40,
+  },
+  muscleCountPillActive: {
+    backgroundColor: '#30D158',
+  },
+  muscleCountName: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 12,
+    color: '#FFFFFF',
+  },
+  muscleCountNameActive: {
+    color: '#000000',
+    fontFamily: FONT_FAMILY.bold,
+  },
+  muscleCountNum: {
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: 11,
+    color: '#8E8E93',
+  },
+  selectedMuscleHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingHorizontal: 4,
+  },
+  selectedMuscleTitle: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  clearSelectionText: {
+    fontFamily: FONT_FAMILY.semibold,
+    fontSize: 13,
+    color: '#30D158',
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginBottom: 10,
+  },
+  searchBar: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1C1C1E',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 42,
   },
   searchInput: {
     flex: 1,
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 13,
+    fontSize: 14,
     color: '#FFFFFF',
     paddingVertical: 0,
   },
-  segmentedTrack: {
-    flexDirection: 'row',
+  countBadge: {
     backgroundColor: '#2C2C2E',
-    borderRadius: 10,
-    padding: 2.5,
-    marginBottom: 10,
-    gap: 2,
-  },
-  segmentBtn: {
-    flex: 1,
-    paddingVertical: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: 8,
   },
-  segmentBtnActive: {
-    backgroundColor: '#3A3A3C',
-  },
-  segmentText: {
-    fontSize: 12,
-    fontFamily: FONT_FAMILY.medium,
+  countBadgeText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 11,
     color: '#8E8E93',
   },
-  segmentTextActive: {
+  gridBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#1C1C1E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterPillsStrip: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  filterPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1C1C1E',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  filterPillActive: {
+    backgroundColor: '#30D158',
+    borderColor: '#30D158',
+  },
+  filterPillText: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 13,
+    color: '#E5E5EA',
+  },
+  filterPillTextActive: {
     fontFamily: FONT_FAMILY.bold,
+    fontSize: 13,
+    color: '#000000',
+  },
+  sectionHeaderRow: {
+    paddingVertical: 6,
+    marginBottom: 4,
+  },
+  sectionHeaderTitle: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 13.5,
     color: '#FFFFFF',
+  },
+  sectionHeaderSubtitle: {
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: 11.5,
+    color: '#8E8E93',
+    marginTop: 1,
   },
   listContent: {
     paddingBottom: 24,
@@ -463,121 +738,74 @@ const localStyles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#2C2C2E',
+    backgroundColor: '#1C1C1E',
     borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderWidth: 0,
+    padding: 10,
     gap: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
   },
-  cardLeft: {
+  thumbBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+    backgroundColor: '#2C2C2E',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  thumbImg: {
+    width: '100%',
+    height: '100%',
+  },
+  cardInfo: {
     flex: 1,
     gap: 3,
   },
   exerciseName: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 14.5,
+    fontSize: 15,
     color: '#FFFFFF',
-    letterSpacing: -0.2,
   },
   metaSubtitle: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 12,
-    color: '#8E8E93',
-  },
-  reasonText: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11.5,
-    color: '#A599FF',
-    lineHeight: 16,
-    marginTop: 2,
-  },
-  swapActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  swapActionText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    color: '#000000',
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    paddingVertical: 36,
-    paddingHorizontal: 16,
-  },
-  emptyTitle: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 14,
-    color: '#FFFFFF',
-    marginTop: 4,
-  },
-  emptySub: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 12,
     color: '#8E8E93',
-    textAlign: 'center',
-    marginTop: 4,
-    lineHeight: 16,
   },
-  quickBackupCard: {
+  swapIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  createOwnCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(255, 215, 0, 0.08)',
-    borderColor: 'rgba(255, 215, 0, 0.25)',
-    borderWidth: 1,
+    backgroundColor: '#1C1C1E',
     borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 10,
-    gap: 8,
+    padding: 12,
+    marginTop: 8,
+    marginBottom: 16,
+    gap: 12,
   },
-  quickBackupLeft: {
-    flex: 1,
-  },
-  quickBackupHeader: {
-    flexDirection: 'row',
+  createOwnIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#2C2C2E',
     alignItems: 'center',
-    gap: 4,
-    marginBottom: 2,
+    justifyContent: 'center',
   },
-  quickBackupBadge: {
+  createOwnTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 9.5,
-    color: '#FFD700',
-    letterSpacing: 0.5,
-  },
-  quickBackupName: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13.5,
+    fontSize: 14.5,
     color: '#FFFFFF',
   },
-  quickBackupSub: {
-    fontFamily: FONT_FAMILY.medium,
+  createOwnSubtitle: {
+    fontFamily: FONT_FAMILY.regular,
     fontSize: 11,
     color: '#8E8E93',
-  },
-  quickBackupBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#FFD700',
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  quickBackupBtnText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11.5,
-    color: '#000000',
+    marginTop: 1,
   },
 });
-
-export default ActiveSwapModal;

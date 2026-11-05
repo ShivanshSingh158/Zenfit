@@ -295,24 +295,20 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
               isWeightActive && rowStyles.stepperPillActive,
             ]}
           >
-            {!isCompleted ? (
-              <SpringStepperButton
-                icon="remove"
-                onPress={() => {
-                  hapticLight();
-                  const curWeight = Number(displayWeight || placeholderWeight || 0);
-                  const newWeight = Math.max(0, Math.round((curWeight - 2.5) * 10) / 10);
-                  onAction?.(idx, 'textChange', { field: 'weight', text: String(newWeight) });
-                }}
-              />
-            ) : null}
+            <SpringStepperButton
+              icon="remove"
+              onPress={() => {
+                hapticLight();
+                const curWeight = Number(displayWeight || placeholderWeight || 0);
+                const newWeight = Math.max(0, Math.round((curWeight - 2.5) * 10) / 10);
+                onAction?.(idx, 'textChange', { field: 'weight', text: String(newWeight) });
+              }}
+            />
 
             <TouchableOpacity
               style={rowStyles.stepperValueContainer}
-              activeOpacity={isCompleted ? 1 : 0.75}
-              disabled={isCompleted}
+              activeOpacity={0.75}
               onPress={() => {
-                if (isCompleted) return;
                 hapticLight();
                 onAction?.(idx, 'focusField', 'weight');
               }}
@@ -334,17 +330,15 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
               </View>
             </TouchableOpacity>
 
-            {!isCompleted ? (
-              <SpringStepperButton
-                icon="add"
-                onPress={() => {
-                  hapticLight();
-                  const curWeight = Number(displayWeight || placeholderWeight || 0);
-                  const newWeight = Math.round((curWeight + 2.5) * 10) / 10;
-                  onAction?.(idx, 'textChange', { field: 'weight', text: String(newWeight) });
-                }}
-              />
-            ) : null}
+            <SpringStepperButton
+              icon="add"
+              onPress={() => {
+                hapticLight();
+                const curWeight = Number(displayWeight || placeholderWeight || 0);
+                const newWeight = Math.round((curWeight + 2.5) * 10) / 10;
+                onAction?.(idx, 'textChange', { field: 'weight', text: String(newWeight) });
+              }}
+            />
           </View>
         </View>
 
@@ -357,24 +351,20 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
               isRepsActive && rowStyles.stepperPillActive,
             ]}
           >
-            {!isCompleted ? (
-              <SpringStepperButton
-                icon="remove"
-                onPress={() => {
-                  hapticLight();
-                  const curReps = Number(displayReps || placeholderReps || 1);
-                  const newReps = Math.max(1, curReps - 1);
-                  onAction?.(idx, 'textChange', { field: 'reps', text: String(newReps) });
-                }}
-              />
-            ) : null}
+            <SpringStepperButton
+              icon="remove"
+              onPress={() => {
+                hapticLight();
+                const curReps = Number(displayReps || placeholderReps || 1);
+                const newReps = Math.max(1, curReps - 1);
+                onAction?.(idx, 'textChange', { field: 'reps', text: String(newReps) });
+              }}
+            />
 
             <TouchableOpacity
               style={rowStyles.stepperValueContainer}
-              activeOpacity={isCompleted ? 1 : 0.75}
-              disabled={isCompleted}
+              activeOpacity={0.75}
               onPress={() => {
-                if (isCompleted) return;
                 hapticLight();
                 onAction?.(idx, 'focusField', 'reps');
               }}
@@ -396,17 +386,15 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
               </View>
             </TouchableOpacity>
 
-            {!isCompleted ? (
-              <SpringStepperButton
-                icon="add"
-                onPress={() => {
-                  hapticLight();
-                  const curReps = Number(displayReps || placeholderReps || 0);
-                  const newReps = curReps + 1;
-                  onAction?.(idx, 'textChange', { field: 'reps', text: String(newReps) });
-                }}
-              />
-            ) : null}
+            <SpringStepperButton
+              icon="add"
+              onPress={() => {
+                hapticLight();
+                const curReps = Number(displayReps || placeholderReps || 0);
+                const newReps = curReps + 1;
+                onAction?.(idx, 'textChange', { field: 'reps', text: String(newReps) });
+              }}
+            />
           </View>
         </View>
 

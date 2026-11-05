@@ -2301,7 +2301,7 @@ export default function ActiveLoggingScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Bottom Session Action Group (Add Exercise Only) */}
+            {/* Bottom Session Action Group (Add Exercise & Add Session Note) */}
             <View style={{
               marginHorizontal: 12,
               marginTop: 4,
@@ -2316,7 +2316,7 @@ export default function ActiveLoggingScreen() {
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
-                  paddingVertical: 15,
+                  paddingVertical: 14,
                   paddingHorizontal: 16,
                   gap: 12,
                 }}
@@ -2327,6 +2327,43 @@ export default function ActiveLoggingScreen() {
                 <Text style={{ fontSize: 16, fontFamily: FONT_FAMILY.semibold, color: '#30D158' }}>
                   Add exercise
                 </Text>
+              </TouchableOpacity>
+
+              <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255, 255, 255, 0.08)', marginLeft: 48 }} />
+
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 14,
+                  paddingHorizontal: 16,
+                  gap: 12,
+                }}
+                onPress={() => {
+                  hapticLight();
+                  Alert.prompt(
+                    'Session Note',
+                    'Add a note for this workout session:',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Save',
+                        onPress: () => {
+                          hapticLight();
+                        },
+                      },
+                    ],
+                    'plain-text',
+                    ''
+                  );
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="document-text-outline" size={19} color="#8E8E93" />
+                <Text style={{ flex: 1, fontSize: 15.5, fontFamily: FONT_FAMILY.medium, color: '#FFFFFF' }}>
+                  Add session note
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color="#8E8E93" />
               </TouchableOpacity>
             </View>
 
