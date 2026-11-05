@@ -2112,6 +2112,7 @@ export default function ActiveLoggingScreen() {
           <MiniMannequinButton
             onPress={() => setShowWhatHitsSheet(true)}
             hasWorkedMuscles={totalCompletedSets > 0}
+            exercises={exercises}
           />
         </View>
 
