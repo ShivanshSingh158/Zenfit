@@ -65,13 +65,22 @@ export const SetList: React.FC<SetListProps> = React.memo(({
 
   return (
     <View style={styles.tableCard}>
-      {/* Table Column Header: SET | PREV | KG | REPS | ✓ */}
-      <View style={styles.tableHeaderRow}>
-        <Text style={[styles.tableColHeader, { width: 38, textAlign: 'center' }]}>SET</Text>
-        <Text style={[styles.tableColHeader, { width: 72, textAlign: 'center' }]}>PREV</Text>
-        <Text style={[styles.tableColHeader, { flex: 1, textAlign: 'center' }]}>KG</Text>
-        <Text style={[styles.tableColHeader, { flex: 1, textAlign: 'center' }]}>REPS</Text>
-        <Text style={[styles.tableColHeader, { width: 42, textAlign: 'center' }]}>✓</Text>
+      {/* Table Column Header: Weight (kg) | Reps */}
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 10,
+        paddingTop: 12,
+        paddingBottom: 8,
+      }}>
+        <View style={{ width: 32 }} />
+        <Text style={{ flex: 1, textAlign: 'center', fontFamily: FONT_FAMILY.medium, fontSize: 13, color: '#8E8E93' }}>
+          Weight (kg)
+        </Text>
+        <Text style={{ flex: 1, textAlign: 'center', fontFamily: FONT_FAMILY.medium, fontSize: 13, color: '#8E8E93' }}>
+          Reps
+        </Text>
+        <View style={{ width: 42 }} />
       </View>
 
       {/* Collapsible Warm-up Phase Header */}
@@ -173,19 +182,28 @@ export const SetList: React.FC<SetListProps> = React.memo(({
         );
       })}
 
-      {/* Seamless Add Set Button directly combined inside the table below the last set */}
+      {/* OpenGym Style + Add set Button */}
       {onAddSet && (
-        <>
-          <View style={styles.tableHairline} />
-          <TouchableOpacity
-            onPress={onAddSet}
-            style={styles.tableAddSetRow}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="add" size={17} color={isDark ? 'rgba(255, 255, 255, 0.85)' : '#000000'} />
-            <Text style={styles.tableAddSetText}>Add Set</Text>
-          </TouchableOpacity>
-        </>
+        <TouchableOpacity
+          onPress={onAddSet}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingVertical: 14,
+            paddingHorizontal: 16,
+            gap: 6,
+          }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="add" size={17} color="#30D158" />
+          <Text style={{
+            fontFamily: FONT_FAMILY.bold,
+            fontSize: 14.5,
+            color: '#30D158',
+          }}>
+            Add set
+          </Text>
+        </TouchableOpacity>
       )}
 
       {/* Prominent Finish Workout CTA when on the last exercise and all sets are completed */}

@@ -256,3 +256,4 @@ const styles = StyleSheet.create({
     color: '#FF453A',
   },
 });
+

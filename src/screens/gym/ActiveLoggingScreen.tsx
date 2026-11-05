@@ -2136,91 +2136,88 @@ export default function ActiveLoggingScreen() {
             keyboardDismissMode="on-drag"
           >
 
-            {/* Exercise Header Component */}
-            <ActiveExerciseHeader
-              exercise={exercise}
-              partnerExercise={partnerExercise}
-              overloadSuggestion={overloadSuggestion}
-              lastTimeData={lastTimeData}
-              showVideo={showVideo}
-              activeSetIndex={activeSetIndex}
-              isAllComplete={isAllComplete}
-              onRepeatPrevious={handleRepeatPreviousSet}
-              colors={colors}
-              styles={styles}
-              gymLogs={gymLogs}
-              onSwapPress={handleSwapPress}
-              onSupersetPress={handleSupersetPress}
-              onVideoToggle={handleVideoToggle}
-              onSwitchToPartner={handleSwitchToPartner}
-              onNoteChange={handleNoteChange}
-              onOpenExerciseMenu={() => setShowExerciseMenuSheet(true)}
-            />
-
-            {/* Form Video Player Component */}
-            {showVideo && (
-              <ActiveExerciseVideo
+            {/* ── OpenGym Focused Exercise Hero Card ── */}
+            <View style={{
+              backgroundColor: '#1C1C1E',
+              borderRadius: 16,
+              overflow: 'hidden',
+              borderWidth: 1,
+              borderColor: 'rgba(255, 255, 255, 0.08)',
+              marginBottom: 14,
+            }}>
+              <ActiveExerciseHeader
                 exercise={exercise}
-                appState={appState}
-                isRefreshingVideo={isRefreshingVideo}
+                partnerExercise={partnerExercise}
+                overloadSuggestion={overloadSuggestion}
+                lastTimeData={lastTimeData}
+                showVideo={showVideo}
+                activeSetIndex={activeSetIndex}
+                isAllComplete={isAllComplete}
+                onRepeatPrevious={handleRepeatPreviousSet}
                 colors={colors}
                 styles={styles}
-                onRefreshVideo={handleRefreshVideo}
-                onCloseVideo={() => setShowVideo(false)}
-                onError={async (err: any) => {
-                  console.warn('[YoutubeIframe Error] Video unavailable:', exercise.name, exercise.videoId, err);
-                  const retries = videoRetryCountMapRef.current[exercise.name] || 0;
-                  if (retries >= 1) {
-                    updateExercise(realExerciseIndex, { ...exercise, videoId: '' });
-                    setShowVideo(false);
-                    return;
-                  }
-                  videoRetryCountMapRef.current[exercise.name] = retries + 1;
-                  const freshId = await autoResolveExerciseVideoId(exercise.name, true);
-                  if (freshId && freshId !== exercise.videoId) {
-                    updateExercise(realExerciseIndex, { ...exercise, videoId: freshId });
-                  } else {
-                    updateExercise(realExerciseIndex, { ...exercise, videoId: '' });
-                    setShowVideo(false);
-                  }
-                }}
+                gymLogs={gymLogs}
+                onSwapPress={handleSwapPress}
+                onSupersetPress={handleSupersetPress}
+                onVideoToggle={handleVideoToggle}
+                onSwitchToPartner={handleSwitchToPartner}
+                onNoteChange={handleNoteChange}
+                onOpenExerciseMenu={() => setShowExerciseMenuSheet(true)}
               />
-            )}
 
-            {/* Set Rows with Warmup / Working Phase Dividers (Memoized) */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 6, paddingHorizontal: 4 }}>
-              <TouchableOpacity
-                onPress={handleAutoWarmup}
-                style={styles.warmupActionBtn}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="flame" size={13} color="#FF9F0A" />
-                <Text style={styles.warmupActionText}>
-                  {hasWarmups ? 'Remove Warmup' : '+ Warmup Sets'}
-                </Text>
-              </TouchableOpacity>
+              {/* Form Video Player Component */}
+              {showVideo && (
+                <ActiveExerciseVideo
+                  exercise={exercise}
+                  appState={appState}
+                  isRefreshingVideo={isRefreshingVideo}
+                  colors={colors}
+                  styles={styles}
+                  onRefreshVideo={handleRefreshVideo}
+                  onCloseVideo={() => setShowVideo(false)}
+                  onError={async (err: any) => {
+                    console.warn('[YoutubeIframe Error] Video unavailable:', exercise.name, exercise.videoId, err);
+                    const retries = videoRetryCountMapRef.current[exercise.name] || 0;
+                    if (retries >= 1) {
+                      updateExercise(realExerciseIndex, { ...exercise, videoId: '' });
+                      setShowVideo(false);
+                      return;
+                    }
+                    videoRetryCountMapRef.current[exercise.name] = retries + 1;
+                    const freshId = await autoResolveExerciseVideoId(exercise.name, true);
+                    if (freshId && freshId !== exercise.videoId) {
+                      updateExercise(realExerciseIndex, { ...exercise, videoId: freshId });
+                    } else {
+                      updateExercise(realExerciseIndex, { ...exercise, videoId: '' });
+                      setShowVideo(false);
+                    }
+                  }}
+                />
+              )}
+
+              {/* Set Rows with Stepper Pills & Checkmark Circles */}
+              <SetList
+                setsLog={exercise.setsLog}
+                activeSetIndex={activeSetIndex}
+                setInputs={setInputs}
+                lastSessionSets={resolvedLastSessionSets}
+                colors={colors}
+                isDark={isDark}
+                styles={{ ...styles, tableCard: { backgroundColor: 'transparent', borderWidth: 0 } }}
+                hasWarmups={hasWarmups}
+                allWarmupsCompleted={allWarmupsCompleted}
+                showCompletedWarmups={showCompletedWarmups}
+                overloadSuggestion={overloadSuggestion}
+                onToggleShowWarmups={() => setShowCompletedWarmups(prev => !prev)}
+                onSetAction={handleSetAction}
+                activeKeypadField={activeKeypad}
+                isFieldSelected={isFieldSelected}
+                onAddSet={handleAddSet}
+                isAllComplete={isAllComplete}
+                isLastExercise={activeExIndex === exercises.length - 1}
+                onFinishWorkout={promptFinishWorkout}
+              />
             </View>
-            <SetList
-              setsLog={exercise.setsLog}
-              activeSetIndex={activeSetIndex}
-              setInputs={setInputs}
-              lastSessionSets={resolvedLastSessionSets}
-              colors={colors}
-              isDark={isDark}
-              styles={styles}
-              hasWarmups={hasWarmups}
-              allWarmupsCompleted={allWarmupsCompleted}
-              showCompletedWarmups={showCompletedWarmups}
-              overloadSuggestion={overloadSuggestion}
-              onToggleShowWarmups={() => setShowCompletedWarmups(prev => !prev)}
-              onSetAction={handleSetAction}
-              activeKeypadField={activeKeypad}
-              isFieldSelected={isFieldSelected}
-              onAddSet={handleAddSet}
-              isAllComplete={isAllComplete}
-              isLastExercise={activeExIndex === exercises.length - 1}
-              onFinishWorkout={promptFinishWorkout}
-            />
 
             {/* Exercise Card Footer: Prev & Next Navigation */}
             <View style={{
@@ -2274,7 +2271,7 @@ export default function ActiveLoggingScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Bottom Session Action Group (Add Exercise & Add Session Note) */}
+            {/* Bottom Session Action Group (Add Exercise Only) */}
             <View style={{
               marginHorizontal: 12,
               marginTop: 4,
@@ -2291,8 +2288,6 @@ export default function ActiveLoggingScreen() {
                   alignItems: 'center',
                   paddingVertical: 15,
                   paddingHorizontal: 16,
-                  borderBottomWidth: StyleSheet.hairlineWidth,
-                  borderBottomColor: 'rgba(255,255,255,0.08)',
                   gap: 12,
                 }}
                 onPress={() => (navigation as any).navigate('ExerciseLibrary', { date, mode: 'add' })}
@@ -2302,28 +2297,6 @@ export default function ActiveLoggingScreen() {
                 <Text style={{ fontSize: 16, fontFamily: FONT_FAMILY.semibold, color: '#30D158' }}>
                   Add exercise
                 </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingVertical: 15,
-                  paddingHorizontal: 16,
-                }}
-                onPress={() => {
-                  setShowWorkoutMenuSheet(true);
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                  <Ionicons name="document-text-outline" size={20} color="rgba(255,255,255,0.7)" />
-                  <Text style={{ fontSize: 16, fontFamily: FONT_FAMILY.regular, color: '#FFFFFF' }}>
-                    Add session note
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.3)" />
               </TouchableOpacity>
             </View>
 

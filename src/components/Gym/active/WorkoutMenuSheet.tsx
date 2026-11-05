@@ -23,7 +23,7 @@ export interface WorkoutMenuSheetProps {
   restDurationText?: string;
   onOpenWorkoutSettings: () => void;
   onAddExercise: () => void;
-  onAddSessionNote: () => void;
+  onAddSessionNote?: () => void;
   onDiscardWorkout: () => void;
   onClose: () => void;
 }
@@ -33,7 +33,6 @@ export const WorkoutMenuSheet: React.FC<WorkoutMenuSheetProps> = ({
   restDurationText = '1:30 rest · Sound cues on',
   onOpenWorkoutSettings,
   onAddExercise,
-  onAddSessionNote,
   onDiscardWorkout,
   onClose,
 }) => {
@@ -83,23 +82,6 @@ export const WorkoutMenuSheet: React.FC<WorkoutMenuSheetProps> = ({
                 <Ionicons name="add-circle-outline" size={18} color="#FFFFFF" />
               </View>
               <Text style={styles.rowText}>Add exercise</Text>
-            </TouchableOpacity>
-
-            <View style={styles.divider} />
-
-            <TouchableOpacity
-              style={styles.menuRow}
-              onPress={() => {
-                hapticLight();
-                onClose();
-                onAddSessionNote();
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={styles.rowIcon}>
-                <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
-              </View>
-              <Text style={styles.rowText}>Add session note</Text>
             </TouchableOpacity>
           </View>
 
@@ -204,11 +186,6 @@ const styles = StyleSheet.create({
     fontFamily: FONT_FAMILY.medium,
     fontSize: 14.5,
     color: '#FFFFFF',
-  },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    marginLeft: 50,
   },
   discardRow: {
     flexDirection: 'row',

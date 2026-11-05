@@ -1,43 +1,12 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { IOS_DARK, FONT_FAMILY } from '../../../theme/tokens';
 import { resolveExerciseTargetMuscle } from '../../../utils/gymUtils';
+import { resolveExerciseEquipment } from '../../../utils/equipmentResolver';
+import { resolveExercise, getExerciseThumbnailUrl } from '../../../services/exerciseMediaService';
 import { hapticLight, hapticMedium, hapticSelection } from '../../../utils/haptics';
-
 import { OverloadSuggestion } from '../../../utils/progressiveOverload';
-
-export interface OverloadBannerProps {
-  overloadSuggestion?: OverloadSuggestion | any | null;
-}
-
-export const OverloadBanner: React.FC<OverloadBannerProps> = ({ overloadSuggestion }) => {
-  // Only display when there is a REAL progressive overload recommendation with active target weight
-  // (Do NOT show when calibrating baseline or when there's no actual progressive overload data)
-  if (!overloadSuggestion || overloadSuggestion.state === 'BASELINE') {
-    return null;
-  }
-
-  const targetWeight = overloadSuggestion.recommended || overloadSuggestion.suggestedWeight || 0;
-  if (targetWeight <= 0) {
-    return null;
-  }
-
-  const repsText = overloadSuggestion.suggestedReps || overloadSuggestion.reps || '8-12';
-  const delta = (overloadSuggestion.isWeightIncrease || overloadSuggestion.type === 'increase') && overloadSuggestion.weightDelta
-    ? ` (+${overloadSuggestion.weightDelta} kg)`
-    : '';
-  const suggestionText = `Progressive Overload: ${targetWeight} kg × ${repsText}${delta}`;
-
-  return (
-    <View style={headerStyles.overloadRow}>
-      <Ionicons name="trending-up" size={13} color={IOS_DARK.green} />
-      <Text style={headerStyles.overloadText} numberOfLines={1} ellipsizeMode="tail">
-        {suggestionText}
-      </Text>
-    </View>
-  );
-};
 
 export interface ActiveExerciseHeaderProps {
   exercise: any;
@@ -63,145 +32,111 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
   exercise,
   partnerExercise,
   overloadSuggestion,
-  lastTimeData,
   showVideo,
-  activeSetIndex,
-  isAllComplete,
-  onRepeatPrevious,
   colors,
-  gymLogs,
-  onSwapPress,
-  onSupersetPress,
   onVideoToggle,
   onSwitchToPartner,
-  onNoteChange,
   onOpenExerciseMenu,
 }) => {
   const rawMuscle = exercise.muscle;
   const resolved = resolveExerciseTargetMuscle(exercise.name, rawMuscle).targetMuscle;
   const muscleName = resolved || rawMuscle || 'Mixed';
+  const equipmentName = useMemo(() => resolveExerciseEquipment(exercise.name), [exercise.name]);
 
-  const targetSubtitle = `${muscleName} · Target: ${exercise.targetSets || 3} × ${exercise.targetReps || '8-10'}${lastTimeData ? ` · ${lastTimeData}` : ''}`;
+  // Exercise thumbnail
+  const thumbUrl = useMemo(() => {
+    const def = resolveExercise(exercise.name);
+    return def ? getExerciseThumbnailUrl(def) : '';
+  }, [exercise.name]);
 
-  // Visual Volume Landmark Tracking (Integer Sets, No Bulky Pills)
-  const landmarkInfo = React.useMemo(() => {
-    if (!gymLogs || gymLogs.length === 0) return null;
-    const { calculateMuscleLoad, getHypertrophyLandmarkInfo, canonicalizeMuscleSlug } = require('../../../services/muscleRecoveryService');
-    const slug = canonicalizeMuscleSlug(muscleName);
-    if (!slug) return null;
-    const weeklyLoad = calculateMuscleLoad(gymLogs, 7, undefined, false);
-    const sets = Math.round(weeklyLoad[slug] || 0); // Discrete integer: 2, 3, 4, 5...
-    const info = getHypertrophyLandmarkInfo(sets);
-
-    let statusText = '';
-    if (sets === 0) {
-      statusText = 'No sets yet this week';
-    } else if (sets < 6) {
-      statusText = `${6 - sets} more sets for baseline`;
-    } else if (sets < 10) {
-      statusText = `${10 - sets} sets to growth sweet spot`;
-    } else if (sets <= 16) {
-      statusText = 'Optimal Growth Sweet Spot 🟢';
-    } else if (sets <= 20) {
-      statusText = 'High Volume';
-    } else {
-      statusText = 'High Volume Alert';
+  // Progressive Overload or Baseline Note
+  const progressionText = useMemo(() => {
+    if (overloadSuggestion && overloadSuggestion.state !== 'BASELINE') {
+      const targetWeight = overloadSuggestion.recommended || overloadSuggestion.suggestedWeight || 0;
+      if (targetWeight > 0) {
+        const repsText = overloadSuggestion.suggestedReps || overloadSuggestion.reps || '8-12';
+        const delta = (overloadSuggestion.isWeightIncrease || overloadSuggestion.type === 'increase') && overloadSuggestion.weightDelta
+          ? ` (+${overloadSuggestion.weightDelta} kg)`
+          : '';
+        return `🌱 Progressive Overload: ${targetWeight} kg × ${repsText}${delta}`;
+      }
     }
-
-    return {
-      sets,
-      statusText,
-      color: info.tierColor,
-    };
-  }, [gymLogs, muscleName]);
+    return '🌱 Linear progression · Nothing logged yet, so this session sets the baseline.';
+  }, [overloadSuggestion]);
 
   return (
-    <View style={headerStyles.container}>
-      {/* ── Exercise Title & Target Subtitle Centered Above in the Middle ── */}
-      <View style={headerStyles.titleContainer}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-          <Text
-            style={[headerStyles.exerciseTitle, { flex: 1, textAlign: 'left' }, colors?.textPrimary && { color: colors.textPrimary }]}
-            numberOfLines={2}
-          >
-            {exercise.name}
-          </Text>
-          <TouchableOpacity
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 16,
-              backgroundColor: 'rgba(255, 255, 255, 0.08)',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginLeft: 8,
-            }}
-            onPress={() => {
-              hapticSelection();
-              onOpenExerciseMenu?.();
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons name="ellipsis-horizontal" size={16} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
-        <Text style={[headerStyles.subtitle, { textAlign: 'left', alignSelf: 'flex-start' }, colors?.textSecondary && { color: colors.textSecondary }]} numberOfLines={1}>
-          {targetSubtitle}
-        </Text>
-
-        {/* Sleek, Minimal Non-Pill Volume Indicator */}
-        {landmarkInfo && (
-          <View style={headerStyles.volumeRow}>
-            <View style={[headerStyles.volumeDot, { backgroundColor: landmarkInfo.color }]} />
-            <Text style={headerStyles.volumeText}>
-              <Text style={headerStyles.volumeSets}>{landmarkInfo.sets}</Text>
-              <Text style={headerStyles.volumeTotal}>/16 weekly sets · </Text>
-              <Text style={[headerStyles.volumeStatus, { color: landmarkInfo.color }]}>
-                {landmarkInfo.statusText}
-              </Text>
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* ── Clean Circular Action Buttons Centered Below ── */}
-      <View style={headerStyles.actionsRow}>
+    <View style={headerStyles.cardHeader}>
+      {/* ── Top Row: Thumbnail + Details (Title, Tags, Plan, Menu) ── */}
+      <View style={headerStyles.heroRow}>
+        {/* Square Thumbnail */}
         <TouchableOpacity
-          onPress={() => {
-            hapticMedium();
-            onSwapPress();
-          }}
-          style={headerStyles.circleBtn}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="swap-horizontal" size={16} color="rgba(255, 255, 255, 0.85)" />
-        </TouchableOpacity>
-
-        <TouchableOpacity
+          style={headerStyles.thumbnailBox}
           onPress={() => {
             hapticLight();
             onVideoToggle();
           }}
-          style={[
-            headerStyles.circleBtn,
-            showVideo && { backgroundColor: '#FFFFFF', borderColor: '#FFFFFF' },
-          ]}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          activeOpacity={0.7}
+          activeOpacity={0.8}
         >
-          <Ionicons
-            name={showVideo ? 'close' : 'play'}
-            size={16}
-            color={showVideo ? '#000000' : 'rgba(255, 255, 255, 0.85)'}
-          />
+          {thumbUrl ? (
+            <Image
+              source={{ uri: thumbUrl }}
+              style={headerStyles.thumbImg}
+              resizeMode="cover"
+            />
+          ) : (
+            <Ionicons name="barbell-outline" size={26} color="#8E8E93" />
+          )}
+          <View style={headerStyles.expandOverlay}>
+            <Ionicons name={showVideo ? 'close' : 'expand'} size={12} color="#FFFFFF" />
+          </View>
         </TouchableOpacity>
+
+        {/* Details Column */}
+        <View style={headerStyles.detailsCol}>
+          <View style={headerStyles.titleRow}>
+            <Text
+              style={headerStyles.exerciseTitle}
+              numberOfLines={2}
+            >
+              {exercise.name}
+            </Text>
+            <TouchableOpacity
+              style={headerStyles.dotsBtn}
+              onPress={() => {
+                hapticSelection();
+                onOpenExerciseMenu?.();
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="ellipsis-horizontal" size={16} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Muscle & Equipment Tags */}
+          <View style={headerStyles.tagsRow}>
+            <View style={headerStyles.tagBadge}>
+              <Text style={headerStyles.tagText}>{muscleName}</Text>
+            </View>
+            <View style={headerStyles.tagBadge}>
+              <Text style={headerStyles.tagText}>{equipmentName}</Text>
+            </View>
+          </View>
+
+          {/* Target Plan */}
+          <Text style={headerStyles.planText}>
+            Plan: {exercise.targetSets || 4} × {exercise.targetReps || '8'}
+          </Text>
+        </View>
       </View>
 
-      {/* ── Progressive Overload Inline Card / Banner ── */}
-      <OverloadBanner overloadSuggestion={overloadSuggestion} />
+      {/* ── Progression Baseline / Overload Note ── */}
+      <View style={headerStyles.progressionRow}>
+        <Text style={headerStyles.progressionText} numberOfLines={2}>
+          {progressionText}
+        </Text>
+      </View>
 
-      {/* ── Superset Partner Switcher (if in a superset group) ── */}
+      {/* ── Superset Partner Switcher (if applicable) ── */}
       {exercise.supersetGroup && partnerExercise && (
         <TouchableOpacity
           onPress={onSwitchToPartner}
@@ -219,92 +154,102 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
 });
 
 const headerStyles = StyleSheet.create({
-  container: {
-    marginBottom: 12,
-    alignItems: 'center',
-    gap: 8,
+  cardHeader: {
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 6,
   },
-  titleContainer: {
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    gap: 3,
-  },
-  exerciseTitle: {
-    fontSize: 20,
-    fontFamily: FONT_FAMILY.bold,
-    color: IOS_DARK.labelPrimary,
-    letterSpacing: -0.3,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 13,
-    fontFamily: FONT_FAMILY.body,
-    color: IOS_DARK.labelSecondary,
-    textAlign: 'center',
-  },
-  volumeRow: {
+  heroRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 4,
-  },
-  volumeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  volumeText: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 12,
-  },
-  volumeSets: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    color: '#FFFFFF',
-  },
-  volumeTotal: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 12,
-    color: '#8E8E93',
-  },
-  volumeStatus: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 12,
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'flex-start',
     gap: 12,
-    marginTop: 2,
   },
-  circleBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  thumbnailBox: {
+    width: 62,
+    height: 62,
+    borderRadius: 12,
+    backgroundColor: '#2C2C2E',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  thumbImg: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  expandOverlay: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  overloadRow: {
+  detailsCol: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: 4,
+  },
+  titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 2,
-    paddingHorizontal: 8,
-    backgroundColor: 'transparent',
-    marginTop: 4,
+    justifyContent: 'space-between',
   },
-  overloadText: {
-    fontSize: 12,
+  exerciseTitle: {
+    fontSize: 17,
     fontFamily: FONT_FAMILY.bold,
-    color: IOS_DARK.green,
-    letterSpacing: 0.1,
-    textAlign: 'center',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+    flex: 1,
+    marginRight: 8,
+  },
+  dotsBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tagsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  tagBadge: {
+    backgroundColor: '#2C2C2E',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  tagText: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+  },
+  planText: {
+    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#8E8E93',
+    marginTop: 2,
+  },
+  progressionRow: {
+    marginTop: 10,
+    paddingVertical: 2,
+  },
+  progressionText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#30D158',
+    lineHeight: 16,
   },
   supersetBanner: {
     flexDirection: 'row',
@@ -316,7 +261,7 @@ const headerStyles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: 'rgba(255, 159, 10, 0.12)',
     width: '100%',
-    marginTop: 2,
+    marginTop: 8,
   },
   supersetDot: {
     width: 6,
