@@ -1,12 +1,18 @@
 import React, { useMemo } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Video, ResizeMode } from 'expo-av';
+import { Image as ExpoImage } from 'expo-image';
 import { IOS_DARK, FONT_FAMILY } from '../../../theme/tokens';
 import { resolveExerciseTargetMuscle } from '../../../utils/gymUtils';
 import { resolveExerciseEquipment } from '../../../utils/equipmentResolver';
-import { resolveExercise, getExerciseThumbnailUrl } from '../../../services/exerciseMediaService';
-import { hapticLight, hapticMedium, hapticSelection } from '../../../utils/haptics';
-import { OverloadSuggestion } from '../../../utils/progressiveOverload';
+import {
+  resolveExercise,
+  getExerciseClipVideoUrl,
+  getExerciseGifCdnUrl,
+  getExerciseStillPosterUrl,
+} from '../../../services/exerciseMediaService';
+import { hapticLight, hapticSelection } from '../../../utils/haptics';
 
 export interface ActiveExerciseHeaderProps {
   exercise: any;
@@ -33,7 +39,6 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
   partnerExercise,
   overloadSuggestion,
   showVideo,
-  colors,
   onVideoToggle,
   onSwitchToPartner,
   onOpenExerciseMenu,
@@ -43,10 +48,15 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
   const muscleName = resolved || rawMuscle || 'Mixed';
   const equipmentName = useMemo(() => resolveExerciseEquipment(exercise.name), [exercise.name]);
 
-  // Exercise thumbnail
-  const thumbUrl = useMemo(() => {
+  // High-Quality Looping Video & GIF Animation Sources (OpenGym standard)
+  const { clipUrl, gifUrl, stillUrl } = useMemo(() => {
     const def = resolveExercise(exercise.name);
-    return def ? getExerciseThumbnailUrl(def) : '';
+    if (!def) return { clipUrl: '', gifUrl: '', stillUrl: '' };
+    return {
+      clipUrl: getExerciseClipVideoUrl(def),
+      gifUrl: getExerciseGifCdnUrl(def),
+      stillUrl: getExerciseStillPosterUrl(def),
+    };
   }, [exercise.name]);
 
   // Progressive Overload or Baseline Note
@@ -66,9 +76,9 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
 
   return (
     <View style={headerStyles.cardHeader}>
-      {/* ── Top Row: Thumbnail + Details (Title, Tags, Plan, Menu) ── */}
+      {/* ── Top Row: Looping Video Animation Thumbnail + Details ── */}
       <View style={headerStyles.heroRow}>
-        {/* Square Thumbnail */}
+        {/* Square Video Animation Box — Seamless 60FPS Looping Lifter */}
         <TouchableOpacity
           style={headerStyles.thumbnailBox}
           onPress={() => {
@@ -77,17 +87,33 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
           }}
           activeOpacity={0.8}
         >
-          {thumbUrl ? (
-            <Image
-              source={{ uri: thumbUrl }}
+          {clipUrl ? (
+            <Video
+              source={{ uri: clipUrl }}
               style={headerStyles.thumbImg}
-              resizeMode="cover"
+              resizeMode={ResizeMode.COVER}
+              isLooping
+              isMuted
+              shouldPlay
+              useNativeControls={false}
+            />
+          ) : gifUrl ? (
+            <ExpoImage
+              source={{ uri: gifUrl }}
+              placeholder={{ uri: stillUrl }}
+              style={headerStyles.thumbImg}
+              contentFit="cover"
+              autoplay={true}
+              cachePolicy="disk"
+              transition={150}
             />
           ) : (
             <Ionicons name="barbell-outline" size={26} color="#8E8E93" />
           )}
+
+          {/* Expand Badge */}
           <View style={headerStyles.expandOverlay}>
-            <Ionicons name={showVideo ? 'close' : 'expand'} size={12} color="#FFFFFF" />
+            <Ionicons name={showVideo ? 'contract' : 'expand'} size={11} color="#FFFFFF" />
           </View>
         </TouchableOpacity>
 
@@ -168,7 +194,7 @@ const headerStyles = StyleSheet.create({
     width: 62,
     height: 62,
     borderRadius: 12,
-    backgroundColor: '#2C2C2E',
+    backgroundColor: '#1E2026',
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
@@ -183,12 +209,12 @@ const headerStyles = StyleSheet.create({
   },
   expandOverlay: {
     position: 'absolute',
-    bottom: 4,
-    right: 4,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    bottom: 3,
+    right: 3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     alignItems: 'center',
     justifyContent: 'center',
   },
