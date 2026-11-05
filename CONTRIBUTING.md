@@ -120,3 +120,4 @@ npx expo run:android
 - **[GitHub Discussions](https://github.com/ShivanshSingh158/Zenfit/discussions)**: Architectural questions, feature ideas, and training theory proposals.
 - **[GitHub Issues](https://github.com/ShivanshSingh158/Zenfit/issues)**: Reproducible bug reports and confirmed feature tasks.
 - **[Security](SECURITY.md)**: For private vulnerability reports, follow the guidelines in [SECURITY.md](SECURITY.md).
+

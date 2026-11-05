@@ -60,3 +60,4 @@ ZenFit is maintained by active open-source engineers. We aim to acknowledge vuln
 1. **Local-First Isolation:** All workout logs, weight measurements, and routine configurations reside inside the application's private sandbox directory (`AsyncStorage`). No unauthenticated local network ports are opened by default.
 2. **Minimal Native Permissions:** ZenFit only requests runtime permissions strictly necessary for user-opted features (e.g., notifications for the rest timer, coarse location for optional gym geofencing).
 3. **Zero Telemetry:** The app does not include third-party advertising SDKs, tracking pixels, or background telemetry agents.
+
