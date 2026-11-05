@@ -87,3 +87,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 100% strict TypeScript typing contract (`src/types/gym.types.ts`).
 - Offline-first L1 in-memory hot store and asynchronous `AsyncStorage` persistence.
 - Curated workout splits: Push/Pull/Legs (PPL), Upper/Lower, Arnold Split, Full Body, and 5×5 Strength.
+

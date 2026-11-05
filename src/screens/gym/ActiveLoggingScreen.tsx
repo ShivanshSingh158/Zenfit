@@ -33,6 +33,13 @@ import SupersetPickerModal from '../../components/Gym/exercise/SupersetPickerMod
 import ActiveSwapModal from '../../components/Gym/active/ActiveSwapModal';
 import AnimatedRestTimer from '../../components/Gym/active/AnimatedRestTimer';
 import SetRestPickerSheet from '../../components/Gym/active/SetRestPickerSheet';
+import {
+  WhatThisSessionHitsSheet,
+  FinishEarlySheet,
+  WorkoutMenuSheet,
+  ExerciseMenuSheet,
+  MiniMannequinButton,
+} from '../../components/Gym/active';
 import ExerciseDeepDiveModal from '../../components/Gym/exercise/ExerciseDeepDiveModal';
 import { WorkoutKeypad } from '../../components/Gym/active/WorkoutKeypad';
 import { PlateCalculatorModal } from '../../components/Gym/metrics/PlateCalculatorModal';
@@ -217,6 +224,13 @@ export default function ActiveLoggingScreen() {
   const [isRefreshingVideo, setIsRefreshingVideo] = useState(false);
   const [showCompletedWarmups, setShowCompletedWarmups] = useState(false);
   const [deepDiveVisible, setDeepDiveVisible] = useState(false);
+  const [showWhatHitsSheet, setShowWhatHitsSheet] = useState(false);
+  const [showWorkoutMenuSheet, setShowWorkoutMenuSheet] = useState(false);
+  const [showExerciseMenuSheet, setShowExerciseMenuSheet] = useState(false);
+  const [showFinishEarlySheet, setShowFinishEarlySheet] = useState(false);
+  const [uncheckedSetsCount, setUncheckedSetsCount] = useState(0);
+
+  
 
   useEffect(() => {
     setShowCompletedWarmups(false);
@@ -310,6 +324,17 @@ export default function ActiveLoggingScreen() {
   }, []);
 
   const exercises = activeExercises;
+
+  const totalSessionSets = useMemo(() => {
+    return (exercises || []).reduce((acc: number, ex: any) => acc + (ex.setsLog?.length || 0), 0);
+  }, [exercises]);
+
+  const totalCompletedSets = useMemo(() => {
+    return (exercises || []).reduce(
+      (acc: number, ex: any) => acc + (ex.setsLog?.filter((s: any) => s.completed).length || 0),
+      0
+    );
+  }, [exercises]);
 
   const realExerciseIndex = useMemo(() => {
     if (!log?.exercises || !exercise) return safeIdx;
@@ -771,7 +796,49 @@ export default function ActiveLoggingScreen() {
     };
   }, [flushPendingInputs]);
 
+  const handleFinishAndSave = useCallback(async () => {
+    setShowFinishEarlySheet(false);
+    clearRestTimer();
+    await endWorkout(true);
+    const sessionDate = date || lockedSessionDateRef.current;
+    navigation.replace('WorkoutSummary', { date: sessionDate });
+  }, [clearRestTimer, endWorkout, date, navigation]);
+
+  const handleDiscardWorkout = useCallback(() => {
+    setShowFinishEarlySheet(false);
+    setShowWorkoutMenuSheet(false);
+    clearRestTimer();
+    Alert.alert(
+      'Discard Workout?',
+      'Are you sure you want to discard this workout? No sets will be saved.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Discard',
+          style: 'destructive',
+          onPress: async () => {
+            await endWorkout(false);
+            navigation.goBack();
+          },
+        },
+      ]
+    );
+  }, [clearRestTimer, endWorkout, navigation]);
+
   const promptFinishWorkout = useCallback(() => {
+    flushPendingInputs();
+    const { exercises: allExs } = stateRef.current;
+    const allSets = (allExs || []).flatMap((e: any) => e.setsLog || []);
+    const uncompleted = allSets.filter((s: any) => !s.completed).length;
+    if (uncompleted > 0) {
+      setUncheckedSetsCount(uncompleted);
+      setShowFinishEarlySheet(true);
+    } else {
+      handleFinishAndSave();
+    }
+  }, [flushPendingInputs, handleFinishAndSave]);
+
+  const _oldPromptFinishWorkout = useCallback(() => {
     flushPendingInputs();
     const { exercises: allExs } = stateRef.current;
 
@@ -1766,7 +1833,89 @@ export default function ActiveLoggingScreen() {
         <View style={{ alignItems: 'center', marginTop: 24 }}>
           <ActivityIndicator size="small" color={colors.accentPrimary} />
         </View>
-      </SafeAreaView>
+  
+      {/* What This Session Hits Sheet */}
+      <WhatThisSessionHitsSheet
+        visible={showWhatHitsSheet}
+        exercises={exercises}
+        onClose={() => setShowWhatHitsSheet(false)}
+      />
+
+      {/* Workout Menu Sheet */}
+      <WorkoutMenuSheet
+        visible={showWorkoutMenuSheet}
+        restDurationText="1:30"
+        onOpenWorkoutSettings={() => {
+          setShowWorkoutMenuSheet(false);
+          setRestPickerSetIdx(activeSetIndex);
+        }}
+        onAddExercise={() => {
+          setShowWorkoutMenuSheet(false);
+          (navigation as any).navigate('ExerciseLibrary', { date, mode: 'add' });
+        }}
+        onAddSessionNote={() => {
+          setShowWorkoutMenuSheet(false);
+        }}
+        onDiscardWorkout={handleDiscardWorkout}
+        onClose={() => setShowWorkoutMenuSheet(false)}
+      />
+
+      {/* Exercise Menu Sheet */}
+      <ExerciseMenuSheet
+        visible={showExerciseMenuSheet}
+        exerciseName={exercise?.name || ''}
+        currentRestText={exercise?.restTimeSecs ? `${Math.floor(exercise.restTimeSecs / 60)}:${String(exercise.restTimeSecs % 60).padStart(2, '0')}` : '1:30'}
+        onAddNote={() => {
+          setShowExerciseMenuSheet(false);
+        }}
+        onSwapExercise={() => {
+          setShowExerciseMenuSheet(false);
+          handleSwapPress();
+        }}
+        onAddWarmupSet={() => {
+          setShowExerciseMenuSheet(false);
+          handleAutoWarmup();
+        }}
+        onConfigureRestTimer={() => {
+          setShowExerciseMenuSheet(false);
+          setRestPickerSetIdx(activeSetIndex);
+        }}
+        onViewHistory={() => {
+          setShowExerciseMenuSheet(false);
+          setDeepDiveVisible(true);
+        }}
+        onRemoveExercise={() => {
+          setShowExerciseMenuSheet(false);
+          Alert.alert(
+            'Remove Exercise',
+            `Are you sure you want to remove ${exercise?.name}?`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Remove',
+                style: 'destructive',
+                onPress: () => {
+                  const nextExercises = exercises.filter((_: any, idx: number) => idx !== activeExIndex);
+                  if (nextExercises.length > 0) {
+                    setActiveExIndex(Math.max(0, activeExIndex - 1));
+                  }
+                }
+              }
+            ]
+          );
+        }}
+        onClose={() => setShowExerciseMenuSheet(false)}
+      />
+
+      {/* Finish Early Sheet */}
+      <FinishEarlySheet
+        visible={showFinishEarlySheet}
+        uncheckedSetsCount={uncheckedSetsCount}
+        onFinishAndSave={handleFinishAndSave}
+        onDiscard={handleDiscardWorkout}
+        onClose={() => setShowFinishEarlySheet(false)}
+      />
+    </SafeAreaView>
     );
   }
 
@@ -1812,58 +1961,106 @@ export default function ActiveLoggingScreen() {
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
 
-        {/* Apple iOS HIG Header: Back Button + Live WorkoutTimer + Deep Dive Stats */}
+        {/* Apple iOS HIG Header: OpenGym Pattern (Back, Workout Name + Live Timer & Set Count, ... Menu, Finish) */}
         <View style={styles.header}>
           <TouchableOpacity onPress={handleBack} style={styles.backBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
             <Ionicons name="chevron-down" size={24} color={colors.textPrimary} />
           </TouchableOpacity>
 
           <View style={{ alignItems: 'center' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#30D158' }} />
+            <Text style={{ fontFamily: FONT_FAMILY.bold, fontSize: 17, color: '#FFFFFF' }} numberOfLines={1}>
+              {(log as any)?.name || (log as any)?.routineName || 'Active Workout'}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
               {log?.workoutStartTime ? (
                 <WorkoutTimer startTime={log.workoutStartTime} />
-              ) : (
-                <Text style={styles.headerTitle}>Active Session</Text>
-              )}
+              ) : null}
+              <Text style={{ fontFamily: FONT_FAMILY.regular, fontSize: 13, color: '#8E8E93' }}>
+                · {totalCompletedSets}/{totalSessionSets} sets
+              </Text>
             </View>
-
           </View>
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <TouchableOpacity
-              onPress={promptFinishWorkout}
-              style={styles.headerFinishBtn}
-              activeOpacity={0.7}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onPress={() => {
+                hapticSelection();
+                setShowWorkoutMenuSheet(true);
+              }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Text style={styles.headerFinishText}>Finish</Text>
+              <Ionicons name="ellipsis-horizontal" size={18} color="#FFFFFF" />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.backBtn}
-              onPress={() => {
-                hapticSelection();
-                setDeepDiveVisible(true);
+              onPress={promptFinishWorkout}
+              style={{
+                backgroundColor: '#30D158',
+                borderRadius: 18,
+                paddingHorizontal: 16,
+                paddingVertical: 7,
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons name="stats-chart-outline" size={20} color={isDark ? 'rgba(255,255,255,0.85)' : colors.textPrimary} />
+              <Text style={{ fontFamily: FONT_FAMILY.bold, fontSize: 14, color: '#000000' }}>Finish</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* 1-Tap Horizontal Exercise Switcher Carousel Strip (Jump in 0ms) */}
-        <View style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', paddingBottom: 6 }}>
+        {/* Thin Volume & Session Progress Bar */}
+        <View style={{ paddingHorizontal: 16, paddingTop: 2, paddingBottom: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flex: 1, height: 3, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 2, overflow: 'hidden', marginRight: 12 }}>
+              <View
+                style={{
+                  height: '100%',
+                  width: `${totalSessionSets > 0 ? Math.min(100, (totalCompletedSets / totalSessionSets) * 100) : 0}%`,
+                  backgroundColor: '#30D158',
+                  borderRadius: 2,
+                }}
+              />
+            </View>
+            <Text style={{ fontFamily: FONT_FAMILY.medium, fontSize: 13, color: '#8E8E93' }}>
+              {Math.round(liveTotalVolume)} kg
+            </Text>
+          </View>
+        </View>
+
+        {/* OpenGym Exercise Dots Strip with Mini Mannequin Pill Button */}
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingHorizontal: 16,
+          paddingVertical: 6,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+        }}>
           <ScrollView
             ref={carouselScrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
+            contentContainerStyle={{ alignItems: 'center', gap: 10 }}
+            style={{ flex: 1, marginRight: 10 }}
           >
             {exercises.map((ex, idx) => {
               const isCurrent = idx === activeExIndex;
-              const isExDone = ex.setsLog?.length > 0 && ex.setsLog.every((s: any) => s.completed);
+              const completedCount = ex.setsLog?.filter((s: any) => s.completed).length || 0;
+              const totalCount = ex.setsLog?.length || 0;
+              const isExDone = totalCount > 0 && completedCount === totalCount;
+              const isExPartial = completedCount > 0 && !isExDone;
+
               return (
                 <TouchableOpacity
                   key={ex.exerciseId || ex.name || idx}
@@ -1887,48 +2084,47 @@ export default function ActiveLoggingScreen() {
                     setActiveExIndex(idx);
                   }}
                   style={{
-                    flexDirection: 'row',
+                    width: 36,
+                    height: 36,
+                    borderRadius: 18,
                     alignItems: 'center',
-                    gap: 5,
-                    paddingHorizontal: 14,
-                    paddingVertical: 7,
-                    borderRadius: 20,
-                    backgroundColor: isCurrent
-                      ? '#FFFFFF'
-                      : isExDone
-                      ? 'rgba(48, 209, 88, 0.12)'
-                      : (isDark ? 'rgba(255,255,255,0.05)' : '#E5E5EA'),
-                    borderWidth: 1,
-                    borderColor: isCurrent
-                      ? '#FFFFFF'
-                      : isExDone
-                      ? 'rgba(48, 209, 88, 0.25)'
-                      : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'),
+                    justifyContent: 'center',
+                    borderWidth: isCurrent ? 2 : 1,
+                    borderColor: isCurrent ? '#30D158' : 'rgba(255, 255, 255, 0.08)',
+                    padding: isCurrent ? 2 : 0,
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={{
-                    fontFamily: FONT_FAMILY.bold,
-                    fontSize: 12,
-                    color: isCurrent
-                      ? '#000000'
-                      : isExDone
+                  <View style={{
+                    width: isCurrent ? 28 : 34,
+                    height: isCurrent ? 28 : 34,
+                    borderRadius: isCurrent ? 14 : 17,
+                    backgroundColor: isExDone
                       ? '#30D158'
-                      : (isDark ? '#8E8E93' : '#636366'),
+                      : isExPartial
+                      ? '#D97706'
+                      : '#1C1C1E',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}>
-                    {cleanExercisePillName(ex.name)}
-                  </Text>
-                  {isExDone && (
-                    <Ionicons
-                      name="checkmark-circle"
-                      size={13}
-                      color={isCurrent ? '#000000' : '#30D158'}
-                    />
-                  )}
+                    <Text style={{
+                      fontFamily: FONT_FAMILY.bold,
+                      fontSize: 13,
+                      color: isExDone ? '#000000' : (isExPartial ? '#FFFFFF' : '#8E8E93'),
+                    }}>
+                      {idx + 1}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
+
+          {/* Mini Front & Back Mannequin Pill (What this session hits) */}
+          <MiniMannequinButton
+            onPress={() => setShowWhatHitsSheet(true)}
+            hasWorkedMuscles={totalCompletedSets > 0}
+          />
         </View>
 
         {/* Scrollable Content */}
@@ -1958,6 +2154,7 @@ export default function ActiveLoggingScreen() {
               onVideoToggle={handleVideoToggle}
               onSwitchToPartner={handleSwitchToPartner}
               onNoteChange={handleNoteChange}
+              onOpenExerciseMenu={() => setShowExerciseMenuSheet(true)}
             />
 
             {/* Form Video Player Component */}
@@ -2024,6 +2221,111 @@ export default function ActiveLoggingScreen() {
               isLastExercise={activeExIndex === exercises.length - 1}
               onFinishWorkout={promptFinishWorkout}
             />
+
+            {/* Exercise Card Footer: Prev & Next Navigation */}
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: 20,
+              paddingVertical: 18,
+            }}>
+              <TouchableOpacity
+                disabled={activeExIndex === 0}
+                onPress={() => {
+                  hapticSelection();
+                  setActiveExIndex(prev => Math.max(0, prev - 1));
+                }}
+                style={{ flexDirection: 'row', alignItems: 'center', opacity: activeExIndex === 0 ? 0.25 : 1 }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="chevron-back" size={18} color={activeExIndex === 0 ? '#48484A' : '#30D158'} />
+                <Text style={{
+                  fontFamily: FONT_FAMILY.bold,
+                  fontSize: 16,
+                  color: activeExIndex === 0 ? '#48484A' : '#30D158',
+                  marginLeft: 4,
+                }}>
+                  Prev
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  hapticSelection();
+                  if (activeExIndex < exercises.length - 1) {
+                    setActiveExIndex(prev => prev + 1);
+                  } else {
+                    promptFinishWorkout();
+                  }
+                }}
+                style={{ flexDirection: 'row', alignItems: 'center' }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Text style={{
+                  fontFamily: FONT_FAMILY.bold,
+                  fontSize: 16,
+                  color: '#30D158',
+                  marginRight: 4,
+                }}>
+                  {activeExIndex < exercises.length - 1 ? 'Next' : 'Finish'}
+                </Text>
+                <Ionicons name="chevron-forward" size={18} color="#30D158" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Bottom Session Action Group (Add Exercise & Add Session Note) */}
+            <View style={{
+              marginHorizontal: 12,
+              marginTop: 4,
+              marginBottom: 100,
+              backgroundColor: '#1C1C1E',
+              borderRadius: 14,
+              overflow: 'hidden',
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.06)',
+            }}>
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 15,
+                  paddingHorizontal: 16,
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: 'rgba(255,255,255,0.08)',
+                  gap: 12,
+                }}
+                onPress={() => (navigation as any).navigate('ExerciseLibrary', { date, mode: 'add' })}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#30D158" />
+                <Text style={{ fontSize: 16, fontFamily: FONT_FAMILY.semibold, color: '#30D158' }}>
+                  Add exercise
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  paddingVertical: 15,
+                  paddingHorizontal: 16,
+                }}
+                onPress={() => {
+                  setShowWorkoutMenuSheet(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <Ionicons name="document-text-outline" size={20} color="rgba(255,255,255,0.7)" />
+                  <Text style={{ fontSize: 16, fontFamily: FONT_FAMILY.regular, color: '#FFFFFF' }}>
+                    Add session note
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.3)" />
+              </TouchableOpacity>
+            </View>
 
           </ScrollView>
         </View>
@@ -2222,6 +2524,7 @@ export default function ActiveLoggingScreen() {
             onAdd={handleTimerAdd}
             onSubtract={handleTimerSubtract}
             onSkip={handleTimerSkip}
+            onEditDuration={() => setRestPickerSetIdx(activeSetIndex)}
           />
         </View>
       ) : null}

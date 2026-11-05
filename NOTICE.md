@@ -83,3 +83,4 @@ ZenFit is made possible by key open-source technologies:
 | **React Native Gesture Handler** | MIT | Software Mansion |
 | **react-native-android-widget** | MIT | sA等级 |
 | **AsyncStorage** | MIT | React Native Community |
+

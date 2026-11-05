@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { IOS_DARK, FONT_FAMILY } from '../../../theme/tokens';
 import { resolveExerciseTargetMuscle } from '../../../utils/gymUtils';
-import { hapticLight, hapticMedium } from '../../../utils/haptics';
+import { hapticLight, hapticMedium, hapticSelection } from '../../../utils/haptics';
 
 import { OverloadSuggestion } from '../../../utils/progressiveOverload';
 
@@ -56,6 +56,7 @@ export interface ActiveExerciseHeaderProps {
   onVideoToggle: () => void;
   onSwitchToPartner: () => void;
   onNoteChange?: (note: string) => void;
+  onOpenExerciseMenu?: () => void;
 }
 
 export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.memo(({
@@ -74,6 +75,7 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
   onVideoToggle,
   onSwitchToPartner,
   onNoteChange,
+  onOpenExerciseMenu,
 }) => {
   const rawMuscle = exercise.muscle;
   const resolved = resolveExerciseTargetMuscle(exercise.name, rawMuscle).targetMuscle;
@@ -117,13 +119,33 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
     <View style={headerStyles.container}>
       {/* ── Exercise Title & Target Subtitle Centered Above in the Middle ── */}
       <View style={headerStyles.titleContainer}>
-        <Text
-          style={[headerStyles.exerciseTitle, colors?.textPrimary && { color: colors.textPrimary }]}
-          numberOfLines={2}
-        >
-          {exercise.name}
-        </Text>
-        <Text style={[headerStyles.subtitle, colors?.textSecondary && { color: colors.textSecondary }]} numberOfLines={1}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+          <Text
+            style={[headerStyles.exerciseTitle, { flex: 1, textAlign: 'left' }, colors?.textPrimary && { color: colors.textPrimary }]}
+            numberOfLines={2}
+          >
+            {exercise.name}
+          </Text>
+          <TouchableOpacity
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 16,
+              backgroundColor: 'rgba(255, 255, 255, 0.08)',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: 8,
+            }}
+            onPress={() => {
+              hapticSelection();
+              onOpenExerciseMenu?.();
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="ellipsis-horizontal" size={16} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+        <Text style={[headerStyles.subtitle, { textAlign: 'left', alignSelf: 'flex-start' }, colors?.textSecondary && { color: colors.textSecondary }]} numberOfLines={1}>
           {targetSubtitle}
         </Text>
 

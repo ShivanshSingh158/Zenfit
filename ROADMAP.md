@@ -70,3 +70,4 @@ Lifters shouldn't have to keep picking up a heavy smartphone while holding dumbb
 1. **Zero Latency First:** A feature will not be merged if it adds more than 16ms of frame time or introduces UI stutter during set logging.
 2. **Offline-First Non-Negotiable:** Every feature must work in an underground basement gym with zero cellular connectivity.
 3. **Scientifically Grounded:** Training metrics must be anchored in validated biomechanical literature (e.g. Dr. Mike Israetel, Schoenfeld, Helms) rather than fitness marketing fads.
+

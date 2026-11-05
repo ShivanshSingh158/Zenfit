@@ -211,7 +211,8 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
   } else if (isActive) {
     setBadgeColor = '#a599ff';
   } else if (isCompleted) {
-    setBadgeColor = IOS_DARK.labelSecondary;
+    setBadgeColor = '#000000';
+    setBadgeBg = '#30D158';
   }
 
   const isWeightActive = !isCompleted && activeKeypadField === 'weight';
@@ -439,7 +440,7 @@ const rowStyles = StyleSheet.create({
   setBadgeWrap: {
     width: 24,
     height: 24,
-    borderRadius: 6,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -79,3 +79,4 @@ npx expo run:android
 # Build standalone preview APK (ARM64)
 npx eas build -p android --profile preview --local
 ```
+

@@ -1,16 +1,24 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, Animated, PanResponder, InteractionManager, Platform, Keyboard, DeviceEventEmitter,
+  View,
+  Text,
+  TouchableOpacity,
+  Animated,
+  Platform,
+  Keyboard,
+  DeviceEventEmitter,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Svg, Circle } from 'react-native-svg';
-import { hapticLight, hapticMedium, hapticHeavy } from '../../../utils/haptics';
-import { useTheme } from "../../../contexts/ThemeContext";
-
-// Extracted Styles
+import { hapticLight, hapticMedium } from '../../../utils/haptics';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { makeAnimatedRestTimerStyles } from './animatedRestTimerStyles';
-
-import { playCountdownTick, playTimerFinishChime, isAudioCuesEnabledGlobal, toggleAudioCuesEnabledGlobal, startRestTimerBackgroundAudioSession, stopRestTimerBackgroundAudioSession } from '../../../services/gymSoundSynthesizer';
+import {
+  playCountdownTick,
+  playTimerFinishChime,
+  isAudioCuesEnabledGlobal,
+  startRestTimerBackgroundAudioSession,
+  stopRestTimerBackgroundAudioSession,
+} from '../../../services/gymSoundSynthesizer';
 
 interface AnimatedRestTimerProps {
   startTime: number;
@@ -21,342 +29,221 @@ interface AnimatedRestTimerProps {
   onEditDuration?: () => void;
 }
 
-export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(function AnimatedRestTimer({
-  startTime,
-  durationSecs,
-  onAdd,
-  onSubtract,
-  onSkip,
-  onEditDuration,
-}: AnimatedRestTimerProps) {
-  const { colors, isDark } = useTheme();
-  const styles = useMemo(() => makeAnimatedRestTimerStyles(colors, isDark), [colors, isDark]);
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  const [isAudioOn, setIsAudioOn] = useState(() => isAudioCuesEnabledGlobal());
-  const lastBeepSecRef = useRef<number | null>(null);
+function formatTime(totalSecs: number): string {
+  const m = Math.floor(totalSecs / 60);
+  const s = totalSecs % 60;
+  return `${m}:${s < 10 ? '0' : ''}${s}`;
+}
 
-  const handleToggleAudio = () => {
-    hapticLight();
-    const next = toggleAudioCuesEnabledGlobal();
-    setIsAudioOn(next);
-  };
+export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(
+  function AnimatedRestTimer({
+    startTime,
+    durationSecs,
+    onAdd,
+    onSubtract,
+    onSkip,
+    onEditDuration,
+  }: AnimatedRestTimerProps) {
+    const { colors, isDark } = useTheme();
+    const styles = useMemo(() => makeAnimatedRestTimerStyles(colors, isDark), [colors, isDark]);
 
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSub = Keyboard.addListener(showEvent, () => setIsKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setIsKeyboardVisible(false));
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
+    const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+    const [isPaused, setIsPaused] = useState(false);
+    const [pausedAt, setPausedAt] = useState<number | null>(null);
+    const [accumulatedPauseMs, setAccumulatedPauseMs] = useState(0);
 
-  // Gentle breathing pulse animation for the floating rest pill
-  const breatheAnim = useRef(new Animated.Value(1)).current;
+    const lastBeepSecRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    if (isExpanded) {
-      breatheAnim.setValue(1);
-      return;
-    }
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(breatheAnim, {
-          toValue: 1.04,
-          duration: 900,
-          useNativeDriver: true,
-        }),
-        Animated.timing(breatheAnim, {
-          toValue: 1.0,
-          duration: 900,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [breatheAnim, isExpanded]);
+    // Hide or adjust when keyboard shows
+    useEffect(() => {
+      const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+      const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+      const showSub = Keyboard.addListener(showEvent, () => setIsKeyboardVisible(true));
+      const hideSub = Keyboard.addListener(hideEvent, () => setIsKeyboardVisible(false));
+      return () => {
+        showSub.remove();
+        hideSub.remove();
+      };
+    }, []);
 
-  // Draggable position state (PanResponder)
-  const pan = useRef(new Animated.ValueXY()).current;
+    // Entrance slide animation
+    const slideAnim = useRef(new Animated.Value(80)).current;
+    useEffect(() => {
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        bounciness: 4,
+      }).start();
+    }, [slideAnim]);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gestureState) =>
-        Math.abs(gestureState.dx) > 16 || Math.abs(gestureState.dy) > 16,
-      onPanResponderGrant: () => {
-        pan.setOffset({
-          x: (pan.x as any)._value || 0,
-          y: (pan.y as any)._value || 0,
-        });
-        pan.setValue({ x: 0, y: 0 });
-      },
-      onPanResponderMove: Animated.event(
-        [null, { dx: pan.x, dy: pan.y }],
-        { useNativeDriver: false }
-      ),
-      onPanResponderRelease: () => {
-        pan.flattenOffset();
-        // Always snap cleanly back to the docked baseline right above the nav bar so it sticks there
-        Animated.spring(pan, {
-          toValue: { x: 0, y: 0 },
-          useNativeDriver: false,
-          bounciness: 4,
-        }).start();
-      },
-      onPanResponderTerminate: () => {
-        pan.flattenOffset();
-        Animated.spring(pan, {
-          toValue: { x: 0, y: 0 },
-          useNativeDriver: false,
-          bounciness: 4,
-        }).start();
-      },
-    })
-  ).current;
-
-  const [remSecs, setRemSecs] = useState(() => {
-    const elapsed = Math.floor((Date.now() - startTime) / 1000);
-    return Math.max(0, durationSecs - elapsed);
-  });
-
-  const onSkipRef = useRef(onSkip);
-  useEffect(() => {
-    onSkipRef.current = onSkip;
-  }, [onSkip]);
-
-  useEffect(() => {
-    // Reset position to default dock location whenever a new timer starts
-    pan.setValue({ x: 0, y: 0 });
-    pan.setOffset({ x: 0, y: 0 });
-  }, [startTime]);
-
-  useEffect(() => {
-    lastBeepSecRef.current = null;
-    startRestTimerBackgroundAudioSession().catch(() => {});
-    return () => {
-      stopRestTimerBackgroundAudioSession().catch(() => {});
-    };
-  }, [startTime, durationSecs]);
-
-  useEffect(() => {
-    let skipped = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const updateTimer = () => {
-      if (skipped) return;
+    const [remSecs, setRemSecs] = useState(() => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const rem = Math.max(0, durationSecs - elapsed);
-      setRemSecs(prev => (prev !== rem ? rem : prev));
+      return Math.max(0, durationSecs - elapsed);
+    });
 
-      // Synthesizer Audio Cues: 3... 2... 1... Tick
-      if (rem > 0 && rem <= 3 && lastBeepSecRef.current !== rem) {
-        lastBeepSecRef.current = rem;
-        playCountdownTick();
-      }
+    const onSkipRef = useRef(onSkip);
+    useEffect(() => {
+      onSkipRef.current = onSkip;
+    }, [onSkip]);
 
-      if (rem <= 0) {
-        skipped = true;
-        if (lastBeepSecRef.current !== 0) {
-          lastBeepSecRef.current = 0;
-          // Guaranteed background audio chime directly in earphones with audio ducking
-          playTimerFinishChime();
-          hapticHeavy();
-          DeviceEventEmitter.emit('gym_rest_timer_flash');
-          stopRestTimerBackgroundAudioSession().catch(() => {});
+    useEffect(() => {
+      lastBeepSecRef.current = null;
+      startRestTimerBackgroundAudioSession().catch(() => {});
+      return () => {
+        stopRestTimerBackgroundAudioSession().catch(() => {});
+      };
+    }, [startTime, durationSecs]);
+
+    const togglePause = useCallback(() => {
+      hapticMedium();
+      if (isPaused) {
+        // Resuming
+        if (pausedAt) {
+          setAccumulatedPauseMs(prev => prev + (Date.now() - pausedAt));
         }
-        timeoutId = setTimeout(() => {
-          InteractionManager.runAfterInteractions(() => {
-            onSkipRef.current();
-          });
-        }, 100);
+        setPausedAt(null);
+        setIsPaused(false);
+      } else {
+        // Pausing
+        setPausedAt(Date.now());
+        setIsPaused(true);
       }
-    };
+    }, [isPaused, pausedAt]);
 
-    updateTimer();
-    const interval = setInterval(updateTimer, 500);
-    return () => {
-      clearInterval(interval);
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [startTime, durationSecs]);
+    useEffect(() => {
+      if (isPaused) return;
 
-  const m = Math.floor(remSecs / 60);
-  const s = remSecs % 60;
-  const timeDisplay = `${m}:${s.toString().padStart(2, '0')}`;
+      let skipped = false;
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-  const toggleExpand = () => {
-    hapticLight();
-    setIsExpanded(prev => !prev);
-  };
+      const updateTimer = () => {
+        if (skipped) return;
+        const now = Date.now();
+        const effectiveStartTime = startTime + accumulatedPauseMs;
+        const elapsed = Math.floor((now - effectiveStartTime) / 1000);
+        const remaining = Math.max(0, durationSecs - elapsed);
 
-  const progress = durationSecs > 0 ? Math.max(0, Math.min(1, remSecs / durationSecs)) : 0;
-  const circumference = 53.4; // 2 * Math.PI * 8.5
-  const strokeDashoffset = circumference * (1 - progress);
+        setRemSecs(remaining);
 
-  if (isKeyboardVisible) return null;
+        // 3-2-1 Audio Countdown Beeps (OpenGym / ZenFit Audio Synthesizer)
+        if (isAudioCuesEnabledGlobal()) {
+          if (remaining > 0 && remaining <= 3 && lastBeepSecRef.current !== remaining) {
+            lastBeepSecRef.current = remaining;
+            playCountdownTick();
+          }
+        }
 
-  return (
-    <Animated.View
-      {...panResponder.panHandlers}
-      style={[
-        styles.wrapper,
-        {
-          transform: [
-            { translateX: pan.x },
-            { translateY: pan.y },
-          ],
-        },
-      ]}
-    >
-      {!isExpanded ? (
-        <Animated.View style={{ transform: [{ scale: breatheAnim }] }}>
-          <View style={styles.collapsedBadge}>
+        if (remaining <= 0) {
+          playTimerFinishChime();
+          // Trigger high-contrast screen flash
+          DeviceEventEmitter.emit('gym_rest_timer_flash');
+          onSkipRef.current();
+          return;
+        }
+
+        // Precision tick aligned to next full second boundary
+        const elapsedExact = (now - effectiveStartTime) / 1000;
+        const msUntilNextSec = Math.max(50, Math.round((Math.ceil(elapsedExact) - elapsedExact) * 1000));
+        timeoutId = setTimeout(updateTimer, msUntilNextSec);
+      };
+
+      updateTimer();
+
+      return () => {
+        skipped = true;
+        if (timeoutId) clearTimeout(timeoutId);
+      };
+    }, [startTime, durationSecs, isPaused, accumulatedPauseMs]);
+
+    if (isKeyboardVisible) return null;
+
+    // Calculate elapsed progress percentage for top progress bar
+    const progressPct = durationSecs > 0
+      ? Math.min(100, Math.max(0, ((durationSecs - remSecs) / durationSecs) * 100))
+      : 0;
+
+    return (
+      <Animated.View style={[styles.wrapper, { transform: [{ translateY: slideAnim }] }]}>
+        <View style={styles.dockCard}>
+          {/* Top animated linear progress bar */}
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+          </View>
+
+          {/* Main content row */}
+          <View style={styles.contentRow}>
+            {/* Left: Huge bold countdown + Rest duration link */}
             <TouchableOpacity
-              onPress={toggleExpand}
-              activeOpacity={0.85}
-              style={{ flexDirection: 'row', alignItems: 'center' }}
-            >
-              {/* Circular SVG Progress Ring */}
-              <View style={{ width: 22, height: 22, alignItems: 'center', justifyContent: 'center', marginRight: 4 }}>
-                <Svg width={22} height={22} style={{ transform: [{ rotate: '-90deg' }] }}>
-                  <Circle
-                    cx={11}
-                    cy={11}
-                    r={8.5}
-                    stroke={isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'}
-                    strokeWidth={2.4}
-                    fill="none"
-                  />
-                  <Circle
-                    cx={11}
-                    cy={11}
-                    r={8.5}
-                    stroke={colors.accentPrimary || '#a599ff'}
-                    strokeWidth={2.4}
-                    strokeDasharray={`${circumference} ${circumference}`}
-                    strokeDashoffset={strokeDashoffset}
-                    strokeLinecap="round"
-                    fill="none"
-                  />
-                </Svg>
-                <View style={{ position: 'absolute' }}>
-                  <Ionicons name="timer-outline" size={10} color={colors.accentPrimary || '#a599ff'} />
-                </View>
-              </View>
-
-              <Text style={styles.collapsedTimeText}>{timeDisplay}</Text>
-            </TouchableOpacity>
-
-            {/* Quick +30s Bump Pill */}
-            <TouchableOpacity
+              style={styles.leftCol}
               onPress={() => {
                 hapticLight();
-                onAdd();
+                onEditDuration?.();
               }}
-              style={styles.quickAddPill}
-              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+              activeOpacity={0.7}
             >
-              <Text style={styles.quickAddText}>+30s</Text>
+              <Text style={styles.timeText}>{formatTime(remSecs)}</Text>
+              <View style={styles.restSubRow}>
+                <Text style={styles.restSubText}>Rest</Text>
+                <Ionicons name="chevron-down" size={11} color="#8E8E93" />
+              </View>
             </TouchableOpacity>
 
-            {/* Quick Audio Mute Toggle (openGym pattern) */}
-            <TouchableOpacity
-              onPress={handleToggleAudio}
-              style={[styles.quickAddPill, { marginLeft: 6, paddingHorizontal: 6 }]}
-              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-            >
-              <Ionicons
-                name={isAudioOn ? "volume-medium-outline" : "volume-mute-outline"}
-                size={13}
-                color={isAudioOn ? (colors.accentPrimary || '#a599ff') : colors.textMuted}
-              />
-            </TouchableOpacity>
+            {/* Center: -15s, +15s, and Pause/Resume */}
+            <View style={styles.centerControls}>
+              <TouchableOpacity
+                onPress={() => {
+                  hapticLight();
+                  onSubtract();
+                }}
+                style={styles.deltaPill}
+                hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.deltaText}>− 15s</Text>
+              </TouchableOpacity>
 
-            {/* Quick 1-Tap Skip Button */}
+              <TouchableOpacity
+                onPress={() => {
+                  hapticLight();
+                  onAdd();
+                }}
+                style={styles.deltaPill}
+                hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.deltaText}>+ 15s</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={togglePause}
+                style={styles.pauseBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={isPaused ? 'play' : 'pause'}
+                  size={14}
+                  color="#FFFFFF"
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* Right: Vibrant Green Skip Button */}
             <TouchableOpacity
               onPress={() => {
                 hapticMedium();
                 onSkip();
               }}
-              style={[styles.quickAddPill, { marginLeft: 6, paddingHorizontal: 5 }]}
-              hitSlop={{ top: 6, bottom: 6, left: 4, right: 6 }}
+              style={styles.skipBtn}
+              activeOpacity={0.8}
             >
-              <Ionicons name="close" size={12} color={colors.textMuted} />
+              <Text style={styles.skipText}>Skip</Text>
             </TouchableOpacity>
           </View>
-        </Animated.View>
-      ) : (
-        <View style={styles.expandedCapsule}>
-          <View style={styles.dragGrip}>
-            <Ionicons name="reorder-two-outline" size={16} color={colors.textTertiary} />
-          </View>
-
-          <TouchableOpacity
-            onPress={() => {
-              hapticLight();
-              onSubtract();
-            }}
-            style={styles.actionBtn}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons name="remove-circle-outline" size={18} color={colors.textSecondary} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={toggleExpand}
-            onLongPress={onEditDuration}
-            style={styles.timeContainer}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.timeText}>{timeDisplay}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => {
-              hapticLight();
-              onAdd();
-            }}
-            style={styles.actionBtn}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons name="add-circle-outline" size={18} color={colors.accentPrimary} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={handleToggleAudio}
-            style={styles.actionBtn}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons
-              name={isAudioOn ? "volume-medium-outline" : "volume-mute-outline"}
-              size={18}
-              color={isAudioOn ? colors.accentPrimary : colors.textMuted}
-            />
-          </TouchableOpacity>
-
-          <View style={styles.divider} />
-
-          <TouchableOpacity
-            onPress={() => {
-              hapticMedium();
-              onSkip();
-            }}
-            style={styles.skipBtn}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Text style={styles.skipText}>Skip</Text>
-          </TouchableOpacity>
         </View>
-      )}
-    </Animated.View>
-  );
-});
+      </Animated.View>
+    );
+  }
+);
 
 export default AnimatedRestTimer;
