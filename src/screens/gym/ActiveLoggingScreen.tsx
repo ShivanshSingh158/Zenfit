@@ -2208,6 +2208,7 @@ export default function ActiveLoggingScreen() {
               justifyContent: 'space-between',
               paddingHorizontal: 20,
               paddingVertical: 18,
+              marginBottom: 120,
             }}>
               <TouchableOpacity
                 disabled={activeExIndex === 0}
@@ -2250,72 +2251,6 @@ export default function ActiveLoggingScreen() {
                   {activeExIndex < exercises.length - 1 ? 'Next' : 'Finish'}
                 </Text>
                 <Ionicons name="chevron-forward" size={18} color="#30D158" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Bottom Session Action Group (Add Exercise & Add Session Note) */}
-            <View style={{
-              marginHorizontal: 12,
-              marginTop: 4,
-              marginBottom: 100,
-              backgroundColor: '#1C1C1E',
-              borderRadius: 14,
-              overflow: 'hidden',
-              borderWidth: 1,
-              borderColor: 'rgba(255,255,255,0.06)',
-            }}>
-              <TouchableOpacity
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  paddingVertical: 14,
-                  paddingHorizontal: 16,
-                  gap: 12,
-                }}
-                onPress={() => (navigation as any).navigate('ExerciseLibrary', { date, mode: 'add' })}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="add-circle-outline" size={20} color="#30D158" />
-                <Text style={{ fontSize: 16, fontFamily: FONT_FAMILY.semibold, color: '#30D158' }}>
-                  Add exercise
-                </Text>
-              </TouchableOpacity>
-
-              <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255, 255, 255, 0.08)', marginLeft: 48 }} />
-
-              <TouchableOpacity
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  paddingVertical: 14,
-                  paddingHorizontal: 16,
-                  gap: 12,
-                }}
-                onPress={() => {
-                  hapticLight();
-                  Alert.prompt(
-                    'Session Note',
-                    'Add a note for this workout session:',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Save',
-                        onPress: () => {
-                          hapticLight();
-                        },
-                      },
-                    ],
-                    'plain-text',
-                    ''
-                  );
-                }}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="document-text-outline" size={19} color="#8E8E93" />
-                <Text style={{ flex: 1, fontSize: 15.5, fontFamily: FONT_FAMILY.medium, color: '#FFFFFF' }}>
-                  Add session note
-                </Text>
-                <Ionicons name="chevron-forward" size={16} color="#8E8E93" />
               </TouchableOpacity>
             </View>
 

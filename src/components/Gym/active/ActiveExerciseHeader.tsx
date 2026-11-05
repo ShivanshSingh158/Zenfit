@@ -38,6 +38,7 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
   exercise,
   partnerExercise,
   overloadSuggestion,
+  lastTimeData,
   showVideo,
   onVideoToggle,
   onSwitchToPartner,
@@ -59,20 +60,79 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
     };
   }, [exercise.name]);
 
-  // Progressive Overload or Baseline Note
+  // Dynamic Progression Policy Map (OpenGym / ZenFit standard)
+  const POLICY_LABELS: Record<string, string> = {
+    linear: 'Linear progression',
+    double: 'Double progression',
+    triple: 'Triple progression',
+    top_backoff: 'Top + Back-off',
+    greyskull: 'Greyskull LP',
+    off: 'Manual load',
+  };
+
+  // Resolve Effective Policy from System, Exercise, or Biomechanical Equipment
+  const effectivePolicy = useMemo(() => {
+    if (exercise?.progressionPolicy) return exercise.progressionPolicy;
+    if (overloadSuggestion?.policy) return overloadSuggestion.policy;
+    const isCompound = exercise?.isCompound || /\b(squat|bench|deadlift|press|overhead|row)\b/i.test(exercise?.name || '');
+    const isBarbell = /\b(barbell|bb)\b/i.test(exercise?.name || '') || equipmentName === 'Barbell';
+    return isCompound && isBarbell ? 'linear' : 'double';
+  }, [exercise?.progressionPolicy, overloadSuggestion?.policy, exercise?.name, exercise?.isCompound, equipmentName]);
+
+  const policyLabel = POLICY_LABELS[effectivePolicy] || 'Double progression';
+
+  // Dynamic Biomechanical Progression Guidance from our Progression Engine
   const progressionText = useMemo(() => {
-    if (overloadSuggestion && overloadSuggestion.state !== 'BASELINE') {
-      const targetWeight = overloadSuggestion.recommended || overloadSuggestion.suggestedWeight || 0;
-      if (targetWeight > 0) {
-        const repsText = overloadSuggestion.suggestedReps || overloadSuggestion.reps || '8-12';
-        const delta = (overloadSuggestion.isWeightIncrease || overloadSuggestion.type === 'increase') && overloadSuggestion.weightDelta
-          ? ` (+${overloadSuggestion.weightDelta} kg)`
-          : '';
-        return `🌱 Progressive Overload: ${targetWeight} kg × ${repsText}${delta}`;
-      }
+    if (!overloadSuggestion) {
+      return `🌱 ${policyLabel} · Analyzing performance history...`;
     }
-    return '🌱 Linear progression · Nothing logged yet, so this session sets the baseline.';
-  }, [overloadSuggestion]);
+
+    const state = overloadSuggestion.state;
+    const targetWeight = overloadSuggestion.recommended ?? overloadSuggestion.suggestedWeight ?? 0;
+    const repsText = overloadSuggestion.suggestedReps || overloadSuggestion.reps || exercise?.targetReps || '8-12';
+    const delta = (overloadSuggestion.isWeightIncrease || overloadSuggestion.type === 'increase') && overloadSuggestion.weightDelta
+      ? ` (+${overloadSuggestion.weightDelta} kg)`
+      : overloadSuggestion.weightDelta < 0
+      ? ` (${overloadSuggestion.weightDelta} kg)`
+      : '';
+
+    // 1. If baseline session (no prior logs)
+    if (state === 'BASELINE' || !lastTimeData) {
+      return `🌱 ${policyLabel} · Nothing logged yet, so this session sets the baseline.`;
+    }
+
+    // 2. Weight unlock (hit all target reps in previous session)
+    if (state === 'WEIGHT_UNLOCK' || overloadSuggestion.isWeightIncrease) {
+      return `🌱 ${policyLabel} · Target met${delta}: Aim for ${targetWeight} kg × ${repsText}`;
+    }
+
+    // 3. Rep build (building up towards rep cap at current weight)
+    if (state === 'REP_BUILD') {
+      return `🌱 ${policyLabel} · Build reps: Aim for ${repsText} at ${targetWeight} kg before adding weight`;
+    }
+
+    // 4. Regroove hold (consolidating form / volume)
+    if (state === 'REGROOVE_HOLD') {
+      return `🌱 ${policyLabel} · Consolidate form: Hold ${targetWeight} kg × ${repsText}`;
+    }
+
+    // 5. Reactive deload (accumulated fatigue / consecutive misses)
+    if (state === 'REACTIVE_DELOAD' || overloadSuggestion.isDeload) {
+      return `🌱 ${policyLabel} · Deload: Back off to ${targetWeight} kg to clear fatigue`;
+    }
+
+    // 6. Dynamic engine headline
+    if (overloadSuggestion.headline && overloadSuggestion.headline !== 'Baseline Session') {
+      return `🌱 ${policyLabel} · ${overloadSuggestion.headline}`;
+    }
+
+    // 7. Standard active target
+    if (targetWeight > 0) {
+      return `🌱 ${policyLabel}: ${targetWeight} kg × ${repsText}${delta}`;
+    }
+
+    return `🌱 ${policyLabel} · Target: ${repsText} reps`;
+  }, [overloadSuggestion, policyLabel, lastTimeData, exercise?.targetReps]);
 
   return (
     <View style={headerStyles.cardHeader}>
