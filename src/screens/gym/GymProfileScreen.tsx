@@ -26,8 +26,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-import * as Updates from 'expo-updates';
-import { checkAndApplyOTAUpdate } from '../../services/otaUpdateService';
 
 import { useTheme } from '../../contexts/ThemeContext';
 import { useCoreData } from '../../contexts/domains/CoreDataContext';
@@ -35,18 +33,23 @@ import { useGymProfile, setAutoTimerEnabledGlobal } from '../../hooks/useGymProf
 import { setAudioCuesEnabledGlobal } from '../../services/gymSoundSynthesizer';
 import { setHapticsEnabledGlobal, impactAsync, notificationAsync, selectionAsync } from '../../utils/haptics';
 import { FONT_FAMILY } from '../../theme/tokens';
-import { useGymLogs, useGymPlan } from '../../contexts/domains/WellnessContext';
+import { useGymLogs, useGymPlan, useBodyMetrics } from '../../contexts/domains/WellnessContext';
 import * as Notifications from 'expo-notifications';
+import ScheduledNotificationsModal from '../../components/Gym/common/ScheduledNotificationsModal';
 import {
-  sendTestGymNotification,
   scheduleGymNotifications,
   clearScheduleCache,
   GYM_NOTIF_ENABLED_KEY,
   GYM_NOTIF_TIME_KEY,
   GYM_REST_DAY_NOTIF_KEY,
+  GYM_RECOVERY_COACHING_KEY,
+  GYM_SUNDAY_BRIEFING_KEY,
   requestNotificationPermissions,
 } from '../../services/notifications';
-import ScheduledNotificationsModal from '../../components/Gym/common/ScheduledNotificationsModal';
+import { AthleteProfileCard } from '../../components/Gym/profile/AthleteProfileCard';
+import { FullAthleteProfileModal } from '../../components/Gym/profile/FullAthleteProfileModal';
+import { SetupAthleteStatsModal } from '../../components/Gym/profile/SetupAthleteStatsModal';
+import { computeAthleteCardStats } from '../../services/athleteCardService';
 
 const SETTINGS_PREFS_KEY = 'zentrack_gym_settings_prefs_v1';
 
@@ -83,12 +86,29 @@ export default function GymProfileScreen() {
   // ─── Notification Preferences State ────────────────────────────────────────
   const [workoutNotifs, setWorkoutNotifs] = useState(true);
   const [notifTime, setNotifTime] = useState('18:00');
-  const [restDayNotifs, setRestDayNotifs] = useState(true);
-  const [testingNotif, setTestingNotif] = useState(false);
+  const [recoveryCoaching, setRecoveryCoaching] = useState(true);
+  const [sundayBriefing, setSundayBriefing] = useState(true);
   const [showScheduledNotifsModal, setShowScheduledNotifsModal] = useState(false);
   const [scheduledCount, setScheduledCount] = useState<number | null>(null);
-  const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'downloading' | 'ready'>('idle');
-  const [lastCheckMessage, setLastCheckMessage] = useState<string | null>(null);
+  const [showAthleteSetupModal, setShowAthleteSetupModal] = useState(false);
+  const [showFullCardModal, setShowFullCardModal] = useState(false);
+
+  const { weightLogs } = useBodyMetrics();
+
+  // Latest tracked weight from Weight Tracking section (auto-updates card in 0ms)
+  const latestTrackedWeightKg = useMemo(() => {
+    if (weightLogs && weightLogs.length > 0) {
+      const sorted = [...weightLogs].sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''));
+      const latest = sorted[0];
+      const val = latest?.weightKg ?? (latest as any)?.weight;
+      if (val && Number(val) > 0) return Number(val);
+    }
+    return gymProfile?.weightKg || gymProfile?.bodyweightKg || null;
+  }, [weightLogs, gymProfile]);
+
+  const athleteStats = useMemo(() => {
+    return computeAthleteCardStats(gymProfile, gymLogs, user, latestTrackedWeightKg, userGymPlan);
+  }, [gymProfile, gymLogs, user, latestTrackedWeightKg, userGymPlan]);
 
   const prefsRef = useRef<Record<string, any>>({});
 
@@ -97,7 +117,7 @@ export default function GymProfileScreen() {
     Notifications.getAllScheduledNotificationsAsync()
       .then(items => setScheduledCount(items.length))
       .catch(() => {});
-  }, [workoutNotifs, restDayNotifs, notifTime]);
+  }, [workoutNotifs, recoveryCoaching, sundayBriefing, notifTime]);
 
   // Load preferences on mount
   useEffect(() => {
@@ -122,14 +142,22 @@ export default function GymProfileScreen() {
       } catch (_) {}
     });
 
-    AsyncStorage.multiGet([GYM_NOTIF_ENABLED_KEY, GYM_NOTIF_TIME_KEY, GYM_REST_DAY_NOTIF_KEY])
+    AsyncStorage.multiGet([
+      GYM_NOTIF_ENABLED_KEY,
+      GYM_NOTIF_TIME_KEY,
+      GYM_RECOVERY_COACHING_KEY,
+      GYM_REST_DAY_NOTIF_KEY,
+      GYM_SUNDAY_BRIEFING_KEY,
+    ])
       .then(entries => {
         const enabled = entries[0][1];
         const time = entries[1][1];
-        const restDay = entries[2][1];
+        const recovery = entries[2][1] ?? entries[3][1];
+        const sunday = entries[4][1];
         if (enabled !== null) setWorkoutNotifs(enabled !== 'false');
         if (time) setNotifTime(time);
-        if (restDay !== null) setRestDayNotifs(restDay !== 'false');
+        if (recovery !== null) setRecoveryCoaching(recovery !== 'false');
+        if (sunday !== null) setSundayBriefing(sunday !== 'false');
       })
       .catch(() => {});
   }, []);
@@ -171,15 +199,24 @@ export default function GymProfileScreen() {
     setWorkoutNotifs(v);
     await AsyncStorage.setItem(GYM_NOTIF_ENABLED_KEY, v ? 'true' : 'false');
     clearScheduleCache();
-    scheduleGymNotifications({ gymLogs, userGymPlan }).catch(() => {});
+    scheduleGymNotifications({ gymLogs, userGymPlan, force: true }).catch(() => {});
   };
 
-  const handleToggleRestDayNotifs = async (v: boolean) => {
+  const handleToggleRecoveryCoaching = async (v: boolean) => {
     selectionAsync();
-    setRestDayNotifs(v);
+    setRecoveryCoaching(v);
+    await AsyncStorage.setItem(GYM_RECOVERY_COACHING_KEY, v ? 'true' : 'false');
     await AsyncStorage.setItem(GYM_REST_DAY_NOTIF_KEY, v ? 'true' : 'false');
     clearScheduleCache();
-    scheduleGymNotifications({ gymLogs, userGymPlan }).catch(() => {});
+    scheduleGymNotifications({ gymLogs, userGymPlan, force: true }).catch(() => {});
+  };
+
+  const handleToggleSundayBriefing = async (v: boolean) => {
+    selectionAsync();
+    setSundayBriefing(v);
+    await AsyncStorage.setItem(GYM_SUNDAY_BRIEFING_KEY, v ? 'true' : 'false');
+    clearScheduleCache();
+    scheduleGymNotifications({ gymLogs, userGymPlan, force: true }).catch(() => {});
   };
 
   const handleCycleNotifTime = async () => {
@@ -190,29 +227,7 @@ export default function GymProfileScreen() {
     setNotifTime(nextVal);
     await AsyncStorage.setItem(GYM_NOTIF_TIME_KEY, nextVal);
     clearScheduleCache();
-    scheduleGymNotifications({ gymLogs, userGymPlan }).catch(() => {});
-  };
-
-  const handleSendTestNotification = async () => {
-    impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setTestingNotif(true);
-    try {
-      const ok = await sendTestGymNotification();
-      if (ok) {
-        notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert(
-          'Notification Sent 🏋️',
-          'A test reminder will appear in 2 seconds. Lock your phone or check your notification shade.'
-        );
-      } else {
-        Alert.alert(
-          'Notifications Blocked',
-          'Permission not granted. Please allow notifications in device Settings.'
-        );
-      }
-    } finally {
-      setTestingNotif(false);
-    }
+    scheduleGymNotifications({ gymLogs, userGymPlan, force: true }).catch(() => {});
   };
 
   const handleClearCache = () => {
@@ -262,51 +277,6 @@ export default function GymProfileScreen() {
     return TIME_OPTIONS.find(t => t.value === notifTime)?.label || notifTime;
   }, [notifTime]);
 
-  const handleCheckForUpdates = useCallback(async () => {
-    if (updateStatus === 'checking' || updateStatus === 'downloading') return;
-
-    selectionAsync();
-
-    // If update has been downloaded and is waiting for restart
-    if (updateStatus === 'ready') {
-      try {
-        await Updates.reloadAsync();
-      } catch (_) {
-        Alert.alert('Restart App', 'Please close and reopen ZenFit to finish applying the update.');
-      }
-      return;
-    }
-
-    setUpdateStatus('checking');
-    try {
-      const res = await checkAndApplyOTAUpdate((status) => {
-        setUpdateStatus(status);
-      });
-
-      if (res.updated) {
-        setUpdateStatus('ready');
-        setLastCheckMessage('Update downloaded! Tap to restart.');
-        notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } else {
-        setUpdateStatus('idle');
-        setLastCheckMessage(res.message);
-        notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert(
-          'ZenFit Up to Date',
-          res.message || 'You are running the latest version of ZenFit.',
-          [{ text: 'OK', style: 'default' }]
-        );
-      }
-    } catch (err: any) {
-      setUpdateStatus('idle');
-      setLastCheckMessage('Could not reach update server');
-      Alert.alert(
-        'Update Check',
-        err?.message || 'Unable to check for updates. Please check your internet connection.'
-      );
-    }
-  }, [updateStatus]);
-
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar style="light" />
@@ -335,6 +305,21 @@ export default function GymProfileScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
+        {/* ════════════════════════════════════════════════════════════════════
+            ATHLETE PROFILE HERO CARD (Verified Gmail Avatar & Performance)
+           ════════════════════════════════════════════════════════════════════ */}
+        <AthleteProfileCard
+          stats={athleteStats}
+          onOpenCard={() => {
+            impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setShowFullCardModal(true);
+          }}
+          onOpenSetup={() => {
+            impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setShowAthleteSetupModal(true);
+          }}
+        />
 
         {/* ════════════════════════════════════════════════════════════════════
             SECTION 1: 🏋️ WORKOUT & TIMER PREFERENCES
@@ -443,138 +428,17 @@ export default function GymProfileScreen() {
               thumbColor="#FFFFFF"
             />
           </View>
-        </View>
-
-        {/* ════════════════════════════════════════════════════════════════════
-            SECTION 2: 🔔 WORKOUT REMINDERS & ALARMS
-           ════════════════════════════════════════════════════════════════════ */}
-        <Text style={styles.sectionHeader}>WORKOUT REMINDERS</Text>
-        <View style={styles.card}>
-          {/* Daily Workout Reminder Toggle */}
-          <View style={styles.settingRow}>
-            <View style={styles.iconBox}>
-              <Ionicons name="notifications-outline" size={16} color="#FFFFFF" />
-            </View>
-            <View style={styles.settingTextCol}>
-              <Text style={styles.settingLabel}>Daily Training Alert</Text>
-              <Text style={styles.settingSub}>Scheduled alert for active split days</Text>
-            </View>
-            <Switch
-              value={workoutNotifs}
-              onValueChange={handleToggleWorkoutNotifs}
-              trackColor={{ false: '#3A3A3C', true: '#30D158' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-
-          {workoutNotifs && (
-            <>
-              <View style={styles.hairline} />
-              {/* Reminder Time Cycler */}
-              <View style={styles.settingRow}>
-                <View style={styles.iconBox}>
-                  <Ionicons name="time-outline" size={16} color="#FFFFFF" />
-                </View>
-                <View style={styles.settingTextCol}>
-                  <Text style={styles.settingLabel}>Alert Time</Text>
-                  <Text style={styles.settingSub}>Tap to change daily notification time</Text>
-                </View>
-                <TouchableOpacity
-                  onPress={handleCycleNotifTime}
-                  style={styles.timeSelectBtn}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.timeSelectBtnText}>{formattedNotifTime}</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
 
           <View style={styles.hairline} />
 
-          {/* Rest Day Tips Toggle */}
-          <View style={styles.settingRow}>
-            <View style={styles.iconBox}>
-              <Ionicons name="battery-charging-outline" size={16} color="#FFFFFF" />
-            </View>
-            <View style={styles.settingTextCol}>
-              <Text style={styles.settingLabel}>Rest Day Reminders</Text>
-              <Text style={styles.settingSub}>Recovery, hydration & sleep alerts</Text>
-            </View>
-            <Switch
-              value={restDayNotifs}
-              onValueChange={handleToggleRestDayNotifs}
-              trackColor={{ false: '#3A3A3C', true: '#30D158' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-
-          <View style={styles.hairline} />
-
-          {/* Scheduled Notifications (OS Registry Inspector) */}
-          <TouchableOpacity
-            style={styles.settingRow}
-            onPress={() => {
-              impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setShowScheduledNotifsModal(true);
-            }}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.iconBox, { backgroundColor: 'rgba(10, 132, 255, 0.15)' }]}>
-              <Ionicons name="time-outline" size={16} color="#0A84FF" />
-            </View>
-            <View style={styles.settingTextCol}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={styles.settingLabel}>Scheduled Notifications</Text>
-                {scheduledCount !== null && scheduledCount > 0 && (
-                  <View style={styles.scheduledPill}>
-                    <Text style={styles.scheduledPillText}>{scheduledCount} active</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.settingSub}>Inspect all active alarms & reminders queued in the OS</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color="#8E8E93" />
-          </TouchableOpacity>
-
-          <View style={styles.hairline} />
-
-          {/* Test Notification Row */}
-          <TouchableOpacity
-            style={styles.settingRow}
-            onPress={handleSendTestNotification}
-            disabled={testingNotif}
-            activeOpacity={0.7}
-          >
-            <View style={styles.iconBox}>
-              <Ionicons name="paper-plane-outline" size={16} color="#FFFFFF" />
-            </View>
-            <View style={styles.settingTextCol}>
-              <Text style={styles.settingLabel}>Test Notification</Text>
-              <Text style={styles.settingSub}>Sends test alert in 2s to check banner & sound</Text>
-            </View>
-            {testingNotif ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <View style={styles.capsuleBtn}>
-                <Text style={styles.capsuleBtnText}>Test</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {/* ════════════════════════════════════════════════════════════════════
-            SECTION 3: 🧬 BODY & ANATOMY
-           ════════════════════════════════════════════════════════════════════ */}
-        <Text style={styles.sectionHeader}>BODY & ANATOMY</Text>
-        <View style={styles.card}>
+          {/* Body Silhouette Toggle */}
           <View style={styles.settingRow}>
             <View style={styles.iconBox}>
               <Ionicons name="body-outline" size={16} color="#FFFFFF" />
             </View>
             <View style={styles.settingTextCol}>
               <Text style={styles.settingLabel}>Body Silhouette</Text>
-              <Text style={styles.settingSub}>Controls vector model on Body & Recovery tab</Text>
+              <Text style={styles.settingSub}>Vector mannequin on Body & Recovery tab</Text>
             </View>
             <View style={styles.segmentedToggle}>
               <TouchableOpacity
@@ -600,61 +464,116 @@ export default function GymProfileScreen() {
         </View>
 
         {/* ════════════════════════════════════════════════════════════════════
-            SECTION 4: 🚀 APP UPDATES & HOTFIXES
+            SECTION 2: 🔔 COACH NOTIFICATIONS
            ════════════════════════════════════════════════════════════════════ */}
-        <Text style={styles.sectionHeader}>APP UPDATES</Text>
+        <Text style={styles.sectionHeader}>COACH NOTIFICATIONS</Text>
         <View style={styles.card}>
-          <TouchableOpacity
-            style={styles.settingRow}
-            onPress={handleCheckForUpdates}
-            disabled={updateStatus === 'checking' || updateStatus === 'downloading'}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.iconBox, updateStatus === 'ready' && { backgroundColor: 'rgba(48, 209, 88, 0.18)' }]}>
-              <Ionicons
-                name={
-                  updateStatus === 'ready'
-                    ? 'checkmark-circle'
-                    : updateStatus === 'downloading'
-                    ? 'cloud-download'
-                    : 'cloud-download-outline'
-                }
-                size={16}
-                color={updateStatus === 'ready' ? '#30D158' : '#FFFFFF'}
-              />
+          {/* Usual Training Time Cycler */}
+          <View style={styles.settingRow}>
+            <View style={styles.iconBox}>
+              <Ionicons name="time-outline" size={16} color="#FFFFFF" />
             </View>
             <View style={styles.settingTextCol}>
-              <Text style={styles.settingLabel}>
-                {updateStatus === 'ready' ? 'Update Ready to Install' : 'Check for Updates'}
-              </Text>
-              <Text style={styles.settingSub} numberOfLines={1}>
-                {updateStatus === 'checking'
-                  ? 'Connecting to EAS update cloud...'
-                  : updateStatus === 'downloading'
-                  ? 'Downloading new bundle in background...'
-                  : updateStatus === 'ready'
-                  ? 'New hotfix downloaded! Tap to restart.'
-                  : lastCheckMessage || 'ZenFit v1.0.0 · Check & download hotfixes'}
-              </Text>
+              <Text style={styles.settingLabel}>Usual Training Time</Text>
+              <Text style={styles.settingSub}>Times workout prep and evening check-ins</Text>
             </View>
+            <TouchableOpacity
+              onPress={handleCycleNotifTime}
+              style={styles.timeSelectBtn}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.timeSelectBtnText}>{formattedNotifTime}</Text>
+            </TouchableOpacity>
+          </View>
 
-            {updateStatus === 'checking' || updateStatus === 'downloading' ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : updateStatus === 'ready' ? (
-              <View style={[styles.capsuleBtn, styles.capsuleBtnReady]}>
-                <Ionicons name="refresh" size={13} color="#000000" />
-                <Text style={styles.capsuleBtnReadyText}>Restart</Text>
+          <View style={styles.hairline} />
+
+          {/* Training & Split Reminders Toggle */}
+          <View style={styles.settingRow}>
+            <View style={styles.iconBox}>
+              <Ionicons name="barbell-outline" size={16} color="#FFFFFF" />
+            </View>
+            <View style={styles.settingTextCol}>
+              <Text style={styles.settingLabel}>Training & Split Reminders</Text>
+              <Text style={styles.settingSub}>Pre-workout blueprint, evening preview & missed check</Text>
+            </View>
+            <Switch
+              value={workoutNotifs}
+              onValueChange={handleToggleWorkoutNotifs}
+              trackColor={{ false: '#3A3A3C', true: '#30D158' }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+
+          <View style={styles.hairline} />
+
+          {/* Recovery & Volume Coaching Toggle */}
+          <View style={styles.settingRow}>
+            <View style={styles.iconBox}>
+              <Ionicons name="leaf-outline" size={16} color="#FFFFFF" />
+            </View>
+            <View style={styles.settingTextCol}>
+              <Text style={styles.settingLabel}>Recovery & Volume Coaching</Text>
+              <Text style={styles.settingSub}>Rest-day recovery alerts and lagging muscle checks</Text>
+            </View>
+            <Switch
+              value={recoveryCoaching}
+              onValueChange={handleToggleRecoveryCoaching}
+              trackColor={{ false: '#3A3A3C', true: '#30D158' }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+
+          <View style={styles.hairline} />
+
+          {/* Sunday Strength Briefing Toggle */}
+          <View style={styles.settingRow}>
+            <View style={styles.iconBox}>
+              <Ionicons name="analytics-outline" size={16} color="#FFFFFF" />
+            </View>
+            <View style={styles.settingTextCol}>
+              <Text style={styles.settingLabel}>Sunday Strength Briefing</Text>
+              <Text style={styles.settingSub}>Weekly recap of volume moved, PRs & consistency (11 AM)</Text>
+            </View>
+            <Switch
+              value={sundayBriefing}
+              onValueChange={handleToggleSundayBriefing}
+              trackColor={{ false: '#3A3A3C', true: '#30D158' }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+
+          <View style={styles.hairline} />
+
+          {/* Scheduled Notifications (OS Registry Inspector) */}
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={() => {
+              impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setShowScheduledNotifsModal(true);
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.iconBox, { backgroundColor: 'rgba(10, 132, 255, 0.15)' }]}>
+              <Ionicons name="calendar-outline" size={16} color="#0A84FF" />
+            </View>
+            <View style={styles.settingTextCol}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.settingLabel}>Scheduled Notifications</Text>
+                {scheduledCount !== null && scheduledCount > 0 && (
+                  <View style={styles.scheduledPill}>
+                    <Text style={styles.scheduledPillText}>{scheduledCount} active</Text>
+                  </View>
+                )}
               </View>
-            ) : (
-              <View style={styles.capsuleBtn}>
-                <Text style={styles.capsuleBtnText}>Check</Text>
-              </View>
-            )}
+              <Text style={styles.settingSub}>Inspect active alarms & reminders queued in the OS</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#8E8E93" />
           </TouchableOpacity>
         </View>
 
         {/* ════════════════════════════════════════════════════════════════════
-            SECTION 5: ☁️ ACCOUNT & STORAGE
+            SECTION 3: ☁️ ACCOUNT & STORAGE
            ════════════════════════════════════════════════════════════════════ */}
         <Text style={styles.sectionHeader}>ACCOUNT & STORAGE</Text>
         <View style={styles.card}>
@@ -726,6 +645,35 @@ export default function GymProfileScreen() {
         gymLogs={gymLogs}
         userGymPlan={userGymPlan}
         onCountChange={setScheduledCount}
+      />
+
+      {/* Full-Screen Athlete Showcase Card Modal */}
+      <FullAthleteProfileModal
+        visible={showFullCardModal}
+        onClose={() => setShowFullCardModal(false)}
+        stats={athleteStats}
+        onOpenSetup={() => {
+          setShowFullCardModal(false);
+          setShowAthleteSetupModal(true);
+        }}
+        gymLogs={gymLogs}
+      />
+
+      {/* Athlete Stats Setup Modal */}
+      <SetupAthleteStatsModal
+        visible={showAthleteSetupModal}
+        onClose={() => setShowAthleteSetupModal(false)}
+        currentProfile={gymProfile}
+        latestWeight={latestTrackedWeightKg}
+        userAuth={user}
+        onSaveSuccess={(updated) => {
+          saveGymProfile({
+            heightCm: updated.heightCm,
+            weightKg: updated.weightKg,
+            bodyweightKg: updated.weightKg,
+            goal: updated.goal as any,
+          });
+        }}
       />
     </SafeAreaView>
   );

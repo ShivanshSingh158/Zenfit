@@ -36,7 +36,7 @@ export const ActiveExerciseVideo: React.FC<ActiveExerciseVideoProps> = React.mem
       style={[
         styles.videoContainer,
         {
-          backgroundColor: '#111016',
+          backgroundColor: colors?.surface || '#161618',
           borderWidth: 1,
           borderColor: 'rgba(255, 255, 255, 0.08)',
           padding: 5,
@@ -135,7 +135,7 @@ export const ActiveExerciseVideo: React.FC<ActiveExerciseVideoProps> = React.mem
             <YoutubeIframe
               height={videoHeight}
               width={videoWidth}
-              play={true}
+              play={false}
               videoId={exercise.videoId}
               onError={onError}
               initialPlayerParams={{ modestbranding: true, rel: false }}

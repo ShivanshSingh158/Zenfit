@@ -68,7 +68,7 @@ export interface SwipeableSetRowProps {
   onBlur?: () => void;
   onToggleComplete?: () => void;
   onLongPress?: () => void;
-  onAction?: (idx: number, action: 'textChange' | 'blur' | 'toggle' | 'delete' | 'swipe' | 'cycleType' | 'copyPrev' | 'focusField', payload?: any) => void;
+  onAction?: (idx: number, action: 'textChange' | 'blur' | 'toggle' | 'delete' | 'swipe' | 'cycleType' | 'copyPrev' | 'focusField' | 'setRest', payload?: any) => void;
 }
 
 export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
@@ -425,7 +425,7 @@ const rowStyles = StyleSheet.create({
     borderLeftColor: '#a599ff',
   },
   rowCompleted: {
-    backgroundColor: 'rgba(34, 197, 94, 0.05)',
+    backgroundColor: 'rgba(48, 209, 88, 0.06)',
     opacity: 0.9,
   },
   rowFuture: {
@@ -529,8 +529,8 @@ const rowStyles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   checkCircleCompleted: {
-    backgroundColor: '#22C55E',
-    borderColor: '#22C55E',
+    backgroundColor: '#30D158',
+    borderColor: '#30D158',
   },
 });
 

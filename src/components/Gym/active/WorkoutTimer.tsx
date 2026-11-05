@@ -27,7 +27,8 @@ const WorkoutTimer = memo(function WorkoutTimer({ startTime }: { startTime: numb
 
   return (
     <Text style={{
-      fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+      fontFamily: FONT_FAMILY.bold,
+      fontVariant: ['tabular-nums'],
       fontSize: 13,
       fontWeight: 'bold',
       color: isDark ? colors.accentPrimary : (colors.accentAmber || '#D97706'),

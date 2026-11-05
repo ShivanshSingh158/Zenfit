@@ -118,12 +118,12 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
       {/* ── Exercise Title & Target Subtitle Centered Above in the Middle ── */}
       <View style={headerStyles.titleContainer}>
         <Text
-          style={headerStyles.exerciseTitle}
+          style={[headerStyles.exerciseTitle, colors?.textPrimary && { color: colors.textPrimary }]}
           numberOfLines={2}
         >
           {exercise.name}
         </Text>
-        <Text style={headerStyles.subtitle} numberOfLines={1}>
+        <Text style={[headerStyles.subtitle, colors?.textSecondary && { color: colors.textSecondary }]} numberOfLines={1}>
           {targetSubtitle}
         </Text>
 
@@ -133,7 +133,7 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
             <View style={[headerStyles.volumeDot, { backgroundColor: landmarkInfo.color }]} />
             <Text style={headerStyles.volumeText}>
               <Text style={headerStyles.volumeSets}>{landmarkInfo.sets}</Text>
-              <Text style={headerStyles.volumeTotal}>/14 weekly sets · </Text>
+              <Text style={headerStyles.volumeTotal}>/16 weekly sets · </Text>
               <Text style={[headerStyles.volumeStatus, { color: landmarkInfo.color }]}>
                 {landmarkInfo.statusText}
               </Text>

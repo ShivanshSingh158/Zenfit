@@ -116,7 +116,7 @@ export default function CardioLogScreen() {
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
       <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.background} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Ionicons name="chevron-down" size={24} color={colors.textPrimary} />
@@ -134,7 +134,7 @@ export default function CardioLogScreen() {
         <ScrollView contentContainerStyle={styles.content}>
           <View style={styles.iconContainer}>
             <LinearGradient
-              colors={['#FF6B6B', '#FF8787']}
+              colors={['#FF9F0A', '#FFB340']}
               style={styles.iconCircle}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
@@ -147,6 +147,20 @@ export default function CardioLogScreen() {
           <View style={styles.form}>
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Duration (minutes) *</Text>
+              <View style={styles.quickChipsRow}>
+                {['10', '15', '20', '30', '45'].map(mins => (
+                  <TouchableOpacity
+                    key={mins}
+                    onPress={() => updateField('duration', mins)}
+                    style={[styles.quickChip, form.duration === mins && styles.quickChipActive]}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.quickChipText, form.duration === mins && styles.quickChipTextActive]}>
+                      {mins}m
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
               <TextInput
                 ref={durationInputRef}
                 style={styles.input}
@@ -313,7 +327,7 @@ export default function CardioLogScreen() {
               onPress={handleSave}
             >
               <LinearGradient
-                colors={['#FF6B6B', '#FA5252']}
+                colors={['#FF9F0A', '#E08500']}
                 style={styles.saveBtn}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}

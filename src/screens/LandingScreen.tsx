@@ -1,3 +1,4 @@
+import { StatusBar } from 'expo-status-bar';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Dimensions,
@@ -194,6 +195,7 @@ export default function LandingScreen({ onGetStarted }: LandingScreenProps) {
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]}>
+      <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.background} />
       {/* Subtle Ambient Cosmic Violet Aura */}
       <LinearGradient
         colors={isDark ? ['rgba(165,153,255,0.07)', 'rgba(0,0,0,0)'] : ['rgba(108,92,231,0.05)', 'rgba(255,255,255,0)']}
@@ -212,9 +214,8 @@ export default function LandingScreen({ onGetStarted }: LandingScreenProps) {
         {/* Main Editorial Hero Block */}
         <Reanimated.View entering={FadeInDown.delay(100).duration(600)} style={styles.mainBlock}>
           <View style={styles.heroTextContainer}>
-            <Text style={[styles.heroTitleRow, { color: colors.accentPrimary }]}>
-              <Text style={styles.modernGeometricQ}>Q</Text>
-              <Text style={styles.heroTitleRest}>uietly</Text>
+            <Text style={[styles.heroTitleItalic, { color: colors.accentPrimary }]}>
+              Quietly
             </Text>
             <Text style={[styles.heroTitleBold, { color: colors.textPrimary }]}>orchestrated.</Text>
           </View>
@@ -405,8 +406,9 @@ const styles = StyleSheet.create({
   },
   brand: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    letterSpacing: 2,
+    fontSize: 13,
+    letterSpacing: 1.2,
+    paddingRight: 6,
   },
   step: {
     fontFamily: FONT_FAMILY.body,
@@ -429,6 +431,11 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     fontSize: 46,
     letterSpacing: 0.5,
+  },
+  heroTitleItalic: {
+    fontFamily: 'PlayfairDisplay_600SemiBold_Italic',
+    fontSize: 44,
+    lineHeight: 52,
   },
   heroTitleRest: {
     fontFamily: 'PlayfairDisplay_600SemiBold_Italic',
@@ -549,7 +556,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 22,
-    height: 54,
+    paddingVertical: 15,
+    paddingHorizontal: 20,
     width: '100%',
     borderWidth: 1,
     ...SHADOW.sm,

@@ -103,8 +103,13 @@ export function generateWarmupLadder(
     const rawWeight = snap2_5(targetW * pct);
     const weight = Math.min(targetW - 2.5, Math.max(wBase, rawWeight));
 
-    // Rep decay: 10 reps on empty bar down to 1-2 singles on top potentiation sets
-    const reps = Math.max(1, Math.round(10 * Math.pow(1 - pct, 1.4)));
+    // Physiological rep decay: 8-10 reps on light sets, tapering to 3-5 on acclimation sets, 1-2 on final potentiation
+    const reps =
+      pct <= 0.45 ? 10 :
+      pct <= 0.60 ? 8 :
+      pct <= 0.72 ? 5 :
+      pct <= 0.82 ? 3 :
+      pct <= 0.90 ? 2 : 1;
 
     // Prevent duplicate weights on consecutive warmup rungs
     const prevWeight = warmupSets[warmupSets.length - 1]?.weight;

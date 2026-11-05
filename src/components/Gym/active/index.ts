@@ -1,12 +1,11 @@
 export * from './ActiveExerciseHeader';
 export * from './ActiveExerciseVideo';
-export * from './ActiveSetAdjusterBar';
 export * from './ActiveSwapModal';
 export * from './AnimatedRestTimer';
 export * from './GymWorkoutBanner';
 export * from './SetList';
+export * from './SetRestPickerSheet';
 export * from './StickyLoggingDock';
 export * from './SwipeableSetRow';
 export * from './WorkoutKeypad';
 export * from './WorkoutTimer';
-

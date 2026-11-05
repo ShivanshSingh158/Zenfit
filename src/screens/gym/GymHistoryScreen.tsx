@@ -19,6 +19,7 @@ import {
   TextInput,
   useWindowDimensions,
   DeviceEventEmitter,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -31,7 +32,8 @@ import { hapticSelection, hapticLight, hapticMedium } from '../../utils/haptics'
 import { FONT_FAMILY, IOS_DARK } from '../../theme/tokens';
 import { useGymLogs, useGymPlan } from '../../contexts/domains/WellnessContext';
 import { useTheme } from '../../contexts/ThemeContext';
-import { GymNavigationParamList } from '../../types/gym.types';
+import { GymNavigationParamList, GymPlanDay } from '../../types/gym.types';
+import { GYM_PLAN } from '../../data/gymPlan';
 import { todayStr } from '../../hooks/useGymLog';
 import {
   calculateGymStreak,
@@ -48,7 +50,7 @@ import {
 import ConsistencyHeatmap from '../../components/Gym/Charts/ConsistencyHeatmap';
 import WeeklyGymReport from '../../components/Gym/metrics/WeeklyGymReport';
 
-type AnalyticsSubTab = 'consistency' | 'exercises' | 'logs';
+type AnalyticsSubTab = 'weekly' | 'consistency' | 'exercises';
 type ExerciseChartMetric = 'weight' | 'volume';
 type SplitFilter = 'All' | 'Push' | 'Pull' | 'Legs' | 'Upper' | 'Lower' | 'Cardio';
 
@@ -80,34 +82,40 @@ export default function GymHistoryScreen() {
   const { userGymPlan } = useGymPlan();
   const route = useRoute<any>();
 
+  // Defer heavy SVG charts and heatmap mounts by 1 frame so shell/header paint in Frame 0 (<16ms)
+  const [isHeavyReady, setIsHeavyReady] = useState(false);
+
+  useEffect(() => {
+    const frameId = requestAnimationFrame(() => {
+      setIsHeavyReady(true);
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, []);
+
   // ── Navigation & Tab State ──────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<AnalyticsSubTab>(() => {
     const param = route?.params?.tab;
-    if (param === 'trends') return 'consistency';
-    if (param === 'trophy') return 'exercises';
-    if (param === 'logs') return 'logs';
-    if (param === 'consistency' || param === 'exercises') return param;
-    return 'consistency';
+    if (param === 'consistency' || param === 'trends') return 'consistency';
+    if (param === 'exercises' || param === 'trophy') return 'exercises';
+    return 'weekly';
   });
 
   useEffect(() => {
     const param = route?.params?.tab;
-    if (param === 'trends' || param === 'consistency') setActiveTab('consistency');
-    else if (param === 'trophy' || param === 'exercises') setActiveTab('exercises');
-    else if (param === 'logs') setActiveTab('logs');
+    if (param === 'consistency' || param === 'trends') setActiveTab('consistency');
+    else if (param === 'exercises' || param === 'trophy') setActiveTab('exercises');
+    else if (param === 'weekly' || param === 'logs') setActiveTab('weekly');
   }, [route?.params?.tab]);
-
-  const [showWeeklyReportModal, setShowWeeklyReportModal] = useState(false);
 
   useEffect(() => {
     if (route?.params?.openWeeklyReport) {
-      setShowWeeklyReportModal(true);
+      setActiveTab('weekly');
     }
   }, [route?.params?.openWeeklyReport]);
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('open_weekly_report', () => {
-      setShowWeeklyReportModal(true);
+      setActiveTab('weekly');
     });
     return () => sub.remove();
   }, []);
@@ -130,7 +138,171 @@ export default function GymHistoryScreen() {
     }));
   }, [analyticsData.detailedLogs]);
 
-  // ── Sub-Tab 1: Consistency State ───────────────────────────────────────────
+  // ── Sub-Tab: Weekly Report State & Navigation ──────────────────────────────
+  const [reportAnchorDate, setReportAnchorDate] = useState<string>(() => todayStr());
+
+  const weekRangeInfo = useMemo(() => {
+    const parts = reportAnchorDate.split('-').map(Number);
+    const y = parts[0] || new Date().getFullYear();
+    const m = (parts[1] || 1) - 1;
+    const day = parts[2] || new Date().getDate();
+    const d = new Date(y, m, day);
+    const dow = d.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    const monday = new Date(d);
+    monday.setDate(d.getDate() - ((dow + 6) % 7));
+
+    const weekDates: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const dt = new Date(monday);
+      dt.setDate(monday.getDate() + i);
+      const yStr = dt.getFullYear();
+      const mStr = String(dt.getMonth() + 1).padStart(2, '0');
+      const dStr = String(dt.getDate()).padStart(2, '0');
+      weekDates.push(`${yStr}-${mStr}-${dStr}`);
+    }
+
+    const now = new Date();
+    const curDow = now.getDay();
+    const currentMonday = new Date(now);
+    currentMonday.setDate(now.getDate() - ((curDow + 6) % 7));
+    const curMondayStr = `${currentMonday.getFullYear()}-${String(currentMonday.getMonth() + 1).padStart(2, '0')}-${String(currentMonday.getDate()).padStart(2, '0')}`;
+
+    const isCurrentWeek = weekDates[0] === curMondayStr;
+
+    const monDate = new Date(monday);
+    const sunDate = new Date(monday);
+    sunDate.setDate(monday.getDate() + 6);
+    const monMonth = monDate.toLocaleString('en-US', { month: 'short' });
+    const sunMonth = sunDate.toLocaleString('en-US', { month: 'short' });
+    const label =
+      monMonth === sunMonth
+        ? `${monMonth} ${monDate.getDate()} – ${sunDate.getDate()}`
+        : `${monMonth} ${monDate.getDate()} – ${sunMonth} ${sunDate.getDate()}`;
+
+    const canGoForward = !isCurrentWeek;
+
+    return {
+      mondayStr: weekDates[0],
+      sundayStr: weekDates[6],
+      weekDates,
+      label,
+      isCurrentWeek,
+      canGoForward,
+    };
+  }, [reportAnchorDate]);
+
+  const shiftReportAnchor = useCallback((deltaWeeks: number) => {
+    hapticLight();
+    setReportAnchorDate(prev => {
+      const parts = prev.split('-').map(Number);
+      const y = parts[0] || new Date().getFullYear();
+      const m = (parts[1] || 1) - 1;
+      const day = parts[2] || new Date().getDate();
+      const d = new Date(y, m, day);
+      d.setDate(d.getDate() + deltaWeeks * 7);
+      const yStr = d.getFullYear();
+      const mStr = String(d.getMonth() + 1).padStart(2, '0');
+      const dStr = String(d.getDate()).padStart(2, '0');
+      return `${yStr}-${mStr}-${dStr}`;
+    });
+  }, []);
+
+  const resetToCurrentWeek = useCallback(() => {
+    hapticLight();
+    setReportAnchorDate(todayStr());
+  }, []);
+
+  const selectedWeekSessions = useMemo(() => {
+    return analyticsData.detailedLogs.filter(s =>
+      weekRangeInfo.weekDates.includes(s.date.slice(0, 10))
+    );
+  }, [analyticsData.detailedLogs, weekRangeInfo.weekDates]);
+
+  const hasSelectedWeekSessions = selectedWeekSessions.length > 0;
+
+  const selectedWeekStats = useMemo(() => {
+    const sessionsCount = selectedWeekSessions.length;
+    const volumeKg = selectedWeekSessions.reduce((acc, s) => acc + s.totalVolumeKg, 0);
+    const setsCount = selectedWeekSessions.reduce((acc, s) => acc + s.totalSets, 0);
+    const durationMins = selectedWeekSessions.reduce((acc, s) => acc + (s.durationMinutes || 0), 0);
+    return { sessionsCount, volumeKg, setsCount, durationMins };
+  }, [selectedWeekSessions]);
+
+  const plannedWeeklyBlueprint = useMemo(() => {
+    const rawDays = userGymPlan?.customDays
+      ? Object.values(userGymPlan.customDays)
+      : (Array.isArray(GYM_PLAN) ? GYM_PLAN : Object.values(GYM_PLAN || {}));
+    const trainingDays = (rawDays || []).filter((d: any) => d && !d.isRest && (d.exercises?.length > 0));
+    const plannedSessions = trainingDays.length || 5;
+
+    let totalPlannedSets = 0;
+    const muscleSetMap: Record<string, number> = {};
+
+    trainingDays.forEach((day: any) => {
+      (day.exercises || []).forEach((ex: any) => {
+        const sets = Number(ex.sets) || 3;
+        totalPlannedSets += sets;
+        const targetMuscle = ex.targetMuscle || ex.muscle || 'Compound';
+        muscleSetMap[targetMuscle] = (muscleSetMap[targetMuscle] || 0) + sets;
+      });
+    });
+
+    const topMuscles = Object.entries(muscleSetMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([muscle, sets]) => ({ muscle, sets }));
+
+    const now = new Date();
+    const dow = now.getDay();
+    const dayIdx = dow === 0 ? 7 : dow;
+    const todayDay =
+      (userGymPlan?.customDays ? userGymPlan.customDays[dayIdx] : null) ||
+      (Array.isArray(GYM_PLAN) ? (GYM_PLAN as GymPlanDay[]).find(d => d.dayIndex === dayIdx) : null);
+
+    const isRest =
+      !todayDay ||
+      Boolean(todayDay.isRest) ||
+      (todayDay.name || '').toLowerCase().includes('rest') ||
+      (todayDay.focus || '').toLowerCase().includes('rest') ||
+      (todayDay.subtitle || '').toLowerCase().includes('rest') ||
+      (todayDay.exercises || []).length === 0;
+
+    return {
+      plannedSessions,
+      totalPlannedSets: totalPlannedSets || 75,
+      topMuscles,
+      todayDay: todayDay || null,
+      isTodayRest: isRest,
+    };
+  }, [userGymPlan]);
+
+  // ── Sub-Tab 1: Consistency State & Adherence Engine ────────────────────────
+  const consistencyStats = useMemo(() => {
+    const plannedTargetPerWeek = plannedWeeklyBlueprint.plannedSessions || 5;
+    const totalPlannedIn8Weeks = plannedTargetPerWeek * 8;
+    const totalActualWorkouts = analyticsData.weeklyTrends.reduce((acc, w) => acc + w.workoutCount, 0);
+    const adherenceRatePct =
+      totalPlannedIn8Weeks > 0
+        ? Math.min(100, Math.round((totalActualWorkouts / totalPlannedIn8Weeks) * 100))
+        : 0;
+
+    const weeksOnTargetCount = analyticsData.weeklyTrends.filter(
+      w => w.workoutCount >= plannedTargetPerWeek
+    ).length;
+
+    return {
+      streakDays: streak,
+      adherenceRatePct,
+      weeksOnTargetCount,
+      avgWorkoutsPerWeek: analyticsData.weeklySummary.avgWorkoutsPerWeek,
+    };
+  }, [
+    analyticsData.weeklyTrends,
+    analyticsData.weeklySummary.avgWorkoutsPerWeek,
+    plannedWeeklyBlueprint.plannedSessions,
+    streak,
+  ]);
+
   const [selectedWeekIndex, setSelectedWeekIndex] = useState<number | null>(null);
 
   const selectedWeekItem: WeeklyTrendItem | null = useMemo(() => {
@@ -142,18 +314,27 @@ export default function GymHistoryScreen() {
 
   // ── Sub-Tab 2: Exercises State ─────────────────────────────────────────────
   const [exerciseSearchQuery, setExerciseSearchQuery] = useState('');
+  const [exCategoryFilter, setExCategoryFilter] = useState<'All' | 'Push' | 'Pull' | 'Legs' | 'Arms' | 'Core'>('All');
   const [selectedExName, setSelectedExName] = useState<string | null>(null);
   const [exerciseChartMetric, setExerciseChartMetric] = useState<ExerciseChartMetric>('weight');
   const [selectedDataPointIdx, setSelectedDataPointIdx] = useState<number | null>(null);
 
   const filteredExerciseProfiles = useMemo(() => {
     let list = analyticsData.exerciseProfiles;
+    if (exCategoryFilter !== 'All') {
+      const target = exCategoryFilter.toLowerCase();
+      list = list.filter(p => {
+        const cat = (p.category || '').toLowerCase();
+        const muscle = (p.muscle || '').toLowerCase();
+        return cat.includes(target) || muscle.includes(target);
+      });
+    }
     if (exerciseSearchQuery.trim()) {
       const q = exerciseSearchQuery.toLowerCase().trim();
       list = list.filter(p => p.name.toLowerCase().includes(q) || p.muscle.toLowerCase().includes(q));
     }
     return list;
-  }, [analyticsData.exerciseProfiles, exerciseSearchQuery]);
+  }, [analyticsData.exerciseProfiles, exCategoryFilter, exerciseSearchQuery]);
 
   const activeExerciseProfile: ExerciseHistoryProfile | null = useMemo(() => {
     if (selectedExName) {
@@ -197,38 +378,6 @@ export default function GymHistoryScreen() {
     return { curveCoords: coords, curveLinePath: linePath, curveAreaPath: areaPath };
   }, [activeExerciseProfile, exerciseChartMetric, safeChartWidth]);
 
-  // ── Sub-Tab 3: Logs State ──────────────────────────────────────────────────
-  const [logsSearchQuery, setLogsSearchQuery] = useState('');
-  const [splitFilter, setSplitFilter] = useState<SplitFilter>('All');
-  const [visibleLogsCount, setVisibleLogsCount] = useState(INITIAL_LOGS_PAGE_SIZE);
-
-  const filteredDetailedLogs = useMemo(() => {
-    let list = analyticsData.detailedLogs;
-
-    if (splitFilter === 'Cardio') {
-      list = list.filter(s => s.cardio.length > 0);
-    } else if (splitFilter !== 'All') {
-      list = list.filter(s => s.splitTag.toLowerCase() === splitFilter.toLowerCase());
-    }
-
-    if (logsSearchQuery.trim()) {
-      const q = logsSearchQuery.toLowerCase().trim();
-      list = list.filter(
-        s =>
-          s.date.includes(q) ||
-          s.splitTag.toLowerCase().includes(q) ||
-          s.exercises.some(e => e.name.toLowerCase().includes(q) || (e.muscle && e.muscle.toLowerCase().includes(q))) ||
-          (s.notes && s.notes.toLowerCase().includes(q))
-      );
-    }
-
-    return list;
-  }, [analyticsData.detailedLogs, splitFilter, logsSearchQuery]);
-
-  const displayedDetailedLogs = useMemo(() => {
-    return filteredDetailedLogs.slice(0, visibleLogsCount);
-  }, [filteredDetailedLogs, visibleLogsCount]);
-
   // ── Actions ────────────────────────────────────────────────────────────────
   const handleOpenWorkoutSummary = useCallback(
     (dateStr: string) => {
@@ -270,30 +419,36 @@ export default function GymHistoryScreen() {
     <SafeAreaView style={[styles.root, { backgroundColor: '#000000' }]} edges={['top']}>
       <StatusBar style="light" />
 
-      {/* ── Screen Header ──────────────────────────────────────────────────── */}
+      {/* ── Screen Header (Clean iOS Header without floating modal button) ── */}
       <View style={styles.headerContainer}>
-        <View style={{ flex: 1, paddingRight: 8 }}>
+        <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Analytics</Text>
           <Text style={styles.headerSubtitle} numberOfLines={1}>
             {streak}d streak · {analyticsData.detailedLogs.length} workouts · {formatVol(totalLifetimeVolumeKg)} moved
           </Text>
         </View>
-
-        <TouchableOpacity
-          onPress={() => {
-            hapticSelection();
-            setShowWeeklyReportModal(true);
-          }}
-          style={styles.coachReportBtn}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="sparkles" size={13} color="#FFFFFF" />
-          <Text style={styles.coachReportBtnText}>Coach Report</Text>
-        </TouchableOpacity>
       </View>
 
-      {/* ── Native Apple iOS Segmented Control (Minimalist, Subtle, Zero Pills) ── */}
+      {/* ── Native Apple iOS Segmented Control: Weekly Report | Consistency | Exercises ── */}
       <View style={[styles.segmentedTrack, { backgroundColor: cardBg }]}>
+        <TouchableOpacity
+          style={[styles.segmentBtn, activeTab === 'weekly' && { backgroundColor: elevatedBg }]}
+          onPress={() => {
+            hapticSelection();
+            setActiveTab('weekly');
+          }}
+          activeOpacity={0.8}
+        >
+          <Text
+            style={[
+              styles.segmentText,
+              activeTab === 'weekly' ? styles.segmentTextActive : styles.segmentTextInactive,
+            ]}
+          >
+            Weekly Report
+          </Text>
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={[styles.segmentBtn, activeTab === 'consistency' && { backgroundColor: elevatedBg }]}
           onPress={() => {
@@ -329,91 +484,504 @@ export default function GymHistoryScreen() {
             Exercises
           </Text>
         </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.segmentBtn, activeTab === 'logs' && { backgroundColor: elevatedBg }]}
-          onPress={() => {
-            hapticSelection();
-            setActiveTab('logs');
-          }}
-          activeOpacity={0.8}
-        >
-          <Text
-            style={[
-              styles.segmentText,
-              activeTab === 'logs' ? styles.segmentTextActive : styles.segmentTextInactive,
-            ]}
-          >
-            Logs
-          </Text>
-        </TouchableOpacity>
       </View>
 
       {/* ════════════════════════════════════════════════════════════════════════
-          PART 1: 📅 CONSISTENCY & WEEKLY OVERVIEW (The Habit & Volume Reality)
+          PART 1: 📊 WEEKLY REPORT (Executive Synthesis & Overload Engine)
          ════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'consistency' && (
+      {activeTab === 'weekly' && (
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
-          {/* 1. Weekly Overview KPI Card */}
-          <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
-            <Text style={styles.cardSectionLabel}>WEEKLY OVERVIEW</Text>
+          {/* ── 1. Interactive Week Navigator ── */}
+          <View style={[styles.weekNavigatorCard, { backgroundColor: cardBg }]}>
+            <TouchableOpacity
+              style={styles.weekNavArrowBtn}
+              onPress={() => shiftReportAnchor(-1)}
+              activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Ionicons name="chevron-back" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
 
+            <TouchableOpacity
+              style={styles.weekNavCenterBlock}
+              onPress={!weekRangeInfo.isCurrentWeek ? resetToCurrentWeek : undefined}
+              activeOpacity={weekRangeInfo.isCurrentWeek ? 1 : 0.7}
+            >
+              <View style={styles.weekNavTitleRow}>
+                <Ionicons name="calendar-outline" size={14} color="#A599FF" style={{ marginRight: 6 }} />
+                <Text style={styles.weekNavTitleText}>
+                  {weekRangeInfo.label}
+                </Text>
+                {weekRangeInfo.isCurrentWeek && (
+                  <View style={styles.currentWeekTag}>
+                    <Text style={styles.currentWeekTagText}>THIS WEEK</Text>
+                  </View>
+                )}
+              </View>
+              {!weekRangeInfo.isCurrentWeek && (
+                <Text style={styles.weekNavJumpTodayText}>Tap to return to current week</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.weekNavArrowBtn, !weekRangeInfo.canGoForward && { opacity: 0.3 }]}
+              onPress={() => weekRangeInfo.canGoForward && shiftReportAnchor(1)}
+              disabled={!weekRangeInfo.canGoForward}
+              activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Ionicons name="chevron-forward" size={18} color={weekRangeInfo.canGoForward ? '#FFFFFF' : '#545458'} />
+            </TouchableOpacity>
+          </View>
+
+          {/* ── 2. Executive Weekly KPIs Card (Live or Blueprint Baseline) ── */}
+          <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
             <View style={styles.kpiGrid}>
               <View style={styles.kpiCol}>
-                <Text style={styles.kpiValue}>{analyticsData.weeklySummary.workoutsThisWeek}</Text>
+                <Text style={styles.kpiValue}>
+                  {selectedWeekStats.sessionsCount}/{plannedWeeklyBlueprint.plannedSessions}
+                </Text>
                 <Text style={styles.kpiLabel}>SESSIONS</Text>
               </View>
 
               <View style={styles.kpiCol}>
                 <Text style={styles.kpiValue}>
-                  {analyticsData.weeklySummary.volumeThisWeekKg >= 1000
-                    ? `${(analyticsData.weeklySummary.volumeThisWeekKg / 1000).toFixed(1)}k`
-                    : analyticsData.weeklySummary.volumeThisWeekKg}
+                  {formatVol(selectedWeekStats.volumeKg)}
                 </Text>
-                <Text style={styles.kpiLabel}>KG MOVED</Text>
+                <Text style={styles.kpiLabel}>VOLUME</Text>
+              </View>
+
+              <View style={styles.kpiCol}>
+                <Text style={styles.kpiValue}>{selectedWeekStats.setsCount}</Text>
+                <Text style={styles.kpiLabel}>SETS</Text>
               </View>
 
               <View style={styles.kpiCol}>
                 <Text style={styles.kpiValue}>
-                  {formatDuration(analyticsData.weeklySummary.trainingDurationMins)}
+                  {formatDuration(selectedWeekStats.durationMins)}
                 </Text>
                 <Text style={styles.kpiLabel}>TRAINED</Text>
               </View>
+            </View>
+          </View>
+
+          {/* ── 3. This Week's Plan Blueprint (Only on Current Week) ── */}
+          {weekRangeInfo.isCurrentWeek && (
+            <View style={[styles.blueprintCard, { backgroundColor: cardBg }]}>
+              <View style={styles.blueprintHeaderRow}>
+                <View style={styles.blueprintIconWrap}>
+                  <Ionicons name="clipboard-outline" size={20} color="#0A84FF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.blueprintTitle}>THIS WEEK'S BLUEPRINT</Text>
+                  <Text style={styles.blueprintSubtitle}>
+                    Target: {plannedWeeklyBlueprint.plannedSessions} Sessions · ~{plannedWeeklyBlueprint.totalPlannedSets} Working Sets
+                  </Text>
+                </View>
+                <View style={styles.blueprintStatusTag}>
+                  <Text style={styles.blueprintStatusTagText}>READY</Text>
+                </View>
+              </View>
+
+              {/* Target Muscle Allocation */}
+              {plannedWeeklyBlueprint.topMuscles.length > 0 && (
+                <View style={styles.blueprintMusclesSection}>
+                  <Text style={styles.blueprintSectionLabel}>PLANNED TARGET MUSCLE VOLUME</Text>
+                  <View style={styles.blueprintMusclesRow}>
+                    {plannedWeeklyBlueprint.topMuscles.map(item => (
+                      <View key={item.muscle} style={[styles.blueprintMusclePill, { backgroundColor: elevatedBg }]}>
+                        <Text style={styles.blueprintMusclePillName}>{item.muscle}</Text>
+                        <Text style={styles.blueprintMusclePillSets}>{item.sets}s</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              <View style={styles.blueprintDivider} />
+
+              {/* Today's Scheduled Routine Spotlight: Rest Day Awareness */}
+              {plannedWeeklyBlueprint.isTodayRest ? (
+                <View style={styles.blueprintTodaySpotlight}>
+                  <View style={{ flex: 1, paddingRight: 10 }}>
+                    <Text style={[styles.blueprintTodaySub, { color: '#30D158' }]}>TODAY'S SCHEDULE</Text>
+                    <Text style={styles.blueprintTodayName} numberOfLines={1}>
+                      {plannedWeeklyBlueprint.todayDay?.name || 'Rest & Recovery'}
+                    </Text>
+                    <Text style={styles.blueprintTodayFocus} numberOfLines={1}>
+                      Scheduled Recovery Day · Mobility, tissue repair & hydration
+                    </Text>
+                  </View>
+                  <View style={styles.blueprintRestBadge}>
+                    <Ionicons name="bed-outline" size={15} color="#30D158" style={{ marginRight: 5 }} />
+                    <Text style={styles.blueprintRestBadgeText}>Rest Day</Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.blueprintTodaySpotlight}>
+                  <View style={{ flex: 1, paddingRight: 10 }}>
+                    <Text style={styles.blueprintTodaySub}>TODAY'S SCHEDULED ROUTINE</Text>
+                    <Text style={styles.blueprintTodayName} numberOfLines={1}>
+                      {plannedWeeklyBlueprint.todayDay?.name || 'Scheduled Workout'}
+                    </Text>
+                    <Text style={styles.blueprintTodayFocus} numberOfLines={1}>
+                      {plannedWeeklyBlueprint.todayDay?.focus || `${plannedWeeklyBlueprint.todayDay?.exercises?.length || 0} exercises`}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.startTodayWorkoutBtn}
+                    onPress={() => {
+                      hapticMedium();
+                      navigation.navigate('Today');
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="play" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.startTodayWorkoutBtnText}>Start</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* ── 4. Progressive Overload Scorecard (Double Progression Audit) ── */}
+          <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
+            <View style={styles.cardHeaderRow}>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={styles.cardSectionLabel}>PROGRESSIVE OVERLOAD SCORECARD</Text>
+                <Text style={styles.cardSubLabel}>Double progression audit & strength adaptation</Text>
+              </View>
+              <View style={styles.overloadRateBadge}>
+                <Ionicons name="trending-up" size={13} color="#30D158" />
+                <Text style={styles.overloadRateBadgeText}>
+                  {analyticsData.weeklyScorecard.overloadRatePct}% Progressing
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.scorecardGrid}>
+              <View style={styles.scorecardItem}>
+                <Text style={[styles.scorecardVal, { color: '#30D158' }]}>
+                  +{analyticsData.weeklyScorecard.weightUnlocks}
+                </Text>
+                <Text style={styles.scorecardLabel}>WEIGHT UNLOCKS</Text>
+              </View>
+              <View style={styles.scorecardItem}>
+                <Text style={[styles.scorecardVal, { color: '#0A84FF' }]}>
+                  +{analyticsData.weeklyScorecard.repBuilds}
+                </Text>
+                <Text style={styles.scorecardLabel}>REP BUILDS</Text>
+              </View>
+              <View style={styles.scorecardItem}>
+                <Text
+                  style={[
+                    styles.scorecardVal,
+                    { color: analyticsData.weeklyScorecard.plateaus > 0 ? '#FF9F0A' : '#8E8E93' },
+                  ]}
+                >
+                  {analyticsData.weeklyScorecard.plateaus}
+                </Text>
+                <Text style={styles.scorecardLabel}>PLATEAUS</Text>
+              </View>
+              <View style={styles.scorecardItem}>
+                <Text style={[styles.scorecardVal, { color: '#A599FF' }]}>
+                  {analyticsData.weeklyScorecard.evaluatedCount}
+                </Text>
+                <Text style={styles.scorecardLabel}>TRACKED LIFTS</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* ── 5. Anchor Compound Lifts Big-3 (Push, Pull, Legs e1RM) ── */}
+          {analyticsData.anchorLifts.totalAnchorE1RM > 0 && (
+            <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
+              <View style={styles.cardHeaderRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardSectionLabel}>BIG-3 COMPOUND ANCHORS</Text>
+                  <Text style={styles.cardSubLabel}>
+                    Total Anchor e1RM: {Math.round(analyticsData.anchorLifts.totalAnchorE1RM)} kg
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.anchorLiftsRow}>
+                {analyticsData.anchorLifts.push && (
+                  <View style={[styles.anchorLiftCard, { backgroundColor: elevatedBg }]}>
+                    <Text style={styles.anchorLiftCategory}>PUSH</Text>
+                    <Text style={styles.anchorLiftName} numberOfLines={1}>
+                      {analyticsData.anchorLifts.push.exerciseName}
+                    </Text>
+                    <Text style={styles.anchorLiftStat}>
+                      {analyticsData.anchorLifts.push.bestWeight}kg × {analyticsData.anchorLifts.push.bestReps}
+                    </Text>
+                    <Text style={styles.anchorLiftE1RM}>
+                      e1RM: {Math.round(analyticsData.anchorLifts.push.bestE1RM)} kg
+                    </Text>
+                  </View>
+                )}
+
+                {analyticsData.anchorLifts.pull && (
+                  <View style={[styles.anchorLiftCard, { backgroundColor: elevatedBg }]}>
+                    <Text style={styles.anchorLiftCategory}>PULL</Text>
+                    <Text style={styles.anchorLiftName} numberOfLines={1}>
+                      {analyticsData.anchorLifts.pull.exerciseName}
+                    </Text>
+                    <Text style={styles.anchorLiftStat}>
+                      {analyticsData.anchorLifts.pull.bestWeight}kg × {analyticsData.anchorLifts.pull.bestReps}
+                    </Text>
+                    <Text style={styles.anchorLiftE1RM}>
+                      e1RM: {Math.round(analyticsData.anchorLifts.pull.bestE1RM)} kg
+                    </Text>
+                  </View>
+                )}
+
+                {analyticsData.anchorLifts.legs && (
+                  <View style={[styles.anchorLiftCard, { backgroundColor: elevatedBg }]}>
+                    <Text style={styles.anchorLiftCategory}>LEGS</Text>
+                    <Text style={styles.anchorLiftName} numberOfLines={1}>
+                      {analyticsData.anchorLifts.legs.exerciseName}
+                    </Text>
+                    <Text style={styles.anchorLiftStat}>
+                      {analyticsData.anchorLifts.legs.bestWeight}kg × {analyticsData.anchorLifts.legs.bestReps}
+                    </Text>
+                    <Text style={styles.anchorLiftE1RM}>
+                      e1RM: {Math.round(analyticsData.anchorLifts.legs.bestE1RM)} kg
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* ── 6. Scientific Weekly Gym Report (Muscle Volume Landmarks & Highlights) ── */}
+          <WeeklyGymReport
+            gymLogs={gymLogs || []}
+            weekAnchorDate={reportAnchorDate}
+            userGymPlan={userGymPlan}
+            scrollable={false}
+            hideHeader={true}
+            hideEmptyCard={true}
+          />
+
+          {/* ── 7. Sessions Logged In This Selected Week (If Any) ── */}
+          {hasSelectedWeekSessions ? (
+            <View style={[styles.weekSessionsCard, { backgroundColor: cardBg }]}>
+              <View style={styles.cardHeaderRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardSectionLabel}>SESSIONS LOGGED THIS WEEK</Text>
+                  <Text style={styles.cardSubLabel}>
+                    {selectedWeekSessions.length} {selectedWeekSessions.length === 1 ? 'workout' : 'workouts'} completed
+                  </Text>
+                </View>
+              </View>
+
+              {selectedWeekSessions.map(session => {
+                const parts = session.date.slice(0, 10).split('-').map(Number);
+                const y = parts[0] || new Date().getFullYear();
+                const m = (parts[1] || 1) - 1;
+                const d = parts[2] || 1;
+                const dt = new Date(y, m, d);
+                const dayName = dt.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+                const dayNum = String(d).padStart(2, '0');
+
+                return (
+                  <TouchableOpacity
+                    key={session.id || session.date}
+                    style={styles.weekSessionRow}
+                    onPress={() => {
+                      hapticLight();
+                      handleOpenWorkoutSummary(session.date);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.weekSessionDateBadge, { backgroundColor: elevatedBg }]}>
+                      <Text style={styles.weekSessionDateDay}>{dayName}</Text>
+                      <Text style={styles.weekSessionDateNum}>{dayNum}</Text>
+                    </View>
+
+                    <View style={styles.weekSessionMain}>
+                      <Text style={styles.weekSessionTitle} numberOfLines={1}>
+                        {session.splitTag || 'Workout Session'}
+                      </Text>
+                      <Text style={styles.weekSessionSub} numberOfLines={1}>
+                        {session.exercises.length} exercises · {session.totalSets} sets
+                        {session.durationMinutes ? ` · ${session.durationMinutes}m` : ''}
+                      </Text>
+                    </View>
+
+                    <View style={styles.weekSessionRight}>
+                      <Text style={styles.weekSessionVol}>{formatVol(session.totalVolumeKg)}</Text>
+                      <View style={styles.weekSessionDetailsRow}>
+                        <Text style={styles.weekSessionDetailsText}>Details</Text>
+                        <Ionicons name="chevron-forward" size={13} color="#0A84FF" />
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ) : (
+            !weekRangeInfo.isCurrentWeek && (
+              <View style={[styles.emptyPastWeekCard, { backgroundColor: cardBg }]}>
+                <Ionicons name="calendar-clear-outline" size={36} color="#545458" />
+                <Text style={styles.emptyPastWeekTitle}>No Workouts Recorded</Text>
+                <Text style={styles.emptyPastWeekSub}>
+                  No training sessions were logged for the week of {weekRangeInfo.label}.
+                </Text>
+                <TouchableOpacity
+                  style={styles.returnCurrentWeekBtn}
+                  onPress={resetToCurrentWeek}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="arrow-back" size={15} color="#0A84FF" style={{ marginRight: 6 }} />
+                  <Text style={styles.returnCurrentWeekBtnText}>Return to Current Week</Text>
+                </TouchableOpacity>
+              </View>
+            )
+          )}
+
+        </ScrollView>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          PART 2: 📅 CONSISTENCY & WORKLOAD WAVE (The Habit & Streak Engine)
+         ════════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'consistency' && (
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
+          {/* 1. Habit Discipline & Adherence KPIs Strip */}
+          <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
+            <View style={styles.cardHeaderRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardSectionLabel}>HABIT & ADHERENCE DISCIPLINE</Text>
+                <Text style={styles.cardSubLabel}>Long-term routine consistency & schedule fidelity</Text>
+              </View>
+              <View style={styles.streakBadge}>
+                <Ionicons name="flame" size={13} color="#FF9F0A" />
+                <Text style={styles.streakBadgeText}>{consistencyStats.streakDays}d Streak</Text>
+              </View>
+            </View>
+
+            <View style={styles.kpiGrid}>
+              <View style={styles.kpiCol}>
+                <Text style={[styles.kpiValue, { color: '#FF9F0A' }]}>{consistencyStats.streakDays}d</Text>
+                <Text style={styles.kpiLabel}>STREAK</Text>
+              </View>
 
               <View style={styles.kpiCol}>
-                <Text style={styles.kpiValue}>{analyticsData.weeklySummary.avgWorkoutsPerWeek}</Text>
+                <Text style={[styles.kpiValue, { color: '#30D158' }]}>{consistencyStats.adherenceRatePct}%</Text>
+                <Text style={styles.kpiLabel}>ADHERENCE</Text>
+              </View>
+
+              <View style={styles.kpiCol}>
+                <Text style={[styles.kpiValue, { color: '#0A84FF' }]}>
+                  {consistencyStats.weeksOnTargetCount}/8
+                </Text>
+                <Text style={styles.kpiLabel}>WKS MET</Text>
+              </View>
+
+              <View style={styles.kpiCol}>
+                <Text style={styles.kpiValue}>{consistencyStats.avgWorkoutsPerWeek}</Text>
                 <Text style={styles.kpiLabel}>AVG / WK</Text>
               </View>
             </View>
           </View>
 
-          {/* 2. 8-Week Workload Bar Chart */}
+          {/* 2. 18-Week Consistency Grid (Daily Athlete Calendar Matrix) */}
+          <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
+            <View style={styles.cardHeaderRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardSectionLabel}>18-WEEK CONSISTENCY GRID</Text>
+                <Text style={styles.cardSubLabel}>Daily workout attendance & volume intensity</Text>
+              </View>
+            </View>
+
+            {!isHeavyReady ? (
+              <View
+                style={{
+                  height: 140,
+                  backgroundColor: elevatedBg,
+                  borderRadius: 8,
+                  opacity: 0.25,
+                  marginTop: 8,
+                }}
+              />
+            ) : (
+              <ConsistencyHeatmap data={heatmapData} />
+            )}
+          </View>
+
+          {/* 3. 8-Week Workload Wave & Fatigue Trend */}
           <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
             <View style={styles.cardHeaderRow}>
               <View style={{ flex: 1, paddingRight: 8 }}>
-                <Text style={styles.cardSectionLabel}>WORKLOAD & SESSIONS (LAST 8 WEEKS)</Text>
+                <Text style={styles.cardSectionLabel}>8-WEEK WORKLOAD & FREQUENCY</Text>
                 <Text style={styles.cardSubLabel}>Weekly volume trend and training frequency</Text>
               </View>
             </View>
 
-            {/* Selected Week Inspection Box */}
+            {/* Selected Week Inspection Capsule */}
             {selectedWeekItem && (
               <View style={[styles.weekInspectBox, { backgroundColor: elevatedBg }]}>
-                <Text style={styles.weekInspectTitle}>
-                  {selectedWeekItem.isCurrentWeek ? 'Current Week' : `Week of ${selectedWeekItem.weekLabel}`}
-                </Text>
-                <Text style={styles.weekInspectDetails}>
-                  {formatVol(selectedWeekItem.totalVolumeKg)} · {selectedWeekItem.workoutCount} workout
-                  {selectedWeekItem.workoutCount === 1 ? '' : 's'}
-                  {selectedWeekItem.cardioMinutes > 0 ? ` · ${selectedWeekItem.cardioMinutes}m cardio` : ''}
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.weekInspectTitle}>
+                    {selectedWeekItem.isCurrentWeek ? 'Current Week' : `Week of ${selectedWeekItem.weekLabel}`}
+                  </Text>
+                  <Text style={styles.weekInspectDetails}>
+                    {formatVol(selectedWeekItem.totalVolumeKg)} · {selectedWeekItem.workoutCount} of {plannedWeeklyBlueprint.plannedSessions} sessions
+                    {selectedWeekItem.cardioMinutes > 0 ? ` · ${selectedWeekItem.cardioMinutes}m cardio` : ''}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.workloadBadge,
+                    {
+                      backgroundColor:
+                        selectedWeekItem.workoutCount >= (plannedWeeklyBlueprint.plannedSessions || 5)
+                          ? 'rgba(48, 209, 88, 0.15)'
+                          : selectedWeekItem.workoutCount === 0
+                          ? 'rgba(142, 142, 147, 0.12)'
+                          : 'rgba(10, 132, 255, 0.15)',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.workloadBadgeText,
+                      {
+                        color:
+                          selectedWeekItem.workoutCount >= (plannedWeeklyBlueprint.plannedSessions || 5)
+                            ? '#30D158'
+                            : selectedWeekItem.workoutCount === 0
+                            ? '#8E8E93'
+                            : '#0A84FF',
+                      },
+                    ]}
+                  >
+                    {selectedWeekItem.workoutCount >= (plannedWeeklyBlueprint.plannedSessions || 5)
+                      ? 'Target Met'
+                      : selectedWeekItem.workoutCount === 0
+                      ? 'Rest'
+                      : 'In Progress'}
+                  </Text>
+                </View>
               </View>
             )}
 
             {/* 8-Week SVG Bar Chart */}
             <View style={{ alignItems: 'center', marginTop: 12 }}>
-              {(() => {
+              {!isHeavyReady ? (
+                <View
+                  style={{
+                    width: safeChartWidth,
+                    height: 90 + 24,
+                    backgroundColor: elevatedBg,
+                    borderRadius: 8,
+                    opacity: 0.25,
+                  }}
+                />
+              ) : (() => {
                 const maxVol = Math.max(...analyticsData.weeklyTrends.map(w => w.totalVolumeKg), 1);
                 const chartHeight = 90;
                 const barWidth = 24;
@@ -484,63 +1052,10 @@ export default function GymHistoryScreen() {
             </View>
           </View>
 
-          {/* 3. 18-Week Consistency Grid */}
-          <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
-            <View style={styles.cardHeaderRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cardSectionLabel}>18-WEEK CONSISTENCY GRID</Text>
-                <Text style={styles.cardSubLabel}>All recorded workout sessions & rest days</Text>
-              </View>
-            </View>
-
-            <ConsistencyHeatmap data={heatmapData} />
-          </View>
-
-          {/* 4. Weekly Muscle Sets (Direct Volume Reality) */}
-          <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
-            <View style={styles.cardHeaderRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cardSectionLabel}>WEEKLY MUSCLE SETS</Text>
-                <Text style={styles.cardSubLabel}>Direct working sets logged this week (10–16 benchmark)</Text>
-              </View>
-            </View>
-
-            <View style={{ gap: 10, marginTop: 4 }}>
-              {analyticsData.muscleWeeklySets.map(m => {
-                const pct = Math.min(100, Math.round((m.directSets / m.targetSets) * 100));
-                const isOptimal = m.directSets >= 8 && m.directSets <= 18;
-
-                return (
-                  <View key={m.muscle} style={styles.muscleSetRow}>
-                    <View style={styles.muscleSetInfo}>
-                      <Text style={styles.muscleSetName}>{m.muscle}</Text>
-                      <Text style={[styles.muscleSetCount, isOptimal && { color: '#FFFFFF' }]}>
-                        {m.directSets} {m.directSets === 1 ? 'set' : 'sets'}
-                      </Text>
-                    </View>
-
-                    {/* Progress Bar Track */}
-                    <View style={styles.muscleBarTrack}>
-                      <View
-                        style={[
-                          styles.muscleBarFill,
-                          {
-                            width: `${pct}%`,
-                            backgroundColor: '#FFFFFF',
-                          },
-                        ]}
-                      />
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* 5. Cardio & Conditioning Summary (if present) */}
+          {/* 4. Cardio & Conditioning Adherence (Conditional) */}
           {analyticsData.weeklySummary.cardioMinutes > 0 && (
             <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
-              <Text style={styles.cardSectionLabel}>CARDIO & CONDITIONING (LAST 7 DAYS)</Text>
+              <Text style={styles.cardSectionLabel}>CARDIO & CONDITIONING ADHERENCE</Text>
 
               <View style={styles.kpiGrid}>
                 <View style={styles.kpiCol}>
@@ -587,6 +1102,37 @@ export default function GymHistoryScreen() {
             )}
           </View>
 
+          {/* Category Filter Pills: All | Push | Pull | Legs | Arms | Core */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={[styles.horizontalChipsScroll, { marginBottom: 4 }]}
+          >
+            {(['All', 'Push', 'Pull', 'Legs', 'Arms', 'Core'] as const).map(cat => {
+              const isSel = exCategoryFilter === cat;
+              return (
+                <TouchableOpacity
+                  key={cat}
+                  onPress={() => {
+                    hapticLight();
+                    setExCategoryFilter(cat);
+                  }}
+                  style={[styles.splitFilterBtn, isSel ? styles.splitFilterBtnActive : styles.splitFilterBtnInactive]}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.splitFilterText,
+                      isSel ? styles.splitFilterTextActive : styles.splitFilterTextInactive,
+                    ]}
+                  >
+                    {cat}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
           {/* Horizontal Exercise Selector Chips */}
           <ScrollView
             horizontal
@@ -619,7 +1165,7 @@ export default function GymHistoryScreen() {
 
           {activeExerciseProfile ? (
             <>
-              {/* Selected Exercise Overview Card */}
+              {/* Selected Exercise Benchmark Hero */}
               <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
                 <View style={styles.cardHeaderRow}>
                   <View style={{ flex: 1, paddingRight: 8 }}>
@@ -634,33 +1180,77 @@ export default function GymHistoryScreen() {
 
                 <View style={styles.kpiGrid}>
                   <View style={styles.kpiCol}>
-                    <Text style={styles.kpiValue}>
+                    <Text style={[styles.kpiValue, { color: '#30D158' }]}>
                       {activeExerciseProfile.allTimeBestWeight > 0
                         ? `${activeExerciseProfile.allTimeBestWeight} kg`
                         : 'BW'}
                     </Text>
-                    <Text style={styles.kpiLabel}>TOP LOAD</Text>
+                    <Text style={styles.kpiLabel}>ALL-TIME PR</Text>
+                  </View>
+
+                  <View style={styles.kpiCol}>
+                    <Text style={[styles.kpiValue, { color: '#A599FF' }]}>
+                      {Math.round(
+                        activeExerciseProfile.allTimeBestWeight *
+                          (1 + (activeExerciseProfile.allTimeBestReps || 1) / 30)
+                      )} kg
+                    </Text>
+                    <Text style={styles.kpiLabel}>EST. 1RM</Text>
+                  </View>
+
+                  <View style={styles.kpiCol}>
+                    <Text style={styles.kpiValue}>
+                      {activeExerciseProfile.sessions.length > 0
+                        ? `${activeExerciseProfile.sessions[activeExerciseProfile.sessions.length - 1].topWeight}kg`
+                        : '—'}
+                    </Text>
+                    <Text style={styles.kpiLabel}>LAST LOAD</Text>
                   </View>
 
                   <View style={styles.kpiCol}>
                     <Text style={styles.kpiValue}>{activeExerciseProfile.totalSessions}</Text>
                     <Text style={styles.kpiLabel}>SESSIONS</Text>
                   </View>
-
-                  <View style={styles.kpiCol}>
-                    <Text style={styles.kpiValue}>
-                      {activeExerciseProfile.allTimeBestVolume >= 1000
-                        ? `${(activeExerciseProfile.allTimeBestVolume / 1000).toFixed(1)}k`
-                        : activeExerciseProfile.allTimeBestVolume}
-                    </Text>
-                    <Text style={styles.kpiLabel}>MAX VOL</Text>
-                  </View>
                 </View>
               </View>
 
               {/* Progression / Plateau Status Box */}
               <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
-                <Text style={styles.cardSectionLabel}>PROGRESSION AUDIT</Text>
+                <View style={styles.cardHeaderRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cardSectionLabel}>PROGRESSION AUDIT</Text>
+                    <Text style={styles.cardSubLabel}>Double progression audit & overload adaptation</Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      {
+                        backgroundColor:
+                          activeExerciseProfile.progressionStatus.status === 'progressing'
+                            ? 'rgba(48, 209, 88, 0.15)'
+                            : activeExerciseProfile.progressionStatus.status === 'stalled'
+                            ? 'rgba(255, 159, 10, 0.15)'
+                            : 'rgba(142, 142, 147, 0.12)',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.statusBadgeText,
+                        {
+                          color:
+                            activeExerciseProfile.progressionStatus.status === 'progressing'
+                              ? '#30D158'
+                              : activeExerciseProfile.progressionStatus.status === 'stalled'
+                              ? '#FF9F0A'
+                              : '#8E8E93',
+                        },
+                      ]}
+                    >
+                      {activeExerciseProfile.progressionStatus.status.toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
 
                 <View style={styles.statusRow}>
                   <View
@@ -753,7 +1343,19 @@ export default function GymHistoryScreen() {
                 )}
 
                 {/* SVG Bezier Curve */}
-                {curveCoords.length >= 2 ? (
+                {!isHeavyReady ? (
+                  <View
+                    style={{
+                      width: safeChartWidth,
+                      height: CHART_H,
+                      backgroundColor: elevatedBg,
+                      borderRadius: 8,
+                      opacity: 0.25,
+                      alignSelf: 'center',
+                      marginTop: 10,
+                    }}
+                  />
+                ) : curveCoords.length >= 2 ? (
                   <View style={{ alignItems: 'center', marginTop: 10 }}>
                     <Svg width={safeChartWidth} height={CHART_H}>
                       <Defs>
@@ -848,225 +1450,27 @@ export default function GymHistoryScreen() {
               </View>
             </>
           ) : (
-            <View style={[styles.insetCard, { backgroundColor: cardBg, alignItems: 'center', paddingVertical: 28 }]}>
-              <Ionicons name="barbell-outline" size={32} color="#8E8E93" />
-              <Text style={styles.emptyTitle}>No Exercises Found</Text>
-              <Text style={styles.emptyNote}>Log workouts in the Today tab to generate exercise history.</Text>
-            </View>
-          )}
-
-        </ScrollView>
-      )}
-
-      {/* ════════════════════════════════════════════════════════════════════════
-          PART 3: 📜 LOGS (Comprehensive Workout Diary)
-         ════════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'logs' && (
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-
-          {/* Search Input Bar */}
-          <View style={[styles.searchBar, { backgroundColor: cardBg }]}>
-            <Ionicons name="search" size={15} color="#8E8E93" style={{ marginRight: 8 }} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search by split, exercise, or notes..."
-              placeholderTextColor="#8E8E93"
-              value={logsSearchQuery}
-              onChangeText={setLogsSearchQuery}
-            />
-            {logsSearchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setLogsSearchQuery('')}>
-                <Ionicons name="close-circle" size={16} color="#8E8E93" />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Split Filter Horizontal Scroll */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.horizontalChipsScroll}
-          >
-            {(['All', 'Push', 'Pull', 'Legs', 'Upper', 'Lower', 'Cardio'] as SplitFilter[]).map(f => {
-              const isSel = splitFilter === f;
-              return (
-                <TouchableOpacity
-                  key={f}
-                  onPress={() => {
-                    hapticLight();
-                    setSplitFilter(f);
-                  }}
-                  style={[styles.splitFilterBtn, isSel ? styles.splitFilterBtnActive : styles.splitFilterBtnInactive]}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.splitFilterText,
-                      isSel ? styles.splitFilterTextActive : styles.splitFilterTextInactive,
-                    ]}
-                  >
-                    {f}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
-          {/* Past Sessions List */}
-          <View style={styles.logsCountHeader}>
-            <Text style={styles.cardSectionLabel}>PAST WORKOUTS ({filteredDetailedLogs.length})</Text>
-          </View>
-
-          {displayedDetailedLogs.length === 0 ? (
             <View style={[styles.insetCard, { backgroundColor: cardBg, alignItems: 'center', paddingVertical: 32 }]}>
-              <Ionicons name="calendar-outline" size={32} color="#8E8E93" />
-              <Text style={styles.emptyTitle}>No Workouts Match Filter</Text>
-              <Text style={styles.emptyNote}>Try adjusting your split filters or search keyword.</Text>
-            </View>
-          ) : (
-            <View style={{ gap: 10 }}>
-              {displayedDetailedLogs.map(session => (
-                <View key={session.id} style={[styles.sessionCard, { backgroundColor: cardBg }]}>
-                  {/* Session Header */}
-                  <View style={styles.sessionHeaderRow}>
-                    <View style={{ flex: 1, paddingRight: 8 }}>
-                      <Text style={styles.sessionSplitTag}>{session.splitTag.toUpperCase()}</Text>
-                      <Text style={styles.sessionDateText}>{session.formattedDate}</Text>
-                    </View>
-
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={styles.sessionSummaryMetrics}>
-                        {session.durationMinutes > 0 ? `${session.durationMinutes}m · ` : ''}
-                        {formatVol(session.totalVolumeKg)}
-                      </Text>
-                      <Text style={styles.sessionSubMetrics}>
-                        {session.totalSets} working sets · {session.exerciseCount} exercises
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={[styles.hairline, { backgroundColor: hairlineColor }]} />
-
-                  {/* Exercises & Working Sets Preview */}
-                  <View style={{ gap: 5, paddingVertical: 4 }}>
-                    {session.exercises.slice(0, 5).map((ex, i) => (
-                      <View key={`${ex.name}-${i}`} style={styles.sessExRow}>
-                        <Text style={styles.sessExDot}>•</Text>
-                        <Text style={styles.sessExName} numberOfLines={1}>
-                          {ex.name}:{' '}
-                          <Text style={styles.sessExSetsText}>{ex.summaryText}</Text>
-                        </Text>
-                      </View>
-                    ))}
-
-                    {session.exercises.length > 5 && (
-                      <Text style={styles.sessMoreExText}>
-                        + {session.exercises.length - 5} more exercise
-                        {session.exercises.length - 5 === 1 ? '' : 's'}
-                      </Text>
-                    )}
-                  </View>
-
-                  {/* Cardio Preview (if present) */}
-                  {session.cardio.length > 0 && (
-                    <View style={styles.sessCardioWrap}>
-                      {session.cardio.map((c, i) => (
-                        <Text key={i} style={styles.sessCardioText}>
-                          🏃 {c.type}: {c.durationMinutes ? `${c.durationMinutes}m` : ''}
-                          {c.distanceKm ? ` · ${c.distanceKm} km` : ''}
-                          {c.calories ? ` · ${c.calories} kcal` : ''}
-                        </Text>
-                      ))}
-                    </View>
-                  )}
-
-                  {/* Notes Preview (if present) */}
-                  {session.notes ? (
-                    <Text style={styles.sessNotesText} numberOfLines={2}>
-                      📝 {session.notes}
-                    </Text>
-                  ) : null}
-
-                  <View style={[styles.hairline, { backgroundColor: hairlineColor }]} />
-
-                  {/* Footer Actions */}
-                  <View style={styles.sessionFooterRow}>
-                    <TouchableOpacity
-                      onPress={() => handleRepeatWorkout(session.date)}
-                      style={styles.repeatBtn}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="repeat" size={13} color="#000000" />
-                      <Text style={styles.repeatBtnText}>Repeat Workout</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      onPress={() => handleOpenWorkoutSummary(session.date)}
-                      style={styles.detailsBtn}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.detailsBtnText}>Details</Text>
-                      <Ionicons name="chevron-forward" size={13} color="#8E8E93" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
-
-              {filteredDetailedLogs.length > visibleLogsCount && (
-                <TouchableOpacity
-                  onPress={() => {
-                    hapticSelection();
-                    setVisibleLogsCount(prev => prev + 25);
-                  }}
-                  style={[styles.loadMoreBtn, { backgroundColor: cardBg }]}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.loadMoreBtnText}>
-                    Show More ({filteredDetailedLogs.length - visibleLogsCount} remaining)
-                  </Text>
-                  <Ionicons name="chevron-down" size={14} color="#FFFFFF" />
-                </TouchableOpacity>
-              )}
+              <Ionicons name="barbell-outline" size={36} color="#8E8E93" />
+              <Text style={styles.emptyTitle}>No Exercises Found</Text>
+              <Text style={styles.emptyNote}>
+                Log your working sets in the Today tab to automatically unlock strength curves, personal records (PRs), and estimated 1RMs.
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  hapticMedium();
+                  navigation.navigate('Today');
+                }}
+                activeOpacity={0.8}
+                style={[styles.startTodayWorkoutBtn, { marginTop: 14 }]}
+              >
+                <Ionicons name="play" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.startTodayWorkoutBtnText}>Go to Today's Workout</Text>
+              </TouchableOpacity>
             </View>
           )}
 
         </ScrollView>
-      )}
-
-      {/* ── Weekly Training Report Modal ── */}
-      {showWeeklyReportModal && (
-        <Modal
-          visible={showWeeklyReportModal}
-          animationType="slide"
-          onRequestClose={() => setShowWeeklyReportModal(false)}
-        >
-          <SafeAreaView style={{ flex: 1, backgroundColor: '#000000' }}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Weekly Training Report</Text>
-              <TouchableOpacity
-                onPress={() => setShowWeeklyReportModal(false)}
-                style={styles.modalCloseBtn}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="close" size={20} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={{ paddingBottom: 100 }}
-              showsVerticalScrollIndicator={true}
-              nestedScrollEnabled={true}
-              bounces={true}
-            >
-              <WeeklyGymReport
-                gymLogs={gymLogs || []}
-                weekAnchorDate={todayStr()}
-                userGymPlan={userGymPlan}
-              />
-            </ScrollView>
-          </SafeAreaView>
-        </Modal>
       )}
     </SafeAreaView>
   );
@@ -1592,7 +1996,422 @@ const styles = StyleSheet.create({
     fontFamily: FONT_FAMILY.bold,
     color: '#FFFFFF',
   },
+  modalSubtitle: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+    marginTop: 2,
+  },
   modalCloseBtn: {
     padding: 4,
+  },
+
+  // ── Consistency & Status Badges ──
+  streakBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 159, 10, 0.15)',
+  },
+  streakBadgeText: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FF9F0A',
+  },
+  workloadBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    alignSelf: 'center',
+  },
+  workloadBadgeText: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.bold,
+    letterSpacing: 0.3,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusBadgeText: {
+    fontSize: 9.5,
+    fontFamily: FONT_FAMILY.bold,
+    letterSpacing: 0.5,
+  },
+
+  // ── Progressive Overload Scorecard ──
+  overloadRateBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(48, 209, 88, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  overloadRateBadgeText: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#30D158',
+  },
+  scorecardGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    paddingTop: 6,
+  },
+  scorecardItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  scorecardVal: {
+    fontSize: 18,
+    fontFamily: FONT_FAMILY.bold,
+    letterSpacing: -0.3,
+  },
+  scorecardLabel: {
+    fontSize: 9,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#8E8E93',
+    letterSpacing: 0.5,
+    marginTop: 3,
+    textAlign: 'center',
+  },
+
+  // ── Anchor Lifts Big-3 Cards ──
+  anchorLiftsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  anchorLiftCard: {
+    flex: 1,
+    padding: 10,
+    borderRadius: 12,
+    gap: 2,
+  },
+  anchorLiftCategory: {
+    fontSize: 9.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#8E8E93',
+    letterSpacing: 0.5,
+  },
+  anchorLiftName: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  anchorLiftStat: {
+    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#30D158',
+    marginTop: 2,
+  },
+  anchorLiftE1RM: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+  },
+
+  // ── Week Navigator Styles ──
+  weekNavigatorCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 16,
+  },
+  weekNavArrowBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weekNavCenterBlock: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+    paddingHorizontal: 8,
+  },
+  weekNavTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  weekNavTitleText: {
+    fontSize: 14,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  currentWeekTag: {
+    marginLeft: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: 'rgba(165, 153, 255, 0.16)',
+  },
+  currentWeekTagText: {
+    fontSize: 9.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#A599FF',
+    letterSpacing: 0.5,
+  },
+  weekNavJumpTodayText: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#0A84FF',
+    marginTop: 2,
+  },
+
+  // ── Blueprint Zero-State Styles ──
+  blueprintCard: {
+    padding: 16,
+    borderRadius: 18,
+    gap: 12,
+  },
+  blueprintHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  blueprintIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(10, 132, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  blueprintTitle: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  blueprintSubtitle: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#8E8E93',
+    marginTop: 2,
+  },
+  blueprintStatusTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: 'rgba(48, 209, 88, 0.15)',
+  },
+  blueprintStatusTagText: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#30D158',
+    letterSpacing: 0.5,
+  },
+  blueprintMusclesSection: {
+    gap: 6,
+  },
+  blueprintSectionLabel: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#8E8E93',
+    letterSpacing: 0.6,
+  },
+  blueprintMusclesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  blueprintMusclePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    gap: 6,
+  },
+  blueprintMusclePillName: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#FFFFFF',
+  },
+  blueprintMusclePillSets: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#A599FF',
+  },
+  blueprintDivider: {
+    height: 1,
+    backgroundColor: 'rgba(84, 84, 88, 0.25)',
+    marginVertical: 2,
+  },
+  blueprintTodaySpotlight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  blueprintTodaySub: {
+    fontSize: 9.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#0A84FF',
+    letterSpacing: 0.5,
+  },
+  blueprintTodayName: {
+    fontSize: 14,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+    marginTop: 2,
+  },
+  blueprintTodayFocus: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#8E8E93',
+    marginTop: 1,
+  },
+  blueprintRestBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(48, 209, 88, 0.12)',
+  },
+  blueprintRestBadgeText: {
+    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#30D158',
+  },
+  startTodayWorkoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#0A84FF',
+  },
+  startTodayWorkoutBtnText: {
+    fontSize: 13,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  startGeneralWorkoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#0A84FF',
+  },
+  startGeneralWorkoutBtnText: {
+    fontSize: 13.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  emptyPastWeekCard: {
+    padding: 28,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  emptyPastWeekTitle: {
+    fontSize: 15,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  emptyPastWeekSub: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#8E8E93',
+    textAlign: 'center',
+    maxWidth: 260,
+  },
+  returnCurrentWeekBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(10, 132, 255, 0.12)',
+    marginTop: 6,
+  },
+  returnCurrentWeekBtnText: {
+    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#0A84FF',
+  },
+
+  // ── Weekly Sessions List Styles ──
+  weekSessionsCard: {
+    padding: 14,
+    borderRadius: 18,
+    gap: 10,
+  },
+  weekSessionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(84, 84, 88, 0.2)',
+  },
+  weekSessionDateBadge: {
+    width: 44,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  weekSessionDateDay: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#8E8E93',
+  },
+  weekSessionDateNum: {
+    fontSize: 13,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  weekSessionMain: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  weekSessionTitle: {
+    fontSize: 13.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  weekSessionSub: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#8E8E93',
+    marginTop: 2,
+  },
+  weekSessionRight: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  weekSessionVol: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#30D158',
+  },
+  weekSessionDetailsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+    gap: 2,
+  },
+  weekSessionDetailsText: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#0A84FF',
   },
 });

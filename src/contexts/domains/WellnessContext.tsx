@@ -14,12 +14,12 @@ import { InteractionManager, DeviceEventEmitter, unstable_batchedUpdates, AppSta
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { db, auth } from "../../services/firebase";
 import { COLLECTION } from "../../config/constants";
-import { UserGymPlanDoc, GymPlanDay, GymRoutine, GymRoutineFolder } from "../../types/gym.types";
+import { UserGymPlanDoc, GymPlanDay, GymRoutine, GymRoutineFolder, UserGymProgramme } from "../../types/gym.types";
 import type { GymLog } from "../../types/gym.types";
 import type { WaterLog, SleepLog, WeightLog } from "../../types/legacy.types";
 import { GYM_PLAN_ARNOLD, GYM_PLAN_PPL } from "../../data/gymPlan";
 import { writeWellnessCache, readWellnessCache } from "../../utils/domainCache";
-import { loadBootManifest, getBootManifestSync, updateL1Cache, setL1Sync } from "../../utils/bootManifest";
+import { loadBootManifest, getBootManifestSync, updateL1Cache, setL1Sync, getL1Sync } from "../../utils/bootManifest";
 import { parseGymLog, areItemsEqual } from "../../utils/schemaGuards";
 import { mergeGymLogMonotonic, getCanonicalExerciseName, resolveExerciseTargetMuscle } from "../../utils/gymUtils";
 import { formatLocalDateStr, offsetDateStr } from "../../utils/dateUtils";
@@ -102,6 +102,8 @@ export interface GymPlanContextType {
   deleteCustomRoutine: (routineId: string) => Promise<void>;
   assignRoutineToDay: (dayIndex: number, routineId?: string, routine?: GymRoutine) => Promise<void>;
   saveRoutineFolders: (folders: GymRoutineFolder[]) => Promise<void>;
+  setScheduleMode?: (mode: 'calendar' | 'rotation') => Promise<void>;
+  setActiveProgramme?: (programme: UserGymProgramme | null) => Promise<void>;
 }
 
 export interface BodyMetricsContextType {
@@ -132,6 +134,7 @@ const DEFAULT_WELLNESS_DATA: WellnessContextType = {
   deleteCustomRoutine: async () => {},
   assignRoutineToDay: async () => {},
   saveRoutineFolders: async () => {},
+  setScheduleMode: async () => {},
   ensureSubscribed: () => {},
   optimisticAddGymLog: () => {},
   optimisticUpdateGymLog: () => {},
@@ -173,6 +176,8 @@ export function useGymPlan(): GymPlanContextType {
       deleteCustomRoutine: DEFAULT_WELLNESS_DATA.deleteCustomRoutine,
       assignRoutineToDay: DEFAULT_WELLNESS_DATA.assignRoutineToDay,
       saveRoutineFolders: DEFAULT_WELLNESS_DATA.saveRoutineFolders,
+      setScheduleMode: DEFAULT_WELLNESS_DATA.setScheduleMode,
+      setActiveProgramme: DEFAULT_WELLNESS_DATA.setActiveProgramme,
     };
   }
   return ctx;
@@ -275,12 +280,16 @@ export function WellnessProvider({
   // ── Offline-first boot: seed from boot manifest L1 cache in parallel ───────
   useEffect(() => {
     let isCancelled = false;
-    loadBootManifest().then(manifest => {
+    loadBootManifest().then(async manifest => {
       if (isCancelled || !manifest) return;
+
+      let incomingGymLogs = (manifest.gymLogs ?? []).filter(l => !l.isSampleData && !l.id?.startsWith('sample_'));
+      let incomingWeightLogs = (manifest.weightLogs ?? []).filter(w => !(w as any).isSampleData && !w.id?.startsWith('sample_'));
+
       unstable_batchedUpdates(() => {
         let seeded = false;
-        if ((manifest.gymLogs?.length ?? 0) > 0) {
-          setGymLogs(prev => prev.length === 0 ? manifest.gymLogs : prev);
+        if (incomingGymLogs.length > 0) {
+          setGymLogs(incomingGymLogs);
           seeded = true;
         }
         if (manifest.userGymPlan) {
@@ -296,8 +305,8 @@ export function WellnessProvider({
           setSleepLogs(prev => prev.length === 0 ? manifest.sleepLogs : prev);
           seeded = true;
         }
-        if ((manifest.weightLogs?.length ?? 0) > 0) {
-          setWeightLogs(prev => prev.length === 0 ? manifest.weightLogs : prev);
+        if (incomingWeightLogs.length > 0) {
+          setWeightLogs(incomingWeightLogs);
           seeded = true;
         }
         if (seeded) hasCachedDataRef.current = true;
@@ -334,9 +343,23 @@ export function WellnessProvider({
       }
     });
 
+    // Direct event listener for instant sample data population or clearing
+    const gymLogsChangeSub = DeviceEventEmitter.addListener('gym_logs_changed', (payload?: { gymLogs?: GymLog[]; weightLogs?: WeightLog[] }) => {
+      unstable_batchedUpdates(() => {
+        if (payload?.gymLogs) {
+          setGymLogs(payload.gymLogs);
+          gymLogsRef.current = payload.gymLogs;
+        }
+        if (payload?.weightLogs) {
+          setWeightLogs(payload.weightLogs);
+        }
+      });
+    });
+
     return () => {
       widgetSub.remove();
       appStateSub.remove();
+      gymLogsChangeSub.remove();
     };
   }, []);
 
@@ -556,6 +579,7 @@ export function WellnessProvider({
       schemaVersion: 2,
       templateId: currentPlan?.templateId,
       schedulePattern: currentPlan?.schedulePattern,
+      scheduleMode: currentPlan?.scheduleMode,
       routines: currentPlan?.routines || {},
       customDays: newCustomDays,
       updatedAt: now,
@@ -569,6 +593,66 @@ export function WellnessProvider({
     if (user) {
       const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
       const payload = { userId: user.uid, customDays: newCustomDays, updatedAt: now };
+      await safeWrite(
+        () => setDoc(docRef, payload, { merge: true }),
+        COLLECTION.USER_GYM_PLANS,
+        'set',
+        payload,
+        user.uid
+      );
+    }
+  }, [user?.uid]);
+
+  const setScheduleMode = useCallback(async (mode: 'calendar' | 'rotation') => {
+    const userId = user?.uid || 'local_user';
+    const currentPlan = userGymPlanRef.current;
+    const now = Date.now();
+    const updatedPlan: UserGymPlanDoc = {
+      ...(currentPlan || { userId, customDays: {} }),
+      id: userId,
+      userId,
+      scheduleMode: mode,
+      updatedAt: now,
+    };
+    userGymPlanRef.current = updatedPlan;
+    updateL1Cache('userGymPlan', updatedPlan);
+    setUserGymPlan(updatedPlan);
+    InteractionManager.runAfterInteractions(() => {
+      writeWellnessCache({ userGymPlan: updatedPlan }, false);
+    });
+    if (user) {
+      const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
+      const payload = { userId: user.uid, scheduleMode: mode, updatedAt: now };
+      await safeWrite(
+        () => setDoc(docRef, payload, { merge: true }),
+        COLLECTION.USER_GYM_PLANS,
+        'set',
+        payload,
+        user.uid
+      );
+    }
+  }, [user?.uid]);
+
+  const setActiveProgramme = useCallback(async (programme: UserGymProgramme | null) => {
+    const userId = user?.uid || 'local_user';
+    const currentPlan = userGymPlanRef.current;
+    const now = Date.now();
+    const updatedPlan: UserGymPlanDoc = {
+      ...(currentPlan || { userId, customDays: {} }),
+      id: userId,
+      userId,
+      activeProgramme: programme,
+      updatedAt: now,
+    };
+    userGymPlanRef.current = updatedPlan;
+    updateL1Cache('userGymPlan', updatedPlan);
+    setUserGymPlan(updatedPlan);
+    InteractionManager.runAfterInteractions(() => {
+      writeWellnessCache({ userGymPlan: updatedPlan }, false);
+    });
+    if (user) {
+      const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
+      const payload = { userId: user.uid, activeProgramme: programme, updatedAt: now };
       await safeWrite(
         () => setDoc(docRef, payload, { merge: true }),
         COLLECTION.USER_GYM_PLANS,
@@ -655,10 +739,17 @@ export function WellnessProvider({
       newCustomDays[6] = { ...workoutDays[4], dayIndex: 6, isRest: false };
       newCustomDays[7] = { ...restDayTemplate, dayIndex: 7, isRest: true, exercises: [] };
     } else if (schedulePattern === 'mon_fri') {
-      workoutDays.slice(0, 5).forEach((d, idx) => {
-        newCustomDays[idx + 1] = { ...d, dayIndex: idx + 1, isRest: false };
+      workoutDays.forEach((d, idx) => {
+        if (idx < 5) {
+          newCustomDays[idx + 1] = { ...d, dayIndex: idx + 1, isRest: false };
+        } else if (idx === 5) {
+          // Keep day 6 on Saturday rather than silently deleting it
+          newCustomDays[6] = { ...d, dayIndex: 6, isRest: false };
+        }
       });
-      newCustomDays[6] = { ...restDayTemplate, dayIndex: 6, isRest: true, exercises: [] };
+      if (!newCustomDays[6]) {
+        newCustomDays[6] = { ...restDayTemplate, dayIndex: 6, isRest: true, exercises: [] };
+      }
       newCustomDays[7] = { ...restDayTemplate, dayIndex: 7, isRest: true, exercises: [] };
     }
 
@@ -707,9 +798,11 @@ export function WellnessProvider({
         const next = prev.filter(l => {
           if (!weekDates.includes(l.date)) return true;
           const hasLoggedSets = (l.exercises || []).some((ex: any) =>
-            (ex.setsLog || []).some((s: any) => s.completed || (s.weight != null && Number(s.weight) > 0) || (s.reps != null && Number(s.reps) > 0))
+            (ex.setsLog || []).some((s: any) => s.completed || (s.weight != null && Number(s.weight) >= 0) || (s.reps != null && Number(s.reps) > 0))
           );
-          return l.completed || l.workoutStartTime || hasLoggedSets;
+          const hasCardio = Array.isArray(l.cardio) && l.cardio.length > 0;
+          const hasNotes = Boolean(l.notes && l.notes.trim());
+          return l.completed || l.workoutStartTime || hasLoggedSets || hasCardio || hasNotes;
         });
         updateL1Cache('gymLogs', next);
         writeWellnessCache({ gymLogs: next }, true);
@@ -1184,6 +1277,8 @@ export function WellnessProvider({
     deleteCustomRoutine,
     assignRoutineToDay,
     saveRoutineFolders,
+    setScheduleMode,
+    setActiveProgramme,
   }), [
     userGymPlan,
     updateMasterPlan,
@@ -1193,6 +1288,8 @@ export function WellnessProvider({
     deleteCustomRoutine,
     assignRoutineToDay,
     saveRoutineFolders,
+    setScheduleMode,
+    setActiveProgramme,
   ]);
 
   const bodyMetricsValue = useMemo<BodyMetricsContextType>(() => ({

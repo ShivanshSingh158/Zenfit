@@ -447,7 +447,7 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
           activeOpacity={0.8}
         >
           <Text style={[styles.segBtnText, mode === 'volume' && [styles.segBtnTextActive, dynamicStyles.segBtnTextActive]]} numberOfLines={1}>
-            Volume
+            Coverage
           </Text>
         </TouchableOpacity>
 
@@ -477,13 +477,13 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
 
         {mode === 'volume' && (
           <Text style={styles.overviewStripText} numberOfLines={1}>
-            {volumeSummary.optimalCount > 0 ? `${volumeSummary.optimalCount} muscles in Growth Zone` : '0 muscles in Growth Zone'} · {volumeSummary.totalSetsSum} total sets done this week
+            {volumeSummary.optimalCount} Muscles Stimulated · {volumeSummary.totalSetsSum} Sets This Week
           </Text>
         )}
 
         {mode === 'balance' && (
           <Text style={styles.overviewStripText} numberOfLines={1}>
-            Pull vs Push: {balanceSummary.pushPullRatio}x · {balanceSummary.laggingCount > 0 ? `🔴 ${balanceSummary.laggingCount} Falling Behind` : '🟢 Well Balanced'}
+            Pull vs Push: {balanceSummary.pushPullRatio}x · {balanceSummary.laggingCount > 0 ? `🔴 ${balanceSummary.laggingCount} Imbalanced` : '🟢 Balanced'}
           </Text>
         )}
       </View>
@@ -572,13 +572,21 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
                     </Text>
                   </View>
 
-                  <Text style={styles.inspectorMetaText} numberOfLines={1} ellipsizeMode="tail">
+                  <Text style={styles.inspectorMetaText}>
                     {selectedData.weeklyRecovery?.lastTrainedDaysAgo != null
                       ? `Last trained: ${
                           selectedData.weeklyRecovery.lastTrainedDaysAgo === 0
                             ? 'Today'
+                            : selectedData.weeklyRecovery.lastTrainedDaysAgo === 1
+                            ? 'Yesterday'
                             : `${selectedData.weeklyRecovery.lastTrainedDaysAgo} days ago`
-                        } (${selectedData.weeklyRecovery.totalSets} completed ${selectedData.weeklyRecovery.totalSets === 1 ? 'set' : 'sets'} this week).`
+                        }${
+                          (selectedData.weeklyRecovery.totalSets || 0) > 0
+                            ? ` (${selectedData.weeklyRecovery.totalSets} completed ${
+                                selectedData.weeklyRecovery.totalSets === 1 ? 'set' : 'sets'
+                              } this week)`
+                            : ''
+                        }.`
                       : 'No sets logged for this muscle this week.'}
                   </Text>
                 </View>
@@ -595,11 +603,9 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
                   <View style={styles.inspectorMetricRow}>
                     <Text style={styles.inspectorStatusLabel}>Weekly Volume:</Text>
                     <Text
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
                       style={[styles.inspectorCountdownVal, { color: landmark.tierColor }]}
                     >
-                      {selectedData.weeklySets === 1 ? '1 set' : `${selectedData.weeklySets} sets`} · {landmark.tierLabel}
+                      {selectedData.weeklySets === 1 ? '1 set' : `${selectedData.weeklySets} sets`} · {landmark.tierLabel.replace(/\s*\(\d+\s*sets\)/i, '')}
                     </Text>
                   </View>
 
@@ -614,12 +620,9 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
                       />
                     </View>
                     <View style={styles.landmarkTicksRow}>
-                      <Text style={styles.landmarkTickText}>0</Text>
-                      <Text style={[styles.landmarkTickText, selectedData.weeklySets >= 6 && { color: '#64D2FF' }]}>
-                        Maintain (6)
-                      </Text>
+                      <Text style={styles.landmarkTickText}>0 (Untrained)</Text>
                       <Text style={[styles.landmarkTickText, selectedData.weeklySets >= 10 && selectedData.weeklySets <= 16 && { color: '#30D158' }]}>
-                        Growth Zone (10–16)
+                        Growth (10–16)
                       </Text>
                       <Text style={[styles.landmarkTickText, selectedData.weeklySets >= 20 && { color: '#FF9F0A' }]}>
                         Overworked (20+)
@@ -799,92 +802,41 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
         </Text>
       )}
 
-      {/* ── Mode 1 (Recovery): Daily Training Recommendation Banner ────────── */}
-      {mode === 'fatigue' && (
-        <View style={[styles.dailyRecCard, dynamicStyles.dailyRecCard]}>
-          {/* Prime for Today */}
-          <View style={styles.dailyRecSection}>
-            <View style={styles.dailyRecHeader}>
-              <View style={[styles.statusDot, { backgroundColor: '#30D158' }]} />
-              <Text style={styles.dailyRecTitle}>READY TO TRAIN TODAY</Text>
+      {/* ── Mode 1 (Recovery): Clean Active Tissue Status Strip ────────── */}
+      {mode === 'fatigue' && !selectedData && (
+        <View style={[styles.dailyRecCard, dynamicStyles.dailyRecCard, { paddingVertical: 10, paddingHorizontal: 12 }]}>
+          {recoveryRecs.restPriority.length > 0 ? (
+            <View style={{ gap: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={[styles.statusDot, { backgroundColor: '#FF9F0A' }]} />
+                <Text style={[styles.dailyRecTitle, { fontSize: 11 }]}>RECOVERING TISSUE</Text>
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {recoveryRecs.restPriority.slice(0, 4).map(m => (
+                  <View
+                    key={m.slug}
+                    style={{
+                      backgroundColor: 'rgba(255, 159, 10, 0.12)',
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                      borderRadius: 6,
+                      borderWidth: 1,
+                      borderColor: 'rgba(255, 159, 10, 0.25)',
+                    }}
+                  >
+                    <Text style={{ fontFamily: FONT_FAMILY.medium, fontSize: 11, color: '#FF9F0A' }}>
+                      {m.name} (~{m.estimatedHours}h)
+                    </Text>
+                  </View>
+                ))}
+              </View>
             </View>
-            {recoveryRecs.primeToTrain.length > 0 ? (
-              <View style={styles.recChipsWrap}>
-                {recoveryRecs.primeToTrain.slice(0, 5).map(m => {
-                  const isSel = selectedMuscle === m.slug;
-                  return (
-                    <TouchableOpacity
-                      key={`prime-${m.slug}`}
-                      style={[styles.primeChip, isSel && styles.primeChipSelected]}
-                      onPress={() => handleMusclePress(m.slug)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.primeChipText, isSel && styles.chipTextSelected]}>
-                        {m.name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            ) : (
-              <Text style={styles.dailyRecEmpty}>
-                Most of your muscles are still recovering. Take a rest day or do light cardio.
+          ) : (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={[styles.statusDot, { backgroundColor: '#30D158' }]} />
+              <Text style={{ fontFamily: FONT_FAMILY.medium, fontSize: 12, color: '#30D158' }}>
+                All 18 muscle groups are 100% recovered and prime for heavy lifting.
               </Text>
-            )}
-          </View>
-
-          {/* Rest Priority */}
-          {recoveryRecs.restPriority.length > 0 && (
-            <View style={[styles.dailyRecSection, { marginTop: 8 }]}>
-              <View style={styles.dailyRecHeader}>
-                <View
-                  style={[
-                    styles.statusDot,
-                    {
-                      backgroundColor: recoveryRecs.restPriority.some(m => m.state === 'fatigued')
-                        ? '#FF453A'
-                        : '#FF9F0A',
-                    },
-                  ]}
-                />
-                <Text style={styles.dailyRecTitle}>
-                  RESTING & RECOVERING
-                </Text>
-              </View>
-              <View style={styles.recChipsWrap}>
-                {recoveryRecs.restPriority.slice(0, 4).map(m => {
-                  const isSel = selectedMuscle === m.slug;
-                  const isFatigued = m.state === 'fatigued';
-                  return (
-                    <TouchableOpacity
-                      key={`rest-${m.slug}`}
-                      style={[
-                        styles.restChip,
-                        !isFatigued && {
-                          backgroundColor: 'rgba(255, 159, 10, 0.12)',
-                          borderColor: 'rgba(255, 159, 10, 0.3)',
-                        },
-                        isSel &&
-                          (isFatigued
-                            ? styles.restChipSelected
-                            : { backgroundColor: '#FF9F0A', borderColor: '#FF9F0A' }),
-                      ]}
-                      onPress={() => handleMusclePress(m.slug)}
-                      activeOpacity={0.7}
-                    >
-                      <Text
-                        style={[
-                          styles.restChipText,
-                          !isFatigued && { color: '#FF9F0A' },
-                          isSel && styles.chipTextSelected,
-                        ]}
-                      >
-                        {m.name} (~{m.estimatedHours}h left)
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
             </View>
           )}
         </View>
@@ -1013,77 +965,21 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
         </View>
       )}
 
-      {/* ── Educational Guide: What This Tells You & Good vs Bad ───────────── */}
-      <View style={[styles.guideCard, dynamicStyles.guideCard]}>
-        <View style={styles.guideHeaderRow}>
-          <Ionicons name="information-circle-outline" size={15} color="#8E8E93" />
-          <Text style={styles.guideHeaderTitle}>
-            {mode === 'fatigue'
-              ? 'HOW RECOVERY WORKS'
-              : mode === 'volume'
-              ? 'HOW WEEKLY SETS WORK'
-              : 'WHY MUSCLE BALANCE MATTERS'}
-          </Text>
-        </View>
-
-        {mode === 'fatigue' && (
-          <View style={styles.guideBullets}>
-            <Text style={styles.guideBulletText}>
-              • <Text style={[styles.guideBold, dynamicStyles.guideBold]}>Recovery Timer:</Text> Estimates how many hours until a muscle is back at 100% strength based on how hard you trained it.
-            </Text>
-            <Text style={styles.guideBulletText}>
-              • <Text style={[styles.guideBold, { color: '#30D158' }]}>🟢 Ready to Train:</Text> 100% fresh. Best muscles to train heavy today.
-            </Text>
-            <Text style={styles.guideBulletText}>
-              • <Text style={[styles.guideBold, { color: '#FF453A' }]}>🔴 Needs Rest:</Text> Still repairing from a recent workout. Training it too early slows down muscle growth.
-            </Text>
-          </View>
-        )}
-
-        {mode === 'volume' && (
-          <View style={styles.guideBullets}>
-            <Text style={styles.guideBulletText}>
-              • <Text style={[styles.guideBold, dynamicStyles.guideBold]}>Weekly Goal:</Text> Aim for <Text style={[styles.guideBold, { color: '#30D158' }]}>10 to 16 sets per week</Text> (the Growth Zone) on major muscles for the fastest results.
-            </Text>
-            <Text style={styles.guideBulletText}>
-              • <Text style={[styles.guideBold, { color: '#A599FF' }]}>Maintaining (6–9 sets):</Text> Enough to keep the muscle you already have, even on a busy week.
-            </Text>
-            <Text style={styles.guideBulletText}>
-              • <Text style={[styles.guideBold, { color: '#FF9F0A' }]}>Overworked (20+ sets):</Text> Doing more than 20 sets a week usually causes joint wear and exhaustion without extra growth.
-            </Text>
-          </View>
-        )}
-
-        {mode === 'balance' && (
-          <View style={styles.guideBullets}>
-            <Text style={styles.guideBulletText}>
-              • <Text style={[styles.guideBold, dynamicStyles.guideBold]}>Opposing Muscles:</Text> Your body works in pairs—Chest vs. Back, Quads vs. Hamstrings, and Biceps vs. Triceps.
-            </Text>
-            <Text style={styles.guideBulletText}>
-              • <Text style={[styles.guideBold, { color: '#FF453A' }]}>Injury Protection:</Text> Training one side way more than the other pulls your joints out of alignment (causing shoulder or knee pain).
-            </Text>
-            <Text style={styles.guideBulletText}>
-              • <Text style={[styles.guideBold, { color: '#30D158' }]}>1-Tap Fixes:</Text> Use the + Add or - Remove buttons above to balance your weekly workout plan in one tap.
-            </Text>
-          </View>
-        )}
-      </View>
-
       {/* ── Dynamic Legend Bar (Clean Apple Typography, No Pills) ─────────── */}
       <View style={styles.legendRow}>
         {mode === 'fatigue' && (
           <View style={styles.legendItemsWrap}>
             <View style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: '#30D158' }]} />
-              <Text style={styles.legendLabel}>Fresh (Train Hard)</Text>
+              <Text style={styles.legendLabel}>Fresh (Ready)</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: '#FF9F0A' }]} />
-              <Text style={styles.legendLabel}>Recovering (Go Light)</Text>
+              <Text style={styles.legendLabel}>Recovering</Text>
             </View>
             <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#FF453A' }]} />
-              <Text style={styles.legendLabel}>Needs Rest (Skip Today)</Text>
+              <View style={[styles.legendDot, { backgroundColor: '#545458' }]} />
+              <Text style={styles.legendLabel}>Rested</Text>
             </View>
           </View>
         )}
@@ -1092,23 +988,15 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
           <View style={styles.legendItemsWrap}>
             <View style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: '#30D158' }]} />
-              <Text style={styles.legendLabel}>Growth Zone (10–16)</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#64D2FF' }]} />
-              <Text style={styles.legendLabel}>Heavy Workload (17–20)</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#A599FF' }]} />
-              <Text style={styles.legendLabel}>Maintaining (6–9)</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#6D5FE0' }]} />
-              <Text style={styles.legendLabel}>Warming Up (1–5)</Text>
+              <Text style={styles.legendLabel}>Optimal (8–16 sets)</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: '#FF9F0A' }]} />
-              <Text style={styles.legendLabel}>Overworked (20+)</Text>
+              <Text style={styles.legendLabel}>Light (1–7 sets)</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: '#545458' }]} />
+              <Text style={styles.legendLabel}>Untrained</Text>
             </View>
           </View>
         )}

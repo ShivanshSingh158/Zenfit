@@ -14,8 +14,19 @@ import { dismissActiveWorkoutNotification } from './activeWorkoutNotificationSer
 
 const LIVE_WORKOUT_STORAGE_KEY = '@zenfit_widget_live_workout_data';
 
-// Safe no-op for Expo Go (Android home screen widgets are only active in bare native builds)
-const requestWidgetUpdate = async (_options: any): Promise<void> => {};
+let nativeRequestWidgetUpdate: any = null;
+try {
+  const mod = require('react-native-android-widget');
+  if (mod && typeof mod.requestWidgetUpdate === 'function') {
+    nativeRequestWidgetUpdate = mod.requestWidgetUpdate;
+  }
+} catch {}
+
+const requestWidgetUpdate = async (options: any): Promise<void> => {
+  if (typeof nativeRequestWidgetUpdate === 'function') {
+    return nativeRequestWidgetUpdate(options);
+  }
+};
 
 let _memoryCachedWorkoutData: LiveWorkoutWidgetData | null = null;
 let _lastWidgetUpdateTime = 0;
@@ -71,9 +82,9 @@ export function buildLiveWorkoutWidgetData({
 
   let rawExercises: any[] = [];
   if (Array.isArray(todayGym?.exercises) && todayGym.exercises.length > 0) {
-    rawExercises = todayGym.exercises;
+    rawExercises = todayGym.exercises.filter((ex: any) => !ex.skipped);
   } else if (Array.isArray(planDay?.exercises) && planDay.exercises.length > 0) {
-    rawExercises = planDay.exercises;
+    rawExercises = planDay.exercises.filter((ex: any) => !ex.skipped);
   }
 
   const allExercises = rawExercises.map((ex: any, idx: number) => {
@@ -81,17 +92,19 @@ export function buildLiveWorkoutWidgetData({
     const targetSetsCount = Array.isArray(rawSets) && rawSets.length > 0
       ? rawSets.length
       : Number(ex.targetSets) || 3;
+    const fallbackWeight = (ex.targetWeight !== undefined && ex.targetWeight !== null && !isNaN(Number(ex.targetWeight))) ? Number(ex.targetWeight) : 0;
+    const fallbackReps = (ex.targetReps !== undefined && ex.targetReps !== null && !isNaN(Number(ex.targetReps))) ? Number(ex.targetReps) : 10;
     const sets = Array.isArray(rawSets) && rawSets.length > 0
       ? rawSets.map((s: any, sIdx: number) => ({
           setNumber: sIdx + 1,
-          weight: Number(s.weight) || Number(ex.targetWeight) || 20,
-          reps: Number(s.reps) || Number(ex.targetReps) || 10,
+          weight: (s.weight !== null && s.weight !== undefined && !isNaN(Number(s.weight))) ? Number(s.weight) : fallbackWeight,
+          reps: (s.reps !== null && s.reps !== undefined && !isNaN(Number(s.reps))) ? Number(s.reps) : fallbackReps,
           completed: Boolean(s.completed),
         }))
       : Array.from({ length: targetSetsCount }, (_, sIdx) => ({
           setNumber: sIdx + 1,
-          weight: Number(ex.targetWeight) || 20,
-          reps: Number(ex.targetReps) || 10,
+          weight: fallbackWeight,
+          reps: fallbackReps,
           completed: false,
         }));
 
@@ -101,8 +114,8 @@ export function buildLiveWorkoutWidgetData({
       id: ex.id || `ex-${idx}`,
       name: ex.name || 'Exercise',
       targetSets: targetSetsCount,
-      targetWeight: Number(ex.targetWeight) || Number(sets[0]?.weight) || 20,
-      targetReps: Number(ex.targetReps) || Number(sets[0]?.reps) || 10,
+      targetWeight: (sets[0]?.weight !== undefined && sets[0]?.weight !== null) ? Number(sets[0].weight) : fallbackWeight,
+      targetReps: (sets[0]?.reps !== undefined && sets[0]?.reps !== null) ? Number(sets[0].reps) : fallbackReps,
       completed: allSetsCompleted,
       sets,
     };
@@ -130,7 +143,7 @@ export function buildLiveWorkoutWidgetData({
       targetSets: curExData.targetSets,
       currentSetIndex,
       sets,
-      targetWeight: activeSet?.weight ?? curExData.targetWeight ?? 20,
+      targetWeight: activeSet?.weight ?? curExData.targetWeight ?? 0,
       targetReps: activeSet?.reps ?? curExData.targetReps ?? 10,
     };
   }

@@ -148,11 +148,20 @@ function getCategoryInfo(item: any): { tag: string; icon: keyof typeof Ionicons.
   if (type === 'gym_workout' || categoryId === 'gym_reminder' || identifier.startsWith('gym_workout_')) {
     return { tag: 'WORKOUT', icon: 'barbell', color: '#30D158', bgColor: 'rgba(48, 209, 88, 0.15)' };
   }
+  if (type === 'gym_missed' || categoryId === 'missed_workout_catch' || identifier.startsWith('gym_missed_')) {
+    return { tag: 'MISSED CHECK', icon: 'alert-circle', color: '#FF453A', bgColor: 'rgba(255, 69, 58, 0.15)' };
+  }
+  if (type === 'gym_blueprint' || categoryId === 'tomorrow_blueprint' || identifier.startsWith('gym_blueprint_')) {
+    return { tag: 'PREVIEW', icon: 'map', color: '#64D2FF', bgColor: 'rgba(100, 210, 255, 0.15)' };
+  }
   if (type === 'weekly_report' || categoryId === 'gym_weekly_report' || identifier.startsWith('gym_weekly_report')) {
     return { tag: 'REPORT', icon: 'analytics', color: '#FF9F0A', bgColor: 'rgba(255, 159, 10, 0.15)' };
   }
-  if (type === 'gym_rest' || identifier.startsWith('gym_rest_')) {
-    return { tag: 'REST DAY', icon: 'moon', color: '#38BDF8', bgColor: 'rgba(56, 189, 248, 0.15)' };
+  if (type === 'gym_rest' || categoryId === 'rest_day_insight' || identifier.startsWith('gym_recovery_') || identifier.startsWith('gym_rest_')) {
+    return { tag: 'RECOVERY', icon: 'leaf', color: '#30D158', bgColor: 'rgba(48, 209, 88, 0.15)' };
+  }
+  if (type === 'churn_reengagement' || identifier.startsWith('gym_churn_')) {
+    return { tag: 'COACH', icon: 'fitness', color: '#FF9F0A', bgColor: 'rgba(255, 159, 10, 0.15)' };
   }
   if (type === 'active_rest_timer' || type === 'rest_timer' || identifier.startsWith('rest_timer_')) {
     return { tag: 'REST TIMER', icon: 'stopwatch', color: '#BF5AF2', bgColor: 'rgba(191, 90, 242, 0.15)' };

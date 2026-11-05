@@ -129,7 +129,7 @@ export function LiveWorkoutWidget({ data, width = 330, height = 280 }: LiveWorko
         justifyContent: 'flex-start',
       }}
       clickAction="OPEN_URI"
-      clickActionData={{ uri: 'zentrack://gym' }}
+      clickActionData={{ uri: 'zenfit://gym' }}
     >
       {/* ───── OBSIDIAN COSMOS OUTER GLASS CONTAINER ───── */}
       <FlexWidget
@@ -193,7 +193,7 @@ export function LiveWorkoutWidget({ data, width = 330, height = 280 }: LiveWorko
                 />
                 {!isCompact ? (
                   <TextWidget
-                    text="ZENTRACK GYM"
+                    text="ZENFIT"
                     style={{ fontSize: 7, fontWeight: 'bold', color: C.textTertiary, letterSpacing: 0.8 }}
                   />
                 ) : null}
@@ -663,7 +663,7 @@ export function LiveWorkoutWidget({ data, width = 330, height = 280 }: LiveWorko
                 justifyContent: 'center',
               }}
               clickAction="OPEN_URI"
-              clickActionData={{ uri: 'zentrack://gym' }}
+              clickActionData={{ uri: 'zenfit://gym' }}
             >
               <TextWidget
                 text="View Summary & PRs  →"
@@ -687,7 +687,7 @@ export function LiveWorkoutWidget({ data, width = 330, height = 280 }: LiveWorko
               clickAction={isRestDay ? 'OPEN_URI' : 'start_workout_session'}
               clickActionData={
                 isRestDay
-                  ? { uri: 'zentrack://gym' }
+                  ? { uri: 'zenfit://gym' }
                   : { action: 'start_workout_session', dateStr: data?.dateStr }
               }
             >

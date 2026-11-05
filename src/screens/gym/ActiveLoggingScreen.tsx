@@ -32,6 +32,7 @@ import { StickyLoggingDock } from '../../components/Gym/active/StickyLoggingDock
 import SupersetPickerModal from '../../components/Gym/exercise/SupersetPickerModal';
 import ActiveSwapModal from '../../components/Gym/active/ActiveSwapModal';
 import AnimatedRestTimer from '../../components/Gym/active/AnimatedRestTimer';
+import SetRestPickerSheet from '../../components/Gym/active/SetRestPickerSheet';
 import ExerciseDeepDiveModal from '../../components/Gym/exercise/ExerciseDeepDiveModal';
 import { WorkoutKeypad } from '../../components/Gym/active/WorkoutKeypad';
 import { PlateCalculatorModal } from '../../components/Gym/metrics/PlateCalculatorModal';
@@ -50,6 +51,18 @@ import { useGymProfile, setAutoTimerEnabledGlobal, isAutoTimerEnabledSync } from
 
 export { parseUpperTargetReps };
 
+function cleanExercisePillName(name: string): string {
+  if (!name) return 'Exercise';
+  const words = name.trim().split(/\s+/);
+  if (words.length <= 1) return words[0];
+  const first = words[0].toLowerCase();
+  if (['incline', 'decline', 'flat', 'lat', 'leg', 'barbell', 'dumbbell', 'cable'].includes(first)) {
+    return `${words[0]} ${words[1] || ''}`.trim();
+  }
+  if (name.length <= 14) return name;
+  return `${words[0]} ${words[1] || ''}`.trim();
+}
+
 export default function ActiveLoggingScreen() {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeActiveLoggingStyles(colors, isDark), [colors, isDark]);
@@ -66,6 +79,7 @@ export default function ActiveLoggingScreen() {
   const [isFieldSelected, setIsFieldSelected] = useState(true);
   const isFieldSelectedRef = useRef(true);
   const [showPlateCalculator, setShowPlateCalculator] = useState(false);
+  const [restPickerSetIdx, setRestPickerSetIdx] = useState<number | null>(null);
 
   const {
     log,
@@ -213,6 +227,25 @@ export default function ActiveLoggingScreen() {
   const activeExercises = useMemo(() => log?.exercises?.filter(ex => !ex.skipped) || [], [log?.exercises]);
   const safeIdx = Math.min(activeExIndex, Math.max(0, activeExercises.length - 1));
   const exercise = activeExercises[safeIdx];
+
+  // ── Live Cumulative Session Volume (openGym Pattern: real-time tonnage counter) ──
+  const liveTotalVolume = useMemo(() => {
+    if (!activeExercises || activeExercises.length === 0) return 0;
+    let total = 0;
+    for (const ex of activeExercises) {
+      if (!ex.setsLog) continue;
+      for (const s of ex.setsLog) {
+        if (s.completed && s.weight != null && s.reps != null) {
+          const w = Number(s.weight);
+          const r = Number(s.reps);
+          if (!isNaN(w) && !isNaN(r) && w > 0 && r > 0) {
+            total += w * r;
+          }
+        }
+      }
+    }
+    return Math.round(total);
+  }, [activeExercises]);
 
   const resolvedLastSessionSets = useMemo(() => {
     if (!exercise) return [];
@@ -1354,6 +1387,31 @@ export default function ActiveLoggingScreen() {
     }
   }, [logSetAndStartTimer, updateExercise, promptFinishWorkout]);
 
+  const handleSelectProgressionPolicy = useCallback((policy: 'linear' | 'double' | 'triple' | 'top_backoff') => {
+    const { exercise, realExerciseIndex: curRealIdx } = stateRef.current;
+    if (!exercise) return;
+
+    hapticLight();
+    const updatedEx = {
+      ...exercise,
+      progressionPolicy: policy,
+    };
+    updateExercise(curRealIdx, updatedEx);
+
+    // Refresh overload suggestion with new progression policy
+    const curWeight = calculateExerciseMaxWeight(updatedEx as any) || 0;
+    const newSuggestion = getOverloadSuggestion(
+      updatedEx,
+      curWeight,
+      updatedEx.targetSets || 3,
+      String(updatedEx.targetReps || '8'),
+      pastGymLogs
+    );
+    if (newSuggestion) {
+      setOverloadSuggestion(newSuggestion);
+    }
+  }, [updateExercise, pastGymLogs]);
+
   const handleCycleSetType = useCallback((setIdx: number) => {
     const { exercise, realExerciseIndex: curRealIdx } = stateRef.current;
     if (!exercise) return;
@@ -1769,6 +1827,7 @@ export default function ActiveLoggingScreen() {
                 <Text style={styles.headerTitle}>Active Session</Text>
               )}
             </View>
+
           </View>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -1857,7 +1916,7 @@ export default function ActiveLoggingScreen() {
                       ? '#30D158'
                       : (isDark ? '#8E8E93' : '#636366'),
                   }}>
-                    {ex.name.split(' ')[0]}
+                    {cleanExercisePillName(ex.name)}
                   </Text>
                   {isExDone && (
                     <Ionicons
@@ -1932,6 +1991,18 @@ export default function ActiveLoggingScreen() {
             )}
 
             {/* Set Rows with Warmup / Working Phase Dividers (Memoized) */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 6, paddingHorizontal: 4 }}>
+              <TouchableOpacity
+                onPress={handleAutoWarmup}
+                style={styles.warmupActionBtn}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="flame" size={13} color="#FF9F0A" />
+                <Text style={styles.warmupActionText}>
+                  {hasWarmups ? 'Remove Warmup' : '+ Warmup Sets'}
+                </Text>
+              </TouchableOpacity>
+            </View>
             <SetList
               setsLog={exercise.setsLog}
               activeSetIndex={activeSetIndex}
@@ -2154,6 +2225,15 @@ export default function ActiveLoggingScreen() {
           />
         </View>
       ) : null}
+
+      {/* Plate Calculator Modal */}
+      {showPlateCalculator && (
+        <PlateCalculatorModal
+          visible={showPlateCalculator}
+          initialWeight={Number(dockActiveWeight) || 60}
+          onClose={() => setShowPlateCalculator(false)}
+        />
+      )}
 
       {/* Deep-Dive Inspector Modal */}
       {deepDiveVisible && exercise && (

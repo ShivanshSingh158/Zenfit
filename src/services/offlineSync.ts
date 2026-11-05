@@ -512,7 +512,13 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
     if (queue.length >= 1) {
       try {
         await new Promise<void>(resolve => {
-          InteractionManager.runAfterInteractions(() => resolve());
+          let done = false;
+          const timer = setTimeout(() => {
+            if (!done) { done = true; resolve(); }
+          }, 500);
+          InteractionManager.runAfterInteractions(() => {
+            if (!done) { done = true; clearTimeout(timer); resolve(); }
+          });
         });
 
         const dedupedMap = new Map<string, OfflineQueueItem>();
@@ -523,7 +529,19 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
             const key = `${item.collection}/${item.docId}`;
             const existing = dedupedMap.get(key);
             if (!existing || (item.clientUpdatedAt || item.createdAt) >= (existing.clientUpdatedAt || existing.createdAt)) {
-              dedupedMap.set(key, item);
+              if (existing && item.operation !== 'delete' && existing.operation !== 'delete') {
+                const mergedData = {
+                  ...(typeof existing.data === 'object' && existing.data ? existing.data : {}),
+                  ...(typeof item.data === 'object' && item.data ? item.data : {}),
+                };
+                dedupedMap.set(key, {
+                  ...item,
+                  operation: existing.operation === 'set' ? 'set' : item.operation,
+                  data: mergedData,
+                });
+              } else {
+                dedupedMap.set(key, item);
+              }
             }
           } else {
             nonDedupeQueue.push(item);

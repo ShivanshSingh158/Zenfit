@@ -1,3 +1,4 @@
+import { getRotationNextDayIndex } from '../services/gymRotationService';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { InteractionManager, DeviceEventEmitter, AppState } from 'react-native';
 import { collection, doc, setDoc, updateDoc, serverTimestamp, deleteField } from 'firebase/firestore';
@@ -26,6 +27,7 @@ import {
   showWorkoutInProgressNotification,
   showWorkoutCompletedNotification,
 } from '../services/activeWorkoutNotificationService';
+import { cancelTodayTrainingAlerts, reconcileNotificationQueue } from '../services/notifications';
 import { safeWrite } from '../utils/safeWrite';
 import { buildLiveWorkoutWidgetData, saveCachedLiveWorkoutData, updateLiveWorkoutWidget } from '../services/widgetSyncService';
 import { setActiveWorkoutFlag } from '../components/BackgroundNotificationWatcher';
@@ -229,7 +231,7 @@ export function useGymLog(dateStr: string) {
     await flushGlobalPendingFirestoreWrite(logId);
   }, [user, dateStr]);
 
-  const gymLogsFingerprint = generateDatasetFingerprint(gymLogs);
+  const gymLogsFingerprint = useMemo(() => generateDatasetFingerprint(gymLogs), [gymLogs]);
   const pastLogsForHistory = useMemo(
     () => (gymLogs || []).filter(l => l.date < dateStr),
     [gymLogsFingerprint, dateStr]
@@ -281,7 +283,7 @@ export function useGymLog(dateStr: string) {
     const currentPlanUpdatedAt = userGymPlan?.updatedAt ?? 0;
     if (prevPlanUpdatedRef.current !== null && prevPlanUpdatedRef.current !== currentPlanUpdatedAt) {
       const hasLoggedSets = (logRef.current?.exercises || []).some((ex: any) =>
-        (ex.setsLog || []).some((s: any) => s.completed || (s.weight != null && Number(s.weight) > 0) || (s.reps != null && Number(s.reps) > 0))
+        (ex.setsLog || []).some((s: any) => s.completed || (s.weight != null && Number(s.weight) >= 0) || (s.reps != null && Number(s.reps) > 0))
       );
       if (logRef.current && !logRef.current.workoutStartTime && !logRef.current.completed && !hasLoggedSets) {
         setLog(null);
@@ -291,7 +293,9 @@ export function useGymLog(dateStr: string) {
     }
     prevPlanUpdatedRef.current = currentPlanUpdatedAt;
 
-    const planIdx = planDayIndexForDate(dateStr);
+    const planIdx = userGymPlan?.scheduleMode === 'rotation'
+      ? getRotationNextDayIndex(userGymPlan, gymLogs || [], dateStr)
+      : planDayIndexForDate(dateStr);
     const planDay = resolvePlanDay(userGymPlan, planIdx);
 
     const existing = (gymLogs || []).find(l => l.date === dateStr);
@@ -318,10 +322,10 @@ export function useGymLog(dateStr: string) {
 
       // Only skip if: local state is newer AND local exercises have actual weight data
       const localHasWeights = (logRef.current?.exercises || []).some((ex: any) =>
-        (ex.setsLog || []).some((s: any) => s.weight !== null && s.weight !== undefined && Number(s.weight) > 0)
+        (ex.setsLog || []).some((s: any) => s.weight !== null && s.weight !== undefined && Number(s.weight) >= 0)
       );
       const firestoreHasWeights = (existing.exercises || []).some((ex: any) =>
-        (ex.setsLog || []).some((s: any) => s.weight !== null && s.weight !== undefined && Number(s.weight) > 0)
+        (ex.setsLog || []).some((s: any) => s.weight !== null && s.weight !== undefined && Number(s.weight) >= 0)
       );
 
       // ── Secondary guard: if Firestore snapshot has fewer completed sets than local
@@ -357,7 +361,7 @@ export function useGymLog(dateStr: string) {
           existing.workoutStartTime ||
           (existing.exercises || []).some((e: any) =>
             (e.setsLog || []).some(
-              (s: any) => s.completed || (s.weight != null && Number(s.weight) > 0)
+              (s: any) => s.completed || (s.weight != null && Number(s.weight) >= 0)
             )
           )
         );
@@ -386,7 +390,7 @@ export function useGymLog(dateStr: string) {
             const lastSet = lastSets?.[sIdx] || lastValidSet;
             const hasUserWeight = s.weight !== null && s.weight !== undefined && !isNaN(Number(s.weight));
             const userLoggedWeight = hasUserWeight ? Number(s.weight) : null;
-            const finalWeight = userLoggedWeight ?? (lastSet?.weight != null && Number(lastSet.weight) > 0 ? Number(lastSet.weight) : null);
+            const finalWeight = userLoggedWeight ?? (lastSet?.weight != null && Number(lastSet.weight) >= 0 ? Number(lastSet.weight) : null);
 
             const hasUserReps = s.reps !== null && s.reps !== undefined && !isNaN(Number(s.reps));
             const userLoggedReps = hasUserReps ? Number(s.reps) : null;
@@ -433,7 +437,7 @@ export function useGymLog(dateStr: string) {
             lastSessionSets: lastSets ?? undefined,
             setsLog: Array.from({ length: e.targetSets }, (_, i) => {
               const lastSet = lastSets?.[i] || lastValidSet;
-              const setWeight = (lastSet?.weight != null && Number(lastSet.weight) > 0) ? Number(lastSet.weight) : null;
+              const setWeight = (lastSet?.weight != null && Number(lastSet.weight) >= 0) ? Number(lastSet.weight) : null;
               const defaultTargetReps = parseInt(String(e.targetReps || '8-12').split(/[-–—]/)[0], 10) || 8;
               return {
                 setNumber: i + 1,
@@ -473,7 +477,7 @@ export function useGymLog(dateStr: string) {
           logRef.current.workoutStartTime ||
           (logRef.current.exercises || []).some((ex: any) =>
             (ex.setsLog || []).some(
-              (s: any) => s.completed || (s.weight != null && Number(s.weight) > 0)
+              (s: any) => s.completed || (s.weight != null && Number(s.weight) >= 0)
             )
           ));
 
@@ -505,7 +509,7 @@ export function useGymLog(dateStr: string) {
           lastSessionSets: lastSets ?? undefined,
           setsLog: Array.from({ length: e.targetSets }, (_, i) => {
             const lastSet = lastSets?.[i] || lastValidSet;
-            const setWeight = (lastSet?.weight != null && Number(lastSet.weight) > 0) ? Number(lastSet.weight) : null;
+            const setWeight = (lastSet?.weight != null && Number(lastSet.weight) >= 0) ? Number(lastSet.weight) : null;
             return {
               setNumber: i + 1,
               reps: lastSet?.reps ? Number(lastSet.reps) : defaultTargetReps,
@@ -580,7 +584,9 @@ export function useGymLog(dateStr: string) {
     }
   }, []);
 
-  const planIdx = planDayIndexForDate(dateStr);
+  const planIdx = userGymPlan?.scheduleMode === 'rotation'
+    ? getRotationNextDayIndex(userGymPlan, gymLogs || [], dateStr)
+    : planDayIndexForDate(dateStr);
   const activePlanIdx = log?.dayPlanIndex ?? planIdx;
   const planDay = resolvePlanDay(userGymPlan, activePlanIdx);
 
@@ -659,16 +665,12 @@ export function useGymLog(dateStr: string) {
     } else {
       const logWithId: GymDayLog = { ...updatedLog, id: logId, userId: effectiveUid };
 
-      // GHOST SESSION GUARD & AUTO-START ON ANY LOGGED SET:
-      // If workoutStartTime is set but NO sets have been completed, strip it (ghost session).
-      // Conversely, if any set IS completed and workoutStartTime is not yet set, automatically start the session!
+      // AUTO-START ON ANY LOGGED SET:
+      // If any set IS completed and workoutStartTime is not yet set, automatically start the session!
       const hasAnyCompletedSet = (logWithId.exercises || []).some((ex: any) =>
         (ex.setsLog || []).some((s: any) => s.completed)
       );
-      if (logWithId.workoutStartTime && !hasAnyCompletedSet) {
-        (logWithId as any).workoutStartTime = undefined;
-        logRef.current = logWithId;
-      } else if (hasAnyCompletedSet && !logWithId.workoutStartTime && !logWithId.completed) {
+      if (hasAnyCompletedSet && !logWithId.workoutStartTime && !logWithId.completed) {
         logWithId.workoutStartTime = Date.now();
         logRef.current = logWithId;
         setActiveWorkoutFlag(true);
@@ -695,8 +697,8 @@ export function useGymLog(dateStr: string) {
         setL1Sync(`gym_active_draft_${effectiveUid}_${updatedLog.date}`, logWithId);
       }
       try {
-        // Immediate write to wellness domain disk cache so restart reads fresh data
-        writeWellnessCache({ gymLogs: gymLogsRef.current as any }, true);
+        // Debounced non-blocking write to wellness domain disk cache during active workouts
+        writeWellnessCache({ gymLogs: gymLogsRef.current as any }, false);
       } catch (_) {}
 
       // 2. 0ms cross-screen broadcast
@@ -843,19 +845,22 @@ export function useGymLog(dateStr: string) {
       if (hasAnyCompleted && !prev.workoutStartTime && !prev.completed) {
         setActiveWorkoutFlag(true);
         setWorkoutActiveGlobal(true);
+        cancelTodayTrainingAlerts(dateStr).catch(() => {});
       }
       const updated = { ...prev, exercises, workoutStartTime, updatedAt: Date.now() };
       saveLog(updated);
       if (updated.workoutStartTime && !updated.completed) {
-        const completedCount = (updated.exercises || []).reduce(
-          (sum: number, ex: any) => sum + (ex.setsLog || []).filter((s: any) => s.completed).length, 0
-        );
-        const name = planDay?.name || resolvePlanDay(userGymPlan, updated.dayPlanIndex ?? planIdx)?.name || 'Workout';
-        showWorkoutInProgressNotification({
-          workoutName: name,
-          completedSets: completedCount,
-          dateStr,
-        }).catch(() => {});
+        InteractionManager.runAfterInteractions(() => {
+          const completedCount = (updated.exercises || []).reduce(
+            (sum: number, ex: any) => sum + (ex.setsLog || []).filter((s: any) => s.completed).length, 0
+          );
+          const name = planDay?.name || resolvePlanDay(userGymPlan, updated.dayPlanIndex ?? planIdx)?.name || 'Workout';
+          showWorkoutInProgressNotification({
+            workoutName: name,
+            completedSets: completedCount,
+            dateStr,
+          }).catch(() => {});
+        });
       }
       return updated;
     });
@@ -885,19 +890,22 @@ export function useGymLog(dateStr: string) {
       if (hasAnyCompleted && !prev.workoutStartTime && !prev.completed) {
         setActiveWorkoutFlag(true);
         setWorkoutActiveGlobal(true);
+        cancelTodayTrainingAlerts(dateStr).catch(() => {});
       }
       const updated = { ...prev, exercises, workoutStartTime, updatedAt: Date.now() };
       saveLog(updated);
       if (updated.workoutStartTime && !updated.completed) {
-        const completedCount = (updated.exercises || []).reduce(
-          (sum: number, ex: any) => sum + (ex.setsLog || []).filter((s: any) => s.completed).length, 0
-        );
-        const name = planDay?.name || resolvePlanDay(userGymPlan, updated.dayPlanIndex ?? planIdx)?.name || 'Workout';
-        showWorkoutInProgressNotification({
-          workoutName: name,
-          completedSets: completedCount,
-          dateStr,
-        }).catch(() => {});
+        InteractionManager.runAfterInteractions(() => {
+          const completedCount = (updated.exercises || []).reduce(
+            (sum: number, ex: any) => sum + (ex.setsLog || []).filter((s: any) => s.completed).length, 0
+          );
+          const name = planDay?.name || resolvePlanDay(userGymPlan, updated.dayPlanIndex ?? planIdx)?.name || 'Workout';
+          showWorkoutInProgressNotification({
+            workoutName: name,
+            completedSets: completedCount,
+            dateStr,
+          }).catch(() => {});
+        });
       }
       return updated;
     });
@@ -935,10 +943,13 @@ export function useGymLog(dateStr: string) {
       if (!prev) return prev;
       const exercises = prev.exercises.map((ex, i) => {
         if (i !== exerciseIndex) return ex;
-        const newSetNumber = ex.setsLog.length > 0 ? ex.setsLog[ex.setsLog.length - 1].setNumber + 1 : 1;
+        const lastSet = ex.setsLog.length > 0 ? ex.setsLog[ex.setsLog.length - 1] : null;
+        const newSetNumber = lastSet ? lastSet.setNumber + 1 : 1;
+        const defaultWeight = lastSet?.weight != null ? lastSet.weight : null;
+        const defaultReps = lastSet?.reps != null ? lastSet.reps : 10;
         return {
           ...ex,
-          setsLog: [...ex.setsLog, { setNumber: newSetNumber, reps: null, weight: null, completed: false }]
+          setsLog: [...ex.setsLog, { setNumber: newSetNumber, reps: defaultReps, weight: defaultWeight, completed: false }]
         };
       });
       const updated = { ...prev, exercises, updatedAt: Date.now() };
@@ -1059,7 +1070,7 @@ export function useGymLog(dateStr: string) {
                 lastSessionSets: lastSets ?? undefined,
                 setsLog: Array.from({ length: e.targetSets || 3 }, (_, i) => {
                   const lastSet = lastSets?.[i] || lastValidSet;
-                  const setWeight = (lastSet?.weight != null && Number(lastSet.weight) > 0) ? Number(lastSet.weight) : null;
+                  const setWeight = (lastSet?.weight != null && Number(lastSet.weight) >= 0) ? Number(lastSet.weight) : null;
                   return {
                     setNumber: i + 1,
                     reps: lastSet?.reps ? Number(lastSet.reps) : defaultTargetReps,
@@ -1157,6 +1168,7 @@ export function useGymLog(dateStr: string) {
       if (hasAnyCompleted && !prev.workoutStartTime && !prev.completed) {
         setActiveWorkoutFlag(true);
         setWorkoutActiveGlobal(true);
+        cancelTodayTrainingAlerts(dateStr).catch(() => {});
       }
 
       const updated = {
@@ -1168,15 +1180,17 @@ export function useGymLog(dateStr: string) {
       saveLog(updated);
       recordExerciseToLedger(updatedExercise.name, updatedExercise.setsLog, dateStr);
       if (updated.workoutStartTime && !updated.completed) {
-        const completedCount = (updated.exercises || []).reduce(
-          (sum: number, ex: any) => sum + (ex.setsLog || []).filter((s: any) => s.completed).length, 0
-        );
-        const name = planDay?.name || resolvePlanDay(userGymPlan, updated.dayPlanIndex ?? planIdx)?.name || 'Workout';
-        showWorkoutInProgressNotification({
-          workoutName: name,
-          completedSets: completedCount,
-          dateStr,
-        }).catch(() => {});
+        InteractionManager.runAfterInteractions(() => {
+          const completedCount = (updated.exercises || []).reduce(
+            (sum: number, ex: any) => sum + (ex.setsLog || []).filter((s: any) => s.completed).length, 0
+          );
+          const name = planDay?.name || resolvePlanDay(userGymPlan, updated.dayPlanIndex ?? planIdx)?.name || 'Workout';
+          showWorkoutInProgressNotification({
+            workoutName: name,
+            completedSets: completedCount,
+            dateStr,
+          }).catch(() => {});
+        });
       }
       return updated;
     });
@@ -1225,10 +1239,24 @@ export function useGymLog(dateStr: string) {
       const exercises = prev.exercises.map((ex, i) => {
         if (i !== exerciseIndex) return ex;
         const resolvedMuscle = resolveExerciseTargetMuscle(newName, newMuscle || ex.muscle).targetMuscle;
+        const normKey = normalizeExerciseKey(newName);
+        const prevSession = historyIndex.get(normKey);
+        const newHistorySets = prevSession?.sets || null;
+        const updatedSetsLog = ex.setsLog.map((s: any, sIdx: number) => {
+          if (s.completed) return s;
+          return {
+            ...s,
+            weight: newHistorySets?.[sIdx]?.weight ?? null,
+            reps: newHistorySets?.[sIdx]?.reps ?? s.reps ?? 10,
+          };
+        });
         return {
           ...ex,
+          exerciseId: `ex_${normKey}`,
           name: newName,
           muscle: resolvedMuscle,
+          lastSessionSets: newHistorySets ?? undefined,
+          setsLog: updatedSetsLog,
           ...(newVideoId !== undefined ? { videoId: newVideoId } : {})
         };
       });
@@ -1236,7 +1264,7 @@ export function useGymLog(dateStr: string) {
       saveLog(updated);
       return updated;
     });
-  }, [saveLog]);
+  }, [saveLog, historyIndex]);
 
   const makeSwapPermanent = useCallback(async (
     origName: string,
@@ -1324,7 +1352,7 @@ export function useGymLog(dateStr: string) {
               lastSessionSets: lastSets ?? undefined,
               setsLog: Array.from({ length: e.targetSets || 3 }, (_, i) => {
                 const lastSet = lastSets?.[i] || lastValidSet;
-                const setWeight = (lastSet?.weight != null && Number(lastSet.weight) > 0) ? Number(lastSet.weight) : null;
+                const setWeight = (lastSet?.weight != null && Number(lastSet.weight) >= 0) ? Number(lastSet.weight) : null;
                 return {
                   setNumber: i + 1,
                   reps: lastSet?.reps ? Number(lastSet.reps) : defaultTargetReps,
@@ -1363,6 +1391,7 @@ export function useGymLog(dateStr: string) {
     // for the duration of this workout. Without this, every set completion triggers a
     // full notification reschedule (cancel all + schedule 50+ alarms) in the background.
     setActiveWorkoutFlag(true);
+    setWorkoutActiveGlobal(true);
 
     const workoutName = planDay?.name || resolvePlanDay(userGymPlan, planIdx)?.name || 'Workout';
     showWorkoutInProgressNotification({
@@ -1477,6 +1506,9 @@ export function useGymLog(dateStr: string) {
     // gym_workout_completed event in BackgroundNotificationWatcher also clears this flag,
     // but we set it here too for the rare case where the event fires before this line runs.
     setActiveWorkoutFlag(false);
+    setWorkoutActiveGlobal(false);
+    cancelTodayTrainingAlerts(sessionDate).catch(() => {});
+    reconcileNotificationQueue({ userGymPlan, force: true }).catch(() => {});
   }, [user, dateStr, planIdx, saveLog, userGymPlan]);
 
   const resumeWorkout = useCallback(() => {
@@ -1530,6 +1562,9 @@ export function useGymLog(dateStr: string) {
       Notifications.cancelScheduledNotificationAsync(currentRestTimerNotifId).catch(() => {});
       currentRestTimerNotifId = null;
     }
+
+    setActiveWorkoutFlag(false);
+    setWorkoutActiveGlobal(false);
 
     const sessionDate = dateStr;
     AsyncStorage.removeItem('@zentrack_active_workout_state').catch(() => {});
@@ -1596,6 +1631,29 @@ export function useGymLog(dateStr: string) {
     if (currentRestTimerNotifId) {
       await Notifications.cancelScheduledNotificationAsync(currentRestTimerNotifId).catch(() => {});
       currentRestTimerNotifId = null;
+    }
+
+    if (newDuration > 0) {
+      try {
+        currentRestTimerNotifId = await Notifications.scheduleNotificationAsync({
+          identifier: `rest_timer_${Date.now()}`,
+          content: {
+            title: 'Rest Timer Complete ⏱️',
+            body: 'Time for your next set!',
+            sound: 'default',
+            priority: Notifications.AndroidNotificationPriority.MAX,
+            categoryIdentifier: 'active_rest_timer',
+            data: { type: 'active_rest_timer' },
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+            seconds: Math.max(1, Math.round(newDuration)),
+            channelId: 'active_workout',
+          },
+        });
+      } catch (err) {
+        console.warn('[useGymLog] Failed to reschedule rest timer notification:', err);
+      }
     }
   }, []);
 
@@ -1685,7 +1743,7 @@ export function useGymLog(dateStr: string) {
   // ── Force override plan layout when master template changes ────────────────
   const forceOverrideTodayPlan = useCallback((newCustomDays: Record<number, GymPlanDay>) => {
     const hasLoggedSets = (logRef.current?.exercises || []).some((ex: any) =>
-      (ex.setsLog || []).some((s: any) => s.completed || (s.weight != null && Number(s.weight) > 0) || (s.reps != null && Number(s.reps) > 0))
+      (ex.setsLog || []).some((s: any) => s.completed || (s.weight != null && Number(s.weight) >= 0) || (s.reps != null && Number(s.reps) > 0))
     );
     // Never overwrite an already started or completed session
     if (logRef.current?.completed || logRef.current?.workoutStartTime || hasLoggedSets) {
@@ -1720,7 +1778,7 @@ export function useGymLog(dateStr: string) {
         lastSessionSets: lastSets ?? undefined,
         setsLog: Array.from({ length: e.targetSets }, (_, i) => {
           const lastSet = lastSets?.[i] || lastValidSet;
-          const setWeight = (lastSet?.weight != null && Number(lastSet.weight) > 0) ? Number(lastSet.weight) : null;
+          const setWeight = (lastSet?.weight != null && Number(lastSet.weight) >= 0) ? Number(lastSet.weight) : null;
           return {
             setNumber: i + 1,
             reps: lastSet?.reps ? Number(lastSet.reps) : defaultTargetReps,

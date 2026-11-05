@@ -25,7 +25,7 @@ const GUARANTEES = [
   {
     icon: 'shield-checkmark-outline' as const,
     title: '100% Local-First',
-    desc: 'Encrypted on-device SQLite & instant offline startup',
+    desc: 'Works offline with instant startup and encrypted storage',
     colorDark: '#5EDA9E',
     colorLight: '#059669',
     bgDark: 'rgba(94,218,158,0.12)',
@@ -36,7 +36,7 @@ const GUARANTEES = [
   {
     icon: 'eye-off-outline' as const,
     title: 'Zero Telemetry',
-    desc: 'Strict privacy with zero tracking or ads',
+    desc: 'Zero ad tracking, zero telemetry, your logs are private',
     colorDark: '#A599FF',
     colorLight: '#6C5CE7',
     bgDark: 'rgba(165,153,255,0.12)',
@@ -47,7 +47,7 @@ const GUARANTEES = [
   {
     icon: 'cloud-done-outline' as const,
     title: 'Seamless Sync',
-    desc: 'Instant Google Cloud cross-device continuity',
+    desc: 'Automatic backup across all your devices seamlessly',
     colorDark: '#38BDF8',
     colorLight: '#0284C7',
     bgDark: 'rgba(56,189,248,0.12)',

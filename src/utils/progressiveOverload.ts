@@ -121,12 +121,16 @@ export function getOverloadSuggestion(
       targetRepLow,
       targetRepHigh,
       hasMicroPlates: rawEx.hasMicroPlates,
+      progressionPolicy: rawEx.progressionPolicy || (rawEx as any).progressionModel || 'double',
     };
 
     history = convertGymLogsToHistory(profile.name, gymLogs);
   } else {
     // Modern signature
-    profile = typeof profileOrName === 'string' ? { name: profileOrName } : profileOrName;
+    profile = typeof profileOrName === 'string' ? { name: profileOrName } : {
+      ...profileOrName,
+      progressionPolicy: (profileOrName as any).progressionPolicy || (profileOrName as any).progressionModel || 'double',
+    };
     const rawHistory = arg2 || [];
 
     // If history is passed as raw GymDayLog array, auto-convert it

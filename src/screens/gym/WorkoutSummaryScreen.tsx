@@ -97,7 +97,8 @@ export default function WorkoutSummaryScreen() {
     return found;
   }, [gymLogs, targetLog, readOnly]);
 
-  const newPR = detectedPR;
+  const detectedPRList = detectedPR;
+  const newPR = Array.isArray(detectedPRList) ? detectedPRList[0] : detectedPRList;
   const isPR = !!newPR;
 
   useEffect(() => {
@@ -159,6 +160,25 @@ export default function WorkoutSummaryScreen() {
     ? sessionData.exercises
     : sessionData.exercises.slice(0, 3);
   const remainingCount = sessionData.exercises.length - 3;
+
+  const previousSessionVolume = useMemo(() => {
+    if (!gymLogs || gymLogs.length < 2 || !targetLog) return null;
+    const pastLogs = gymLogs.filter(l => l.date < targetLog.date && (l.exercises?.length || 0) > 0).sort((a, b) => b.date.localeCompare(a.date));
+    const prev = pastLogs[0];
+    if (!prev) return null;
+    let vol = 0;
+    (prev.exercises || []).forEach((e: any) => {
+      const mult = getVolumeMultiplier(e.name);
+      (e.setsLog || []).forEach((s: any) => {
+        if (s.completed && s.weight && s.reps) {
+          vol += Number(s.weight) * Number(s.reps) * mult;
+        }
+      });
+    });
+    return Math.round(vol);
+  }, [gymLogs, targetLog]);
+
+  const volumeDelta = previousSessionVolume != null ? sessionData.totalVolume - previousSessionVolume : null;
 
   const availableLifts = useMemo(() => {
     const defaultLifts = ['Bench Press', 'Squat', 'Deadlift', 'Overhead Press', 'Pull Up', 'Barbell Row'];
@@ -338,7 +358,7 @@ export default function WorkoutSummaryScreen() {
                 <View key={index} style={styles.exerciseCard}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.exerciseName} numberOfLines={1}>{ex.name}</Text>
-                    <Text style={styles.exerciseMetaBadge}>{ex.sets} sets · {ex.reps} reps</Text>
+                    <Text style={styles.exerciseMetaBadge}>{ex.sets} sets · {ex.maxWeight > 0 ? `Best: ${ex.maxWeight} kg` : `${ex.reps} reps`}</Text>
                   </View>
                   {ex.maxWeight > 0 && (
                     <Text style={styles.exerciseMetaWeight}>{ex.maxWeight} kg</Text>

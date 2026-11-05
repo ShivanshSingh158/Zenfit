@@ -10,7 +10,7 @@ import { useTheme } from "../../../contexts/ThemeContext";
 // Extracted Styles
 import { makeAnimatedRestTimerStyles } from './animatedRestTimerStyles';
 
-import { playCountdownTick, playTimerFinishChime } from '../../../services/gymSoundSynthesizer';
+import { playCountdownTick, playTimerFinishChime, isAudioCuesEnabledGlobal, toggleAudioCuesEnabledGlobal, startRestTimerBackgroundAudioSession, stopRestTimerBackgroundAudioSession } from '../../../services/gymSoundSynthesizer';
 
 interface AnimatedRestTimerProps {
   startTime: number;
@@ -18,6 +18,7 @@ interface AnimatedRestTimerProps {
   onAdd: () => void;
   onSubtract: () => void;
   onSkip: () => void;
+  onEditDuration?: () => void;
 }
 
 export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(function AnimatedRestTimer({
@@ -26,12 +27,20 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(fu
   onAdd,
   onSubtract,
   onSkip,
+  onEditDuration,
 }: AnimatedRestTimerProps) {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeAnimatedRestTimerStyles(colors, isDark), [colors, isDark]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [isAudioOn, setIsAudioOn] = useState(() => isAudioCuesEnabledGlobal());
   const lastBeepSecRef = useRef<number | null>(null);
+
+  const handleToggleAudio = () => {
+    hapticLight();
+    const next = toggleAudioCuesEnabledGlobal();
+    setIsAudioOn(next);
+  };
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -77,7 +86,7 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(fu
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) =>
-        Math.abs(gestureState.dx) > 6 || Math.abs(gestureState.dy) > 6,
+        Math.abs(gestureState.dx) > 16 || Math.abs(gestureState.dy) > 16,
       onPanResponderGrant: () => {
         pan.setOffset({
           x: (pan.x as any)._value || 0,
@@ -127,6 +136,10 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(fu
 
   useEffect(() => {
     lastBeepSecRef.current = null;
+    startRestTimerBackgroundAudioSession().catch(() => {});
+    return () => {
+      stopRestTimerBackgroundAudioSession().catch(() => {});
+    };
   }, [startTime, durationSecs]);
 
   useEffect(() => {
@@ -148,12 +161,11 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(fu
         skipped = true;
         if (lastBeepSecRef.current !== 0) {
           lastBeepSecRef.current = 0;
-          // Guard: Only chime and flash if timer expired while app was open (within 2s), preventing delayed blasts on phone unlock
-          if (elapsed - durationSecs <= 2) {
-            playTimerFinishChime();
-            hapticHeavy();
-            DeviceEventEmitter.emit('gym_rest_timer_flash');
-          }
+          // Guaranteed background audio chime directly in earphones with audio ducking
+          playTimerFinishChime();
+          hapticHeavy();
+          DeviceEventEmitter.emit('gym_rest_timer_flash');
+          stopRestTimerBackgroundAudioSession().catch(() => {});
         }
         timeoutId = setTimeout(() => {
           InteractionManager.runAfterInteractions(() => {
@@ -250,13 +262,26 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(fu
               <Text style={styles.quickAddText}>+30s</Text>
             </TouchableOpacity>
 
+            {/* Quick Audio Mute Toggle (openGym pattern) */}
+            <TouchableOpacity
+              onPress={handleToggleAudio}
+              style={[styles.quickAddPill, { marginLeft: 6, paddingHorizontal: 6 }]}
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+            >
+              <Ionicons
+                name={isAudioOn ? "volume-medium-outline" : "volume-mute-outline"}
+                size={13}
+                color={isAudioOn ? (colors.accentPrimary || '#a599ff') : colors.textMuted}
+              />
+            </TouchableOpacity>
+
             {/* Quick 1-Tap Skip Button */}
             <TouchableOpacity
               onPress={() => {
                 hapticMedium();
                 onSkip();
               }}
-              style={[styles.quickAddPill, { marginLeft: 3, paddingHorizontal: 5 }]}
+              style={[styles.quickAddPill, { marginLeft: 6, paddingHorizontal: 5 }]}
               hitSlop={{ top: 6, bottom: 6, left: 4, right: 6 }}
             >
               <Ionicons name="close" size={12} color={colors.textMuted} />
@@ -283,6 +308,7 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(fu
 
           <TouchableOpacity
             onPress={toggleExpand}
+            onLongPress={onEditDuration}
             style={styles.timeContainer}
             activeOpacity={0.8}
           >
@@ -299,6 +325,19 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(fu
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Ionicons name="add-circle-outline" size={18} color={colors.accentPrimary} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handleToggleAudio}
+            style={styles.actionBtn}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons
+              name={isAudioOn ? "volume-medium-outline" : "volume-mute-outline"}
+              size={18}
+              color={isAudioOn ? colors.accentPrimary : colors.textMuted}
+            />
           </TouchableOpacity>
 
           <View style={styles.divider} />

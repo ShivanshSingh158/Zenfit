@@ -36,7 +36,7 @@ export const DARK_COLORS = {
   background:    IOS_DARK.bgCanvas,        // Pure OLED pitch black canvas
   surface:       IOS_DARK.bgGroupedCard,   // iOS systemSecondaryBackground for cards & rows (#1C1C1E)
   surface2:      IOS_DARK.bgElevatedInput, // iOS systemTertiaryBackground (#2C2C2E)
-  surfaceRaised: IOS_DARK.bgGroupedCard,   // Elevated modals, sheets & action cards (#1C1C1E)
+  surfaceRaised: '#242426',                // Elevated modals, sheets & action cards with true depth hierarchy
 
   // ── Borders ─────────────────────────────────────────────────────────────────
   border:        IOS_DARK.separator,       // iOS native hairline divider
@@ -154,9 +154,9 @@ export const LIGHT_COLORS = {
   },
 };
 
-// ── Backwards-compat default export (default light — screens not yet theme-aware use this) ──
+// ── Backwards-compat default export (matches dark default) ──
 // Theme-aware code should use `useTheme().colors` from ThemeContext instead.
-export const COLORS = LIGHT_COLORS;
+export const COLORS = DARK_COLORS;
 
 
 // ─── Radius ───────────────────────────────────────────────────────────────────
@@ -189,14 +189,15 @@ export const SPACE = {
 // Keys must EXACTLY match useFonts() keys in App.tsx
 
 export const FONT_FAMILY = {
-  title:   'PlayfairDisplay_600SemiBold', // Editorial — headings, names
-  heading: 'PlayfairDisplay_600SemiBold', // Alias for title (back-compat)
-  serif:   'PlayfairDisplay_600SemiBold', // Alias for title (back-compat)
-  body:    'Inter_400Regular',            // Readable — body text, labels
-  regular: 'Inter_400Regular',            // Alias for body (back-compat)
-  medium:  'Inter_500Medium',             // Emphasis — subheadings, amounts
-  bold:    'Inter_600SemiBold',           // Strong — CTAs, stats
-  mono:    'Inter_400Regular',            // Mono alias — back-compat
+  title:    'Inter_700Bold',               // Athletic — bold headers, split titles
+  heading:  'Inter_700Bold',               // Alias for title (back-compat)
+  serif:    'PlayfairDisplay_600SemiBold', // Editorial quote accent
+  body:     'Inter_400Regular',            // Readable — body text, labels
+  regular:  'Inter_400Regular',            // Alias for body (back-compat)
+  medium:   'Inter_500Medium',             // Emphasis — subheadings, amounts
+  semibold: 'Inter_600SemiBold',          // Medium-bold emphasis
+  bold:     'Inter_700Bold',               // Strong — CTAs, stats
+  mono:     'Inter_400Regular',            // Note: use fontVariant: ['tabular-nums'] on counters
 };
 
 export const FONT_SIZE = {

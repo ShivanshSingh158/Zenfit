@@ -9,6 +9,7 @@ export interface SetInputState {
 
 /**
  * Pure Helper: Parse Upper Circuit of Reps (e.g., "10-12" or "10–12" -> 12, "8-10" -> 10)
+ * Allows high-rep endurance sets up to 999 reps (e.g. 100 jump rope, 60 calf raises).
  */
 export function parseUpperTargetReps(targetRepsStr?: string | number | null): number {
   if (!targetRepsStr) return 10;
@@ -16,10 +17,25 @@ export function parseUpperTargetReps(targetRepsStr?: string | number | null): nu
   if (/[-–—]/.test(str)) {
     const parts = str.split(/[-–—]/);
     const upper = parseInt(parts[parts.length - 1].trim(), 10);
-    if (!isNaN(upper) && upper > 0) return Math.min(50, upper);
+    if (!isNaN(upper) && upper > 0) return Math.min(999, upper);
   }
   const val = parseInt(str, 10);
-  return !isNaN(val) && val > 0 ? Math.min(50, val) : 10;
+  return !isNaN(val) && val > 0 ? Math.min(999, val) : 10;
+}
+
+/**
+ * Standardized Target Reps Default (Lower Bound: "8-12" -> 8, "10-12" -> 10)
+ */
+export function parseTargetRepsDefault(targetRepsStr?: string | number | null): number {
+  if (!targetRepsStr) return 8;
+  const str = String(targetRepsStr).trim();
+  if (/[-–—]/.test(str)) {
+    const parts = str.split(/[-–—]/);
+    const lower = parseInt(parts[0].trim(), 10);
+    if (!isNaN(lower) && lower > 0) return Math.min(999, lower);
+  }
+  const val = parseInt(str, 10);
+  return !isNaN(val) && val > 0 ? Math.min(999, val) : 8;
 }
 
 /**
@@ -37,7 +53,7 @@ export function resolveSetWeightAndReps(
   lastSessionSet?: any | null,
   setIndex?: number
 ): { weight: number | null; reps: number | null } {
-  // 1. Resolve Weight (Clamped 0 - 1000 kg)
+  // 1. Resolve Weight (Clamped 0 - 1000 kg, supports 0 kg bodyweight)
   let weight: number | null = null;
   if (input?.weight !== '' && input?.weight !== undefined) {
     weight = parseFloat(input.weight);
@@ -57,29 +73,31 @@ export function resolveSetWeightAndReps(
     weight = Number(overloadSuggestion.recommended);
   }
 
-  // 2. Resolve Reps (Clamped 1 - 50 reps, upper bound of ranges)
+  // 2. Resolve Reps (Clamped 1 - 999 reps, supports endurance and high reps)
   let reps: number | null = null;
   if (input?.reps !== '' && input?.reps !== undefined) {
-    reps = parseUpperTargetReps(input.reps);
+    const directUserReps = parseInt(input.reps, 10);
+    reps = !isNaN(directUserReps) && directUserReps > 0 ? Math.min(999, directUserReps) : 10;
   } else if (isRepsEdited) {
     reps = null;
   } else if (currentSet?.reps != null && Number(currentSet.reps) > 0) {
-    reps = parseUpperTargetReps(currentSet.reps);
+    reps = Number(currentSet.reps);
   } else if (lastSessionSet?.reps != null && Number(lastSessionSet.reps) > 0) {
-    reps = parseUpperTargetReps(lastSessionSet.reps);
+    reps = Number(lastSessionSet.reps);
   } else if (prevInput?.reps !== '' && prevInput?.reps !== undefined) {
-    reps = parseUpperTargetReps(prevInput.reps);
+    const directPrevReps = parseInt(prevInput.reps, 10);
+    reps = !isNaN(directPrevReps) && directPrevReps > 0 ? Math.min(999, directPrevReps) : 10;
   } else if (prevSet?.reps != null && Number(prevSet.reps) > 0) {
-    reps = parseUpperTargetReps(prevSet.reps);
+    reps = Number(prevSet.reps);
   } else if (setIndex != null && overloadSuggestion?.prescribedSets?.[setIndex]?.targetReps != null) {
-    reps = parseUpperTargetReps(overloadSuggestion.prescribedSets[setIndex].targetReps);
+    reps = Number(overloadSuggestion.prescribedSets[setIndex].targetReps);
   } else {
-    reps = parseUpperTargetReps(targetRepsStr);
+    reps = parseTargetRepsDefault(targetRepsStr);
   }
 
   return {
     weight: weight !== null && !isNaN(weight) ? Math.min(1000, Math.max(0, weight)) : null,
-    reps: reps !== null && !isNaN(reps) ? Math.min(50, Math.max(1, reps)) : 10,
+    reps: reps !== null && !isNaN(reps) ? Math.min(999, Math.max(1, reps)) : 10,
   };
 }
 
@@ -132,19 +150,19 @@ export function computeInitialSetInputs(
   return exercise.setsLog.map((s: any, idx: number) => {
     if (s.completed) {
       return {
-        weight: (s.weight !== null && s.weight !== undefined && Number(s.weight) > 0) ? String(s.weight) : '',
+        weight: (s.weight !== null && s.weight !== undefined && Number(s.weight) >= 0) ? String(s.weight) : '',
         reps: (s.reps !== null && s.reps !== undefined && Number(s.reps) > 0) ? String(s.reps) : '',
       };
     }
     const lastSet = lastSessionSets[idx] || lastValidPastSet;
-    let initialWeight = (s.weight !== null && s.weight !== undefined && Number(s.weight) > 0) ? String(s.weight) : '';
-    if (!initialWeight && lastSet?.weight != null && Number(lastSet.weight) > 0) {
+    let initialWeight = (s.weight !== null && s.weight !== undefined && Number(s.weight) >= 0) ? String(s.weight) : '';
+    if (!initialWeight && lastSet?.weight != null && Number(lastSet.weight) >= 0) {
       initialWeight = String(lastSet.weight);
     }
-    const defaultTargetReps = String(parseUpperTargetReps(exercise.targetReps));
+    const defaultTargetReps = String(parseTargetRepsDefault(exercise.targetReps));
     const initialReps = (s.reps !== null && s.reps !== undefined && Number(s.reps) > 0)
-      ? String(parseUpperTargetReps(s.reps))
-      : (lastSet?.reps ? String(parseUpperTargetReps(lastSet.reps)) : defaultTargetReps);
+      ? String(s.reps)
+      : (lastSet?.reps ? String(lastSet.reps) : defaultTargetReps);
     return { weight: initialWeight, reps: initialReps };
   });
 }

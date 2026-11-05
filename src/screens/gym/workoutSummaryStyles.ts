@@ -412,6 +412,41 @@ export const makeWorkoutSummaryStyles = (colors: any, isDark: boolean) => {
       letterSpacing: -0.2,
       fontWeight: '700',
     },
+
+    deltaBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: RADIUS.full,
+      backgroundColor: 'rgba(48,209,88,0.12)',
+      marginTop: 4,
+    },
+    deltaBadgeText: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 10,
+      color: '#30D158',
+    },
+    baselineCard: {
+      padding: 16,
+      borderRadius: RADIUS.md,
+      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
+      alignItems: 'center',
+      gap: 6,
+      marginTop: 10,
+    },
+    baselineTitle: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 13,
+      color: colors.textPrimary,
+    },
+    baselineSub: {
+      fontFamily: FONT_FAMILY.body,
+      fontSize: 11,
+      color: colors.textMuted,
+      textAlign: 'center',
+    },
   });
 
   stylesCache.set(cacheKey, styles);

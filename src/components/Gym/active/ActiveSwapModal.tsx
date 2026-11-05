@@ -23,6 +23,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { FONT_FAMILY } from '../../../theme/tokens';
+import { useTheme } from '../../../contexts/ThemeContext';
 import {
   resolveExerciseTargetMuscle,
   resolveMuscleColor,
@@ -55,6 +56,7 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
   const [activeTab, setActiveTab] = useState<'recommended' | 'all'>('recommended');
 
   const currentKey = exercise?.name ? normalizeExerciseKey(exercise.name) : '';
+  const fullCatalogue = useMemo(() => getExerciseCatalogue(), []);
   const { targetMuscle } = exercise
     ? resolveExerciseTargetMuscle(exercise.name, exercise.muscle)
     : { targetMuscle: 'Chest' };
@@ -98,7 +100,7 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
       }
 
       // B. Match in global exercise catalogue
-      const catalogue = getExerciseCatalogue();
+      const catalogue = fullCatalogue;
       for (const catEntry of catalogue) {
         const key = normalizeExerciseKey(catEntry.name);
         if (seen.has(key)) continue;
@@ -123,7 +125,7 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
         }
       }
 
-      return combined;
+      return combined.slice(0, 35);
     }
 
     // 2. Idle State - Tab 1: Recommended SFR Swaps
@@ -132,7 +134,7 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
     }
 
     // 3. Idle State - Tab 2: All Exercises catalogue
-    const catalogue = getExerciseCatalogue();
+    const catalogue = fullCatalogue;
     const sameMuscleItems: any[] = [];
     const otherItems: any[] = [];
     const normTargetMuscle = (targetMuscle || '').toLowerCase();
@@ -237,6 +239,33 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
               </TouchableOpacity>
             )}
           </View>
+
+          {/* Quick 1-Tap Machine Backup Card (openGym Pattern) */}
+          {recommendedSwaps.length > 0 && !searchQuery.trim() && (
+            <View style={localStyles.quickBackupCard}>
+              <View style={localStyles.quickBackupLeft}>
+                <View style={localStyles.quickBackupHeader}>
+                  <Ionicons name="flash" size={11} color="#FFD700" />
+                  <Text style={localStyles.quickBackupBadge}>MACHINE OCCUPIED? 1-TAP BACKUP</Text>
+                </View>
+                <Text style={localStyles.quickBackupName} numberOfLines={1}>
+                  {recommendedSwaps[0].name}
+                </Text>
+                <Text style={localStyles.quickBackupSub} numberOfLines={1}>
+                  {recommendedSwaps[0].muscle || targetMuscle} · Same sets & reps preserved
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={localStyles.quickBackupBtn}
+                onPress={() => handleSelect(recommendedSwaps[0])}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="flash" size={11} color="#000000" />
+                <Text style={localStyles.quickBackupBtnText}>Quick Swap</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* Segmented Control Track (Clean Apple HIG) */}
           {!searchQuery.trim() && (
@@ -496,6 +525,58 @@ const localStyles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     lineHeight: 16,
+  },
+  quickBackupCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255, 215, 0, 0.08)',
+    borderColor: 'rgba(255, 215, 0, 0.25)',
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    gap: 8,
+  },
+  quickBackupLeft: {
+    flex: 1,
+  },
+  quickBackupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 2,
+  },
+  quickBackupBadge: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 9.5,
+    color: '#FFD700',
+    letterSpacing: 0.5,
+  },
+  quickBackupName: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 13.5,
+    color: '#FFFFFF',
+  },
+  quickBackupSub: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 11,
+    color: '#8E8E93',
+  },
+  quickBackupBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FFD700',
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  quickBackupBtnText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 11.5,
+    color: '#000000',
   },
 });
 

@@ -509,7 +509,14 @@ export function areItemsEqual<T>(prev: T[] | null | undefined, next: T[] | null 
       const p = prevMap.get(String(n.id));
       if (!p) return false;
       if (p === n) continue;
-      if (p.updatedAt !== n.updatedAt || p.completed !== n.completed) return false;
+      if (
+        p.updatedAt !== n.updatedAt ||
+        p.completed !== n.completed ||
+        (p.exercises?.length !== n.exercises?.length) ||
+        (p.cardio?.length !== n.cardio?.length) ||
+        (p.workoutStartTime !== n.workoutStartTime) ||
+        (p.restTimerStartTime !== n.restTimerStartTime)
+      ) return false;
     }
     return true;
   }

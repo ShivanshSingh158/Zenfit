@@ -13,6 +13,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FONT_FAMILY } from '../../../theme/tokens';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { hapticLight, hapticMedium, hapticSelection } from '../../../utils/haptics';
 
 export interface StickyLoggingDockProps {
@@ -50,6 +51,7 @@ export const StickyLoggingDock: React.FC<StickyLoggingDockProps> = React.memo(({
   onLogSetAndRest,
 }) => {
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
 
   const handleRirTap = (rir: number) => {
     hapticSelection();
@@ -67,7 +69,14 @@ export const StickyLoggingDock: React.FC<StickyLoggingDockProps> = React.memo(({
   };
 
   return (
-    <View style={[dockStyles.container, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+    <View style={[
+      dockStyles.container,
+      {
+        paddingBottom: Math.max(insets.bottom, 12),
+        backgroundColor: isDark ? '#000000' : colors.surface,
+        borderTopColor: isDark ? '#2C2C2E' : colors.border,
+      },
+    ]}>
       {!isAllComplete ? (
         <>
           {/* Row 1: RIR Effort Quick-Selector */}
@@ -76,7 +85,7 @@ export const StickyLoggingDock: React.FC<StickyLoggingDockProps> = React.memo(({
               Set {activeSetNumber} Effort:
             </Text>
 
-            <View style={dockStyles.rirPillsContainer}>
+            <View style={[dockStyles.rirPillsContainer, !isDark && { backgroundColor: colors.surface2 }]}>
               {RIR_OPTIONS.map((item) => {
                 const isSelected = selectedRir === item.val;
                 return (
@@ -107,14 +116,14 @@ export const StickyLoggingDock: React.FC<StickyLoggingDockProps> = React.memo(({
           {/* Row 2: Action Row (Quick Rep Steppers + Primary Log Button) */}
           <View style={dockStyles.actionRow}>
             {/* Quick Rep Stepper (-1 / +1) */}
-            <View style={dockStyles.stepperBox}>
+            <View style={[dockStyles.stepperBox, !isDark && { backgroundColor: colors.surface2, borderColor: colors.border }]}>
               <TouchableOpacity
                 onPress={() => handleRepStep(-1)}
                 style={dockStyles.stepperBtn}
                 activeOpacity={0.65}
                 hitSlop={{ top: 6, bottom: 6, left: 6, right: 2 }}
               >
-                <Text style={dockStyles.stepperBtnText}>−1</Text>
+                <Text style={[dockStyles.stepperBtnText, !isDark && { color: colors.textPrimary }]}>−1</Text>
               </TouchableOpacity>
 
               <View style={dockStyles.stepperDivider} />
@@ -125,24 +134,24 @@ export const StickyLoggingDock: React.FC<StickyLoggingDockProps> = React.memo(({
                 activeOpacity={0.65}
                 hitSlop={{ top: 6, bottom: 6, left: 2, right: 6 }}
               >
-                <Text style={dockStyles.stepperBtnText}>+1</Text>
+                <Text style={[dockStyles.stepperBtnText, !isDark && { color: colors.textPrimary }]}>+1</Text>
               </TouchableOpacity>
             </View>
 
             {/* Main Log Button with Prescription Echo */}
             <TouchableOpacity
               onPress={handleLogTap}
-              style={dockStyles.logBtn}
+              style={[dockStyles.logBtn, !isDark && { backgroundColor: "#000000" }]}
               activeOpacity={0.8}
             >
               <View style={dockStyles.logBtnInner}>
                 <View style={dockStyles.logBtnTextWrap}>
-                  <Text style={dockStyles.logBtnTitle}>
+                  <Text style={[dockStyles.logBtnTitle, !isDark && { color: "#FFFFFF" }]}>
                     {isTimerEnabled
                       ? `✓ Log Set ${activeSetNumber} & Start Rest`
                       : `✓ Log Set ${activeSetNumber}`}
                   </Text>
-                  <Text style={dockStyles.logBtnSubtitle}>
+                  <Text style={[dockStyles.logBtnSubtitle, !isDark && { color: "rgba(255, 255, 255, 0.7)" }]}>
                     {activeWeight > 0 ? `${activeWeight} kg` : 'BW'} × {activeReps} reps · RIR {selectedRir}
                   </Text>
                 </View>

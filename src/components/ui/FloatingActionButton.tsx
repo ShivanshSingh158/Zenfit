@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useMemo } from 'react';
 import { TouchableOpacity, Animated, StyleSheet, ViewStyle } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { RADIUS, SHADOW } from '../../theme/tokens';
 import { getPressHandlers } from '../../theme/animations';
@@ -25,7 +24,7 @@ export default function FloatingActionButton({
   size = 56,
 }: FABProps) {
     const { colors, isDark } = useTheme();
-    const styles = useMemo(() => makeStyles(colors), [colors]);
+    const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
     const resolvedColor = color ?? colors.accentPrimary;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const { onPressIn, onPressOut } = getPressHandlers(scaleAnim);
@@ -54,12 +53,12 @@ export default function FloatingActionButton({
   );
 }
 
-const makeStyles = (colors: any) => StyleSheet.create({
+const makeStyles = (colors: any, isDark: boolean = true) => StyleSheet.create({
       container: {
         overflow: 'hidden',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.12)',
-        backgroundColor: 'rgba(10, 9, 12, 0.5)',
+        borderColor: isDark ? 'rgba(255,255,255,0.12)' : colors.border,
+        backgroundColor: isDark ? '#1C1C1E' : colors.surface,
       },
       button: {
         alignItems: 'center',

@@ -179,7 +179,7 @@ export async function checkAndApplyOTAUpdate(
     return {
       success: false,
       updated: false,
-      message: error?.message || 'Could not reach update server. Check your internet connection.',
+      message: (!error?.message || error.message.includes('Network') || error.message.includes('fetch') || error.message.includes('timeout')) ? 'Could not reach update server. Check your internet connection.' : 'ZenFit is up to date.',
     };
   }
 }

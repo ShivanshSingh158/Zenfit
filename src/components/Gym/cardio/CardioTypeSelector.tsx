@@ -39,7 +39,7 @@ export const CardioTypeSelector: React.FC<CardioTypeSelectorProps> = React.memo(
     <View style={styles.grid}>
       {CARDIO_TYPES.map(({ label, icon }) => {
         const isSelected = selectedType === label;
-        const isFullWidth = label === 'Other';
+        const isFullWidth = false;
 
         return (
           <TouchableOpacity

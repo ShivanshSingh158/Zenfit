@@ -23,9 +23,10 @@ import {
   resolveExerciseTargetMuscle,
   canonicalizeMuscle,
 } from '../../../utils/gymUtils';
-import { hapticLight, hapticMedium, hapticSuccess } from '../../../utils/haptics';
+import { hapticLight, hapticMedium, hapticSuccess, hapticSelection } from '../../../utils/haptics';
 import { FONT_FAMILY, IOS_DARK, SPACE } from '../../../theme/tokens';
 import { useTheme } from '../../../contexts/ThemeContext';
+import PreSessionMuscleHitMap from './PreSessionMuscleHitMap';
 
 const COMMON_REPS = ['6–8', '8–10', '8–12', '10–12', '12–15', '15–20'];
 const COMMON_REST = [45, 60, 90, 120, 180];
@@ -234,6 +235,15 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   // Quick Swap Modal State
   const [swapTargetIndex, setSwapTargetIndex] = useState<number | null>(null);
 
+  // Day Picker Sheet State
+  const [showDayPicker, setShowDayPicker] = useState(false);
+
+  // Exercise Options Sheet State
+  const [activeExOptionsIdx, setActiveExOptionsIdx] = useState<number | null>(null);
+
+  // Value Picker Sheet State (Reps or Rest)
+  const [pickerTarget, setPickerTarget] = useState<{ exIdx: number; type: 'reps' | 'rest' } | null>(null);
+
   // Initialize form on open
   useEffect(() => {
     if (visible) {
@@ -305,7 +315,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   const handleMoveExercise = (fromIdx: number, direction: 'up' | 'down') => {
     const toIdx = direction === 'up' ? fromIdx - 1 : fromIdx + 1;
     if (toIdx < 0 || toIdx >= exercises.length) return;
-    hapticLight();
+    hapticSelection();
     const updated = [...exercises];
     const temp = updated[fromIdx];
     updated[fromIdx] = updated[toIdx];
@@ -353,6 +363,20 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
     setExercises(prev =>
       prev.map((ex, i) => (i === idx ? { ...ex, restTimeSecs: restSecs } : ex))
     );
+  };
+
+  const handleCycleReps = (idx: number, currentReps: string) => {
+    hapticLight();
+    const currentIndex = COMMON_REPS.indexOf(currentReps);
+    const nextIndex = (currentIndex + 1) % COMMON_REPS.length;
+    handleSelectReps(idx, COMMON_REPS[nextIndex]);
+  };
+
+  const handleCycleRest = (idx: number, currentRest: number) => {
+    hapticLight();
+    const currentIndex = COMMON_REST.indexOf(currentRest);
+    const nextIndex = (currentIndex + 1) % COMMON_REST.length;
+    handleSelectRest(idx, COMMON_REST[nextIndex]);
   };
 
   // ── Exercise Vault Filtering ─────────────────────────────────────────────────
@@ -514,72 +538,13 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              {/* 1. Schedule to Day Selector */}
+              {/* 1. Zone 1: Unified Routine Header (Name, Subtitle & Day Pill) */}
               <View
                 style={[
-                  styles.dayScheduleCard,
+                  styles.unifiedHeaderCard,
                   { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
                 ]}
               >
-                <View style={styles.cardHeaderRow}>
-                  <Text style={styles.cardSectionLabel}>SCHEDULE TO DAY</Text>
-                  {assignedDay != null ? (
-                    <Text style={styles.dayAssignedTag}>
-                      {(DAY_OPTIONS.find(o => o.index === assignedDay)?.label || `Day ${assignedDay}`)} Selected
-                    </Text>
-                  ) : (
-                    <Text style={styles.dayLibraryTag}>Library Only</Text>
-                  )}
-                </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.dayPillsScroll}
-                >
-                  {DAY_OPTIONS.map(opt => {
-                    const isSelected = assignedDay === opt.index;
-                    return (
-                      <TouchableOpacity
-                        key={`day-opt-${opt.label}`}
-                        activeOpacity={0.7}
-                        onPress={() => {
-                          hapticLight();
-                          setAssignedDay(prev => (prev === opt.index ? null : opt.index));
-                        }}
-                        style={[
-                          styles.dayPillBtn,
-                          isSelected && styles.dayPillBtnActive,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.dayPillBtnText,
-                            isSelected && styles.dayPillBtnTextActive,
-                          ]}
-                        >
-                          {opt.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              {/* 2. System-Suggested Name & Focus Card */}
-              <View
-                style={[
-                  styles.inputCard,
-                  { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
-                ]}
-              >
-                <View style={styles.cardHeaderRow}>
-                  <Text style={styles.cardSectionLabel}>ROUTINE NAME & FOCUS</Text>
-                  <View style={styles.autoGeneratedBadge}>
-                    <Ionicons name="sparkles" size={10} color="#A599FF" />
-                    <Text style={styles.autoGeneratedBadgeText}>Auto-Suggested</Text>
-                  </View>
-                </View>
-
                 <TextInput
                   style={[styles.titleInput, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
                   placeholder="Routine Name (e.g. Chest & Back Power)"
@@ -598,64 +563,67 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                   returnKeyType="done"
                 />
 
-                {/* Quick Permutation Name Chips (Strictly 2 Suggestions on 1 Line) */}
-                {nameOptions.length > 0 && (
-                  <View style={styles.suggestionChipsWrap}>
-                    {nameOptions.slice(0, 2).map(optName => (
-                      <TouchableOpacity
-                        key={`name-opt-${optName}`}
-                        activeOpacity={0.7}
-                        onPress={() => {
-                          hapticLight();
-                          setRoutineName(optName);
-                        }}
+                <View style={styles.headerTagRow}>
+                  {/* Day Selector Pill */}
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      hapticLight();
+                      setShowDayPicker(true);
+                    }}
+                    style={styles.headerSelectorPill}
+                  >
+                    <Ionicons name="calendar-outline" size={13} color="#FFFFFF" />
+                    <Text style={styles.headerSelectorPillText}>
+                      {assignedDay != null
+                        ? `${DAY_OPTIONS.find(o => o.index === assignedDay)?.label || `Day ${assignedDay}`}`
+                        : 'Library Only'}
+                    </Text>
+                    <Ionicons name="chevron-down" size={11} color="#8E8E93" />
+                  </TouchableOpacity>
+
+                  {/* Auto-suggested quick names */}
+                  {nameOptions.slice(0, 2).map(optName => (
+                    <TouchableOpacity
+                      key={`name-opt-${optName}`}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        hapticLight();
+                        setRoutineName(optName);
+                      }}
+                      style={[
+                        styles.nameOptionChipMini,
+                        routineName === optName && styles.nameOptionChipMiniActive,
+                      ]}
+                    >
+                      <Text
                         style={[
-                          styles.nameOptionChip,
-                          routineName === optName && styles.nameOptionChipActive,
+                          styles.nameOptionChipMiniText,
+                          routineName === optName && styles.nameOptionChipMiniTextActive,
                         ]}
+                        numberOfLines={1}
                       >
-                        <Text
-                          style={[
-                            styles.nameOptionChipText,
-                            routineName === optName && styles.nameOptionChipTextActive,
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {optName}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
+                        {optName}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </View>
 
-              {/* 3. Session Volume Breakdown */}
+              {/* 2. Zone 2: Pre-Session Muscle Hit Map Preview & Volume Sync */}
               {exercises.length > 0 && (
-                <View
-                  style={[
-                    styles.sessionVolumeBanner,
-                    { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
-                  ]}
-                >
-                  <View style={styles.sessionVolumeTop}>
-                    <Text style={styles.sessionVolumeTitle}>SESSION VOLUME</Text>
-                    <Text style={styles.sessionVolumeMeta}>
-                      {sessionSummary.totalSets} Sets · ~{sessionSummary.estimatedMins} Mins
-                    </Text>
-                  </View>
-                  <View style={styles.sessionMusclePillsRow}>
-                    {Object.entries(sessionSummary.muscleVolume).map(([muscle, sets]) => (
-                      <View key={`vol-${muscle}`} style={styles.sessionMusclePill}>
-                        <Text style={styles.sessionMusclePillText}>
-                          {muscle}: {sets}s
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
+                <View style={{ marginBottom: 12 }}>
+                  <PreSessionMuscleHitMap
+                    exercises={exercises}
+                    isRest={false}
+                    compact={false}
+                    showMiniAvatar={true}
+                    title={routineName || 'Target Muscle Load'}
+                  />
                 </View>
               )}
 
-              {/* 4. Action Button: + Add More Exercises */}
+              {/* 3. Action Button: + Add Exercises */}
               <TouchableOpacity
                 activeOpacity={0.8}
                 onPress={() => {
@@ -665,10 +633,10 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                 style={styles.addMoreExercisesBtn}
               >
                 <Ionicons name="add-circle" size={17} color="#FFFFFF" />
-                <Text style={styles.addMoreExercisesBtnText}>Add More Exercises</Text>
+                <Text style={styles.addMoreExercisesBtnText}>Add Exercises</Text>
               </TouchableOpacity>
 
-              {/* 5. Exercises List with Precision Interactive Steppers */}
+              {/* 4. Zone 3: Exercises List (Clean, Touch-Friendly, Zero Clutter) */}
               {exercises.map((ex, exIdx) => {
                 const currentSets = Number(ex.targetSets) || 3;
                 const currentReps = ex.targetReps || '8–12';
@@ -680,157 +648,98 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                   <View
                     key={`builder-ex-${ex.id || exIdx}`}
                     style={[
-                      styles.exerciseBuilderCard,
+                      styles.cleanExerciseCard,
                       { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
                     ]}
                   >
-                    {/* Header Row: Index Badge, Name, Reorder, Swap & Delete */}
-                    <View style={styles.exHeaderRow}>
+                    {/* Header: Index Badge, Full Name, Target Muscle, and Single ··· Options Button */}
+                    <View style={styles.cleanExHeaderRow}>
                       <View style={styles.exIndexBadge}>
                         <Text style={styles.exIndexText}>#{exIdx + 1}</Text>
                       </View>
 
-                      <View style={styles.exTitleCol}>
+                      <View style={{ flex: 1, paddingRight: 8 }}>
                         <Text
-                          style={[styles.exName, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
+                          style={[styles.cleanExName, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
                           numberOfLines={1}
                         >
                           {ex.name}
                         </Text>
-                        <View style={styles.exMetaRow}>
+                        <View style={styles.cleanExMetaRow}>
                           <View style={[styles.muscleDot, { backgroundColor: muscleColor }]} />
-                          <Text style={styles.exMuscle}>{targetMuscle}</Text>
+                          <Text style={styles.cleanExMuscle}>{targetMuscle}</Text>
                         </View>
                       </View>
 
-                      {/* Top Right Action Icons */}
-                      <View style={styles.exActionsRow}>
-                        <TouchableOpacity
-                          onPress={() => handleMoveExercise(exIdx, 'up')}
-                          disabled={exIdx === 0}
-                          style={[styles.iconActionBtn, exIdx === 0 && { opacity: 0.25 }]}
-                        >
-                          <Ionicons name="chevron-up" size={17} color="#8E8E93" />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                          onPress={() => handleMoveExercise(exIdx, 'down')}
-                          disabled={exIdx === exercises.length - 1}
-                          style={[styles.iconActionBtn, exIdx === exercises.length - 1 && { opacity: 0.25 }]}
-                        >
-                          <Ionicons name="chevron-down" size={17} color="#8E8E93" />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                          onPress={() => {
-                            hapticLight();
-                            setSwapTargetIndex(exIdx);
-                          }}
-                          style={styles.swapActionBtn}
-                        >
-                          <Ionicons name="swap-horizontal" size={15} color="#A599FF" />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                          onPress={() => handleDeleteExercise(exIdx)}
-                          style={styles.deleteActionBtn}
-                        >
-                          <Ionicons name="trash-outline" size={15} color="#FF453A" />
-                        </TouchableOpacity>
-                      </View>
+                      {/* Options (···) Trigger */}
+                      <TouchableOpacity
+                        onPress={() => {
+                          hapticLight();
+                          setActiveExOptionsIdx(exIdx);
+                        }}
+                        style={styles.exMoreOptionsBtn}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="ellipsis-horizontal" size={16} color="#8E8E93" />
+                      </TouchableOpacity>
                     </View>
 
-                    {/* Sets Stepper */}
-                    <View style={styles.controlRow}>
-                      <Text style={styles.controlLabel}>SETS</Text>
-                      <View style={styles.setsStepperContainer}>
-                        <TouchableOpacity
-                          activeOpacity={0.7}
-                          onPress={() => handleAdjustSets(exIdx, -1)}
-                          style={styles.stepperMinusBtn}
-                        >
-                          <Text style={styles.stepperBtnSymbol}>−</Text>
-                        </TouchableOpacity>
-                        <View style={styles.setsValueBadge}>
-                          <Text style={styles.setsValueNumber}>{currentSets}</Text>
-                          <Text style={styles.setsValueSub}>SETS</Text>
+                    {/* Quick Values Selector: Exactly 3 Aligned Symmetrical Cards on 1 Row */}
+                    <View style={styles.cleanExControlsRow}>
+                      {/* 1. Sets Stepper Card */}
+                      <View style={styles.cleanValueChip}>
+                        <Text style={styles.cleanValueChipLabel}>SETS</Text>
+                        <View style={styles.setsStepperRow}>
+                          <TouchableOpacity
+                            activeOpacity={0.6}
+                            onPress={() => handleAdjustSets(exIdx, -1)}
+                            style={styles.stepperSubtleBtn}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          >
+                            <Ionicons name="remove" size={14} color="#8E8E93" />
+                          </TouchableOpacity>
+                          <Text style={styles.cleanValueChipValue}>{currentSets}</Text>
+                          <TouchableOpacity
+                            activeOpacity={0.6}
+                            onPress={() => handleAdjustSets(exIdx, 1)}
+                            style={styles.stepperSubtleBtn}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          >
+                            <Ionicons name="add" size={14} color="#8E8E93" />
+                          </TouchableOpacity>
                         </View>
-                        <TouchableOpacity
-                          activeOpacity={0.7}
-                          onPress={() => handleAdjustSets(exIdx, 1)}
-                          style={styles.stepperPlusBtn}
-                        >
-                          <Text style={styles.stepperBtnSymbol}>+</Text>
-                        </TouchableOpacity>
                       </View>
-                    </View>
 
-                    {/* Reps Selector Strip */}
-                    <View style={styles.controlRow}>
-                      <Text style={styles.controlLabel}>REPS</Text>
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.pillsScroll}
+                      {/* 2. Reps Chip (Tap to choose rep range) */}
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          hapticLight();
+                          setPickerTarget({ exIdx, type: 'reps' });
+                        }}
+                        style={styles.cleanValueChip}
                       >
-                        {COMMON_REPS.map(repOption => {
-                          const isSelected = currentReps === repOption;
-                          return (
-                            <TouchableOpacity
-                              key={`rep-${repOption}`}
-                              activeOpacity={0.7}
-                              onPress={() => handleSelectReps(exIdx, repOption)}
-                              style={[
-                                styles.pillItem,
-                                isSelected && styles.pillItemSelected,
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.pillItemText,
-                                  isSelected && styles.pillItemTextSelected,
-                                ]}
-                              >
-                                {repOption}
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </ScrollView>
-                    </View>
+                        <Text style={styles.cleanValueChipLabel}>REPS</Text>
+                        <View style={styles.chipValueWrapper}>
+                          <Text style={styles.cleanValueChipValue}>{currentReps}</Text>
+                        </View>
+                      </TouchableOpacity>
 
-                    {/* Rest Timer Selector Strip */}
-                    <View style={styles.controlRow}>
-                      <Text style={styles.controlLabel}>REST</Text>
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.pillsScroll}
+                      {/* 3. Rest Timer Chip (Tap to choose rest duration) */}
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          hapticLight();
+                          setPickerTarget({ exIdx, type: 'rest' });
+                        }}
+                        style={styles.cleanValueChip}
                       >
-                        {COMMON_REST.map(restOption => {
-                          const isSelected = currentRest === restOption;
-                          return (
-                            <TouchableOpacity
-                              key={`rest-${restOption}`}
-                              activeOpacity={0.7}
-                              onPress={() => handleSelectRest(exIdx, restOption)}
-                              style={[
-                                styles.pillItem,
-                                isSelected && styles.pillItemRestSelected,
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.pillItemText,
-                                  isSelected && styles.pillItemTextSelected,
-                                ]}
-                              >
-                                {restOption}s
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </ScrollView>
+                        <Text style={styles.cleanValueChipLabel}>REST</Text>
+                        <View style={styles.chipValueWrapper}>
+                          <Text style={styles.cleanValueChipValue}>{currentRest}s</Text>
+                        </View>
+                      </TouchableOpacity>
                     </View>
                   </View>
                 );
@@ -1069,6 +978,281 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                     </View>
                   </TouchableOpacity>
                 ))}
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        {/* ── DAY PICKER SHEET MODAL ─────────────────────────────────────── */}
+        <Modal
+          visible={showDayPicker}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowDayPicker(false)}
+        >
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setShowDayPicker(false)}
+          >
+            <Pressable
+              style={[
+                styles.swapSheetContainer,
+                { backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF' },
+              ]}
+              onPress={e => e.stopPropagation()}
+            >
+              <Text style={[styles.swapSheetTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
+                Schedule Routine to Day
+              </Text>
+              <Text style={styles.swapSheetSub}>
+                Assign this workout to a weekly schedule slot
+              </Text>
+
+              <ScrollView style={{ maxHeight: 340 }}>
+                {DAY_OPTIONS.map(opt => {
+                  const isSelected = assignedDay === opt.index;
+                  return (
+                    <TouchableOpacity
+                      key={`sheet-day-${opt.label}`}
+                      style={[
+                        styles.daySheetOptionRow,
+                        isSelected && styles.daySheetOptionRowActive,
+                      ]}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        hapticLight();
+                        setAssignedDay(opt.index);
+                        setShowDayPicker(false);
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <Ionicons
+                          name={opt.index === null ? "library-outline" : "calendar-outline"}
+                          size={18}
+                          color={isSelected ? "#30D158" : "#8E8E93"}
+                        />
+                        <Text style={[
+                          styles.daySheetOptionText,
+                          { color: isSelected ? "#30D158" : (isDark ? '#FFFFFF' : '#000000') },
+                        ]}>
+                          {opt.label === 'Library Only' ? 'Library Only (No Day Scheduled)' : opt.label}
+                        </Text>
+                      </View>
+                      {isSelected && (
+                        <Ionicons name="checkmark-circle" size={18} color="#30D158" />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        {/* ── EXERCISE OPTIONS SHEET (···) ─────────────────────────────────── */}
+        <Modal
+          visible={activeExOptionsIdx !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setActiveExOptionsIdx(null)}
+        >
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setActiveExOptionsIdx(null)}
+          >
+            <Pressable
+              style={[
+                styles.swapSheetContainer,
+                { backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF' },
+              ]}
+              onPress={e => e.stopPropagation()}
+            >
+              <Text style={[styles.swapSheetTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
+                {activeExOptionsIdx !== null ? exercises[activeExOptionsIdx]?.name : 'Exercise Options'}
+              </Text>
+              <Text style={styles.swapSheetSub}>
+                Manage exercise position, alternatives or delete
+              </Text>
+
+              <View style={{ gap: 4, marginTop: 8 }}>
+                {/* Swap */}
+                <TouchableOpacity
+                  style={styles.exSheetActionRow}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    const idx = activeExOptionsIdx;
+                    setActiveExOptionsIdx(null);
+                    if (idx !== null) setSwapTargetIndex(idx);
+                  }}
+                >
+                  <View style={styles.exSheetActionIconWrap}>
+                    <Ionicons name="swap-horizontal" size={17} color="#FFFFFF" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.exSheetActionLabel}>Swap Alternative Exercise</Text>
+                    <Text style={styles.exSheetActionSublabel}>Find biomechanical substitutes</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color="#636366" />
+                </TouchableOpacity>
+
+                {/* Move Up */}
+                {activeExOptionsIdx !== null && activeExOptionsIdx > 0 && (
+                  <TouchableOpacity
+                    style={styles.exSheetActionRow}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      const idx = activeExOptionsIdx;
+                      setActiveExOptionsIdx(null);
+                      if (idx !== null) handleMoveExercise(idx, 'up');
+                    }}
+                  >
+                    <View style={styles.exSheetActionIconWrap}>
+                      <Ionicons name="arrow-up-outline" size={17} color="#FFFFFF" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.exSheetActionLabel}>Move Up</Text>
+                      <Text style={styles.exSheetActionSublabel}>Perform this movement earlier in workout</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+
+                {/* Move Down */}
+                {activeExOptionsIdx !== null && activeExOptionsIdx < exercises.length - 1 && (
+                  <TouchableOpacity
+                    style={styles.exSheetActionRow}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      const idx = activeExOptionsIdx;
+                      setActiveExOptionsIdx(null);
+                      if (idx !== null) handleMoveExercise(idx, 'down');
+                    }}
+                  >
+                    <View style={styles.exSheetActionIconWrap}>
+                      <Ionicons name="arrow-down-outline" size={17} color="#FFFFFF" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.exSheetActionLabel}>Move Down</Text>
+                      <Text style={styles.exSheetActionSublabel}>Perform this movement later in workout</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+
+                {/* Delete */}
+                <TouchableOpacity
+                  style={styles.exSheetActionRow}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    const idx = activeExOptionsIdx;
+                    setActiveExOptionsIdx(null);
+                    if (idx !== null) handleDeleteExercise(idx);
+                  }}
+                >
+                  <View style={[styles.exSheetActionIconWrap, { backgroundColor: 'rgba(255, 69, 58, 0.15)' }]}>
+                    <Ionicons name="trash-outline" size={17} color="#FF453A" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.exSheetActionLabel, { color: '#FF453A' }]}>Remove from Routine</Text>
+                    <Text style={styles.exSheetActionSublabel}>Delete this movement</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        {/* ── REPS / REST QUICK PICKER SHEET MODAL ───────────────────────── */}
+        <Modal
+          visible={pickerTarget !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPickerTarget(null)}
+        >
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setPickerTarget(null)}
+          >
+            <Pressable
+              style={[
+                styles.swapSheetContainer,
+                { backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF' },
+              ]}
+              onPress={e => e.stopPropagation()}
+            >
+              <Text style={[styles.swapSheetTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
+                {pickerTarget?.type === 'reps' ? 'Target Rep Range' : 'Inter-Set Rest Timer'}
+              </Text>
+              <Text style={styles.swapSheetSub}>
+                {pickerTarget?.type === 'reps'
+                  ? 'Select hyper-specific repetition target'
+                  : 'Program recovery interval between sets'}
+              </Text>
+
+              <ScrollView style={{ maxHeight: 340 }}>
+                {pickerTarget?.type === 'reps' ? (
+                  COMMON_REPS.map(repOpt => {
+                    const isSelected = exercises[pickerTarget.exIdx]?.targetReps === repOpt;
+                    return (
+                      <TouchableOpacity
+                        key={`pick-rep-${repOpt}`}
+                        style={[
+                          styles.daySheetOptionRow,
+                          isSelected && styles.daySheetOptionRowActive,
+                        ]}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          hapticLight();
+                          handleSelectReps(pickerTarget.exIdx, repOpt);
+                          setPickerTarget(null);
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={[
+                            styles.daySheetOptionText,
+                            { color: isSelected ? "#30D158" : (isDark ? '#FFFFFF' : '#000000') },
+                          ]}>
+                            {repOpt} Reps
+                          </Text>
+                        </View>
+                        {isSelected && (
+                          <Ionicons name="checkmark-circle" size={18} color="#30D158" />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })
+                ) : (
+                  COMMON_REST.map(restOpt => {
+                    const isSelected = (exercises[pickerTarget?.exIdx ?? 0]?.restTimeSecs || 90) === restOpt;
+                    return (
+                      <TouchableOpacity
+                        key={`pick-rest-${restOpt}`}
+                        style={[
+                          styles.daySheetOptionRow,
+                          isSelected && styles.daySheetOptionRowActive,
+                        ]}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          if (pickerTarget) {
+                            hapticLight();
+                            handleSelectRest(pickerTarget.exIdx, restOpt);
+                            setPickerTarget(null);
+                          }
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={[
+                            styles.daySheetOptionText,
+                            { color: isSelected ? "#30D158" : (isDark ? '#FFFFFF' : '#000000') },
+                          ]}>
+                            {restOpt} Seconds ({Math.floor(restOpt / 60) > 0 ? `${Math.floor(restOpt / 60)}m ` : ''}{restOpt % 60 ? `${restOpt % 60}s` : ''})
+                          </Text>
+                        </View>
+                        {isSelected && (
+                          <Ionicons name="checkmark-circle" size={18} color="#30D158" />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
               </ScrollView>
             </Pressable>
           </Pressable>
@@ -1671,5 +1855,184 @@ const styles = StyleSheet.create({
     fontFamily: FONT_FAMILY.bold,
     fontSize: 11,
     color: '#A599FF',
+  },
+
+  // Zone 1: Unified Header Card
+  unifiedHeaderCard: {
+    borderRadius: 16,
+    padding: 14,
+    gap: 6,
+  },
+  headerTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+    flexWrap: 'wrap',
+  },
+  headerSelectorPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#2C2C2E',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  headerSelectorPillText: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  nameOptionChipMini: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  nameOptionChipMiniActive: {
+    backgroundColor: 'rgba(165, 153, 255, 0.18)',
+    borderWidth: 1,
+    borderColor: '#A599FF',
+  },
+  nameOptionChipMiniText: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+  },
+  nameOptionChipMiniTextActive: {
+    color: '#A599FF',
+    fontFamily: FONT_FAMILY.bold,
+  },
+
+  // Zone 3: Clean Exercise Card
+  cleanExerciseCard: {
+    borderRadius: 16,
+    padding: 14,
+    gap: 12,
+  },
+  cleanExHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  cleanExName: {
+    fontSize: 15,
+    fontFamily: FONT_FAMILY.bold,
+  },
+  cleanExMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 2,
+  },
+  cleanExMuscle: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+  },
+  exMoreOptionsBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#2C2C2E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cleanExControlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cleanValueChip: {
+    flex: 1,
+    height: 52,
+    backgroundColor: '#2C2C2E',
+    borderRadius: 12,
+    paddingTop: 6,
+    paddingBottom: 6,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  cleanValueChipLabel: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#8E8E93',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  cleanValueChipValue: {
+    fontSize: 13.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  chipValueWrapper: {
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  setsStepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    height: 24,
+    paddingHorizontal: 4,
+  },
+  stepperSubtleBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Day Sheet Modal Row
+  daySheetOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  daySheetOptionRowActive: {
+    backgroundColor: 'rgba(48, 209, 88, 0.1)',
+  },
+  daySheetOptionText: {
+    fontSize: 14,
+    fontFamily: FONT_FAMILY.bold,
+  },
+
+  // Exercise Sheet Modal Row
+  exSheetActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#2C2C2E',
+  },
+  exSheetActionIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exSheetActionLabel: {
+    fontSize: 13.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#FFFFFF',
+  },
+  exSheetActionSublabel: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.regular,
+    color: '#8E8E93',
+    marginTop: 1,
   },
 });

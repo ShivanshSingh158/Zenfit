@@ -14,7 +14,7 @@ export const makeActiveLoggingStyles = (colors: any, isDark: boolean = true) => 
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: SPACE.xl,
+      paddingHorizontal: SPACE.md,
       paddingTop: 4,
       paddingBottom: 4,
       borderBottomWidth: 1,
@@ -35,7 +35,7 @@ export const makeActiveLoggingStyles = (colors: any, isDark: boolean = true) => 
     headerTitle: { fontFamily: FONT_FAMILY.bold, fontSize: 13, color: colors.textMuted, letterSpacing: 1 },
     content: { flex: 1 },
     scrollContent: {
-      paddingHorizontal: SPACE.xl,
+      paddingHorizontal: SPACE.md,
       paddingTop: 4,
       paddingBottom: 28,
     },
@@ -459,6 +459,30 @@ export const makeActiveLoggingStyles = (colors: any, isDark: boolean = true) => 
     modalSubtitle: { fontFamily: FONT_FAMILY.body, fontSize: 13, color: colors.textMuted, marginTop: 4 },
     altRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? '#0c0c0f' : (colors.surface2 || '#F0EFF7'), padding: 16, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: isDark ? '#1c1c20' : colors.border },
     altText: { flex: 1, fontFamily: FONT_FAMILY.bold, fontSize: 16, color: colors.textPrimary, marginLeft: 12 },
+
+    progressBarTrack: {
+      height: 2.5,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+      width: '100%',
+    },
+    progressBarFill: {
+      height: 2.5,
+      backgroundColor: '#30D158',
+    },
+    warmupActionBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: RADIUS.sm,
+      backgroundColor: isDark ? 'rgba(255,159,10,0.12)' : 'rgba(255,159,10,0.08)',
+    },
+    warmupActionText: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 11,
+      color: '#FF9F0A',
+    },
   });
 
   stylesCache.set(cacheKey, styles);

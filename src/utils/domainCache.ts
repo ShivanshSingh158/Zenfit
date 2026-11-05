@@ -112,7 +112,10 @@ export async function flushDomainCache(domainKey?: string): Promise<void> {
           if (field === 'gymLogs' && Array.isArray(valueToStore)) {
             const cutoffDate = new Date();
             cutoffDate.setDate(cutoffDate.getDate() - 90);
-            const cutoffStr = cutoffDate.toISOString().slice(0, 10);
+            const y = cutoffDate.getFullYear();
+            const m = String(cutoffDate.getMonth() + 1).padStart(2, '0');
+            const d = String(cutoffDate.getDate()).padStart(2, '0');
+            const cutoffStr = `${y}-${m}-${d}`;
 
             const hotLogs = valueToStore.filter((l: any) => l?.date >= cutoffStr);
             const coldLogs = valueToStore.filter((l: any) => l?.date < cutoffStr);
@@ -212,7 +215,40 @@ export interface WellnessCache {
   weightLogs: any[];
 }
 
-export const readWellnessCache  = () => readDomainCache<WellnessCache>(WELLNESS_KEY_MAP);
+export const readWellnessCache = async (): Promise<Partial<WellnessCache>> => {
+  const result = await readDomainCache<WellnessCache>(WELLNESS_KEY_MAP);
+  try {
+    const allKeys = await AsyncStorage.getAllKeys();
+    const archiveKeys = allKeys.filter(k => k.startsWith('@zentrack_cache_gym_archive_'));
+    if (archiveKeys.length > 0) {
+      const archivePairs = await AsyncStorage.multiGet(archiveKeys);
+      const archiveLogs: any[] = [];
+      for (const [, raw] of archivePairs) {
+        if (!raw) continue;
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) archiveLogs.push(...parsed);
+        } catch {}
+      }
+      if (archiveLogs.length > 0) {
+        const existingLogs = Array.isArray(result.gymLogs) ? result.gymLogs : [];
+        const seenIds = new Set(existingLogs.map((l: any) => l?.id).filter(Boolean));
+        const merged = [...existingLogs];
+        for (const al of archiveLogs) {
+          if (al?.id && !seenIds.has(al.id)) {
+            seenIds.add(al.id);
+            merged.push(al);
+          } else if (!al?.id) {
+            merged.push(al);
+          }
+        }
+        merged.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+        result.gymLogs = merged;
+      }
+    }
+  } catch {}
+  return result;
+};
 export const writeWellnessCache = (data: Partial<WellnessCache>, immediate = false) => writeDomainCache(data, WELLNESS_KEY_MAP, immediate);
 
 // ── Academic ─────────────────────────────────────────────────────────────────
@@ -280,7 +316,10 @@ export async function clearAllDomainCaches(): Promise<void> {
   try {
     clearBootManifest();
     clearDomainHotCache();
-    await AsyncStorage.multiRemove(Object.values(DOMAIN_CACHE_KEYS));
+    const allKeys = await AsyncStorage.getAllKeys();
+    const archiveKeys = allKeys.filter(k => k.startsWith('@zentrack_cache_gym_archive_') || k.endsWith('_bak'));
+    const allToRemove = Array.from(new Set([...Object.values(DOMAIN_CACHE_KEYS), ...archiveKeys]));
+    await AsyncStorage.multiRemove(allToRemove);
   } catch { /* silent */ }
 }
 

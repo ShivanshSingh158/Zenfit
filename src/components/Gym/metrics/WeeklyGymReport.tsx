@@ -58,6 +58,8 @@ interface Props {
   weekAnchorDate: string;
   userGymPlan?: UserGymPlanDoc | any | null;
   scrollable?: boolean;
+  hideHeader?: boolean;
+  hideEmptyCard?: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -214,7 +216,14 @@ function ChangeBadge({ delta, unit = '' }: { delta: number; unit?: string }) {
   );
 }
 
-export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, weekAnchorDate, userGymPlan, scrollable = false }: Props) {
+export const WeeklyGymReport = React.memo(function WeeklyGymReport({
+  gymLogs,
+  weekAnchorDate,
+  userGymPlan,
+  scrollable = false,
+  hideHeader = false,
+  hideEmptyCard = false,
+}: Props) {
   const { colors, isDark } = useTheme();
   const st = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const weekDates = useMemo(() => getWeekRange(weekAnchorDate), [weekAnchorDate]);
@@ -815,27 +824,27 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({ gymLogs, we
   const reportBody = (
     <View style={st.container}>
       {/* ── Title Header ──────────────────────────────────────────────────── */}
-      <View style={st.titleRow}>
-        <View>
-          <Text style={st.title}>Weekly Recap</Text>
-          <Text style={st.subtitle}>
-            {dateRangeStr ? `${dateRangeStr} • ` : ''}{workoutDays}/{plannedWorkoutDaysCount} Days Trained
-          </Text>
+      {!hideHeader && (
+        <View style={st.titleRow}>
+          <View>
+            <Text style={st.title}>Weekly Recap</Text>
+            <Text style={st.subtitle}>
+              {dateRangeStr ? `${dateRangeStr} • ` : ''}{workoutDays}/{plannedWorkoutDaysCount} Days Trained
+            </Text>
+          </View>
         </View>
-        <View style={st.restBadge}>
-          <Ionicons name="bed-outline" size={13} color={COLORS.accentPrimary} />
-          <Text style={st.restBadgeText}>Recovery Mode</Text>
-        </View>
-      </View>
+      )}
 
       {!hasData ? (
-        <View style={st.emptyCard}>
-          <Ionicons name="barbell-outline" size={42} color={COLORS.textTertiary} />
-          <Text style={st.emptyText}>No workouts logged this week yet.</Text>
-          <Text style={st.emptySubtext}>
-            Log your workouts during the week and your full analytics and progress rings will populate here.
-          </Text>
-        </View>
+        hideEmptyCard ? null : (
+          <View style={st.emptyCard}>
+            <Ionicons name="barbell-outline" size={42} color={COLORS.textTertiary} />
+            <Text style={st.emptyText}>No workouts logged this week yet.</Text>
+            <Text style={st.emptySubtext}>
+              Log your workouts during the week and your full analytics and progress rings will populate here.
+            </Text>
+          </View>
+        )
       ) : (
         <>
           {/* 1. ── Global KPI Stats (Sessions, Total Sets, Total Volume) ────── */}

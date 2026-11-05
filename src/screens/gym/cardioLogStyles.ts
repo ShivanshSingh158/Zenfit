@@ -48,6 +48,33 @@ export const makeCardioLogStyles = (colors: any, isDark: boolean = true) => {
     saveBtnWrapper: { marginTop: SPACE.lg, borderRadius: RADIUS.lg, overflow: 'hidden' },
     saveBtn: { paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
     saveBtnText: { fontFamily: FONT_FAMILY.bold, fontSize: 16, color: '#ffffff' },
+
+    quickChipsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 10,
+    },
+    quickChip: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: RADIUS.full,
+      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.08)' : colors.border,
+    },
+    quickChipActive: {
+      backgroundColor: '#FF9F0A',
+      borderColor: '#FF9F0A',
+    },
+    quickChipText: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 12,
+      color: colors.textPrimary,
+    },
+    quickChipTextActive: {
+      color: '#FFFFFF',
+    },
   });
 
   stylesCache.set(cacheKey, styles);

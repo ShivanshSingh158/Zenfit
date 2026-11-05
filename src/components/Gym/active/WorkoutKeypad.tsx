@@ -1,3 +1,4 @@
+import { useTheme } from '../../../contexts/ThemeContext';
 /**
  * WorkoutKeypad.tsx — ZenFit Modern 4-Column Smart Lifter Keypad
  *
@@ -73,6 +74,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(({
   onDismiss,
 }) => {
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
   const [showRirMenu, setShowRirMenu] = useState(false);
   const isWeight = field === 'weight';
 
@@ -109,7 +111,14 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(({
   };
 
   return (
-    <View style={[styles.wrapper, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+    <View style={[
+      styles.wrapper,
+      {
+        paddingBottom: Math.max(insets.bottom, 8),
+        backgroundColor: isDark ? '#121216' : colors.surface,
+        borderTopColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.border,
+      },
+    ]}>
       {/* ── 1. 36px DYNAMIC CONTEXTUAL ACCESSORY STRIP ── */}
       <View style={styles.accessoryBar}>
         {/* Left: Quick Steppers adapted to focused field */}
@@ -456,11 +465,11 @@ const styles = StyleSheet.create({
   },
   logKeyDouble: {
     flex: 1,
-    backgroundColor: '#22C55E',
+    backgroundColor: '#30D158',
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#22C55E',
+    shadowColor: '#30D158',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 6,

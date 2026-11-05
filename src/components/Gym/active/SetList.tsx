@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import SwipeableSetRow from './SwipeableSetRow';
 import type { SetInputState } from '../../../utils/activeLoggingMath';
@@ -23,11 +23,13 @@ export interface SetListProps {
   onToggleShowWarmups?: () => void;
   onSetAction: (
     idx: number,
-    action: 'textChange' | 'blur' | 'toggle' | 'delete' | 'swipe' | 'cycleType' | 'copyPrev' | 'focusField',
+    action: 'textChange' | 'blur' | 'toggle' | 'delete' | 'swipe' | 'cycleType' | 'copyPrev' | 'focusField' | 'setRest',
     payload?: any
   ) => void;
   isAllComplete?: boolean;
   isLastExercise?: boolean;
+  progressionPolicy?: 'linear' | 'double' | 'triple' | 'top_backoff';
+  onSelectProgressionPolicy?: (policy: 'linear' | 'double' | 'triple' | 'top_backoff') => void;
   onFinishWorkout?: () => void;
 }
 
@@ -55,6 +57,8 @@ export const SetList: React.FC<SetListProps> = React.memo(({
   onSetAction,
   isAllComplete,
   isLastExercise,
+  progressionPolicy = 'double',
+  onSelectProgressionPolicy,
   onFinishWorkout,
 }) => {
   const firstWorkingIdx = setsLog.findIndex(s => !s.isWarmup);
@@ -127,7 +131,7 @@ export const SetList: React.FC<SetListProps> = React.memo(({
           <React.Fragment key={`set-frag-${stableKey}`}>
             {isFirstWorkingRow && (
               <View style={[styles.phaseHeaderRow, { marginTop: 12 }]}>
-                <Ionicons name="barbell-outline" size={13} color={colors.accentPrimary || '#0A84FF'} />
+                <Ionicons name="barbell-outline" size={13} color={colors.accentPrimary || '#a599ff'} />
                 <Text style={styles.phaseHeaderText}>WORKING SETS</Text>
                 <View style={styles.phaseHeaderLine} />
               </View>

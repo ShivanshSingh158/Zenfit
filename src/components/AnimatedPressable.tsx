@@ -74,7 +74,7 @@ export function AnimatedPressable({
   style,
   scaleTo,
   activeOpacity,
-  haptic = 'none',
+  haptic = 'light',
   variant = 'default',
   children,
   entering,

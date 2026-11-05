@@ -6,7 +6,7 @@
  */
 
 // ── App Metadata ──────────────────────────────────────────────────────────────
-export const APP_NAME = 'ZenTrack';
+export const APP_NAME = 'ZenFit';
 export const APP_VERSION = '1.0.0';
 
 // ── API Endpoints ─────────────────────────────────────────────────────────────
@@ -63,6 +63,10 @@ export const STORAGE_KEYS = {
   SARA_ACTION_HISTORY: '@sara_action_history_v1',  // [4.15] Committed action log (last 50, JSON)
   DASHBOARD_LAYOUT: '@zentrack_dashboard_layout', // Custom dashboard widget order
   SAVED_PLACES: '@zentrack_saved_places',         // User frequent places array
+  GYM_GEOFENCE_CONFIG: '@zenfit_gym_geofence_config_v1',
+  GYM_GEOFENCE_LAST_TRIGGER: '@zenfit_gym_geofence_last_trigger_v1',
+  BLUETOOTH_TRIGGER_CONFIG: '@zenfit_bluetooth_trigger_config_v1',
+  BLUETOOTH_TRIGGER_LAST: '@zenfit_bluetooth_trigger_last_v1',
 } as const;
 
 // ── Firestore Collections ─────────────────────────────────────────────────────
@@ -155,26 +159,18 @@ export const SARA_MAX_HISTORY_TURNS = 12;
 export const AGENT_HISTORY_MAX_ENTRIES = 50;
 
 export const XP_LEVELS = [
-  { xp: 0,       label: 'Seeker' },
-  { xp: 1000,    label: 'Warden' },
-  { xp: 3000,    label: 'Sentinel' },
-  { xp: 7000,    label: 'Guardian' },
-  { xp: 14000,   label: 'Vanguard' },
-  { xp: 27000,   label: 'Luminary' },
-  { xp: 59500,   label: 'Legend' },
-  { xp: 110000,  label: 'Mythic' },
-  { xp: 180000,  label: 'Paragon' },
+  { xp: 0,       label: 'Novice' },
+  { xp: 1000,    label: 'Rookie' },
+  { xp: 3000,    label: 'Consistent' },
+  { xp: 7000,    label: 'Intermediate' },
+  { xp: 14000,   label: 'Advanced' },
+  { xp: 27000,   label: 'Elite' },
+  { xp: 59500,   label: 'Pro' },
+  { xp: 110000,  label: 'Master' },
+  { xp: 180000,  label: 'Champion' },
   { xp: 270000,  label: 'Titan' },
-  { xp: 390000,  label: 'Ascendant' },
-  { xp: 550000,  label: 'Exalted' },
-  { xp: 760000,  label: 'Sovereign' },
-  { xp: 1030000, label: 'Archon' },
-  { xp: 1380000, label: 'Celestial' },
-  { xp: 1820000, label: 'Ethereal' },
-  { xp: 2380000, label: 'Empyrean' },
-  { xp: 3080000, label: 'Astral' },
-  { xp: 3950000, label: 'Zenith' },
-  { xp: 5000000, label: 'Apex' },
+  { xp: 390000,  label: 'Olympian' },
+  { xp: 550000,  label: 'Apex Athlete' },
 ] as const;
 
 // ── Default Tab Modules ───────────────────────────────────────────────────────

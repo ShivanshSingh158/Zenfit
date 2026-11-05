@@ -16,6 +16,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -33,6 +34,9 @@ import { FONT_FAMILY } from '../../theme/tokens';
 import { GymNavigationParamList } from '../../types/gym.types';
 
 import AnatomicalBodyMapCard from '../../components/Gym/metrics/AnatomicalBodyMapCard';
+import VolumeZoneRadarBar, { MuscleVolumeEntry } from '../../components/Gym/metrics/VolumeZoneRadarBar';
+import StructuralBalanceCard from '../../components/Gym/metrics/StructuralBalanceCard';
+import { calculateMacroVolumeLoad, MuscleSlug } from '../../services/muscleRecoveryService';
 import BodyMetricsHistoryChart, { WeightChartEntry } from '../../components/Gym/metrics/BodyMetricsHistoryChart';
 import BodyMetricsSheet from '../../components/Gym/metrics/BodyMetricsSheet';
 import BeforeAfterSlider from '../../components/Gym/metrics/BeforeAfterSlider';
@@ -55,6 +59,7 @@ export default function GymProgressScreen() {
   const { gymProfile } = useGymProfile();
 
   const [showWeighInSheet, setShowWeighInSheet] = useState(false);
+  const [metricsSheetTab, setMetricsSheetTab] = useState<'weight' | 'photo'>('weight');
   const [localWeightLogs, setLocalWeightLogs] = useState<any[]>(() =>
     getL1Sync<any[]>(WEIGHT_LOGS_KEY, null) || getL1Sync<any[]>(LEGACY_WEIGHT_LOGS_KEY, [])
   );
@@ -135,6 +140,39 @@ export default function GymProgressScreen() {
   const cardBg = isDark ? '#1C1C1E' : '#FFFFFF';
   const separatorColor = isDark ? 'rgba(84, 84, 88, 0.36)' : 'rgba(60, 60, 67, 0.18)';
 
+  const weeklyMuscleVolumes = useMemo<MuscleVolumeEntry[]>(() => {
+    const macro = calculateMacroVolumeLoad(gymLogs, 7);
+    const groups: { name: string; slugs: MuscleSlug[] }[] = [
+      { name: 'Chest', slugs: ['chest'] },
+      { name: 'Back', slugs: ['upper-back', 'serratus'] },
+      { name: 'Shoulders', slugs: ['deltoids'] },
+      { name: 'Quads', slugs: ['quadriceps'] },
+      { name: 'Hamstrings', slugs: ['hamstring'] },
+      { name: 'Glutes', slugs: ['gluteal'] },
+      { name: 'Biceps', slugs: ['biceps'] },
+      { name: 'Triceps', slugs: ['triceps'] },
+      { name: 'Calves', slugs: ['calves', 'tibialis'] },
+      { name: 'Abs', slugs: ['abs', 'obliques'] },
+      { name: 'Traps', slugs: ['trapezius'] },
+      { name: 'Forearms', slugs: ['forearm'] },
+    ];
+
+    return groups.map(g => {
+      let sets = 0;
+      for (const slug of g.slugs) {
+        if (macro[slug]) sets += macro[slug].sets;
+      }
+      const direct = Math.round(sets * 0.7);
+      const synergist = Math.round(sets * 0.3);
+      return {
+        muscleGroup: g.name,
+        directSets: direct,
+        synergistSets: synergist,
+        effectiveSets: sets,
+      };
+    });
+  }, [gymLogs]);
+
   const bodyMapStyle = useMemo(
     () => [styles.iosCard, { backgroundColor: cardBg, borderWidth: 0 }],
     [styles.iosCard, cardBg]
@@ -170,13 +208,14 @@ export default function GymProgressScreen() {
           <TouchableOpacity
             onPress={() => {
               hapticLight();
+              setMetricsSheetTab('weight');
               setShowWeighInSheet(true);
             }}
             style={[styles.weighInBtn, { backgroundColor: isDark ? '#FFFFFF' : '#000000' }]}
             activeOpacity={0.8}
           >
             <Ionicons name="scale-outline" size={13} color={isDark ? '#000000' : '#FFFFFF'} />
-            <Text style={[styles.weighInBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Weigh In</Text>
+            <Text style={[styles.weighInBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>+ Weigh In</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -197,9 +236,9 @@ export default function GymProgressScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* ── SECTION 1: MUSCLE STATUS & WEEKLY GOAL ── */}
+        {/* ── SECTION 1: MUSCLE STATUS & RECOVERY ── */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeaderLabel}>MUSCLE STATUS & WEEKLY GOAL</Text>
+          <Text style={styles.sectionHeaderLabel}>MUSCLE STATUS & RECOVERY</Text>
           <Text style={styles.sectionBadgeText}>THIS WEEK</Text>
         </View>
 
@@ -214,18 +253,9 @@ export default function GymProgressScreen() {
           }}
         />
 
-        {/* ── SECTION 2: WEIGHT & BODY COMPOSITION (INLINE) ── */}
+        {/* ── SECTION 2: WEIGHT & BODY COMPOSITION ── */}
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionHeaderLabel}>WEIGHT & COMPOSITION</Text>
-          <TouchableOpacity
-            onPress={() => {
-              hapticLight();
-              setShowWeighInSheet(true);
-            }}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.sectionActionText}>+ Record</Text>
-          </TouchableOpacity>
         </View>
 
         <View style={[styles.iosCard, { backgroundColor: cardBg }]}>
@@ -330,11 +360,12 @@ export default function GymProgressScreen() {
           <TouchableOpacity
             onPress={() => {
               hapticLight();
+              setMetricsSheetTab('photo');
               setShowWeighInSheet(true);
             }}
             activeOpacity={0.7}
           >
-            <Text style={styles.sectionActionText}>Add Photo</Text>
+            <Text style={styles.sectionActionText}>+ Add Photo</Text>
           </TouchableOpacity>
         </View>
 
@@ -353,11 +384,33 @@ export default function GymProgressScreen() {
               </Text>
             </View>
           </View>
+        ) : photoEntries.length === 1 ? (
+          <View style={[styles.iosCard, { backgroundColor: cardBg, padding: 12 }]}>
+            <View style={{ height: 260, borderRadius: 12, overflow: 'hidden', backgroundColor: '#1C1C1E' }}>
+              <Image source={{ uri: photoEntries[0].photoUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+              <Text style={styles.photoDateLabel}>
+                Baseline Photo · {photoEntries[0].date} ({photoEntries[0].weight} kg)
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  hapticLight();
+                  setMetricsSheetTab('photo');
+                  setShowWeighInSheet(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={{ fontFamily: FONT_FAMILY.bold, fontSize: 12, color: '#A599FF' }}>+ Add Comparison</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         ) : (
           <TouchableOpacity
             activeOpacity={0.8}
             onPress={() => {
               hapticLight();
+              setMetricsSheetTab('photo');
               setShowWeighInSheet(true);
             }}
             style={[styles.iosCard, styles.emptyPhotoCard, { backgroundColor: cardBg }]}
@@ -367,7 +420,7 @@ export default function GymProgressScreen() {
               Log Check-In Photos
             </Text>
             <Text style={styles.emptyPhotoSub}>
-              Attach photos when logging your weight to unlock the interactive Before & After comparison slider.
+              Attach front, side, or back photos over time to unlock the interactive Before & After slider.
             </Text>
           </TouchableOpacity>
         )}
@@ -377,6 +430,7 @@ export default function GymProgressScreen() {
       {showWeighInSheet && (
         <BodyMetricsSheet
           visible={showWeighInSheet}
+          initialTab={metricsSheetTab}
           onClose={() => setShowWeighInSheet(false)}
         />
       )}

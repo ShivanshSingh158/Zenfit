@@ -5,6 +5,7 @@ import WorkoutTimer from './WorkoutTimer';
 import { IOS_DARK, FONT_FAMILY } from '../../../theme/tokens';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { hapticLight, hapticMedium } from '../../../utils/haptics';
+import PreSessionMuscleHitMap from '../schedule/PreSessionMuscleHitMap';
 
 export interface GymWorkoutBannerProps {
   log: any;
@@ -104,7 +105,7 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
                   ]
                 );
               }}
-              style={[styles.outlineBtn, { borderColor: isDark ? 'rgba(255,159,10,0.3)' : 'rgba(255,159,10,0.4)' }]}
+              style={[styles.outlineBtn, { backgroundColor: isDark ? '#2C2C2E' : 'rgba(0, 0, 0, 0.05)', borderColor: isDark ? 'rgba(255,159,10,0.3)' : 'rgba(255,159,10,0.4)' }]}
               activeOpacity={0.7}
             >
               <Text style={[styles.outlineBtnText, { color: IOS_DARK.orange }]}>Revert</Text>
@@ -116,7 +117,7 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
                 resumeWorkout();
                 navigation.navigate('ActiveLogging', { date: selectedDate });
               }}
-              style={[styles.outlineBtn, { borderColor: isDark ? 'rgba(48,209,88,0.35)' : 'rgba(48,209,88,0.4)' }]}
+              style={[styles.outlineBtn, { backgroundColor: isDark ? '#2C2C2E' : 'rgba(0, 0, 0, 0.05)', borderColor: isDark ? 'rgba(48,209,88,0.35)' : 'rgba(48,209,88,0.4)' }]}
               activeOpacity={0.7}
             >
               <Text style={[styles.outlineBtnText, { color: IOS_DARK.green }]}>Resume Workout</Text>
@@ -220,7 +221,7 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
               onEndWorkout(true);
               navigation.navigate('WorkoutSummary', { date: selectedDate });
             }}
-            style={[styles.outlineBtn, { borderColor: isDark ? 'rgba(255,69,58,0.3)' : 'rgba(255,69,58,0.4)' }]}
+            style={[styles.outlineBtn, { backgroundColor: isDark ? '#2C2C2E' : 'rgba(0, 0, 0, 0.05)', borderColor: isDark ? 'rgba(255,69,58,0.3)' : 'rgba(255,69,58,0.4)' }]}
             activeOpacity={0.7}
           >
             <Text style={[styles.outlineBtnText, { color: IOS_DARK.red }]}>Finish</Text>
@@ -247,14 +248,24 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
 
   return (
     <View style={[styles.heroCard, { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface }]}>
-      {/* Title row with Streak Badge on right (Zero wasted vertical space) */}
+      {/* Title row with Focus and Streak Badge on right */}
       <View style={styles.topRow}>
-        <Text
-          numberOfLines={1}
-          style={[styles.heroTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary, flex: 1 }]}
-        >
-          {cleanTitle}
-        </Text>
+        <View style={{ flex: 1, paddingRight: 8 }}>
+          <Text
+            numberOfLines={1}
+            style={[styles.heroTitle, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
+          >
+            {cleanTitle}
+          </Text>
+          {Boolean(routineFocus) && (
+            <Text
+              numberOfLines={1}
+              style={[styles.heroSubtitle, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}
+            >
+              {routineFocus}
+            </Text>
+          )}
+        </View>
 
         {currentStreak > 0 && (
           <View style={styles.streakBadge}>
@@ -264,29 +275,19 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(({
         )}
       </View>
 
-      {/* 3-Stat chip row */}
-      <View style={styles.statChipRow}>
-        <View style={styles.statChip}>
-          <Ionicons name="layers-outline" size={12} color={isDark ? IOS_DARK.labelSecondary : colors.textMuted} />
-          <Text style={[styles.statChipText, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}>
-            {exerciseCount} exercises
-          </Text>
-        </View>
-        <View style={styles.statChipDot} />
-        <View style={styles.statChip}>
-          <Ionicons name="repeat-outline" size={12} color={isDark ? IOS_DARK.labelSecondary : colors.textMuted} />
-          <Text style={[styles.statChipText, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}>
-            {setsCount} sets
-          </Text>
-        </View>
-        <View style={styles.statChipDot} />
-        <View style={styles.statChip}>
-          <Ionicons name="time-outline" size={12} color={isDark ? IOS_DARK.labelSecondary : colors.textMuted} />
-          <Text style={[styles.statChipText, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}>
-            ~{estimatedMinutes} min
-          </Text>
-        </View>
-      </View>
+      {/* Pre-Session Muscle Hit Map Preview with Visual Anatomy, Metrics & Proportional Load Bar */}
+      {log?.exercises && log.exercises.length > 0 && (
+        <PreSessionMuscleHitMap
+          exercises={log.exercises}
+          isRest={false}
+          compact={false}
+          showMiniAvatar={true}
+          title={cleanTitle}
+          exerciseCount={exerciseCount}
+          totalSets={setsCount}
+          estimatedMinutes={estimatedMinutes}
+        />
+      )}
 
       {/* Solid Apple iOS Action Button */}
       <TouchableOpacity
@@ -327,6 +328,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: FONT_FAMILY.bold,
     letterSpacing: -0.3,
+  },
+  heroSubtitle: {
+    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.medium,
+    marginTop: 2,
+    letterSpacing: -0.1,
   },
   heroMeta: {
     fontSize: 12,

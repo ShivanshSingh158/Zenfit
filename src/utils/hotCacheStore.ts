@@ -42,7 +42,21 @@ export function generateDatasetFingerprint(items: Array<any> | null | undefined,
     if (!it) continue;
     const rev = Number(it.updatedAt || it.lastUpdated || it.timestamp || 0);
     const exLen = Array.isArray(it.exercises) ? it.exercises.length : 0;
-    const itemMix = ((rev ^ (exLen << 7) ^ (it.completed ? 0x9e3779b9 : 0)) >>> 0);
+    let setsCount = 0;
+    let completedSets = 0;
+    if (Array.isArray(it.exercises)) {
+      for (let e = 0; e < it.exercises.length; e++) {
+        const sLog = it.exercises[e]?.setsLog;
+        if (Array.isArray(sLog)) {
+          setsCount += sLog.length;
+          for (let s = 0; s < sLog.length; s++) {
+            if (sLog[s]?.completed) completedSets++;
+          }
+        }
+      }
+    }
+    const cardioLen = Array.isArray(it.cardio) ? it.cardio.length : 0;
+    const itemMix = ((rev ^ (exLen << 7) ^ (setsCount << 12) ^ (completedSets << 17) ^ (cardioLen << 22) ^ (it.completed ? 0x9e3779b9 : 0)) >>> 0);
     xorHash = (xorHash ^ itemMix) >>> 0;
     sumHash = (sumHash + itemMix) >>> 0;
   }

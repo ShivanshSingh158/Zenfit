@@ -6,9 +6,10 @@ export interface GymSet {
   completed: boolean;
   isWarmup?: boolean;
   warmupLabel?: string;
-  setType?: 'normal' | 'warmup' | 'drop' | 'failure';
+  setType?: 'normal' | 'warmup' | 'drop' | 'failure' | 'top' | 'backoff';
   rir?: number;
   rpe?: number;
+  restSecondsOverride?: number;
 }
 
 export interface GymExerciseLog {
@@ -26,6 +27,7 @@ export interface GymExerciseLog {
   restTimeSecs?: number;
   isCompound?: boolean;
   lastSessionSets?: any[];
+  progressionPolicy?: 'linear' | 'double' | 'triple' | 'top_backoff';
   _idx?: number;
 }
 
@@ -71,6 +73,7 @@ export interface GymDayLog {
   createdAt?: number;
   updatedAt: number;
   deleted?: boolean;
+  isSampleData?: boolean;
 }
 
 export interface GymPlanExercise {
@@ -82,6 +85,7 @@ export interface GymPlanExercise {
   videoId?: string;
   restTimeSecs?: number;
   isCompound?: boolean;
+  progressionPolicy?: 'linear' | 'double' | 'triple' | 'top_backoff';
 }
 
 export interface GymRoutineFolder {
@@ -99,6 +103,7 @@ export interface GymRoutine {
   exercises: GymPlanExercise[];
   estimatedDurationMins?: number;
   lastPerformedAt?: number;
+  order?: number;
   updatedAt: number;
 }
 
@@ -119,19 +124,66 @@ export interface GymCustomPlanDay {
   customExercises: GymPlanExercise[];
 }
 
+export type ProgrammePhaseType = 'accumulation' | 'intensification' | 'peak' | 'deload';
+
+export interface ProgrammeWeekConfig {
+  weekNumber: number;         // 1 to N
+  phaseName: string;          // e.g. "Intro & Baseline", "Volume Ramp", "Overload Peak", "Planned Deload"
+  phaseType: ProgrammePhaseType;
+  targetRir: number;          // e.g. 3, 2, 1, 0, or 4 (deload)
+  volumeModifierSets: number; // e.g. 0 (baseline), +1 (extra set), -1 or -2 (deload)
+  intensityPercentage1RM?: number; // e.g. 75, 80, 85
+  notes?: string;
+}
+
+export interface UserGymProgramme {
+  id: string;                 // e.g. 'prog_hypertrophy_6wk'
+  name: string;
+  subtitle: string;
+  description: string;
+  goal: 'hypertrophy' | 'strength' | 'recomp';
+  totalWeeks: number;
+  currentWeek: number;        // 1-indexed (e.g. 1 to 6)
+  status: 'active' | 'paused' | 'completed';
+  startDate: string;          // YYYY-MM-DD
+  weeks: Record<number, ProgrammeWeekConfig>;
+  routineIds?: string[];      // Routines attached to this programme
+  enrolledAt: number;
+  updatedAt: number;
+}
+
 export interface UserGymPlanDoc {
   id?: string;
   userId: string;
   schemaVersion?: number;
   templateId?: 'arnold' | 'ppl' | string;
   schedulePattern?: 'mon_sun' | 'tue_mon' | 'wed_sun' | 'mon_fri' | 'custom' | string;
+  scheduleMode?: 'calendar' | 'rotation';
   customDays: Record<number, GymPlanDay>;
   routines?: Record<string, GymRoutine>;         // NEW: Synced in Firestore + L1/L2 cache!
   routineFolders?: GymRoutineFolder[];           // NEW: Organizes routines
+  activeProgramme?: UserGymProgramme | null;     // NEW: Multi-week structured periodization mesocycle
   updatedAt: number;
 }
 
 // ── New Types ────────────────────────────────────────────────────────────────
+
+export interface GymGeofenceConfig {
+  enabled: boolean;
+  gymName: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number; // 100, 150 (default), 250
+}
+
+export interface BluetoothTriggerConfig {
+  enabled: boolean;
+  targetDeviceName?: string;
+  filterWorkoutHours: boolean;
+  startHour: string; // e.g. "05:00"
+  endHour: string;   // e.g. "21:00"
+  autoLaunchWorkout: boolean; // false = prompt (recommended), true = direct open
+}
 
 export type GymGoal = 'strength' | 'hypertrophy' | 'weightLoss' | 'recomp' | 'maintenance';
 
@@ -150,7 +202,7 @@ export interface GymProfile {
   /** Gender */
   gender?: 'male' | 'female' | 'other' | null;
   /** Primary training goal (supports both goal and primaryGoal) */
-  goal?: 'hypertrophy' | 'strength' | 'fat_loss' | 'athletic' | null;
+  goal?: 'hypertrophy' | 'strength' | 'fat_loss' | 'athletic' | 'recomp' | null;
   primaryGoal?: GymGoal | string | null;
   /** Training experience (supports both experience and trainingExperienceMonths) */
   experience?: 'beginner' | 'intermediate' | 'advanced' | null;
@@ -180,6 +232,8 @@ export interface GymProfile {
   autoTimer?: boolean;
   hapticsEnabled?: boolean;
   audioCues?: boolean;
+  onboardingCompleted?: boolean;
+  splitPreference?: string | null;
   updatedAt?: number;
 }
 

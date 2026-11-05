@@ -1,47 +1,50 @@
 /**
- * BodyMetricsSheet • ZenTrack Mobile
+ * BodyMetricsSheet.tsx — ZenFit
  *
- * Bodyweight, BMI, body composition, transformation photos & target weight tracker.
- * Modularized with extracted styling tokens and high-performance SVG history charts.
+ * Dedicated modal with clean separated tabs for:
+ * - Tab 1: [ ⚖️ Weigh In ] — Fast bodyweight & goal logging (takes 3 seconds)
+ * - Tab 2: [ 📸 Photo Check-In ] — Camera / Library upload with pose tag & progress tracking
  */
-import React, { useMemo, useState, useEffect } from "react";
+
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, TextInput, ScrollView,
-  Image, ActivityIndicator, Modal,
-} from "react-native";
-import Animated, { FadeInDown } from "react-native-reanimated";
-import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
-import { impactAsync, notificationAsync, selectionAsync } from "../../../utils/haptics";
-import * as ImagePicker from "expo-image-picker";
-import { serverTimestamp } from "firebase/firestore";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+  View,
+  Text,
+  TouchableOpacity,
+  TextInput,
+  ScrollView,
+  Image,
+  ActivityIndicator,
+  StyleSheet,
+  Alert,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
+import { serverTimestamp } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { useCoreData } from "../../../contexts/domains/CoreDataContext";
-import { useBodyMetrics } from "../../../contexts/domains/WellnessContext";
-import { useGymProfile } from "../../../hooks/useGymProfile";
-import { COLLECTION } from "../../../config/constants";
-import { SPACE } from "../../../theme/tokens";
-import { useTheme } from "../../../contexts/ThemeContext";
-import BottomSheet from "../../ui/BottomSheet";
-import { queueWrite } from "../../../services/offlineSync";
-import { uploadFileToCloudinary } from "../../../services/cloudinary";
-import { formatLocalDateStr } from "../../../utils/dateUtils";
-
-import { BOOT_KEYS } from "../../../utils/bootManifest";
-
-// Extracted Subcomponents & Styles
-import { makeBodyMetricsStyles } from "./bodyMetricsStyles";
-import BodyMetricsHistoryChart, { WeightChartEntry } from "./BodyMetricsHistoryChart";
+import { useCoreData } from '../../../contexts/domains/CoreDataContext';
+import { useBodyMetrics } from '../../../contexts/domains/WellnessContext';
+import { useGymProfile } from '../../../hooks/useGymProfile';
+import { COLLECTION } from '../../../config/constants';
+import { FONT_FAMILY } from '../../../theme/tokens';
+import { useTheme } from '../../../contexts/ThemeContext';
+import BottomSheet from '../../ui/BottomSheet';
+import { queueWrite } from '../../../services/offlineSync';
+import { uploadFileToCloudinary } from '../../../services/cloudinary';
+import { formatLocalDateStr } from '../../../utils/dateUtils';
+import { BOOT_KEYS, updateL1Cache } from '../../../utils/bootManifest';
+import { DOMAIN_CACHE_KEYS, writeWellnessCache } from '../../../utils/domainCache';
+import { impactAsync, notificationAsync, selectionAsync } from '../../../utils/haptics';
 
 const WEIGHT_LOGS_KEY = BOOT_KEYS.WEIGHT_LOGS;
-const LEGACY_WEIGHT_LOGS_KEY = "zentrack_weight_logs_v1";
 
 function classifyBMI(bmi: number): { label: string; color: string } {
-  if (bmi < 18.5) return { label: "Underweight", color: "#60a5fa" };
-  if (bmi < 25) return { label: "Normal", color: "#34d399" };
-  if (bmi < 30) return { label: "Overweight", color: "#fb923c" };
-  return { label: "Obese", color: "#f87171" };
+  if (bmi < 18.5) return { label: 'Underweight', color: '#60A5FA' };
+  if (bmi < 25) return { label: 'Normal', color: '#30D158' };
+  if (bmi < 30) return { label: 'Overweight', color: '#FF9F0A' };
+  return { label: 'Obese', color: '#FF453A' };
 }
 
 interface WeightEntry {
@@ -50,30 +53,37 @@ interface WeightEntry {
   weightKg?: number;
   date: string;
   photoUrl?: string | null;
+  pose?: 'front' | 'back' | 'side';
 }
 
 interface Props {
   visible: boolean;
   onClose: () => void;
+  initialTab?: 'weight' | 'photo';
 }
 
-export default function BodyMetricsSheet({ visible, onClose }: Props) {
-  const { colors, isDark } = useTheme();
-  const s = useMemo(() => makeBodyMetricsStyles(colors, isDark), [colors, isDark]);
+export default function BodyMetricsSheet({ visible, onClose, initialTab = 'weight' }: Props) {
+  const { isDark } = useTheme();
   const { user } = useCoreData();
   const { weightLogs: contextWeightLogs } = useBodyMetrics();
   const { gymProfile, saveGymProfile } = useGymProfile();
 
-  const [showLogWeight, setShowLogWeight] = useState(false);
-  const [weightInput, setWeightInput] = useState("");
-  const [heightInput, setHeightInput] = useState("");
-  const [targetInput, setTargetInput] = useState("");
+  const [activeTab, setActiveTab] = useState<'weight' | 'photo'>(initialTab);
+  const [weightInput, setWeightInput] = useState(
+    gymProfile?.weightKg ? String(gymProfile.weightKg) : ''
+  );
+  const [targetInput, setTargetInput] = useState(
+    gymProfile?.targetBodyweightKg ? String(gymProfile.targetBodyweightKg) : ''
+  );
+  const [selectedPose, setSelectedPose] = useState<'front' | 'back' | 'side'>('front');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [localLogs, setLocalLogs] = useState<WeightEntry[]>([]);
-  const [selectedPhoto, setSelectedPhoto] = useState<{ url: string; date?: string; weight?: number } | null>(null);
 
-  // Load cached local weight logs on mount / visibility (migrating from legacy key if needed)
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab, visible]);
+
   useEffect(() => {
     if (visible) {
       AsyncStorage.getItem(WEIGHT_LOGS_KEY).then(raw => {
@@ -82,324 +92,623 @@ export default function BodyMetricsSheet({ visible, onClose }: Props) {
             const parsed = JSON.parse(raw);
             if (Array.isArray(parsed)) setLocalLogs(parsed);
           } catch (_) {}
-        } else {
-          AsyncStorage.getItem(LEGACY_WEIGHT_LOGS_KEY).then(legacyRaw => {
-            if (legacyRaw) {
-              try {
-                const parsed = JSON.parse(legacyRaw);
-                if (Array.isArray(parsed)) {
-                  setLocalLogs(parsed);
-                  AsyncStorage.setItem(WEIGHT_LOGS_KEY, legacyRaw).catch(() => {});
-                  AsyncStorage.removeItem(LEGACY_WEIGHT_LOGS_KEY).catch(() => {});
-                }
-              } catch (_) {}
-            }
-          });
         }
       });
     }
   }, [visible]);
 
-  // Combine context weight logs and local weight logs (local edits take precedence)
-  const combinedLogs = useMemo(() => {
-    const map = new Map<string, WeightEntry>();
-    (contextWeightLogs || []).forEach((l: any) => {
-      const w = l.weightKg ?? l.weight;
-      if (l.date && w) map.set(l.date, { id: l.id, weight: w, date: l.date, photoUrl: l.photoUrl });
-    });
-    localLogs.forEach(l => {
-      if (l.date && l.weight) {
-        const existing = map.get(l.date);
-        map.set(l.date, { ...l, photoUrl: l.photoUrl || existing?.photoUrl });
-      }
-    });
-    return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
-  }, [contextWeightLogs, localLogs]);
+  // Real-time BMI calculation based on current input
+  const heightCm = gymProfile?.heightCm || 180;
+  const parsedWeight = parseFloat(weightInput);
+  const previewBmi =
+    parsedWeight > 0 && heightCm > 0
+      ? Math.round((parsedWeight / Math.pow(heightCm / 100, 2)) * 10) / 10
+      : null;
+  const previewBmiClass = previewBmi ? classifyBMI(previewBmi) : null;
 
-  // Chronological logs (oldest → newest)
-  const chronoLogs = useMemo(() => [...combinedLogs].reverse(), [combinedLogs]);
-
-  // Height & Weight sources
-  const latestWeight = combinedLogs[0]?.weight ?? gymProfile.weightKg ?? null;
-  const heightCm = gymProfile.heightCm ?? (heightInput ? parseFloat(heightInput) : null);
-
-  // BMI Calculation
-  const bmi = latestWeight && heightCm && heightCm > 0
-    ? Math.round((latestWeight / ((heightCm / 100) ** 2)) * 10) / 10
-    : null;
-  const bmiClass = bmi ? classifyBMI(bmi) : null;
-
-  // Target weight calculation (Standardized to targetBodyweightKg)
-  const targetWeight = gymProfile.targetBodyweightKg ?? (gymProfile as any).targetWeightKg ?? null;
-  const startWeight = chronoLogs[0]?.weight ?? latestWeight;
-  const currentWeight = combinedLogs[0]?.weight ?? latestWeight;
-  const weightDelta = (currentWeight && startWeight) ? parseFloat((currentWeight - startWeight).toFixed(1)) : 0;
-
-  const targetProgress = (latestWeight && targetWeight && startWeight && startWeight !== targetWeight)
-    ? Math.min(Math.max((latestWeight - startWeight) / (targetWeight - startWeight), 0), 1)
-    : null;
-
-  // Recent 8 logs for weight trend chart (oldest → newest)
-  const last8: WeightChartEntry[] = useMemo(
-    () => combinedLogs.slice(0, 8).reverse().map(l => ({ weight: l.weight, date: l.date })),
-    [combinedLogs]
-  );
-
-  // Photo Picker
-  const handlePickPhoto = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+  // Take photo with camera
+  const handleTakePhoto = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Camera Permission Required', 'Please enable camera access in your device settings.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
+      aspect: [3, 4],
       quality: 0.8,
     });
-    if (!result.canceled) {
+    if (!result.canceled && result.assets?.[0]?.uri) {
       setPhotoUri(result.assets[0].uri);
       selectionAsync();
     }
   };
 
-  // Log weight handler
-  const handleLogWeight = async () => {
+  // Pick photo from gallery
+  const handlePickPhoto = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Photo Access Required', 'Please allow photo library access in device settings.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [3, 4],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      setPhotoUri(result.assets[0].uri);
+      selectionAsync();
+    }
+  };
+
+  // Save Weight Log
+  const handleSaveWeight = async () => {
     const w = parseFloat(weightInput);
-    if (!w || w <= 0) return;
+    if (!w || w <= 0 || w > 300) {
+      Alert.alert('Invalid Weight', 'Please enter a valid body weight between 30 and 300 kg.');
+      return;
+    }
+
     setSaving(true);
     impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
     const today = formatLocalDateStr(new Date());
-    const existingToday = combinedLogs.find(l => l.date === today);
-    let uploadedPhotoUrl: string | null = existingToday?.photoUrl ?? null;
 
     try {
-      if (photoUri) {
-        try {
-          const res = await uploadFileToCloudinary(photoUri, 'image/jpeg', 'photo.jpg', () => {});
-          uploadedPhotoUrl = res.url;
-        } catch (e) {
-          console.error("Photo upload error:", e);
-          uploadedPhotoUrl = photoUri; // Local fallback
-        }
-      }
+      const existingToday = localLogs.find(l => l.date === today);
+      const newEntry: WeightEntry = {
+        weight: w,
+        weightKg: w,
+        date: today,
+        photoUrl: existingToday?.photoUrl || null,
+        pose: existingToday?.pose,
+      };
 
-      const newEntry: WeightEntry = { weight: w, date: today, photoUrl: uploadedPhotoUrl };
-
-      // Update local state & AsyncStorage for instant UI rendering
       const updatedLocal = [newEntry, ...localLogs.filter(l => l.date !== today)];
       setLocalLogs(updatedLocal);
-      await AsyncStorage.setItem(WEIGHT_LOGS_KEY, JSON.stringify(updatedLocal));
-      AsyncStorage.removeItem(LEGACY_WEIGHT_LOGS_KEY).catch(() => {});
 
-      // Update gym profile height/weight/target
-      const heightVal = heightInput ? parseFloat(heightInput) : gymProfile.heightCm;
+      // Persist in all caching tiers
+      await AsyncStorage.setItem(WEIGHT_LOGS_KEY, JSON.stringify(updatedLocal));
+      await AsyncStorage.setItem(DOMAIN_CACHE_KEYS.WEIGHT_LOGS, JSON.stringify(updatedLocal));
+      updateL1Cache('weightLogs', updatedLocal);
+      writeWellnessCache({ weightLogs: updatedLocal as any }, true);
+
+      // Update gym profile
       const targetVal = targetInput ? parseFloat(targetInput) : gymProfile.targetBodyweightKg;
       await saveGymProfile({
         weightKg: w,
-        heightCm: heightVal || gymProfile.heightCm,
         ...(targetVal ? { targetBodyweightKg: targetVal } : {}),
       });
 
-      // Sync to Firestore background queue with deterministic ID to prevent duplicates
+      // Background Firestore sync
       if (user?.uid) {
         const docId = `${user.uid}_weight_${today}`;
-        await queueWrite(COLLECTION.WEIGHT_LOGS, "set", {
-          userId: user.uid,
-          weightKg: w,
-          weight: w,
-          photoUrl: uploadedPhotoUrl,
-          date: today,
-          createdAt: serverTimestamp(),
-        }, docId);
+        await queueWrite(
+          COLLECTION.WEIGHT_LOGS,
+          'set',
+          {
+            userId: user.uid,
+            weightKg: w,
+            weight: w,
+            date: today,
+            createdAt: serverTimestamp(),
+          },
+          docId
+        );
       }
 
-      setWeightInput("");
-      setHeightInput("");
-      setTargetInput("");
-      setPhotoUri(null);
-      setShowLogWeight(false);
       notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (err) {
-      console.error("Weight logging error:", err);
+      onClose();
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to save weight.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Save Photo Check-In
+  const handleSavePhoto = async () => {
+    if (!photoUri) {
+      Alert.alert('No Photo Selected', 'Please take or choose a photo first.');
+      return;
+    }
+
+    setSaving(true);
+    impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const today = formatLocalDateStr(new Date());
+
+    try {
+      let finalPhotoUrl = photoUri;
+      try {
+        const uploadRes = await uploadFileToCloudinary(photoUri, 'image/jpeg', `checkin_${today}.jpg`, () => {});
+        if (uploadRes?.url) {
+          finalPhotoUrl = uploadRes.url;
+        }
+      } catch (uploadErr) {
+        // Fallback to local URI
+        finalPhotoUrl = photoUri;
+      }
+
+      const currentWeight = parseFloat(weightInput) || gymProfile.weightKg || 80;
+      const existingToday = localLogs.find(l => l.date === today);
+
+      const newEntry: WeightEntry = {
+        weight: currentWeight,
+        weightKg: currentWeight,
+        date: today,
+        photoUrl: finalPhotoUrl,
+        pose: selectedPose,
+      };
+
+      const updatedLocal = [newEntry, ...localLogs.filter(l => l.date !== today)];
+      setLocalLogs(updatedLocal);
+
+      await AsyncStorage.setItem(WEIGHT_LOGS_KEY, JSON.stringify(updatedLocal));
+      await AsyncStorage.setItem(DOMAIN_CACHE_KEYS.WEIGHT_LOGS, JSON.stringify(updatedLocal));
+      updateL1Cache('weightLogs', updatedLocal);
+      writeWellnessCache({ weightLogs: updatedLocal as any }, true);
+
+      if (user?.uid) {
+        const docId = `${user.uid}_weight_${today}`;
+        await queueWrite(
+          COLLECTION.WEIGHT_LOGS,
+          'set',
+          {
+            userId: user.uid,
+            weightKg: currentWeight,
+            weight: currentWeight,
+            photoUrl: finalPhotoUrl,
+            pose: selectedPose,
+            date: today,
+            createdAt: serverTimestamp(),
+          },
+          docId
+        );
+      }
+
+      notificationAsync(Haptics.NotificationFeedbackType.Success);
+      onClose();
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to save photo check-in.');
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <>
-      <BottomSheet visible={visible} onClose={onClose}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.md, paddingBottom: 36 }}>
-          {/* Header */}
-          <View style={s.headerRow}>
-            <Text style={s.sheetTitle}>Body Metrics & Physique</Text>
-            <TouchableOpacity onPress={onClose} style={s.closeBtn}>
-              <Ionicons name="close" size={20} color={colors.textMuted} />
-            </TouchableOpacity>
-          </View>
+    <BottomSheet visible={visible} onClose={onClose}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.container}>
+        {/* Header Row */}
+        <View style={styles.headerRow}>
+          <Text style={styles.sheetTitle}>
+            {activeTab === 'weight' ? 'Log Body Weight' : 'Physique Check-In Photo'}
+          </Text>
+          <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close" size={20} color="#8E8E93" />
+          </TouchableOpacity>
+        </View>
 
-          {/* Stats Grid */}
-          {combinedLogs.length > 0 && (
-            <Animated.View entering={FadeInDown.duration(200)} style={s.statsGrid}>
-              <View style={s.statCard}>
-                <Text style={s.statLabel}>START</Text>
-                <Text style={s.statValue}>{startWeight}</Text>
-                <Text style={s.statSubText}>kg</Text>
-              </View>
-              <View style={s.statCard}>
-                <Text style={s.statLabel}>CURRENT</Text>
-                <Text style={[s.statValue, { color: isDark ? "#FFFFFF" : colors.textPrimary }]}>{currentWeight}</Text>
-                <Text style={s.statSubText}>kg</Text>
-              </View>
-              <View style={s.statCard}>
-                <Text style={s.statLabel}>CHANGE</Text>
-                <Text style={[s.statValue, { color: weightDelta === 0 ? (isDark ? "#ffffff" : colors.textPrimary) : weightDelta > 0 ? "#ff9f4d" : "#5eda9e" }]}>
-                  {weightDelta >= 0 ? `+${weightDelta}` : weightDelta}
-                </Text>
-                <Text style={s.statSubText}>kg</Text>
-              </View>
-            </Animated.View>
-          )}
+        {/* Tab Switcher */}
+        <View style={styles.tabBar}>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'weight' && styles.tabBtnActive]}
+            onPress={() => {
+              selectionAsync();
+              setActiveTab('weight');
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="scale-outline" size={14} color={activeTab === 'weight' ? '#000000' : '#8E8E93'} />
+            <Text style={[styles.tabBtnText, activeTab === 'weight' && styles.tabBtnTextActive]}>
+              Weigh In
+            </Text>
+          </TouchableOpacity>
 
-          {/* BMI Card */}
-          {bmi && bmiClass ? (
-            <Animated.View entering={FadeInDown.duration(250)} style={s.bmiCard}>
-              <View style={s.bmiLeft}>
-                <Text style={s.bmiLabel}>BMI</Text>
-                <Text style={s.bmiValue}>{bmi}</Text>
-                <View style={s.bmiPill}>
-                  <Text style={s.bmiPillText}>{bmiClass.label}</Text>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'photo' && styles.tabBtnActive]}
+            onPress={() => {
+              selectionAsync();
+              setActiveTab('photo');
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="camera-outline" size={14} color={activeTab === 'photo' ? '#000000' : '#8E8E93'} />
+            <Text style={[styles.tabBtnText, activeTab === 'photo' && styles.tabBtnTextActive]}>
+              Add Photo
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── TAB 1: WEIGH IN ── */}
+        {activeTab === 'weight' && (
+          <View style={styles.contentSection}>
+            <View style={styles.weightInputCard}>
+              <Text style={styles.inputCardLabel}>CURRENT WEIGHT</Text>
+              <View style={styles.weightInputRow}>
+                <TextInput
+                  style={styles.largeWeightInput}
+                  value={weightInput}
+                  onChangeText={setWeightInput}
+                  keyboardType="decimal-pad"
+                  placeholder="0.0"
+                  placeholderTextColor="#3A3A3C"
+                  maxLength={5}
+                  autoFocus
+                />
+                <Text style={styles.largeUnitText}>kg</Text>
+              </View>
+
+              {previewBmi && previewBmiClass ? (
+                <View style={styles.bmiPreviewRow}>
+                  <Text style={styles.bmiPreviewText}>BMI {previewBmi}</Text>
+                  <View style={[styles.bmiBadge, { backgroundColor: `${previewBmiClass.color}22` }]}>
+                    <Text style={[styles.bmiBadgeText, { color: previewBmiClass.color }]}>
+                      {previewBmiClass.label}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-              <View style={s.bmiRight}>
-                <Text style={s.metricRow}><Text style={s.metricLabel}>Weight </Text><Text style={s.metricValue}>{latestWeight} kg</Text></Text>
-                <Text style={s.metricRow}><Text style={s.metricLabel}>Height </Text><Text style={s.metricValue}>{heightCm} cm</Text></Text>
-                {targetWeight ? <Text style={s.metricRow}><Text style={s.metricLabel}>Target </Text><Text style={s.metricValue}>{targetWeight} kg</Text></Text> : null}
-              </View>
-            </Animated.View>
-          ) : (
-            <View style={s.emptyBmiCard}>
-              <View style={s.iconBadge}>
-                <Ionicons name="accessibility-outline" size={24} color={isDark ? "#FFFFFF" : colors.textPrimary} />
-              </View>
-              <Text style={s.emptyBmiTitle}>Track Your Body Metrics</Text>
-              <Text style={s.emptyBmiText}>
-                Log your weight below to view your BMI, body composition, and progress trends.
-              </Text>
+              ) : null}
             </View>
-          )}
 
-          {/* Target Weight Progress */}
-          {targetProgress !== null && (
-            <Animated.View entering={FadeInDown.delay(60).duration(250)} style={s.sectionCard}>
-              <Text style={s.sectionTitle}>Target Weight Progress</Text>
-              <View style={s.progressTrack}>
-                <View style={[s.progressFill, { width: `${Math.round(targetProgress * 100)}%` as any }]} />
-              </View>
-              <View style={s.progressLabels}>
-                <Text style={s.progressLabel}>{startWeight} kg</Text>
-                <Text style={[s.progressLabel, { color: isDark ? "#FFFFFF" : colors.textPrimary, fontWeight: "700" }]}>{Math.round(targetProgress * 100)}%</Text>
-                <Text style={s.progressLabel}>{targetWeight} kg</Text>
-              </View>
-            </Animated.View>
-          )}
-
-          {/* Weight Trend Chart */}
-          <BodyMetricsHistoryChart entries={last8} styles={s} colors={colors} isDark={isDark} />
-
-          {/* Log Weight & Photo Check-in Form */}
-          {showLogWeight ? (
-            <View style={s.logForm}>
-              <Text style={s.formTitle}>Log Body Weight & Photo</Text>
-              <View style={s.inputRow}>
-                <View style={[s.inputGroup, { flex: 1 }]}>
-                  <Text style={s.inputLabel}>Weight (kg)</Text>
-                  <TextInput
-                    style={s.weightInput}
-                    placeholder="e.g. 75.0"
-                    placeholderTextColor="#71717A"
-                    keyboardType="decimal-pad"
-                    value={weightInput}
-                    onChangeText={setWeightInput}
-                  />
+            {/* Target Weight Field */}
+            <View style={styles.fieldCard}>
+              <View style={styles.fieldRow}>
+                <View>
+                  <Text style={styles.fieldTitle}>Target Body Weight</Text>
+                  <Text style={styles.fieldSubtitle}>Your long-term goal weight</Text>
                 </View>
-
-                <View style={[s.inputGroup, { flex: 1 }]}>
-                  <Text style={s.inputLabel}>Target (kg)</Text>
+                <View style={styles.miniInputWrap}>
                   <TextInput
-                    style={s.weightInput}
-                    placeholder={targetWeight ? String(targetWeight) : "e.g. 70.0"}
-                    placeholderTextColor="#71717A"
-                    keyboardType="decimal-pad"
+                    style={styles.miniInput}
                     value={targetInput}
                     onChangeText={setTargetInput}
+                    keyboardType="decimal-pad"
+                    placeholder="80.0"
+                    placeholderTextColor="#545458"
+                    maxLength={5}
                   />
+                  <Text style={styles.miniUnit}>kg</Text>
                 </View>
-
-                {!gymProfile.heightCm && (
-                  <View style={[s.inputGroup, { flex: 1 }]}>
-                    <Text style={s.inputLabel}>Height (cm)</Text>
-                    <TextInput
-                      style={s.weightInput}
-                      placeholder="e.g. 178"
-                      placeholderTextColor="#71717A"
-                      keyboardType="number-pad"
-                      value={heightInput}
-                      onChangeText={setHeightInput}
-                    />
-                  </View>
-                )}
-
-                <TouchableOpacity style={s.photoBtn} onPress={handlePickPhoto} activeOpacity={0.8}>
-                  <Ionicons name="camera" size={20} color={photoUri ? (isDark ? "#FFFFFF" : colors.textPrimary) : "#A1A1AA"} />
-                </TouchableOpacity>
-              </View>
-
-              {photoUri && (
-                <View style={s.photoPreviewRow}>
-                  <TouchableOpacity onPress={() => setSelectedPhoto({ url: photoUri })}>
-                    <Image source={{ uri: photoUri }} style={s.photoPreviewThumb} />
-                  </TouchableOpacity>
-                  <Text style={s.photoAttachedText}>Photo attached (tap to view)</Text>
-                  <TouchableOpacity onPress={() => setPhotoUri(null)}>
-                    <Ionicons name="close-circle" size={18} color="#71717A" />
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              <View style={s.formActions}>
-                <TouchableOpacity style={s.saveFormBtn} onPress={handleLogWeight} disabled={saving || !weightInput}>
-                  {saving ? (
-                    <ActivityIndicator size="small" color={isDark ? "#000000" : "#ffffff"} />
-                  ) : (
-                    <>
-                      <Ionicons name="checkmark" size={18} color={isDark ? "#000000" : "#ffffff"} />
-                      <Text style={s.saveFormBtnText}>Save Weigh-in</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity style={s.cancelFormBtn} onPress={() => { setShowLogWeight(false); setPhotoUri(null); }}>
-                  <Ionicons name="close" size={18} color="#A1A1AA" />
-                </TouchableOpacity>
               </View>
             </View>
-          ) : (
-            <TouchableOpacity style={s.logWeightBtn} onPress={() => setShowLogWeight(true)} activeOpacity={0.8}>
-              <Ionicons name="scale-outline" size={20} color={isDark ? "#000000" : "#ffffff"} />
-              <Text style={s.logWeightBtnText}>Log Today's Weight & Photo</Text>
-            </TouchableOpacity>
-          )}
-        </ScrollView>
-      </BottomSheet>
 
-      {/* Full Photo Modal */}
-      {selectedPhoto && (
-        <Modal visible={true} transparent={true} animationType="fade" onRequestClose={() => setSelectedPhoto(null)}>
-          <View style={s.photoModalOverlay}>
-            <TouchableOpacity style={s.closePhotoModalBtn} onPress={() => setSelectedPhoto(null)}>
-              <Ionicons name="close" size={24} color="#FFFFFF" />
+            {/* Save Button */}
+            <TouchableOpacity
+              style={[styles.primaryActionBtn, saving && { opacity: 0.6 }]}
+              onPress={handleSaveWeight}
+              disabled={saving}
+              activeOpacity={0.8}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#000000" />
+              ) : (
+                <Text style={styles.primaryActionBtnText}>Save Weigh-In</Text>
+              )}
             </TouchableOpacity>
-            <Image source={{ uri: selectedPhoto.url }} style={s.fullPhoto} resizeMode="contain" />
           </View>
-        </Modal>
-      )}
-    </>
+        )}
+
+        {/* ── TAB 2: PHOTO CHECK-IN ── */}
+        {activeTab === 'photo' && (
+          <View style={styles.contentSection}>
+            {/* Image Preview or Pick Buttons */}
+            {photoUri ? (
+              <View style={styles.imagePreviewCard}>
+                <Image source={{ uri: photoUri }} style={styles.previewImage} resizeMode="cover" />
+                <TouchableOpacity
+                  style={styles.removeImageBtn}
+                  onPress={() => setPhotoUri(null)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="trash" size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.photoPickerOptions}>
+                <TouchableOpacity
+                  style={styles.pickerOptionCard}
+                  onPress={handleTakePhoto}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.pickerIconWrap}>
+                    <Ionicons name="camera" size={24} color="#A599FF" />
+                  </View>
+                  <Text style={styles.pickerOptionTitle}>Take Photo</Text>
+                  <Text style={styles.pickerOptionSub}>Open Camera</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.pickerOptionCard}
+                  onPress={handlePickPhoto}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.pickerIconWrap}>
+                    <Ionicons name="images" size={24} color="#64D2FF" />
+                  </View>
+                  <Text style={styles.pickerOptionTitle}>Choose Library</Text>
+                  <Text style={styles.pickerOptionSub}>From Photos</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Pose Tag Selector */}
+            <View style={styles.fieldCard}>
+              <Text style={styles.fieldTitle}>Check-In Pose Angle</Text>
+              <View style={styles.posePillsRow}>
+                {(['front', 'side', 'back'] as const).map(p => {
+                  const isSel = selectedPose === p;
+                  return (
+                    <TouchableOpacity
+                      key={p}
+                      style={[styles.posePill, isSel && styles.posePillActive]}
+                      onPress={() => {
+                        selectionAsync();
+                        setSelectedPose(p);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.posePillText, isSel && styles.posePillTextActive]}>
+                        {p.toUpperCase()}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Save Photo Button */}
+            <TouchableOpacity
+              style={[
+                styles.primaryActionBtn,
+                (!photoUri || saving) && { opacity: 0.5 },
+              ]}
+              onPress={handleSavePhoto}
+              disabled={!photoUri || saving}
+              activeOpacity={0.8}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#000000" />
+              ) : (
+                <Text style={styles.primaryActionBtnText}>Save Check-In Photo</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
+    </BottomSheet>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    paddingBottom: 36,
+    gap: 16,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 4,
+  },
+  sheetTitle: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 18,
+    color: '#FFFFFF',
+  },
+  closeBtn: {
+    padding: 4,
+  },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#1C1C1E',
+    borderRadius: 12,
+    padding: 3,
+    gap: 4,
+  },
+  tabBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: 9,
+  },
+  tabBtnActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  tabBtnText: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 13,
+    color: '#8E8E93',
+  },
+  tabBtnTextActive: {
+    fontFamily: FONT_FAMILY.bold,
+    color: '#000000',
+  },
+  contentSection: {
+    gap: 14,
+  },
+  weightInputCard: {
+    backgroundColor: '#1C1C1E',
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+  },
+  inputCardLabel: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 11,
+    color: '#8E8E93',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  weightInputRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+  },
+  largeWeightInput: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 44,
+    color: '#FFFFFF',
+    minWidth: 120,
+    textAlign: 'center',
+  },
+  largeUnitText: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 20,
+    color: '#8E8E93',
+  },
+  bmiPreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  bmiPreviewText: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 12,
+    color: '#8E8E93',
+  },
+  bmiBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  bmiBadgeText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 11,
+  },
+  fieldCard: {
+    backgroundColor: '#1C1C1E',
+    borderRadius: 14,
+    padding: 14,
+  },
+  fieldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  fieldTitle: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 13.5,
+    color: '#FFFFFF',
+  },
+  fieldSubtitle: {
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: 11.5,
+    color: '#8E8E93',
+    marginTop: 2,
+  },
+  miniInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2C2C2E',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 4,
+  },
+  miniInput: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 14,
+    color: '#FFFFFF',
+    width: 44,
+    textAlign: 'right',
+  },
+  miniUnit: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 12,
+    color: '#8E8E93',
+  },
+  photoPickerOptions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  pickerOptionCard: {
+    flex: 1,
+    backgroundColor: '#1C1C1E',
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    gap: 6,
+  },
+  pickerIconWrap: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#2C2C2E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  pickerOptionTitle: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 13.5,
+    color: '#FFFFFF',
+  },
+  pickerOptionSub: {
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: 11,
+    color: '#8E8E93',
+  },
+  imagePreviewCard: {
+    height: 240,
+    borderRadius: 16,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#1C1C1E',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  removeImageBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  posePillsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  posePill: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+    backgroundColor: '#2C2C2E',
+    borderRadius: 8,
+  },
+  posePillActive: {
+    backgroundColor: '#A599FF',
+  },
+  posePillText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 11.5,
+    color: '#8E8E93',
+  },
+  posePillTextActive: {
+    color: '#000000',
+  },
+  primaryActionBtn: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  primaryActionBtnText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 15,
+    color: '#000000',
+  },
+});

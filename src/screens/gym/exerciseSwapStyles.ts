@@ -9,6 +9,34 @@ export const makeExerciseSwapStyles = (colors: any, isDark: boolean = true) => {
   if (cached) return cached;
 
   const styles = StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: isDark ? '#000000' : colors.background },
+    backButton: { padding: SPACE.xs },
+    exerciseCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
+      padding: SPACE.md,
+      borderRadius: RADIUS.md,
+      marginBottom: SPACE.sm,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.06)' : colors.border,
+    },
+    exerciseInfo: { flex: 1, paddingRight: SPACE.sm },
+    exerciseName: { fontFamily: FONT_FAMILY.bold, fontSize: 15, color: colors.textPrimary, marginBottom: 2, textTransform: 'capitalize' },
+    badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+    muscleBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+    muscleBadgeText: { fontFamily: FONT_FAMILY.bold, fontSize: 10, textTransform: 'uppercase' },
+    swapAction: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: RADIUS.sm,
+      backgroundColor: isDark ? 'rgba(165,153,255,0.1)' : 'rgba(108,92,231,0.08)',
+    },
+    swapActionText: { fontFamily: FONT_FAMILY.bold, fontSize: 11, color: colors.accentPrimary },
     root: { flex: 1, backgroundColor: isDark ? '#000000' : colors.background },
     header: {
       flexDirection: 'row',

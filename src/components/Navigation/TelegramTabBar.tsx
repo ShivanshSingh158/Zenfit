@@ -23,8 +23,8 @@ export const TAB_CONFIG: Record<string, {
 }> = {
   Today: {
     name: 'Today',
-    activeIcon: 'flame',
-    inactiveIcon: 'flame-outline',
+    activeIcon: 'barbell',
+    inactiveIcon: 'barbell-outline',
   },
   Plan: {
     name: 'Plan',

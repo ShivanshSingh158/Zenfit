@@ -48,6 +48,7 @@ export interface ExerciseProfileInput {
   targetRepLow?: number;              // Defaults to 8 (or auto-adapts to user habit)
   targetRepHigh?: number;             // Defaults to 12 (or auto-adapts to user habit)
   hasMicroPlates?: boolean;
+  progressionPolicy?: ProgressionPolicy;
 }
 
 export interface RecoveryContextInput {
@@ -76,7 +77,7 @@ export interface InferredExerciseMeta {
 export interface ProgressionRecommendation {
   state: ProgressionState;
   badgeLabel: string;
-  badgeColor: '#30D158' | '#0A84FF' | '#FF9F0A' | '#BF5AF2' | '#8E8E93';
+  badgeColor: '#30D158' | '#0A84FF' | '#FF9F0A' | '#BF5AF2' | '#8E8E93' | '#A599FF';
   headline: string;
   subheadline: string;
   prescribedSets: SetPrescription[];
@@ -516,6 +517,116 @@ export function generateProgressionRecommendation(
   };
 
   // -------------------------------------------------------------------------
+  // SPECIAL PROGRESSION MODEL: TOP SET + BACK-OFF
+  // -------------------------------------------------------------------------
+  if (profile.progressionPolicy === 'top_backoff' && digests.length > 0) {
+    const topW = W > 0 ? W : lastWeight;
+    const backOffW = snapToGymWeight(topW * 0.90, deltaW || 2.5);
+    const topReps = Math.max(4, Rmin - 2);
+    const backOffReps = Math.min(Rmax + 2, Rmin + 2);
+
+    const prescribedSets: SetPrescription[] = Array.from({ length: N }, (_, i) => {
+      if (i === 0) {
+        return {
+          setNumber: 1,
+          targetWeight: topW,
+          targetReps: topReps,
+          targetRir: 1,
+          role: 'TOP_SET',
+          label: `Top Set: ${topW} kg × ${topReps}`,
+        };
+      }
+      return {
+        setNumber: i + 1,
+        targetWeight: backOffW,
+        targetReps: backOffReps,
+        targetRir: 2,
+        role: 'BACK_OFF',
+        label: `Back-Off ${i}: ${backOffW} kg × ${backOffReps}`,
+      };
+    });
+
+    return {
+      state: 'REP_BUILD',
+      badgeLabel: 'Top Set + Back-Off',
+      badgeColor: '#A599FF',
+      headline: `Top Set: ${topW} kg × ${topReps} • Back-Off: ${backOffW} kg × ${backOffReps}`,
+      subheadline: 'Heavy maximal top set followed by -10% volume back-off sets for hypertrophy.',
+      prescribedSets,
+      totalTargetReps: topReps + (N - 1) * backOffReps,
+      recommendedWeight: topW,
+      weightDelta: 0,
+      isDeload: false,
+      lastSessionSummary,
+      inferredMeta,
+      metrics: baseMetrics,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // SPECIAL PROGRESSION MODEL: TRIPLE PROGRESSION (Reps -> Sets -> Weight)
+  // -------------------------------------------------------------------------
+  if (profile.progressionPolicy === 'triple' && digests.length > 0) {
+    const allSetsHitCap = last.workingSets.length > 0 && last.workingSets.every(s => s.reps >= Rmax);
+    if (allSetsHitCap) {
+      if (N < 5) {
+        // Expand volume: add a set
+        const nextSetsCount = N + 1;
+        const prescribedSets: SetPrescription[] = Array.from({ length: nextSetsCount }, (_, i) => ({
+          setNumber: i + 1,
+          targetWeight: W,
+          targetReps: Rmax,
+          targetRir: 1,
+          role: 'WORK',
+          label: `${W} kg × ${Rmax}`,
+        }));
+        return {
+          state: 'REP_BUILD',
+          badgeLabel: 'Triple Progression (+1 Set)',
+          badgeColor: '#30D158',
+          headline: `Volume Expansion: ${nextSetsCount} sets of ${Rmax} @ ${W} kg`,
+          subheadline: `All ${N} sets achieved ${Rmax} reps! Added an extra set to build capacity before load increment.`,
+          prescribedSets,
+          totalTargetReps: nextSetsCount * Rmax,
+          recommendedWeight: W,
+          weightDelta: 0,
+          isDeload: false,
+          lastSessionSummary,
+          inferredMeta,
+          metrics: baseMetrics,
+        };
+      } else {
+        // Reached 5 sets of Rmax -> load increment unlock!
+        const nextW = snapToGymWeight(W + deltaW, deltaW || 2.5);
+        const resetSets = 3;
+        const prescribedSets: SetPrescription[] = Array.from({ length: resetSets }, (_, i) => ({
+          setNumber: i + 1,
+          targetWeight: nextW,
+          targetReps: Rmin,
+          targetRir: 2,
+          role: 'WORK',
+          label: `${nextW} kg × ${Rmin}`,
+        }));
+        return {
+          state: 'WEIGHT_UNLOCK',
+          badgeLabel: `Triple Progression (+${deltaW} kg)`,
+          badgeColor: '#30D158',
+          headline: `Load Increment: Advance to ${nextW} kg × ${resetSets} sets of ${Rmin}`,
+          subheadline: `Mastered 5 sets at ${Rmax} reps. Stepping up weight by ${deltaW} kg and resetting to 3 sets.`,
+          prescribedSets,
+          totalTargetReps: resetSets * Rmin,
+          recommendedWeight: nextW,
+          weightDelta: deltaW,
+          isDeload: false,
+          lastSessionSummary,
+          inferredMeta,
+          metrics: baseMetrics,
+        };
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // TEMPORAL GUARD A: DETRAINED RAMP-BACK (> 14 Days Layoff)
   // -------------------------------------------------------------------------
   if (daysSinceLastSession > 14) {
@@ -917,9 +1028,17 @@ export function recalculateRemainingSetsLive(
       };
     }
 
+    // If this is a back-off set following a completed top set, snap load to 90% of set 1
+    const isBackOff = prescription.role === 'BACK_OFF' || initialRecommendation.badgeLabel.includes('Back-Off');
+    let effectiveTargetWeight = prescription.targetWeight;
+    if (isBackOff && workingCompleted.length >= 1 && workingCompleted[0].weight > 0) {
+      const step = initialRecommendation.inferredMeta.incrementKg || 2.5;
+      effectiveTargetWeight = snapToGymWeight(workingCompleted[0].weight * 0.90, step);
+    }
+
     const predictedAtTargetWeight = predictRepsAtWeight(
       latestE1RM,
-      prescription.targetWeight,
+      effectiveTargetWeight,
       1
     );
     const liveAdjustedReps = Math.max(
@@ -929,8 +1048,11 @@ export function recalculateRemainingSetsLive(
 
     return {
       ...prescription,
-      targetReps: liveAdjustedReps,
-      label: `${prescription.targetWeight} kg × ${liveAdjustedReps}`,
+      targetWeight: effectiveTargetWeight,
+      targetReps: isBackOff ? Math.max(Rmin, Math.min(Rmax + 3, workingCompleted[0].reps + 2)) : liveAdjustedReps,
+      label: isBackOff
+        ? `${effectiveTargetWeight} kg × ${Math.max(Rmin, Math.min(Rmax + 3, workingCompleted[0].reps + 2))} (Back-Off)`
+        : `${effectiveTargetWeight} kg × ${liveAdjustedReps}`,
     };
   });
 }
@@ -939,7 +1061,7 @@ export function recalculateRemainingSetsLive(
 // 6. ADAPTERS FOR EXISTING APP GYM LOG FORMAT
 // ---------------------------------------------------------------------------
 
-export type ProgressionPolicy = 'linear' | 'greyskull' | 'double' | 'time' | 'off';
+export type ProgressionPolicy = 'linear' | 'double' | 'triple' | 'top_backoff' | 'greyskull' | 'time' | 'off';
 
 export interface ProgressionResult {
   policy: ProgressionPolicy;

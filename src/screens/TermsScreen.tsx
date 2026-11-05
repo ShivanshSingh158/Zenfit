@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View, Text, StyleSheet, Modal, ScrollView, TouchableOpacity,
   Platform, StatusBar
@@ -16,7 +16,7 @@ interface TermsScreenProps {
 
 export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
   const { colors, isDark } = useTheme();
-  const styles = makeStyles(colors, isDark);
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const handleClose = () => {
     hapticLight();
@@ -42,7 +42,7 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
         <View style={styles.header}>
           <View>
             <Text style={styles.headerTitle}>Terms of Service & Privacy</Text>
-            <Text style={styles.headerSubtitle}>ZenTrack Life OS · Version 2.4.0</Text>
+            <Text style={styles.headerSubtitle}>ZenFit · Version 2.4.0</Text>
           </View>
           <TouchableOpacity
             onPress={handleClose}
@@ -76,7 +76,7 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
             <View style={{ flex: 1 }}>
               <Text style={styles.calloutTitle}>Our Core Privacy Pledge</Text>
               <Text style={styles.calloutBody}>
-                ZenTrack is built on a <Text style={styles.boldText}>100% Local-First Architecture</Text>. Your daily tasks, habit streaks, attendance records, gym weights, and personal vault notes belong strictly to you. We do not sell your personal telemetry or monetize your private life routines.
+                ZenFit is built on a <Text style={styles.boldText}>100% Local-First Architecture</Text>. Your daily tasks, habit streaks, attendance records, gym weights, and personal vault notes belong strictly to you. We do not sell your personal telemetry or monetize your private life routines.
               </Text>
             </View>
           </View>
@@ -90,13 +90,13 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
               <Text style={styles.sectionTitle}>1. Agreement to Terms</Text>
             </View>
             <Text style={styles.paragraph}>
-              These Terms of Service ("Terms") constitute a legally binding agreement between you ("User", "you", or "your") and ZenTrack Inc. ("ZenTrack", "we", "us", or "our"), governing your access to and use of the ZenTrack mobile application, website, services, and associated offline tools (collectively, the "Platform").
+              These Terms of Service ("Terms") constitute a legally binding agreement between you ("User", "you", or "your") and ZenFit Inc. ("ZenFit", "we", "us", or "our"), governing your access to and use of the ZenFit mobile application, website, services, and associated offline tools (collectively, the "Platform").
             </Text>
             <Text style={styles.paragraph}>
               By downloading, installing, accessing, or using the Platform, you acknowledge that you have read, understood, and agree to be bound by these Terms and our Privacy Policy. If you do not agree to these Terms in their entirety, you must immediately cease using and uninstall the Platform.
             </Text>
             <Text style={styles.paragraph}>
-              <Text style={styles.boldText}>1.1 Eligibility:</Text> You must be at least 13 years of age (or the applicable age of digital consent in your jurisdiction) to use ZenTrack. If you are under 18, you represent that you have reviewed these Terms with your parent or legal guardian.
+              <Text style={styles.boldText}>1.1 Eligibility:</Text> You must be at least 13 years of age (or the applicable age of digital consent in your jurisdiction) to use ZenFit. If you are under 18, you represent that you have reviewed these Terms with your parent or legal guardian.
             </Text>
           </View>
 
@@ -109,12 +109,12 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
               <Text style={styles.sectionTitle}>2. Account Registration & Data Security</Text>
             </View>
             <Text style={styles.paragraph}>
-              ZenTrack supports multiple authentication models, including Google Sign-In, Apple Authentication, and Anonymous Demo mode. You agree to provide accurate authentication credentials and maintain the confidentiality of your active session.
+              ZenFit supports multiple authentication models, including Google Sign-In, Apple Authentication, and Anonymous Demo mode. You agree to provide accurate authentication credentials and maintain the confidentiality of your active session.
             </Text>
             <View style={styles.bulletList}>
-              <Text style={styles.bulletItem}>• <Text style={styles.boldText}>Device-Level Encryption:</Text> Private notes stored in the ZenTrack Vault are encrypted locally using AES-256 standards before touching local SQLite / AsyncStorage repositories.</Text>
+              <Text style={styles.bulletItem}>• <Text style={styles.boldText}>Device-Level Encryption:</Text> Private notes stored in the ZenFit Vault are encrypted locally using AES-256 standards before touching local SQLite / AsyncStorage repositories.</Text>
               <Text style={styles.bulletItem}>• <Text style={styles.boldText}>Account Safeguards:</Text> You are solely responsible for maintaining the physical security of your biometric authentication (FaceID / Fingerprint) and PIN lock on your device.</Text>
-              <Text style={styles.bulletItem}>• <Text style={styles.boldText}>Breach Notification:</Text> In the improbable event of a synchronized cloud breach, ZenTrack will notify affected users within 72 hours in compliance with global security regulations.</Text>
+              <Text style={styles.bulletItem}>• <Text style={styles.boldText}>Breach Notification:</Text> In the improbable event of a synchronized cloud breach, ZenFit will notify affected users within 72 hours in compliance with global security regulations.</Text>
             </View>
           </View>
 
@@ -127,7 +127,7 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
               <Text style={styles.sectionTitle}>3. S.A.R.A Autonomous AI & Voice Assistant</Text>
             </View>
             <Text style={styles.paragraph}>
-              ZenTrack features S.A.R.A (Synthesized Artificial Reality Assistant), an autonomous life intelligence engine designed to process natural language voice inputs, extract task parameters, schedule timetable alerts, and deliver proactive behavioral nudges.
+              ZenFit features S.A.R.A (Synthesized Artificial Reality Assistant), an autonomous life intelligence engine designed to process natural language voice inputs, extract task parameters, schedule timetable alerts, and deliver proactive behavioral nudges.
             </Text>
             <View style={styles.bulletList}>
               <Text style={styles.bulletItem}>• <Text style={styles.boldText}>Voice Data Lifecycle:</Text> Voice audio recorded during mic activation is transcribed in real-time. Raw audio streams are never stored permanently on remote servers; only parsed structured actions (e.g. "DSA Lab at 10 AM") are retained on your device.</Text>
@@ -145,13 +145,13 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
               <Text style={styles.sectionTitle}>4. Academic & Timetable Radar Disclaimers</Text>
             </View>
             <Text style={styles.paragraph}>
-              ZenTrack offers an automated Attendance Radar and Bunk Calculator designed to assist students in tracking class compliance against institutional percentage thresholds (e.g., 75% or 80% criteria).
+              ZenFit offers an automated Attendance Radar and Bunk Calculator designed to assist students in tracking class compliance against institutional percentage thresholds (e.g., 75% or 80% criteria).
             </Text>
             <Text style={styles.paragraph}>
               <Text style={styles.boldText}>4.1 Informational Nature:</Text> The calculated "Safe Bunks", attendance forecasts, and scheduled lecture timings are generated based on user-supplied parameters and schedule imports.
             </Text>
             <Text style={styles.paragraph}>
-              <Text style={styles.boldText}>4.2 Institutional Authority:</Text> Your educational institution's official ERP, professor roll calls, and departmental registries remain the sole authoritative record of your academic standing. ZenTrack accepts no liability for disciplinary actions, exam disbarment, or attendance discrepancies arising from user reliance on estimated metrics.
+              <Text style={styles.boldText}>4.2 Institutional Authority:</Text> Your educational institution's official ERP, professor roll calls, and departmental registries remain the sole authoritative record of your academic standing. ZenFit accepts no liability for disciplinary actions, exam disbarment, or attendance discrepancies arising from user reliance on estimated metrics.
             </Text>
           </View>
 
@@ -164,12 +164,12 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
               <Text style={styles.sectionTitle}>5. Fitness, Gym & Wellness Disclaimer</Text>
             </View>
             <Text style={styles.paragraph}>
-              The gym workout tracker, 1RM calculators, progressive overload matrices, hydration meters, and dietary suggestions provided by ZenTrack are for educational and personal organization purposes only.
+              The gym workout tracker, 1RM calculators, progressive overload matrices, hydration meters, and dietary suggestions provided by ZenFit are for educational and personal organization purposes only.
             </Text>
             <View style={styles.warningBox}>
               <Ionicons name="warning-outline" size={18} color="#FF9F4D" style={{ marginRight: 10, marginTop: 1 }} />
               <Text style={styles.warningText}>
-                Consult a qualified physician or certified personal trainer before attempting high-intensity weight training or dietary changes. You assume 100% of physical risks associated with exercise routines logged in ZenTrack.
+                Consult a qualified physician or certified personal trainer before attempting high-intensity weight training or dietary changes. You assume 100% of physical risks associated with exercise routines logged in ZenFit.
               </Text>
             </View>
           </View>
@@ -183,10 +183,10 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
               <Text style={styles.sectionTitle}>6. Intellectual Property & Ownership</Text>
             </View>
             <Text style={styles.paragraph}>
-              <Text style={styles.boldText}>6.1 Your Content:</Text> You retain complete, unencumbered ownership of all data, tasks, notes, habits, routines, and telemetry generated by your account on the Platform. ZenTrack claims no intellectual property rights over your personal life logs.
+              <Text style={styles.boldText}>6.1 Your Content:</Text> You retain complete, unencumbered ownership of all data, tasks, notes, habits, routines, and telemetry generated by your account on the Platform. ZenFit claims no intellectual property rights over your personal life logs.
             </Text>
             <Text style={styles.paragraph}>
-              <Text style={styles.boldText}>6.2 ZenTrack IP:</Text> The ZenTrack name, brand mark, visual design tokens, custom user interface components, sound design, animations, backend API algorithms, and proprietary machine learning orchestration engines are the exclusive property of ZenTrack Inc. and are protected by international copyright and trademark laws.
+              <Text style={styles.boldText}>6.2 ZenFit IP:</Text> The ZenFit name, brand mark, visual design tokens, custom user interface components, sound design, animations, backend API algorithms, and proprietary machine learning orchestration engines are the exclusive property of ZenFit Inc. and are protected by international copyright and trademark laws.
             </Text>
           </View>
 
@@ -200,10 +200,10 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
             </View>
             <Text style={styles.paragraph}>You expressly agree not to:</Text>
             <View style={styles.bulletList}>
-              <Text style={styles.bulletItem}>• Reverse engineer, decompile, disassemble, or derive source code from any portion of the ZenTrack binary or web bundle.</Text>
-              <Text style={styles.bulletItem}>• Deploy automated scrapers, bots, crawlers, or high-frequency API flooders against ZenTrack cloud services.</Text>
+              <Text style={styles.bulletItem}>• Reverse engineer, decompile, disassemble, or derive source code from any portion of the ZenFit binary or web bundle.</Text>
+              <Text style={styles.bulletItem}>• Deploy automated scrapers, bots, crawlers, or high-frequency API flooders against ZenFit cloud services.</Text>
               <Text style={styles.bulletItem}>• Circumvent authentication barriers, tamper with encryption headers, or forge token payloads.</Text>
-              <Text style={styles.bulletItem}>• Use ZenTrack to coordinate unlawful, hazardous, or malicious physical activities.</Text>
+              <Text style={styles.bulletItem}>• Use ZenFit to coordinate unlawful, hazardous, or malicious physical activities.</Text>
             </View>
           </View>
 
@@ -216,7 +216,7 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
               <Text style={styles.sectionTitle}>8. Service Availability & Modifications</Text>
             </View>
             <Text style={styles.paragraph}>
-              ZenTrack is provided on an "AS IS" and "AS AVAILABLE" basis. While our local-first offline architecture allows full platform operation without an active internet connection, cloud backup synchronization and AI transcription services require network connectivity.
+              ZenFit is provided on an "AS IS" and "AS AVAILABLE" basis. While our local-first offline architecture allows full platform operation without an active internet connection, cloud backup synchronization and AI transcription services require network connectivity.
             </Text>
             <Text style={styles.paragraph}>
               We reserve the right to deploy updates, alter module configurations, or modify API endpoints at our discretion to enhance system performance, security, and user experience.
@@ -232,7 +232,7 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
               <Text style={styles.sectionTitle}>9. Limitation of Liability</Text>
             </View>
             <Text style={styles.paragraph}>
-              To the maximum extent permitted by applicable law, in no event shall ZenTrack Inc., its officers, directors, employees, or affiliates be liable for any indirect, incidental, special, consequential, or punitive damages, including loss of profits, data corruption, academic penalties, hardware malfunctions, or personal injury resulting from your use of or inability to use the Platform.
+              To the maximum extent permitted by applicable law, in no event shall ZenFit Inc., its officers, directors, employees, or affiliates be liable for any indirect, incidental, special, consequential, or punitive damages, including loss of profits, data corruption, academic penalties, hardware malfunctions, or personal injury resulting from your use of or inability to use the Platform.
             </Text>
           </View>
 

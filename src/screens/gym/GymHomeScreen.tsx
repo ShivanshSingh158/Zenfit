@@ -34,6 +34,7 @@ import {
 } from '../../utils/gymUtils';
 import { awardXP } from '../../services/xpSystem';
 import { GYM_PLAN, resolvePlanDay } from '../../data/gymPlan';
+import { getWorkoutDaysInRotation, getRotationLetterForDay } from '../../services/gymRotationService';
 import { makeStyles } from './gymHomeStyles';
 
 // ─── Core Frame-0 Components (Rendered directly on Today's active workout surface) ───
@@ -143,6 +144,69 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       return '';
     }
   }, [weekDates]);
+
+  // ─── Workouts Left This Week Countdown (openGym v1.4.4 #753) ────────────────
+  const weeklyCountdown = useMemo(() => {
+    let plannedCount = 0;
+    for (let i = 1; i <= 7; i++) {
+      const customDay = userGymPlan?.customDays?.[i];
+      const isRest = customDay ? Boolean(customDay.isRest) : (i === 7);
+      if (!isRest) plannedCount++;
+    }
+    if (plannedCount === 0) plannedCount = 4;
+
+    const completedCount = weekDates.reduce((acc, d) => {
+      const logEntry = (gymLogs || []).find((l: any) => l.date === d);
+      return logEntry?.completed ? acc + 1 : acc;
+    }, 0);
+
+    const remainingCount = Math.max(0, plannedCount - completedCount);
+    const isCurrentWeek = weekOffset === 0;
+
+    let iconName: 'flame' | 'flash' | 'trophy' | 'rocket' | 'calendar' = 'flame';
+    let label = '';
+    let color = '#30D158';
+
+    if (!isCurrentWeek) {
+      if (weekOffset < 0) {
+        iconName = 'calendar';
+        label = `Recap: ${completedCount} of ${plannedCount} completed`;
+        color = completedCount >= plannedCount ? '#30D158' : (isDark ? '#8E8E93' : '#636366');
+      } else {
+        iconName = 'calendar';
+        label = `Upcoming: ${plannedCount} workouts planned`;
+        color = isDark ? '#8E8E93' : '#636366';
+      }
+    } else if (completedCount >= plannedCount) {
+      if (completedCount > plannedCount) {
+        iconName = 'rocket';
+        label = `Bonus workout! (${completedCount}/${plannedCount} completed)`;
+        color = '#A599FF';
+      } else {
+        iconName = 'trophy';
+        label = `Weekly goal crushed! (${completedCount}/${plannedCount} complete)`;
+        color = '#30D158';
+      }
+    } else if (remainingCount === 1) {
+      iconName = 'flash';
+      label = `Last workout this week! (${completedCount}/${plannedCount} done)`;
+      color = '#FF9F0A';
+    } else {
+      iconName = 'flame';
+      label = `${remainingCount} of ${plannedCount} workouts left this week`;
+      color = '#30D158';
+    }
+
+    return {
+      plannedCount,
+      completedCount,
+      remainingCount,
+      isCurrentWeek,
+      iconName,
+      label,
+      color,
+    };
+  }, [userGymPlan?.customDays, weekDates, gymLogs, weekOffset, isDark]);
 
   // Formatted date strings for Compact Structural Header (0ms static lookup; zero ICU bridge overhead)
   const { headerTitleText, headerDateText } = useMemo(() => {
@@ -333,7 +397,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       const lastSet = lastSets[sIdx] || lastValidSet;
       const weight = (existingSet?.weight != null && Number(existingSet.weight) > 0)
         ? Number(existingSet.weight)
-        : (lastSet?.weight != null && Number(lastSet.weight) > 0 ? Number(lastSet.weight) : (ex.targetWeight || 20));
+        : (lastSet?.weight != null && Number(lastSet.weight) > 0 ? Number(lastSet.weight) : (ex.targetWeight || 0));
       const reps = (existingSet?.reps != null && Number(existingSet.reps) > 0)
         ? Number(existingSet.reps)
         : (lastSet?.reps ? Number(lastSet.reps) : defaultReps);
@@ -397,8 +461,13 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     }, [isWorkoutCompleted, log?.completed, log?.id, log?.updatedAt, selectedDate])
   );
 
-  const routineTitle = activePlanDay?.name || 'Workout Day';
-  const routineFocus = activePlanDay?.focus || (activePlanDay?.isRest ? 'Rest & CNS Recovery' : 'Hypertrophy Training');
+  const isRotation = userGymPlan?.scheduleMode === 'rotation';
+  const rotationDays = useMemo(() => isRotation ? getWorkoutDaysInRotation(userGymPlan) : [], [isRotation, userGymPlan]);
+  const rotationLetter = isRotation && activePlanDay ? getRotationLetterForDay(activePlanDay.dayIndex, rotationDays) : null;
+  const routineTitle = isRotation && rotationLetter && !activePlanDay?.isRest
+    ? `Workout ${rotationLetter}: ${activePlanDay.name}`
+    : (activePlanDay?.name || 'Workout Day');
+  const routineFocus = activePlanDay?.focus || (activePlanDay?.isRest ? 'Muscle Repair & Rest' : 'Daily Workout');
 
   return (
     <View style={s.root}>
@@ -408,13 +477,13 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
           <View style={s.headerTitleGroup}>
             <Text style={s.headerTitle}>{headerTitleText}</Text>
             <Text style={s.headerSubtitle} numberOfLines={1}>
-              {headerDateText} · {routineTitle}
+              {headerDateText}
             </Text>
           </View>
 
           <View style={s.headerActions}>
             <TouchableOpacity
-              style={s.plainIconBtn}
+              style={s.swapRoutineBtn}
               onPress={() => {
                 hapticLight();
                 setShowSwapModal(true);
@@ -423,23 +492,10 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
             >
               <Ionicons
                 name="swap-horizontal-outline"
-                size={16}
+                size={14}
                 color={isDark ? '#FFFFFF' : '#000000'}
               />
-            </TouchableOpacity>
-
-
-
-            <TouchableOpacity
-              style={s.primaryActionBtn}
-              onPress={() => {
-                hapticLight();
-                setShowAddModal(true);
-              }}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="add" size={14} color={isDark ? '#000000' : '#FFFFFF'} />
-              <Text style={s.primaryActionText}>Add</Text>
+              <Text style={s.swapRoutineBtnText}>Swap</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -456,10 +512,19 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* WEEK CALENDAR STRIP: Apple Inset Grouped Card with Real-time Status Dots */}
+        {/* WEEK CALENDAR STRIP: Compact Apple Inset Grouped Card */}
         <View style={s.weekStripCard}>
           <View style={s.weekStripHeaderRow}>
-            <Text style={s.weekStripMonthText}>{weekMonthYearText}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={s.weekStripMonthText}>{weekMonthYearText}</Text>
+              <View style={s.weekProgressBadge}>
+                <Ionicons name={weeklyCountdown.iconName as any} size={11} color={weeklyCountdown.color} />
+                <Text style={[s.weekProgressBadgeText, { color: weeklyCountdown.color }]}>
+                  {weeklyCountdown.completedCount}/{weeklyCountdown.plannedCount} Done
+                </Text>
+              </View>
+            </View>
+
             <View style={s.weekNavBtns}>
               {selectedDate !== today && (
                 <TouchableOpacity
@@ -541,6 +606,36 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
             })}
           </View>
         </View>
+
+        {/* Active Programme Mesocycle Banner (Horizon Strip) */}
+        {userGymPlan?.activeProgramme && userGymPlan.activeProgramme.status === 'active' && (
+          <TouchableOpacity
+            style={s.programmeHorizonStrip}
+            activeOpacity={0.7}
+            onPress={() => {
+              hapticLight();
+              navigation.navigate('Plan', { initialTab: 'mesocycles' });
+            }}
+          >
+            <View style={s.programmeHorizonLeft}>
+              <View style={s.programmeHorizonDot} />
+              <Text style={s.programmeHorizonPhase} numberOfLines={1}>
+                W{userGymPlan.activeProgramme.currentWeek}/{userGymPlan.activeProgramme.totalWeeks} · {userGymPlan.activeProgramme.weeks[userGymPlan.activeProgramme.currentWeek]?.phaseName || 'Active Phase'}
+              </Text>
+            </View>
+
+            <View style={s.programmeHorizonRight}>
+              <Text style={s.programmeHorizonMeta}>
+                {userGymPlan.activeProgramme.weeks[userGymPlan.activeProgramme.currentWeek]?.targetRir ?? 2} RIR
+                {userGymPlan.activeProgramme.weeks[userGymPlan.activeProgramme.currentWeek]?.intensityPercentage1RM
+                  ? ` · ${userGymPlan.activeProgramme.weeks[userGymPlan.activeProgramme.currentWeek]?.intensityPercentage1RM}%`
+                  : ''}
+              </Text>
+              <Text style={s.programmeHorizonLink}>Roadmap</Text>
+              <Ionicons name="chevron-forward" size={12} color="#A599FF" />
+            </View>
+          </TouchableOpacity>
+        )}
 
         {isEffectiveRest ? (
           <View style={{ width: '100%', gap: 14 }}>
@@ -628,7 +723,14 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
             {/* ─── 4. INSET GROUPED EXERCISE LIST ───────────────────────────── */}
             <View style={s.section}>
               <View style={s.sectionHeaderRow}>
-                <Text style={s.sectionLabel}>WORKOUT PLAN</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={s.sectionLabel}>WORKOUT PLAN</Text>
+                  {activeExercises.length > 0 && (
+                    <View style={s.sectionCountBadge}>
+                      <Text style={s.sectionCountText}>{activeExercises.length}</Text>
+                    </View>
+                  )}
+                </View>
                 <TouchableOpacity
                   style={s.sectionActionBtn}
                   onPress={() => {
@@ -639,7 +741,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
                   activeOpacity={0.7}
                 >
                   <Ionicons name="add" size={13} color={isDark ? '#000000' : '#FFFFFF'} />
-                  <Text style={s.sectionActionText}>Add</Text>
+                  <Text style={s.sectionActionText}>Add Exercise</Text>
                 </TouchableOpacity>
               </View>
 

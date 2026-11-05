@@ -29,11 +29,12 @@ export const GYM_WORKOUT_TITLES = (planName: string) => [
 
 export const GYM_WORKOUT_POOLS = (planName: string, exercisePreview?: string, totalExercises?: number): string[] => {
   const countStr = totalExercises ? `${totalExercises} exercises` : 'Scheduled session';
+  const previewStr = exercisePreview ? ` (${exercisePreview})` : '';
   return [
-    `${countStr} · Ready when you are`,
-    `${countStr} · Time to train`,
-    `Your training session is prepared`,
-    `Consistency compounds · Tap to begin`,
+    `${countStr}${previewStr} · Ready when you are`,
+    `${countStr}${previewStr} · Time to train`,
+    `${planName} session ready${previewStr} · Tap to begin`,
+    `Consistency compounds · ${countStr} prepared`,
   ];
 };
 
@@ -200,4 +201,140 @@ export function getWeeklyReportNotificationCopy(params: {
     }
   }
 }
+
+// ── 6. Advanced 5-Pillar Coach Notification Copy Generators ──────────────────
+
+export interface NotificationCopy {
+  title: string;
+  body: string;
+}
+
+/**
+ * Pillar 2: Pre-Workout Reminder at anchor time T
+ */
+export function getWorkoutReminderCopy(
+  planName: string,
+  topExercises?: string[],
+  totalExercises?: number
+): NotificationCopy {
+  const name = planName || 'Workout Session';
+  const preview = topExercises && topExercises.length > 0
+    ? `Starting with ${topExercises.slice(0, 2).join(' & ')}.`
+    : '';
+  const countStr = totalExercises && totalExercises > 0 ? ` ${totalExercises} exercises on deck.` : '';
+
+  return {
+    title: `Time to Train: ${name} 🏋️`,
+    body: `${preview}${countStr} Ready when you are.`.trim(),
+  };
+}
+
+/**
+ * Pillar 3: Missed Workout Check-in
+ */
+export function getMissedWorkoutCopy(
+  planName: string,
+  isLateEvening: boolean = false
+): NotificationCopy {
+  const name = planName || 'Your workout';
+  if (isLateEvening) {
+    return {
+      title: `${name} unlogged today ⏳`,
+      body: 'Push your split +1 day or hit a quick session? Tap to adjust.',
+    };
+  }
+  return {
+    title: `${name} unlogged today ⏳`,
+    body: 'Still hitting it tonight, or shifting to an active recovery day? Tap to update.',
+  };
+}
+
+/**
+ * Pillar 1: Tomorrow Blueprint Preview (Evening at 9:00 PM)
+ */
+export function getTomorrowBlueprintCopy(
+  tomorrowPlanName: string,
+  primaryLift?: string,
+  targetMusclesSummary?: string
+): NotificationCopy {
+  const name = tomorrowPlanName || 'Upcoming Session';
+  const liftPart = primaryLift ? `Starting with ${primaryLift}. ` : '';
+  const musclePart = targetMusclesSummary ? `${targetMusclesSummary}. ` : '';
+
+  return {
+    title: `Tomorrow: ${name} 📋`,
+    body: `${liftPart}${musclePart}Blueprint ready for tomorrow.`.trim(),
+  };
+}
+
+/**
+ * Pillar 4: Rest Day Biological Insights
+ */
+export function getRestDayInsightCopy(
+  branch: 'missed_yesterday' | 'lagging_mev' | 'cns_recovery' | 'general',
+  data: {
+    routineName?: string;
+    muscleName?: string;
+    currentSets?: number;
+    targetSets?: number;
+    totalVolumeKg?: number;
+  }
+): NotificationCopy {
+  switch (branch) {
+    case 'missed_yesterday':
+      return {
+        title: 'Yesterday\'s Routine Unlogged ⏳',
+        body: `Yesterday\'s ${data.routineName || 'session'} went unlogged. Shift it to today or keep today as Rest?`,
+      };
+    case 'lagging_mev':
+      return {
+        title: `Weekly Volume Check: ${data.muscleName || 'Key Muscle'} 🎯`,
+        body: `${data.muscleName || 'This muscle'} is at ${data.currentSets ?? 0}/${data.targetSets ?? 10} sets this week. Add 3 sets on your next session.`,
+      };
+    case 'cns_recovery': {
+      const volText = data.totalVolumeKg && data.totalVolumeKg > 0
+        ? `${Math.round(data.totalVolumeKg)} kg `
+        : '';
+      return {
+        title: 'Active Recovery Protocol 🔋',
+        body: `CNS & tissue recovering from yesterday\'s ${volText}volume. Prioritize protein, hydration and 8,000 steps today.`,
+      };
+    }
+    case 'general':
+    default:
+      return {
+        title: 'Rest & Rebuild 🔋',
+        body: 'Muscles grow outside the gym. Prioritize sleep, nutrition, and active recovery today.',
+      };
+  }
+}
+
+/**
+ * Pillar 5: Sunday Strength Briefing
+ */
+export function getSundayBriefingCopy(
+  completedSessions: number,
+  totalVolumeKg: number,
+  prCount: number = 0
+): NotificationCopy {
+  const volRounded = Math.round(totalVolumeKg);
+  const volFormatted = volRounded > 1000 ? `${(volRounded / 1000).toFixed(1)}k kg` : `${volRounded} kg`;
+  const prText = prCount > 0 ? ` · ${prCount} PR${prCount > 1 ? 's' : ''} unlocked` : '';
+
+  return {
+    title: 'Sunday Strength Briefing 📊',
+    body: `${completedSessions} workouts completed · ${volFormatted} moved${prText}. Tap for your weekly breakdown.`,
+  };
+}
+
+/**
+ * Churn / Inactivity Safety Net: 3-Strike Backoff
+ */
+export function getInactivityReengagementCopy(): NotificationCopy {
+  return {
+    title: 'Life gets busy · ZenFit',
+    body: 'Want to pause reminders for a week or reset your split? Tap whenever you\'re ready to lift.',
+  };
+}
+
 

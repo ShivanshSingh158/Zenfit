@@ -118,6 +118,7 @@ export default function ExerciseDetailScreen() {
         targetReps: currentExercise.targetReps || paramReps || '10',
         restTimeSecs: currentExercise.restTimeSecs?.toString() || paramRest?.toString() || '90',
         videoLink: currentExercise.videoId ? `https://youtube.com/watch?v=${currentExercise.videoId}` : '',
+        progressionPolicy: (((currentExercise as any).progressionPolicy || 'double') as 'linear' | 'double' | 'triple' | 'top_backoff'),
       };
     }
     return {
@@ -127,6 +128,7 @@ export default function ExerciseDetailScreen() {
       targetReps: paramReps || '10',
       restTimeSecs: paramRest?.toString() || '90',
       videoLink: '',
+      progressionPolicy: 'double' as const,
     };
   }, [currentExercise, paramName, paramMuscle, paramSets, paramReps, paramRest]);
 
@@ -135,6 +137,9 @@ export default function ExerciseDetailScreen() {
   const [muscle, setMuscle] = useState(initialFormState.muscle);
   const [targetSets, setTargetSets] = useState(initialFormState.targetSets);
   const [targetReps, setTargetReps] = useState(initialFormState.targetReps);
+  const [progressionPolicy, setProgressionPolicy] = useState<'linear' | 'double' | 'triple' | 'top_backoff'>(
+    initialFormState.progressionPolicy || 'double'
+  );
   const [restTimeSecs, setRestTimeSecs] = useState(initialFormState.restTimeSecs);
   const [videoLink, setVideoLink] = useState(initialFormState.videoLink);
   const [showVideo, setShowVideo] = useState(false);

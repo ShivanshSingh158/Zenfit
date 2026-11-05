@@ -89,6 +89,20 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
     fontFamily: FONT_FAMILY.bold,
     color: isDark ? '#000000' : '#FFFFFF',
   },
+  swapRoutineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: isDark ? '#2C2C2E' : '#E5E5EA',
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  swapRoutineBtnText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? '#FFFFFF' : '#000000',
+  },
 
   // ── Week Strip: Inset Grouped Apple Calendar Card ─────────────────────────
   weekStripCard: {
@@ -97,6 +111,20 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
     padding: 10,
     borderWidth: 0,
     gap: 8,
+  },
+  weekProgressBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3.5,
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)',
+    paddingHorizontal: 6.5,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+  },
+  weekProgressBadgeText: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.bold,
+    letterSpacing: -0.1,
   },
   weekStripHeaderRow: {
     flexDirection: 'row',
@@ -183,6 +211,164 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
     marginTop: -2,
   },
 
+  // ── Workouts Left This Week Countdown Pill (openGym v1.4.4 #753) ────────────
+  weekCountdownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 8,
+    marginTop: 2,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+    paddingHorizontal: 4,
+  },
+  weekCountdownLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  weekCountdownText: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
+    letterSpacing: -0.1,
+  },
+  weekSegmentsWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3.5,
+  },
+  weekSegmentDash: {
+    width: 14,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: isDark ? '#3A3A3C' : '#D1D1D6',
+  },
+  weekSegmentDashFilled: {
+    backgroundColor: '#30D158',
+  },
+
+  // ── Programme Horizon Strip (openGym v1.4.5) ─────────────────────────
+  programmeHorizonStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#A599FF',
+  },
+  programmeHorizonLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    flex: 1,
+    paddingRight: 8,
+  },
+  programmeHorizonDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#30D158',
+  },
+  programmeHorizonPhase: {
+    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? '#FFFFFF' : colors.textPrimary,
+  },
+  programmeHorizonRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  programmeHorizonMeta: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.medium,
+    color: '#8E8E93',
+  },
+  programmeHorizonLink: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#A599FF',
+  },
+  programmeBannerCard: {
+    backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface,
+    borderRadius: 16,
+    padding: 14,
+    gap: 8,
+    borderLeftWidth: 3.5,
+    borderLeftColor: '#A599FF',
+  },
+  programmeBannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  programmePhaseBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 5,
+    backgroundColor: 'rgba(165, 153, 255, 0.15)',
+  },
+  programmePhaseBadgeText: {
+    fontSize: 9.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#A599FF',
+    letterSpacing: 0.5,
+  },
+  programmeWeekCounter: {
+    fontSize: 10.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textMuted,
+    letterSpacing: 0.4,
+  },
+  programmeTitle: {
+    fontSize: 15,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? '#FFFFFF' : colors.textPrimary,
+    letterSpacing: -0.2,
+  },
+  programmeSubtitle: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.regular,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textMuted,
+    lineHeight: 16,
+  },
+  programmeStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 4,
+  },
+  programmeStatPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 6,
+    backgroundColor: isDark ? '#2C2C2E' : '#E5E5EA',
+  },
+  programmeStatPillText: {
+    fontSize: 10.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? '#FFFFFF' : '#000000',
+  },
+  programmeManageBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  programmeManageBtnText: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: '#A599FF',
+  },
+
   // ── Sections & Inset Grouped Lists ────────────────────────────────────────
   section: {
     gap: 8,
@@ -200,6 +386,17 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
     color: isDark ? IOS_DARK.labelSecondary : colors.textTertiary,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
+  },
+  sectionCountBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 999,
+    backgroundColor: isDark ? '#2C2C2E' : '#E5E5EA',
+  },
+  sectionCountText: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textMuted,
   },
   sectionActionBtn: {
     flexDirection: 'row',
@@ -538,6 +735,34 @@ export const makeStyles = (colors: any, isDark: boolean = true) => {
     fontSize: 14,
     fontFamily: FONT_FAMILY.bold,
     color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
+  },
+
+  restDayBannerContainer: {
+    backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  restDayIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(48,209,88,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  restDayTitle: {
+    fontSize: 16,
+    fontFamily: FONT_FAMILY.bold,
+    color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary,
+  },
+  restDaySubtitle: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.body,
+    color: isDark ? IOS_DARK.labelSecondary : colors.textMuted,
+    marginTop: 2,
   },
 });
 

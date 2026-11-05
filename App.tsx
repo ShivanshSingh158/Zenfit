@@ -22,21 +22,24 @@ import { loadBootManifest } from './src/utils/bootManifest';
 loadBootManifest().catch(() => {});
 
 import { registerDeferredOtaSync } from './src/services/otaUpdateService';
-import { ensureNotificationChannels, requestNotificationPermissions } from './src/services/notifications';
+import { ensureNotificationChannels } from './src/services/notifications';
 import { registerActiveWorkoutNotificationListeners } from './src/services/activeWorkoutNotificationService';
 import { navigationRef } from './src/navigation/navigationService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getGymProfileSync } from './src/hooks/useGymProfile';
 
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { PortalProvider } from './src/contexts/PortalContext';
 import { CoreDataProvider, useCoreData } from './src/contexts/domains/CoreDataContext';
 import { WellnessProvider } from './src/contexts/domains/WellnessContext';
 import GymStack from './src/navigation/GymStack';
-import LandingScreen from './src/screens/LandingScreen';
-import AuthScreen from './src/screens/AuthScreen';
+import AthleteOnboardingFlow from './src/screens/onboarding/AthleteOnboardingFlow';
 
 LogBox.ignoreLogs([
   'expo-notifications: Android Push notifications',
   '[expo-av]: Expo AV has been deprecated',
+  '[expo-av]: Video component from',
+  'Video component from `expo-av` is deprecated',
   'setLayoutAnimationEnabledExperimental',
   'Could not reach Cloud Firestore backend',
   '[Reanimated] Property "opacity"',
@@ -65,36 +68,51 @@ const ZEN_LIGHT_THEME = {
   },
 };
 
-function MainNavigator({ navReady }: { navReady: boolean }) {
+function MainNavigator({ navReady, fontsReady }: { navReady: boolean; fontsReady: boolean }) {
   const { user, loading, isGuest } = useCoreData();
   const { isDark, colors } = useTheme();
-  const [authStep, setAuthStep] = useState<'welcome' | 'signin'>('welcome');
+  const [onboardingCompleted, setOnboardingCompleted] = useState<boolean | null>(null);
 
-  // Dismiss splash screen the exact moment real UI (either GymStack or AuthScreen) AND navigation are ready
   React.useEffect(() => {
-    if (!loading && navReady) {
+    let cancelled = false;
+    async function checkOnboarding() {
+      try {
+        const flag = await AsyncStorage.getItem('zenfit_onboarding_flow_done_v3');
+        if (flag === 'true') {
+          if (!cancelled) setOnboardingCompleted(true);
+          return;
+        }
+        if (!cancelled) setOnboardingCompleted(false);
+      } catch (_) {
+        if (!cancelled) setOnboardingCompleted(false);
+      }
+    }
+    checkOnboarding();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Dismiss splash screen the exact moment real UI, fonts AND navigation are ready
+  React.useEffect(() => {
+    if (!loading && onboardingCompleted !== null && navReady && fontsReady) {
       SplashScreen.hideAsync().catch(() => {});
     }
-  }, [loading, navReady]);
+  }, [loading, onboardingCompleted, navReady, fontsReady]);
 
-  // Instant 0ms transition: if cached user or guest exists, this never renders.
-  // If fresh install, this holds under the native splash for <5ms while local storage checks.
-  if (loading) {
+  // Instant 0ms transition: hold under native splash until storage & fonts ready
+  if (loading || onboardingCompleted === null) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#000000' }} />
+      <View style={{ flex: 1, backgroundColor: isDark ? '#000000' : colors.background }} />
     );
   }
 
-  // 2-Step ZenTrack Authentication Flow (01 / welcome -> 02 / sign in)
-  if (!user && !isGuest) {
+  // Flagship Athlete Onboarding Flow (shown until all 7 steps are finished, or if signed out)
+  if (!onboardingCompleted || (!user && !isGuest)) {
     return (
-      <View style={{ flex: 1, backgroundColor: isDark ? '#000000' : colors.background }}>
-        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000000' : colors.background} />
-        {authStep === 'welcome' ? (
-          <LandingScreen onGetStarted={() => setAuthStep('signin')} />
-        ) : (
-          <AuthScreen onBack={() => setAuthStep('welcome')} />
-        )}
+      <View style={{ flex: 1, backgroundColor: '#000000' }}>
+        <StatusBar barStyle="light-content" backgroundColor="#000000" />
+        <AthleteOnboardingFlow onComplete={() => setOnboardingCompleted(true)} />
       </View>
     );
   }
@@ -109,26 +127,28 @@ function MainNavigator({ navReady }: { navReady: boolean }) {
   );
 }
 
-function MainRoot() {
-  const { isDark } = useTheme();
+function MainRoot({ fontsReady }: { fontsReady: boolean }) {
+  const { isDark, colors } = useTheme();
   const [navReady, setNavReady] = useState(false);
 
   return (
-    <NavigationContainer
-      ref={navigationRef}
-      theme={isDark ? ZEN_DARK_THEME : ZEN_LIGHT_THEME}
-      onReady={() => {
-        setNavReady(true);
-      }}
-    >
-      <MainNavigator navReady={navReady} />
-    </NavigationContainer>
+    <View style={{ flex: 1, backgroundColor: isDark ? '#000000' : colors.background }}>
+      <NavigationContainer
+        ref={navigationRef}
+        theme={isDark ? ZEN_DARK_THEME : ZEN_LIGHT_THEME}
+        onReady={() => {
+          setNavReady(true);
+        }}
+      >
+        <MainNavigator navReady={navReady} fontsReady={fontsReady} />
+      </NavigationContainer>
+    </View>
   );
 }
 
 export default function App() {
-  // Load fonts in background without blocking initial paint (non-blocking)
-  useFonts({
+  // Load fonts and capture load state to prevent font swap jitter on cold start
+  const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
@@ -137,14 +157,15 @@ export default function App() {
     PlayfairDisplay_600SemiBold_Italic,
   });
 
+  const fontsReady = fontsLoaded || !!fontError;
+
   React.useEffect(() => {
     // Pre-warm the boot manifest (already initiated at module scope)
     loadBootManifest().catch(() => {});
 
-    // Ensure notification channels & request permissions on startup
+    // Ensure silent Android notification channels on startup (permission prompt is deferred to onboarding end)
     InteractionManager.runAfterInteractions(() => {
       ensureNotificationChannels().catch(() => {});
-      requestNotificationPermissions().catch(() => {});
     });
 
     // Register active workout and weekly report notification click listeners
@@ -172,7 +193,7 @@ export default function App() {
         <ThemeProvider>
           <PortalProvider>
             <CoreDataProvider>
-              <MainRoot />
+              <MainRoot fontsReady={fontsReady} />
             </CoreDataProvider>
           </PortalProvider>
         </ThemeProvider>

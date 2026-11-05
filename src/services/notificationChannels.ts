@@ -15,13 +15,30 @@ export const ALARM_CAP = Platform.OS === 'ios' ? 64 : 450;
 // ── Notification Handler ──────────────────────────────────────────────────────
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification?.request?.content?.data;
+    const isOngoingWorkout = data?.type === 'ACTIVE_WORKOUT_IN_PROGRESS';
+
+    // CRITICAL: Persistent ongoing workout notification must stay SILENT in background
+    // and NEVER pop up annoying alert banners on every set logged!
+    if (isOngoingWorkout) {
+      return {
+        shouldShowAlert: false,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+        shouldShowBanner: false,
+        shouldShowList: true,
+      };
+    }
+
+    return {
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    };
+  },
 });
 
 // ── Android Notification Channels ─────────────────────────────────────────────
@@ -85,7 +102,7 @@ export async function ensureNotificationChannels(): Promise<void> {
     await Notifications.setNotificationChannelAsync('workout_in_progress_v2', {
       name: 'Workout in Progress',
       description: 'Persistent non-dismissible notification during an active workout session',
-      importance: Notifications.AndroidImportance.HIGH,
+      importance: Notifications.AndroidImportance.LOW, // LOW = Silent, pinned in shade, zero heads-up popups over screen
       sound: null,
       enableVibrate: false,
       showBadge: false,
@@ -127,7 +144,21 @@ export async function requestNotificationPermissions(): Promise<boolean> {
     // Configure interactive quick actions for Gym
     await Notifications.setNotificationCategoryAsync('gym_reminder', [
       { identifier: 'START_WORKOUT', buttonTitle: '🏋️ Start Workout', options: { opensAppToForeground: true } },
-      { identifier: 'SNOOZE_15M', buttonTitle: '⏰ Snooze 15m', options: { opensAppToForeground: false } },
+      { identifier: 'SNOOZE_1H', buttonTitle: '⏰ Snooze 1h', options: { opensAppToForeground: false } },
+    ]);
+
+    await Notifications.setNotificationCategoryAsync('missed_workout_catch', [
+      { identifier: 'LOG_LATE', buttonTitle: '📝 Log Late Session', options: { opensAppToForeground: true } },
+      { identifier: 'PUSH_SPLIT', buttonTitle: '⏩ Push Split +1 Day', options: { opensAppToForeground: false } },
+      { identifier: 'REST_TODAY', buttonTitle: '🛋️ Rest Today', options: { opensAppToForeground: false } },
+    ]);
+
+    await Notifications.setNotificationCategoryAsync('tomorrow_blueprint', [
+      { identifier: 'VIEW_BLUEPRINT', buttonTitle: '📋 View Blueprint', options: { opensAppToForeground: true } },
+    ]);
+
+    await Notifications.setNotificationCategoryAsync('rest_day_insight', [
+      { identifier: 'VIEW_RECOVERY', buttonTitle: '🧬 View Recovery', options: { opensAppToForeground: true } },
     ]);
 
     await Notifications.setNotificationCategoryAsync('active_rest_timer', [
@@ -143,6 +174,10 @@ export async function requestNotificationPermissions(): Promise<boolean> {
 
     await Notifications.setNotificationCategoryAsync('gym_weekly_report', [
       { identifier: 'VIEW_REPORT', buttonTitle: '📊 View Full Report', options: { opensAppToForeground: true } },
+    ]);
+
+    await Notifications.setNotificationCategoryAsync('churn_reengagement', [
+      { identifier: 'OPEN_APP', buttonTitle: '🏋️ Open ZenFit', options: { opensAppToForeground: true } },
     ]);
 
     if (final !== 'granted') {

@@ -75,35 +75,6 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // Fast-path: Check for any persisted Firebase auth session key
-        const allKeys = await AsyncStorage.getAllKeys().catch(() => []);
-        const fbKey = allKeys.find(k => k.startsWith('firebase:authUser:'));
-        if (fbKey) {
-          const rawFb = await AsyncStorage.getItem(fbKey).catch(() => null);
-          if (rawFb && isMountedRef.current) {
-            try {
-              const parsedFb = JSON.parse(rawFb);
-              if (parsedFb && parsedFb.uid) {
-                const isAnon = Boolean(parsedFb.isAnonymous);
-                const payload = {
-                  uid: parsedFb.uid,
-                  email: parsedFb.email || null,
-                  displayName: parsedFb.displayName || null,
-                  photoURL: parsedFb.photoURL || null,
-                  isAnonymous: isAnon,
-                };
-                setUser(payload as User);
-                setIsGuest(isAnon);
-                AsyncStorage.setItem(BOOT_KEYS.OPTIMISTIC_USER, JSON.stringify(payload)).catch(() => {});
-                setL1Sync(BOOT_KEYS.OPTIMISTIC_USER, payload);
-                updateL1Cache('optimisticUser', payload as any);
-                setLoading(false);
-                return;
-              }
-            } catch (_) {}
-          }
-        }
-
         // Truly fresh install or logged-out state — release loading gate immediately to show Auth/Landing
         if (isMountedRef.current) {
           setLoading(false);
@@ -242,7 +213,6 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
   };
 
   const continueAsGuest = async () => {
-    setLoading(true);
     try {
       await AsyncStorage.setItem(GUEST_STORAGE_KEY, 'true');
       setL1Sync(GUEST_STORAGE_KEY, true);
@@ -262,8 +232,6 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.warn('[CoreData] Guest sign-in fallback:', e);
       setIsGuest(true);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -276,6 +244,7 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
         GUEST_STORAGE_KEY,
         '@zentrack_active_workout_state',
         '@gym_last_completed_session',
+        'zenfit_onboarding_flow_done_v3',
       ]).catch(() => {});
 
       setL1Sync(BOOT_KEYS.OPTIMISTIC_USER, null);

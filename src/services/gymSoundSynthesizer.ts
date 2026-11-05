@@ -154,57 +154,6 @@ function getCompleteUri(): string {
   return COMPLETE_URI;
 }
 
-let nativeSoundCache: Record<string, any> = {};
-let nativeSoundPromiseCache: Record<string, Promise<any>> = {};
-let isAudioModeConfigured = false;
-
-async function ensureAudioMode() {
-  if (isAudioModeConfigured || Platform.OS === 'web') return;
-  try {
-    const { Audio, InterruptionModeAndroid, InterruptionModeIOS } = require('expo-av');
-    await Audio.setAudioModeAsync({
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
-      interruptionModeAndroid: InterruptionModeAndroid ? InterruptionModeAndroid.DuckOthers : 2,
-      interruptionModeIOS: InterruptionModeIOS ? InterruptionModeIOS.DuckOthers : 2,
-      playThroughEarpieceAndroid: false,
-    });
-    isAudioModeConfigured = true;
-  } catch (e) {
-    // Non-fatal if audio mode fails to configure
-  }
-}
-
-async function playNativeSound(uri: string) {
-  try {
-    await ensureAudioMode();
-    const { Audio } = require('expo-av');
-    if (!nativeSoundCache[uri]) {
-      if (!nativeSoundPromiseCache[uri]) {
-        nativeSoundPromiseCache[uri] = Audio.Sound.createAsync(
-          { uri },
-          { shouldPlay: true, volume: 1.0 }
-        ).then((res: any) => res.sound);
-      }
-      const sound = await nativeSoundPromiseCache[uri];
-      nativeSoundCache[uri] = sound;
-      delete nativeSoundPromiseCache[uri];
-    } else {
-      await nativeSoundCache[uri].replayAsync();
-    }
-  } catch (e) {
-    delete nativeSoundPromiseCache[uri];
-    // Graceful fallback: clean up broken sound instance if audio focus was lost
-    if (nativeSoundCache[uri]) {
-      try {
-        await nativeSoundCache[uri].unloadAsync();
-      } catch {}
-      delete nativeSoundCache[uri];
-    }
-  }
-}
-
 let audioCuesEnabled = true;
 
 export function setAudioCuesEnabledGlobal(enabled: boolean) {
@@ -215,37 +164,139 @@ export function isAudioCuesEnabledGlobal(): boolean {
   return audioCuesEnabled;
 }
 
+export function toggleAudioCuesEnabledGlobal(): boolean {
+  audioCuesEnabled = !audioCuesEnabled;
+  return audioCuesEnabled;
+}
+
+/**
+ * Transient Audio Ducking Engine:
+ * 1. Checks audioCuesEnabled. If false, returns immediately (0 audio focus touch, music stays 100%).
+ * 2. Configures Expo-AV with DuckOthers so background music (Spotify, Apple Music) smoothly ducks to ~25%.
+ * 3. Plays the crisp synthesized chime.
+ * 4. As soon as playback finishes (didJustFinish = true), unloads the sound, immediately releasing audio focus so background music returns to 100% volume in < 150ms!
+ * 5. Includes a safety watchdog timer to guarantee audio focus is released even if an OS event is dropped.
+ */
+async function playTransientDuckedSound(uri: string, approxDurationMs = 800) {
+  if (!audioCuesEnabled || Platform.OS === 'web') return;
+
+  try {
+    const { Audio, InterruptionModeAndroid, InterruptionModeIOS } = require('expo-av');
+
+    await Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: true,
+      shouldDuckAndroid: true,
+      interruptionModeAndroid: InterruptionModeAndroid ? InterruptionModeAndroid.DuckOthers : 2,
+      interruptionModeIOS: InterruptionModeIOS ? InterruptionModeIOS.DuckOthers : 2,
+      playThroughEarpieceAndroid: false,
+    });
+
+    let isCleanedUp = false;
+    let soundInstance: any = null;
+
+    const cleanupSound = async () => {
+      if (isCleanedUp) return;
+      isCleanedUp = true;
+      if (soundInstance) {
+        try {
+          await soundInstance.stopAsync().catch(() => {});
+          await soundInstance.unloadAsync().catch(() => {});
+        } catch (_) {}
+        soundInstance = null;
+      }
+    };
+
+    const { sound } = await Audio.Sound.createAsync(
+      { uri },
+      { shouldPlay: true, volume: 1.0 },
+      (status: any) => {
+        if (status?.isLoaded && status?.didJustFinish) {
+          cleanupSound();
+        }
+      }
+    );
+
+    soundInstance = sound;
+
+    // Safety watchdog timer: guarantees music is unducked even on OS event latency
+    setTimeout(cleanupSound, approxDurationMs + 350);
+  } catch (e) {
+    // Non-fatal fallback
+  }
+}
+
 /**
  * 3... 2... 1... Countdown Tick (880 Hz High-Pitch Pulse + Medium Haptic)
  */
-export function playCountdownTick() {
-  try {
-    impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  } catch (e) {}
+let backgroundAudioKeeper: any = null;
 
+/**
+ * Keeps the audio pipeline alive in the background when phone screen is turned off / locked.
+ * Plays an inaudible PCM silence buffer so Android/iOS doesn't suspend JavaScript timers or mute background ducking.
+ */
+export async function startRestTimerBackgroundAudioSession(): Promise<void> {
+  if (!audioCuesEnabled || Platform.OS === 'web') return;
+  try {
+    const { Audio, InterruptionModeAndroid, InterruptionModeIOS } = require('expo-av');
+
+    await Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: true,
+      shouldDuckAndroid: true,
+      interruptionModeAndroid: InterruptionModeAndroid ? InterruptionModeAndroid.DuckOthers : 2,
+      interruptionModeIOS: InterruptionModeIOS ? InterruptionModeIOS.DuckOthers : 2,
+      playThroughEarpieceAndroid: false,
+    });
+
+    if (!backgroundAudioKeeper) {
+      // In-memory 1-second silent WAV
+      const silenceUri = generatePcmWavDataUri(0, 1000);
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: silenceUri },
+        { shouldPlay: true, isLooping: true, volume: 0.001 }
+      );
+      backgroundAudioKeeper = sound;
+    }
+  } catch (err) {
+    // Non-fatal
+  }
+}
+
+/**
+ * Stops and unloads the background audio keeper when rest timer ends or is skipped.
+ */
+export async function stopRestTimerBackgroundAudioSession(): Promise<void> {
+  if (backgroundAudioKeeper) {
+    try {
+      await backgroundAudioKeeper.stopAsync().catch(() => {});
+      await backgroundAudioKeeper.unloadAsync().catch(() => {});
+    } catch (_) {}
+    backgroundAudioKeeper = null;
+  }
+}
+
+export function playCountdownTick() {
   if (!audioCuesEnabled) return;
 
   if (Platform.OS === 'web') {
     playWebBeep(880, 85);
   } else {
-    playNativeSound(getTickUri());
+    playTransientDuckedSound(getTickUri(), 150);
   }
 }
 
 /**
  * Timer Completed Chime (1320 Hz Resonant Gong + Success Haptic)
+ * Ducks background Spotify/Apple Music volume for ~800ms, then restores to 100%.
  */
 export function playTimerFinishChime() {
-  try {
-    notificationAsync(Haptics.NotificationFeedbackType.Success);
-  } catch (e) {}
-
   if (!audioCuesEnabled) return;
 
   if (Platform.OS === 'web') {
     playWebBeep(1320, 240);
   } else {
-    playNativeSound(getChimeUri());
+    playTransientDuckedSound(getChimeUri(), 800);
   }
 }
 
@@ -253,15 +304,11 @@ export function playTimerFinishChime() {
  * Set Logged / Checked Off Tone (660 Hz Subtle Ping + Light Haptic)
  */
 export function playSetCompleteTone() {
-  try {
-    impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  } catch (e) {}
-
   if (!audioCuesEnabled) return;
 
   if (Platform.OS === 'web') {
     playWebBeep(660, 110);
   } else {
-    playNativeSound(getCompleteUri());
+    playTransientDuckedSound(getCompleteUri(), 200);
   }
 }

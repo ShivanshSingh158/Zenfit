@@ -322,6 +322,67 @@ export const calculateGymStreak = (logs: any[] | null | undefined, userGymPlan?:
   });
 };
 
+export const calculateHighestGymStreak = (logs: any[] | null | undefined, userGymPlan?: any | null): number => {
+  if (!logs || logs.length === 0) return 0;
+
+  const toDateStr = (date: Date): string =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+  const todayStr = toDateStr(new Date());
+  const cacheKey = `gym_highest_streak_${todayStr}_${generateDatasetFingerprint(logs)}_${userGymPlan ? 'custom' : 'def'}`;
+
+  return computeOrGetHotCache(cacheKey, () => {
+    const validDates = logs
+      .filter(isValidWorkoutSession)
+      .map(l => String(l?.date || '').slice(0, 10))
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+
+    if (validDates.length === 0) return 0;
+
+    const loggedDates = new Set<string>(validDates);
+
+    const isRestDayForDate = (date: Date): boolean => {
+      const { WEEKDAY_TO_PLAN: WTP, GYM_PLAN: GP } = require('../data/gymPlan');
+      const dayOfWeek = date.getDay();
+      const planIdx = WTP[dayOfWeek] ?? 7;
+      const plan = userGymPlan?.customDays?.[planIdx] || GP.find((p: any) => p.dayIndex === planIdx);
+      return plan?.isRest === true;
+    };
+
+    let maxStreak = 0;
+    let currentRun = 0;
+
+    const startDate = new Date(validDates[0] + 'T00:00:00');
+    const endDate = new Date();
+    endDate.setHours(0, 0, 0, 0);
+
+    const cur = new Date(startDate);
+    const MAX_DAYS = 1095; // 3-year safety
+    let daysIterated = 0;
+
+    while (cur <= endDate && daysIterated < MAX_DAYS) {
+      daysIterated++;
+      const dStr = toDateStr(cur);
+      if (loggedDates.has(dStr)) {
+        currentRun++;
+        if (currentRun > maxStreak) {
+          maxStreak = currentRun;
+        }
+      } else if (!isRestDayForDate(cur)) {
+        if (currentRun > maxStreak) {
+          maxStreak = currentRun;
+        }
+        currentRun = 0;
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    const currentStreak = calculateGymStreak(logs, userGymPlan);
+    return Math.max(maxStreak, currentRun, currentStreak, validDates.length > 0 ? 1 : 0);
+  });
+};
+
 export const calculateExerciseMaxWeight = (exercise: GymExerciseLog | undefined | null): number => {
   if (!exercise || !exercise.setsLog || exercise.setsLog.length === 0) return 0;
   const validSets = exercise.setsLog.filter(s => {
@@ -1060,7 +1121,8 @@ export function mergeGymLogMonotonic(local: GymDayLog | null, remote: GymDayLog)
     };
   });
 
-  const isCompleted = Boolean(local.completed || remote.completed);
+  // When local is newer, trust local completed state so user can un-complete / resume
+  const isCompleted = localTs >= remoteTs ? Boolean(primary.completed) : Boolean(local.completed || remote.completed);
   const result: GymDayLog = {
     ...secondary,
     ...primary,

@@ -27,7 +27,7 @@ export async function signInWithGoogle(): Promise<GoogleAuthResult> {
   if (!GoogleSignin) {
     return {
       success: false,
-      error: 'Google Sign-In is only supported on a standalone Android APK build (not in Expo Go).',
+      error: 'Google Sign-In is unavailable in this environment. Please sign in with email.',
     };
   }
 
@@ -80,7 +80,7 @@ export async function signInWithGoogle(): Promise<GoogleAuthResult> {
       if (error.code === '10' || error.message?.includes('DEVELOPER_ERROR')) {
         return {
           success: false,
-          error: 'Google Sign-In DEVELOPER_ERROR: Your APK SHA-1 fingerprint must be added to Firebase Console under Project Settings -> Android App.',
+          error: 'Unable to connect to Google Services. Please ensure your device has a Google account connected or sign in with email.',
         };
       }
     }

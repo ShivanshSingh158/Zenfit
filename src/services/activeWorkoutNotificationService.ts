@@ -41,6 +41,8 @@ export async function showWorkoutInProgressNotification(params: {
   completedSets?: number;
   totalSets?: number;
   dateStr?: string;
+  weight?: number;
+  reps?: number;
 }): Promise<void> {
   try {
     const { status } = await Notifications.getPermissionsAsync();
@@ -51,7 +53,11 @@ export async function showWorkoutInProgressNotification(params: {
 
     const name = params.workoutName || 'Workout';
     const completedCount = params.completedSets ?? 0;
-    const body = `${name} · ${completedCount} set${completedCount === 1 ? "" : "s"} logged · Tap to return or end session`;
+    const totalCount = params.totalSets ? `/${params.totalSets}` : '';
+    const weightRepStr = (params.weight !== undefined && params.reps !== undefined && params.weight > 0)
+      ? ` · ${params.weight}kg × ${params.reps}`
+      : (params.reps ? ` · ${params.reps} reps` : '');
+    const body = `${name} · Set ${completedCount}${totalCount}${weightRepStr} · Tap to resume`;
 
     await Notifications.scheduleNotificationAsync({
       identifier: WORKOUT_IN_PROGRESS_NOTIF_ID,
@@ -61,7 +67,7 @@ export async function showWorkoutInProgressNotification(params: {
         sound: undefined,
         sticky: true,       // Persistent ongoing notification on Android (cannot be dismissed by swipe or Clear All)
         autoDismiss: false, // CRITICAL: Do NOT auto-dismiss when tapped
-        priority: Notifications.AndroidNotificationPriority.HIGH,
+        priority: Notifications.AndroidNotificationPriority.LOW, // Silent ongoing notification in shade
         categoryIdentifier: 'active_workout_ongoing',
         color: '#30D158',
         data: {
@@ -136,6 +142,9 @@ export async function updateActiveWorkoutNotification(
       showWorkoutInProgressNotification({
         workoutName: _pendingHudPayload.exerciseName,
         completedSets: _pendingHudPayload.currentSet,
+        totalSets: _pendingHudPayload.totalSets,
+        weight: _pendingHudPayload.weight,
+        reps: _pendingHudPayload.reps,
       });
     }
   }, 1200);
@@ -180,6 +189,47 @@ export function registerActiveWorkoutNotificationListeners() {
   const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
     const actionId = response.actionIdentifier;
     const notificationData = response.notification.request.content.data as any;
+
+    // 0. Completed Workout Notification Click
+    if (notificationData?.type === 'WORKOUT_COMPLETED') {
+      const workoutDate = notificationData?.date;
+      try {
+        const { openWorkoutSummaryScreen } = require('../navigation/navigationService');
+        openWorkoutSummaryScreen(workoutDate);
+      } catch (e) {
+        DeviceEventEmitter.emit('OPEN_WORKOUT_SUMMARY', { date: workoutDate });
+      }
+      return;
+    }
+
+    // 0b. Daily Workout Reminder Click or START_WORKOUT action
+    if (actionId === 'START_WORKOUT' || notificationData?.type === 'START_WORKOUT' || notificationData?.type === 'gym_workout') {
+      const workoutDate = notificationData?.dateStr || notificationData?.date;
+      try {
+        const { openActiveLoggingScreen } = require('../navigation/navigationService');
+        openActiveLoggingScreen(workoutDate, false);
+      } catch (e) {
+        DeviceEventEmitter.emit('OPEN_ACTIVE_WORKOUT', { date: workoutDate });
+      }
+      return;
+    }
+
+    // 0c. Snooze 15m Action
+    if (actionId === 'SNOOZE_15M') {
+      Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Workout Reminder (Snoozed)',
+          body: 'Ready to train? Your session is waiting for you.',
+          sound: 'default',
+          data: { type: 'gym_workout' },
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds: 15 * 60,
+        } as any,
+      }).catch(() => {});
+      return;
+    }
 
     // 1. Weekly Report Notification Click
     if (notificationData?.type === 'weekly_report' || actionId === 'VIEW_REPORT') {

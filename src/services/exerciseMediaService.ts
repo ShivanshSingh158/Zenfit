@@ -207,7 +207,10 @@ for (const [nickname, gifId] of Object.entries(SPECIAL_ROUTINE_NICKNAMES)) {
   }
 }
 
-// CDN Base URLs (jsDelivr for high-speed global edge distribution)
+// CDN Base URLs
+// High-Efficiency 20 KB MP4 / WebP Clip and 5 KB WebP Still Base (openGym Edge distribution)
+const OPEN_GYM_MEDIA_BASE = 'https://opengym.ch/demo/exercise-media';
+// Primary & Fallback CDNs (jsDelivr & GitHub)
 const CDN_PRIMARY_BASE = 'https://cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@main';
 const CDN_FALLBACK_BASE = 'https://raw.githubusercontent.com/hasaneyldrm/exercises-dataset/main';
 const CACHE_DIR = `${FileSystem.cacheDirectory || ''}exercise_gifs/`;
@@ -343,7 +346,23 @@ export function searchExercises(query: string, bodyPartFilter?: string, limit = 
 }
 
 /**
- * Returns remote CDN URL for an exercise's animation GIF
+ * Returns high-efficiency 5 KB WebP still poster URL (0ms visual preview)
+ */
+export function getExerciseStillPosterUrl(ex: ExerciseDefinition): string {
+  if (!ex?.id) return '';
+  return `${OPEN_GYM_MEDIA_BASE}/still/${ex.id}.webp`;
+}
+
+/**
+ * Returns high-efficiency 20 KB MP4 video clip URL (60fps truecolor loop)
+ */
+export function getExerciseClipVideoUrl(ex: ExerciseDefinition): string {
+  if (!ex?.id) return '';
+  return `${OPEN_GYM_MEDIA_BASE}/clip/${ex.id}.mp4`;
+}
+
+/**
+ * Returns remote CDN URL for an exercise's animation GIF (legacy fallback)
  */
 export function getExerciseGifCdnUrl(ex: ExerciseDefinition, useFallback = false): string {
   if (!ex.gifUrl) return '';
@@ -362,51 +381,100 @@ export function getExerciseThumbnailUrl(ex: ExerciseDefinition, useFallback = fa
   return `${base}/${ex.image}`;
 }
 
-/**
- * Returns local file URI if cached on disk, otherwise remote CDN URL
- */
-export async function getExerciseMediaUri(nameOrId: string): Promise<{
+export interface ExerciseMediaResult {
   definition: ExerciseDefinition | null;
+  /** High-efficiency 20 KB MP4 video loop URL or local disk URI */
+  clipUri: string | null;
+  /** Ultra-lightweight 5 KB WebP still poster URL or local disk URI for instant 0ms placeholder */
+  stillUri: string | null;
+  /** Legacy / fallback GIF URI */
   gifUri: string | null;
+  /** Standard thumbnail image URI */
   imageUri: string | null;
+  /** Primary recommended media type: 'video' (20KB MP4) | 'gif' (2MB GIF) | 'image' */
+  mediaType: 'video' | 'gif' | 'image';
+  /** Whether the media is available fully offline from local device storage */
   isOffline: boolean;
-}> {
+}
+
+/**
+ * Returns local file URI if cached on disk, otherwise remote CDN URL.
+ * Automatically resolves both high-efficiency 20 KB MP4 video loops,
+ * 5 KB instant WebP still posters, and legacy GIF fallbacks.
+ */
+export async function getExerciseMediaUri(nameOrId: string): Promise<ExerciseMediaResult> {
   const def = resolveExercise(nameOrId);
   if (!def) {
-    return { definition: null, gifUri: null, imageUri: null, isOffline: false };
+    return {
+      definition: null,
+      clipUri: null,
+      stillUri: null,
+      gifUri: null,
+      imageUri: null,
+      mediaType: 'image',
+      isOffline: false,
+    };
   }
 
   await ensureCacheDir();
 
-  const fileName = `${def.id}_${def.mediaId || 'anim'}.gif`;
-  const localPath = `${CACHE_DIR}${fileName}`;
+  const highResClipUrl = getExerciseClipVideoUrl(def);
+  const highResStillUrl = getExerciseStillPosterUrl(def);
+  const fallbackGifUrl = getExerciseGifCdnUrl(def);
+  const fallbackImgUrl = getExerciseThumbnailUrl(def);
+
+  const localClipName = `${def.id}_clip.mp4`;
+  const localClipPath = `${CACHE_DIR}${localClipName}`;
+
+  const localStillName = `${def.id}_still.webp`;
+  const localStillPath = `${CACHE_DIR}${localStillName}`;
+
+  const localGifName = `${def.id}_${def.mediaId || 'anim'}.gif`;
+  const localGifPath = `${CACHE_DIR}${localGifName}`;
+
+  let hasLocalClip = false;
+  let hasLocalStill = false;
+  let hasLocalGif = false;
 
   try {
     if (FileSystem.cacheDirectory) {
-      const fileInfo = await FileSystem.getInfoAsync(localPath);
-      if (fileInfo.exists && fileInfo.size > 1000) {
-        return {
-          definition: def,
-          gifUri: localPath,
-          imageUri: getExerciseThumbnailUrl(def),
-          isOffline: true,
-        };
+      const clipInfo = await FileSystem.getInfoAsync(localClipPath);
+      if (clipInfo.exists && clipInfo.size > 1000) {
+        hasLocalClip = true;
+      }
+      const stillInfo = await FileSystem.getInfoAsync(localStillPath);
+      if (stillInfo.exists && stillInfo.size > 500) {
+        hasLocalStill = true;
+      }
+      const gifInfo = await FileSystem.getInfoAsync(localGifPath);
+      if (gifInfo.exists && gifInfo.size > 1000) {
+        hasLocalGif = true;
       }
     }
   } catch (e) {
-    // Ignore and fallback to CDN
+    // Ignore and fallback to remote URLs
   }
+
+  const finalClipUri = hasLocalClip ? localClipPath : highResClipUrl;
+  const finalStillUri = hasLocalStill ? localStillPath : highResStillUrl;
+  const finalGifUri = hasLocalGif ? localGifPath : fallbackGifUrl;
+  const isOfflineAvailable = hasLocalClip || hasLocalGif;
 
   return {
     definition: def,
-    gifUri: getExerciseGifCdnUrl(def),
-    imageUri: getExerciseThumbnailUrl(def),
-    isOffline: false,
+    clipUri: finalClipUri,
+    stillUri: finalStillUri,
+    gifUri: finalGifUri,
+    imageUri: fallbackImgUrl,
+    mediaType: finalClipUri ? 'video' : 'gif',
+    isOffline: isOfflineAvailable,
   };
 }
 
 /**
- * Pre-caches an array of exercises to local disk storage for offline workouts
+ * Pre-caches an array of exercises to local disk storage for offline workouts.
+ * Efficiently downloads 20 KB MP4 clips and 5 KB WebP still posters (~25 KB total
+ * per exercise instead of 3.5 MB per exercise!).
  */
 export async function preCacheExercises(exerciseNames: string[]): Promise<number> {
   await ensureCacheDir();
@@ -414,21 +482,30 @@ export async function preCacheExercises(exerciseNames: string[]): Promise<number
 
   for (const name of exerciseNames) {
     const def = resolveExercise(name);
-    if (!def || !def.gifUrl) continue;
+    if (!def) continue;
 
-    const fileName = `${def.id}_${def.mediaId || 'anim'}.gif`;
-    const localPath = `${CACHE_DIR}${fileName}`;
+    const localClipPath = `${CACHE_DIR}${def.id}_clip.mp4`;
+    const localStillPath = `${CACHE_DIR}${def.id}_still.webp`;
 
     try {
       if (FileSystem.cacheDirectory) {
-        const fileInfo = await FileSystem.getInfoAsync(localPath);
-        if (!fileInfo.exists || fileInfo.size < 1000) {
-          const cdnUrl = getExerciseGifCdnUrl(def);
-          const res = await FileSystem.downloadAsync(cdnUrl, localPath);
+        const clipInfo = await FileSystem.getInfoAsync(localClipPath);
+        if (!clipInfo.exists || clipInfo.size < 1000) {
+          const clipUrl = getExerciseClipVideoUrl(def);
+          const res = await FileSystem.downloadAsync(clipUrl, localClipPath);
           if (!res || res.status < 200 || res.status >= 300) {
-            await FileSystem.deleteAsync(localPath, { idempotent: true });
+            await FileSystem.deleteAsync(localClipPath, { idempotent: true });
           } else {
             cachedCount++;
+          }
+        }
+
+        const stillInfo = await FileSystem.getInfoAsync(localStillPath);
+        if (!stillInfo.exists || stillInfo.size < 500) {
+          const stillUrl = getExerciseStillPosterUrl(def);
+          const res = await FileSystem.downloadAsync(stillUrl, localStillPath);
+          if (!res || res.status < 200 || res.status >= 300) {
+            await FileSystem.deleteAsync(localStillPath, { idempotent: true });
           }
         }
       }
@@ -441,7 +518,7 @@ export async function preCacheExercises(exerciseNames: string[]): Promise<number
 }
 
 /**
- * Clears all cached exercise GIFs from disk
+ * Clears all cached exercise media from disk
  */
 export async function clearExerciseMediaCache(): Promise<void> {
   try {

@@ -182,7 +182,7 @@ export function ExerciseSwapScreen() {
     });
   }, [originalExercise, origMuscle, canonicalMuscle, userGymPlan]);
 
-  // 2. Scientific Biomechanical Alternatives (Instant & Deterministic)
+  // 2. Target Muscle Matches (Instant & Deterministic)
   const biomechanicalSwaps = useMemo<SwapRecommendation[]>(() => {
     const instantSwaps = getExerciseSwapAlternatives(origName, rawMuscle);
     return instantSwaps.map((alt, idx) => ({
@@ -372,9 +372,9 @@ export function ExerciseSwapScreen() {
           <Text style={styles.exerciseName}>{item.name}</Text>
           {aliasDisplay ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 1, marginBottom: 2 }}>
-              <Text style={{ fontSize: 11, color: '#A599FF', marginRight: 3, fontFamily: FONT_FAMILY.bold }}>↳</Text>
-              <Text style={{ fontSize: 10.5, color: 'rgba(255, 255, 255, 0.45)', fontFamily: FONT_FAMILY.medium }} numberOfLines={1}>
-                Also known as: <Text style={{ color: '#DDD6FE', fontFamily: FONT_FAMILY.bold }}>{aliasDisplay}</Text>
+              <Text style={{ fontSize: 11, color: colors.accentPrimary, marginRight: 3, fontFamily: FONT_FAMILY.bold }}>↳</Text>
+              <Text style={{ fontSize: 10.5, color: colors.textMuted, fontFamily: FONT_FAMILY.medium }} numberOfLines={1}>
+                Also known as: <Text style={{ color: colors.accentPrimary, fontFamily: FONT_FAMILY.bold }}>{aliasDisplay}</Text>
               </Text>
             </View>
           ) : null}
@@ -400,7 +400,7 @@ export function ExerciseSwapScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="light" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
@@ -487,9 +487,9 @@ export function ExerciseSwapScreen() {
               <View style={styles.sectionHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Ionicons name="fitness-outline" size={15} color={colors.accentPrimary} />
-                  <Text style={styles.sectionHeaderTitle}>Scientific Alternatives ({biomechanicalSwaps.length})</Text>
+                  <Text style={styles.sectionHeaderTitle}>Target Muscle Matches ({biomechanicalSwaps.length})</Text>
                 </View>
-                <Text style={styles.sectionHeaderSub}>Target Fiber Matches</Text>
+                <Text style={styles.sectionHeaderSub}>Alternative Movements</Text>
               </View>
 
               {biomechanicalSwaps.map((item, idx) => (

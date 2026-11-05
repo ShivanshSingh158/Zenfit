@@ -9,7 +9,7 @@
  * 5. Adaptive Reps & Load Target Calculator (Compounds: 1RM-12RM Ladder; Isolations: Hypertrophy Load Zones)
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import Svg, { Path, Circle, Line, Text as SvgText } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, RADIUS, FONT_FAMILY, SPACE, FONT_SIZE, IOS_DARK } from '../../../theme/tokens';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { hapticLight, hapticSelection } from '../../../utils/haptics';
@@ -38,6 +39,7 @@ interface Props {
   exercise?: any;
   gymLogs: GymDayLog[];
   overloadSuggestion?: OverloadSuggestion | any | null;
+  initialTab?: 'guide' | 'analytics';
   onClose: () => void;
 }
 
@@ -60,10 +62,18 @@ export function ExerciseDeepDiveModal({
   exercise,
   gymLogs,
   overloadSuggestion: passedSuggestion,
+  initialTab = 'guide',
   onClose,
 }: Props) {
   const { colors, isDark } = useTheme();
-  const [activeTab, setActiveTab] = useState<'guide' | 'analytics'>('guide');
+  const insets = useSafeAreaInsets();
+  const [activeTab, setActiveTab] = useState<'guide' | 'analytics'>(initialTab);
+
+  useEffect(() => {
+    if (visible && initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [visible, initialTab]);
   const [chartTab, setChartTab] = useState<ChartTab>('weight');
 
   const targetKey = useMemo(() => normalizeExerciseKey(exerciseName || ''), [exerciseName]);
@@ -290,17 +300,33 @@ export function ExerciseDeepDiveModal({
   const targetMuscle = resolveExerciseTargetMuscle(exerciseName, exercise?.muscle).targetMuscle || 'Muscles';
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
       <View style={styles.overlay}>
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          activeOpacity={1}
+        />
         <View
           style={[
             styles.modalCard,
             {
               backgroundColor: isDark ? '#1C1C1E' : colors.surface,
-              borderWidth: 0,
+              paddingBottom: Math.max(insets.bottom + 16, 28),
             },
           ]}
         >
+          {/* Sheet Drag Handle */}
+          <View style={styles.sheetHandleWrap}>
+            <View style={styles.sheetHandle} />
+          </View>
+
           {/* Header */}
           <View style={styles.modalHeader}>
             <View style={{ flex: 1, paddingRight: 8 }}>
@@ -701,16 +727,28 @@ export function ExerciseDeepDiveModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.72)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'flex-end',
+  },
+  sheetHandleWrap: {
+    alignItems: 'center',
+    paddingBottom: 8,
+  },
+  sheetHandle: {
+    width: 38,
+    height: 4.5,
+    borderRadius: 2.5,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
   },
   modalCard: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    maxHeight: '88%',
+    maxHeight: '90%',
+    minHeight: 460,
     borderWidth: 1,
+    borderColor: '#2C2C2E',
     paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingTop: 10,
   },
   modalHeader: {
     flexDirection: 'row',
