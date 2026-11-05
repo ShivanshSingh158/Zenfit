@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
   Pressable,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { FONT_FAMILY } from '../../../theme/tokens';
 import { hapticLight, hapticError, hapticSelection } from '../../../utils/haptics';
@@ -47,17 +48,25 @@ export const ExerciseMenuSheet: React.FC<ExerciseMenuSheetProps> = ({
   onRemoveExercise,
   onClose,
 }) => {
+  const insets = useSafeAreaInsets();
   const [showMoreExpanded, setShowMoreExpanded] = useState(false);
 
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType="slide"
+      statusBarTranslucent={true}
       onRequestClose={onClose}
     >
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={e => e.stopPropagation()}>
+        <Pressable
+          style={[
+            styles.sheet,
+            { paddingBottom: Math.max(insets.bottom, 24) },
+          ]}
+          onPress={e => e.stopPropagation()}
+        >
           <View style={styles.sheetHandle} />
 
           {/* Exercise Title Header */}
@@ -245,10 +254,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#121214',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 36,
-    borderWidth: 1,
+    width: '100%',
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 0,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   sheetHandle: {

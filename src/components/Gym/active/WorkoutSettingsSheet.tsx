@@ -17,6 +17,7 @@ import {
   Pressable,
   Switch,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { FONT_FAMILY } from '../../../theme/tokens';
 import { hapticSelection, hapticLight } from '../../../utils/haptics';
@@ -53,6 +54,7 @@ export const WorkoutSettingsSheet: React.FC<WorkoutSettingsSheetProps> = ({
   onToggleKeepAwake,
   onClose,
 }) => {
+  const insets = useSafeAreaInsets();
   if (!visible) return null;
 
   return (
@@ -60,12 +62,18 @@ export const WorkoutSettingsSheet: React.FC<WorkoutSettingsSheetProps> = ({
       visible={visible}
       transparent
       animationType="slide"
+      statusBarTranslucent={true}
       onRequestClose={onClose}
     >
       <View style={styles.backdrop}>
         <Pressable style={styles.dismissOverlay} onPress={onClose} />
 
-        <View style={styles.sheetCard}>
+        <View
+          style={[
+            styles.sheetCard,
+            { paddingBottom: Math.max(insets.bottom, 24) },
+          ]}
+        >
           {/* 1. Drag Handle Bar */}
           <View style={styles.handleBar} />
 
@@ -212,11 +220,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#161618',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    borderWidth: 1,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    width: '100%',
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 0,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 28,
   },
   handleBar: {
     width: 38,

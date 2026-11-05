@@ -15,6 +15,7 @@ import {
   TouchableOpacity,
   Pressable,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { FONT_FAMILY } from '../../../theme/tokens';
 import { hapticMedium, hapticError } from '../../../utils/haptics';
@@ -36,6 +37,7 @@ export const FinishEarlySheet: React.FC<FinishEarlySheetProps> = ({
   onDiscard,
   onClose,
 }) => {
+  const insets = useSafeAreaInsets();
   const isNothingLogged = completedSetsCount === 0 && uncheckedSetsCount > 0;
   const isAllDone = uncheckedSetsCount === 0;
 
@@ -57,11 +59,18 @@ export const FinishEarlySheet: React.FC<FinishEarlySheetProps> = ({
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType="slide"
+      statusBarTranslucent={true}
       onRequestClose={onClose}
     >
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={e => e.stopPropagation()}>
+        <Pressable
+          style={[
+            styles.sheet,
+            { paddingBottom: Math.max(insets.bottom, 24) },
+          ]}
+          onPress={e => e.stopPropagation()}
+        >
           {/* Sheet Handle */}
           <View style={styles.sheetHandle} />
 
@@ -115,10 +124,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#121214',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 36,
-    borderWidth: 1,
+    width: '100%',
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 0,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   sheetHandle: {

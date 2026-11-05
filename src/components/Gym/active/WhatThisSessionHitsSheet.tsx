@@ -19,6 +19,7 @@ import {
   ScrollView,
   Pressable,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, G } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { FONT_FAMILY, IOS_DARK, RADIUS } from '../../../theme/tokens';
@@ -76,6 +77,7 @@ export const WhatThisSessionHitsSheet: React.FC<WhatThisSessionHitsSheetProps> =
   exercises,
   onClose,
 }) => {
+  const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
 
   // Compute completed vs planned volume per muscle
@@ -163,10 +165,17 @@ export const WhatThisSessionHitsSheet: React.FC<WhatThisSessionHitsSheetProps> =
       visible={visible}
       transparent
       animationType="slide"
+      statusBarTranslucent={true}
       onRequestClose={onClose}
     >
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={e => e.stopPropagation()}>
+        <Pressable
+          style={[
+            styles.sheet,
+            { paddingBottom: Math.max(insets.bottom, 24) },
+          ]}
+          onPress={e => e.stopPropagation()}
+        >
           {/* Sheet Handle */}
           <View style={styles.sheetHandle} />
 
@@ -251,10 +260,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#121214',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    width: '100%',
     paddingHorizontal: 20,
     paddingTop: 12,
     maxHeight: '85%',
-    borderWidth: 1,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 0,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   sheetHandle: {

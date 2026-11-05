@@ -21,6 +21,7 @@ import {
   Keyboard,
   ScrollView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, G } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
@@ -49,19 +50,23 @@ export interface ActiveSwapModalProps {
   onSelectSwap: (alt: any) => void;
 }
 
-const MUSCLE_COUNTS: Record<string, number> = {
-  Traps: 525,
-  Shoulders: 2348,
-  Chest: 890,
-  Back: 1140,
-  Biceps: 460,
-  Triceps: 512,
-  Abs: 680,
-  Quads: 920,
-  Hamstrings: 610,
-  Calves: 340,
-  Glutes: 580,
-};
+export function mapToMajorMuscleGroup(muscleStr?: string, nameStr?: string): string {
+  const m = (muscleStr || '').toLowerCase();
+  const n = (nameStr || '').toLowerCase();
+  if (m.includes('trap') || n.includes('shrug')) return 'Traps';
+  if (m.includes('shoulder') || m.includes('delt') || n.includes('lateral raise') || n.includes('overhead press') || n.includes('shoulder press')) return 'Shoulders';
+  if (m.includes('chest') || m.includes('pec') || n.includes('bench') || n.includes('chest fly') || n.includes('push-up') || n.includes('pushup')) return 'Chest';
+  if (m.includes('back') || m.includes('lat') || n.includes('pull-up') || n.includes('pulldown') || n.includes('row') || n.includes('chin-up')) return 'Back';
+  if (m.includes('bicep') || m.includes('brachialis') || n.includes('bicep') || n.includes('curl')) return 'Biceps';
+  if (m.includes('tricep') || n.includes('tricep') || n.includes('pushdown') || n.includes('skull crusher')) return 'Triceps';
+  if (m.includes('quad') || n.includes('squat') || n.includes('leg press') || n.includes('leg extension') || n.includes('lunge')) return 'Quads';
+  if (m.includes('hamstring') || n.includes('deadlift') || n.includes('leg curl') || n.includes('rdl')) return 'Hamstrings';
+  if (m.includes('glute') || m.includes('abductor') || n.includes('hip thrust')) return 'Glutes';
+  if (m.includes('calf') || m.includes('calves') || m.includes('gastrocnemius') || m.includes('soleus') || m.includes('tibialis')) return 'Calves';
+  if (m.includes('ab') || m.includes('oblique') || m.includes('core') || n.includes('crunch') || n.includes('plank')) return 'Abs';
+  if (m.includes('forearm') || m.includes('wrist') || m.includes('grip')) return 'Forearms';
+  return 'Other';
+}
 
 const MUSCLE_TO_SLUGS: Record<string, string[]> = {
   Chest: ['chest'],
@@ -85,6 +90,7 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
   onClose,
   onSelectSwap,
 }) => {
+  const insets = useSafeAreaInsets();
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'muscle'>('list');
   const [selectedMuscle, setSelectedMuscle] = useState<string | null>(null);
@@ -97,6 +103,31 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
     ? resolveExerciseTargetMuscle(exercise.name, exercise.muscle)
     : { targetMuscle: 'Chest' };
 
+  // Dynamically compute exact muscle exercise counts from catalogue
+  const dynamicMuscleCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      Traps: 0,
+      Shoulders: 0,
+      Chest: 0,
+      Back: 0,
+      Biceps: 0,
+      Triceps: 0,
+      Abs: 0,
+      Quads: 0,
+      Hamstrings: 0,
+      Glutes: 0,
+      Calves: 0,
+      Forearms: 0,
+    };
+    for (const item of fullCatalogue) {
+      const grp = mapToMajorMuscleGroup(item.muscle, item.name);
+      if (counts[grp] !== undefined) {
+        counts[grp]++;
+      }
+    }
+    return counts;
+  }, [fullCatalogue]);
+
   // Recommended swaps from AI / preloaded list
   const recommendedSwaps = useMemo(() => {
     return (aiSwapList || []).filter(item => {
@@ -108,9 +139,6 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
   // Combined search and filtered results
   const displayItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const effectiveMuscle = selectedMuscle
-      ? selectedMuscle.toLowerCase()
-      : (viewMode === 'list' ? (targetMuscle || '').toLowerCase() : null);
 
     const seen = new Set<string>();
     if (currentKey) seen.add(currentKey);
@@ -118,11 +146,20 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
     const matchesFilter = (item: any) => {
       const iMuscle = (item.muscle || '').toLowerCase();
       const iName = (item.name || '').toLowerCase();
+      const itemGroup = mapToMajorMuscleGroup(item.muscle, item.name);
 
       // Muscle filter
-      if (effectiveMuscle && !iMuscle.includes(effectiveMuscle) && !iName.includes(effectiveMuscle)) {
-        return false;
+      if (selectedMuscle) {
+        if (itemGroup.toLowerCase() !== selectedMuscle.toLowerCase() && !iMuscle.includes(selectedMuscle.toLowerCase())) {
+          return false;
+        }
+      } else if (viewMode === 'list' && targetMuscle) {
+        const targetGroup = mapToMajorMuscleGroup(targetMuscle, exercise?.name);
+        if (itemGroup.toLowerCase() !== targetGroup.toLowerCase() && !iMuscle.includes(targetMuscle.toLowerCase())) {
+          return false;
+        }
       }
+
       // Type filter
       if (selectedType !== 'Any type') {
         const t = selectedType.toLowerCase();
@@ -139,7 +176,7 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
       }
       // Text search
       if (q) {
-        return iName.includes(q) || iMuscle.includes(q);
+        return iName.includes(q) || iMuscle.includes(q) || itemGroup.toLowerCase().includes(q);
       }
       return true;
     };
@@ -236,7 +273,10 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
 
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.sheetContent}
+          style={[
+            styles.sheetContent,
+            { paddingBottom: Math.max(insets.bottom, 20) },
+          ]}
         >
           {/* Top Drag Handle */}
           <View style={styles.handleContainer}>
@@ -300,13 +340,13 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
                 </View>
               </View>
 
-              {/* Muscle Counts Strip */}
+              {/* Muscle Counts Strip - Real Dynamic Counts (e.g. Chest: 57, Back: 76) */}
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.muscleCountsStrip}
               >
-                {Object.entries(MUSCLE_COUNTS).map(([mName, count]) => {
+                {Object.entries(dynamicMuscleCounts).map(([mName, count]) => {
                   const isSel = selectedMuscle === mName;
                   return (
                     <TouchableOpacity
@@ -316,11 +356,14 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
                         setSelectedMuscle(isSel ? null : mName);
                       }}
                       style={[styles.muscleCountPill, isSel && styles.muscleCountPillActive]}
+                      activeOpacity={0.7}
                     >
                       <Text style={[styles.muscleCountName, isSel && styles.muscleCountNameActive]}>
                         {mName}
                       </Text>
-                      <Text style={styles.muscleCountNum}>{count}</Text>
+                      <Text style={[styles.muscleCountNum, isSel && styles.muscleCountNumActive]}>
+                        {count}
+                      </Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -349,7 +392,7 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
               <Ionicons name="search" size={16} color="#8E8E93" style={{ marginRight: 8 }} />
               <TextInput
                 style={styles.searchInput}
-                placeholder={`Search ${fullCatalogue.length || 5631} exercises..`}
+                placeholder={`Search ${fullCatalogue.length} exercises..`}
                 placeholderTextColor="#636366"
                 value={searchQuery}
                 onChangeText={setSearchQuery}
@@ -366,66 +409,82 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
             </TouchableOpacity>
           </View>
 
-          {/* Filter Pills Horizontal Strip */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filterPillsStrip}
-            style={{ marginBottom: 10, flexGrow: 0 }}
-          >
-            {/* Same Muscle Pill */}
-            <TouchableOpacity
-              style={[
-                styles.filterPill,
-                (!selectedMuscle || selectedMuscle.toLowerCase() === targetMuscle.toLowerCase()) && styles.filterPillActive,
-              ]}
-              onPress={() => {
-                hapticSelection();
-                setSelectedMuscle(targetMuscle);
-              }}
+          {/* Filter Pills Horizontal Strip — Fixed height, never squished */}
+          <View style={styles.filterPillContainer}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterPillsStrip}
             >
-              <Ionicons name="body" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-              <Text style={styles.filterPillTextActive}>Same muscle: {targetMuscle.toLowerCase()}</Text>
-            </TouchableOpacity>
+              {/* Same Muscle Pill */}
+              {(() => {
+                const isSameMuscleActive = !selectedMuscle || selectedMuscle.toLowerCase() === targetMuscle.toLowerCase();
+                return (
+                  <TouchableOpacity
+                    style={[
+                      styles.filterPill,
+                      isSameMuscleActive && styles.filterPillActive,
+                    ]}
+                    onPress={() => {
+                      hapticSelection();
+                      setSelectedMuscle(targetMuscle);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="body"
+                      size={13}
+                      color={isSameMuscleActive ? '#000000' : '#8E8E93'}
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text style={isSameMuscleActive ? styles.filterPillTextActive : styles.filterPillText}>
+                      Same muscle: {targetMuscle.toLowerCase()}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })()}
 
-            {/* Type Filter Pills */}
-            {['Any type', 'Strength', 'Calisthenics', 'Plyo'].map(type => {
-              const isSel = selectedType === type;
-              return (
-                <TouchableOpacity
-                  key={type}
-                  style={[styles.filterPill, isSel && styles.filterPillActive]}
-                  onPress={() => {
-                    hapticSelection();
-                    setSelectedType(type);
-                  }}
-                >
-                  <Text style={isSel ? styles.filterPillTextActive : styles.filterPillText}>
-                    {type}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+              {/* Type Filter Pills */}
+              {['Any type', 'Strength', 'Calisthenics', 'Plyo'].map(type => {
+                const isSel = selectedType === type;
+                return (
+                  <TouchableOpacity
+                    key={type}
+                    style={[styles.filterPill, isSel && styles.filterPillActive]}
+                    onPress={() => {
+                      hapticSelection();
+                      setSelectedType(type);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={isSel ? styles.filterPillTextActive : styles.filterPillText}>
+                      {type}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
 
-            {/* Equipment Filter Pills */}
-            {['Any equipment', 'Body Weight', 'Dumbbell'].map(eq => {
-              const isSel = selectedEquip === eq;
-              return (
-                <TouchableOpacity
-                  key={eq}
-                  style={[styles.filterPill, isSel && styles.filterPillActive]}
-                  onPress={() => {
-                    hapticSelection();
-                    setSelectedEquip(eq);
-                  }}
-                >
-                  <Text style={isSel ? styles.filterPillTextActive : styles.filterPillText}>
-                    {eq}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+              {/* Equipment Filter Pills */}
+              {['Any equipment', 'Body Weight', 'Dumbbell'].map(eq => {
+                const isSel = selectedEquip === eq;
+                return (
+                  <TouchableOpacity
+                    key={eq}
+                    style={[styles.filterPill, isSel && styles.filterPillActive]}
+                    onPress={() => {
+                      hapticSelection();
+                      setSelectedEquip(eq);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={isSel ? styles.filterPillTextActive : styles.filterPillText}>
+                      {eq}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
 
           {/* Section Subheader */}
           <View style={styles.sectionHeaderRow}>
@@ -522,17 +581,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#121214',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     paddingTop: 10,
     paddingHorizontal: 16,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    maxHeight: '90%',
+    width: '100%',
+    maxHeight: '92%',
     flex: 1,
-    borderWidth: 1,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 0,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   handleContainer: {
     alignItems: 'center',
     paddingVertical: 6,
+    flexShrink: 0,
   },
   handle: {
     width: 38,
@@ -546,6 +611,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 8,
     marginBottom: 6,
+    flexShrink: 0,
   },
   title: {
     fontFamily: FONT_FAMILY.bold,
@@ -585,6 +651,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 12,
     marginBottom: 12,
+    flexShrink: 0,
   },
   svgRow: {
     flexDirection: 'row',
@@ -629,6 +696,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#8E8E93',
   },
+  muscleCountNumActive: {
+    color: '#000000',
+    fontFamily: FONT_FAMILY.bold,
+  },
   selectedMuscleHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -651,6 +722,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginBottom: 10,
+    flexShrink: 0,
   },
   searchBar: {
     flex: 1,
@@ -687,18 +759,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  filterPillContainer: {
+    height: 38,
+    maxHeight: 38,
+    marginBottom: 12,
+    flexShrink: 0,
+  },
   filterPillsStrip: {
     flexDirection: 'row',
     gap: 8,
     alignItems: 'center',
+    paddingHorizontal: 2,
+    height: 38,
   },
   filterPill: {
+    height: 32,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#1C1C1E',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
@@ -709,7 +790,7 @@ const styles = StyleSheet.create({
   filterPillText: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 13,
-    color: '#E5E5EA',
+    color: '#8E8E93',
   },
   filterPillTextActive: {
     fontFamily: FONT_FAMILY.bold,
@@ -719,6 +800,7 @@ const styles = StyleSheet.create({
   sectionHeaderRow: {
     paddingVertical: 6,
     marginBottom: 4,
+    flexShrink: 0,
   },
   sectionHeaderTitle: {
     fontFamily: FONT_FAMILY.bold,
