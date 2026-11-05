@@ -155,6 +155,7 @@ export default function ActiveLoggingScreen() {
 
   // ── High-Contrast Screen Flash Rest Alert (OpenGym Pattern) ───────────────
   const flashAnim = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('gym_rest_timer_flash', () => {
       Animated.sequence([
@@ -172,6 +173,33 @@ export default function ActiveLoggingScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const targetParamIndex = route.params?.initialIndex ?? (route.params as any)?.exerciseIndex ?? 0;
   const [activeExIndex, setActiveExIndex] = useState(targetParamIndex);
+
+  // ── Directional Card Transition Physics (OpenGym 60FPS Inertial Glide) ──
+  const prevExIndexRef = useRef(activeExIndex);
+  const cardSlideAnim = useRef(new Animated.Value(0)).current;
+  const cardOpacityAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const isForward = activeExIndex >= prevExIndexRef.current;
+    prevExIndexRef.current = activeExIndex;
+
+    cardSlideAnim.setValue(isForward ? 22 : -22);
+    cardOpacityAnim.setValue(0.5);
+
+    Animated.parallel([
+      Animated.spring(cardSlideAnim, {
+        toValue: 0,
+        friction: 8,
+        tension: 70,
+        useNativeDriver: true,
+      }),
+      Animated.timing(cardOpacityAnim, {
+        toValue: 1,
+        duration: 160,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [activeExIndex, cardSlideAnim, cardOpacityAnim]);
   // ── Track initialIndex consumption via ref only — no navigation.setParams() on mount.
   const consumedInitialIndexRef = useRef<number | null>(targetParamIndex);
 
@@ -2136,8 +2164,10 @@ export default function ActiveLoggingScreen() {
             keyboardDismissMode="on-drag"
           >
 
-            {/* ── OpenGym Focused Exercise Hero Card ── */}
-            <View style={{
+            {/* ── OpenGym Focused Exercise Hero Card with Directional Physics ── */}
+            <Animated.View style={{
+              transform: [{ translateX: cardSlideAnim }],
+              opacity: cardOpacityAnim,
               backgroundColor: '#1C1C1E',
               borderRadius: 16,
               overflow: 'hidden',
@@ -2217,7 +2247,7 @@ export default function ActiveLoggingScreen() {
                 isLastExercise={activeExIndex === exercises.length - 1}
                 onFinishWorkout={promptFinishWorkout}
               />
-            </View>
+            </Animated.View>
 
             {/* Exercise Card Footer: Prev & Next Navigation */}
             <View style={{

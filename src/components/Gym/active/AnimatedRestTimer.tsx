@@ -3,11 +3,19 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Animated,
+  Pressable,
   Platform,
   Keyboard,
   DeviceEventEmitter,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  cancelAnimation,
+  Easing,
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { hapticLight, hapticMedium } from '../../../utils/haptics';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -66,15 +74,43 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(
       };
     }, []);
 
-    // Entrance slide animation
-    const slideAnim = useRef(new Animated.Value(80)).current;
+    // ── 1. Native Spring Entrance Animation (0 -> 100 with damping & stiffness) ──
+    const translateY = useSharedValue(90);
     useEffect(() => {
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        useNativeDriver: true,
-        bounciness: 4,
-      }).start();
-    }, [slideAnim]);
+      translateY.value = withSpring(0, {
+        damping: 14,
+        stiffness: 120,
+        mass: 0.8,
+      });
+    }, [translateY]);
+
+    const dockAnimatedStyle = useAnimatedStyle(() => ({
+      transform: [{ translateY: translateY.value }],
+    }));
+
+    // ── 2. Continuous 60FPS/120FPS Liquid Progress Bar on UI Thread ──
+    const progressWidth = useSharedValue(0);
+
+    const restartProgressAnimation = useCallback((currentElapsedMs: number, totalDurationMs: number) => {
+      const initialPct = totalDurationMs > 0
+        ? Math.min(100, Math.max(0, (currentElapsedMs / totalDurationMs) * 100))
+        : 0;
+      progressWidth.value = initialPct;
+
+      const remainingMs = Math.max(0, totalDurationMs - currentElapsedMs);
+      if (remainingMs > 0) {
+        progressWidth.value = withTiming(100, {
+          duration: remainingMs,
+          easing: Easing.linear,
+        });
+      } else {
+        progressWidth.value = 100;
+      }
+    }, [progressWidth]);
+
+    const animatedProgressStyle = useAnimatedStyle(() => ({
+      width: `${progressWidth.value}%`,
+    }));
 
     const [remSecs, setRemSecs] = useState(() => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -94,22 +130,32 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(
       };
     }, [startTime, durationSecs]);
 
+    // Initialize or update liquid progress bar when timer starts or duration changes
+    useEffect(() => {
+      if (!isPaused) {
+        const elapsedMs = Math.max(0, Date.now() - startTime - accumulatedPauseMs);
+        const totalDurationMs = durationSecs * 1000;
+        restartProgressAnimation(elapsedMs, totalDurationMs);
+      }
+    }, [startTime, durationSecs, isPaused, accumulatedPauseMs, restartProgressAnimation]);
+
     const togglePause = useCallback(() => {
       hapticMedium();
       if (isPaused) {
         // Resuming
-        if (pausedAt) {
-          setAccumulatedPauseMs(prev => prev + (Date.now() - pausedAt));
-        }
+        const newAccum = pausedAt ? accumulatedPauseMs + (Date.now() - pausedAt) : accumulatedPauseMs;
+        setAccumulatedPauseMs(newAccum);
         setPausedAt(null);
         setIsPaused(false);
       } else {
         // Pausing
+        cancelAnimation(progressWidth);
         setPausedAt(Date.now());
         setIsPaused(true);
       }
-    }, [isPaused, pausedAt]);
+    }, [isPaused, pausedAt, accumulatedPauseMs, progressWidth]);
 
+    // Precision numerical countdown clock for text
     useEffect(() => {
       if (isPaused) return;
 
@@ -135,13 +181,11 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(
 
         if (remaining <= 0) {
           playTimerFinishChime();
-          // Trigger high-contrast screen flash
           DeviceEventEmitter.emit('gym_rest_timer_flash');
           onSkipRef.current();
           return;
         }
 
-        // Precision tick aligned to next full second boundary
         const elapsedExact = (now - effectiveStartTime) / 1000;
         const msUntilNextSec = Math.max(50, Math.round((Math.ceil(elapsedExact) - elapsedExact) * 1000));
         timeoutId = setTimeout(updateTimer, msUntilNextSec);
@@ -155,19 +199,25 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(
       };
     }, [startTime, durationSecs, isPaused, accumulatedPauseMs]);
 
+    // ── Button Tactile Scale Springs (0.92 on press-in, spring return on release) ──
+    const skipScale = useSharedValue(1);
+    const subScale = useSharedValue(1);
+    const addScale = useSharedValue(1);
+    const pauseScale = useSharedValue(1);
+
+    const skipAnimStyle = useAnimatedStyle(() => ({ transform: [{ scale: skipScale.value }] }));
+    const subAnimStyle = useAnimatedStyle(() => ({ transform: [{ scale: subScale.value }] }));
+    const addAnimStyle = useAnimatedStyle(() => ({ transform: [{ scale: addScale.value }] }));
+    const pauseAnimStyle = useAnimatedStyle(() => ({ transform: [{ scale: pauseScale.value }] }));
+
     if (isKeyboardVisible) return null;
 
-    // Calculate elapsed progress percentage for top progress bar
-    const progressPct = durationSecs > 0
-      ? Math.min(100, Math.max(0, ((durationSecs - remSecs) / durationSecs) * 100))
-      : 0;
-
     return (
-      <Animated.View style={[styles.wrapper, { transform: [{ translateY: slideAnim }] }]}>
+      <Animated.View style={[styles.wrapper, dockAnimatedStyle]}>
         <View style={styles.dockCard}>
-          {/* Top animated linear progress bar */}
+          {/* Top 60FPS continuous liquid progress bar */}
           <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+            <Animated.View style={[styles.progressFill, animatedProgressStyle]} />
           </View>
 
           {/* Main content row */}
@@ -188,57 +238,65 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(
               </View>
             </TouchableOpacity>
 
-            {/* Center: -15s, +15s, and Pause/Resume */}
+            {/* Center: -15s, +15s, and Pause/Resume with Spring Touch */}
             <View style={styles.centerControls}>
-              <TouchableOpacity
+              <Pressable
+                onPressIn={() => { subScale.value = withTiming(0.9, { duration: 60 }); }}
+                onPressOut={() => { subScale.value = withSpring(1, { damping: 12, stiffness: 220 }); }}
                 onPress={() => {
                   hapticLight();
                   onSubtract();
                 }}
-                style={styles.deltaPill}
                 hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                activeOpacity={0.7}
               >
-                <Text style={styles.deltaText}>− 15s</Text>
-              </TouchableOpacity>
+                <Animated.View style={[styles.deltaPill, subAnimStyle]}>
+                  <Text style={styles.deltaText}>− 15s</Text>
+                </Animated.View>
+              </Pressable>
 
-              <TouchableOpacity
+              <Pressable
+                onPressIn={() => { addScale.value = withTiming(0.9, { duration: 60 }); }}
+                onPressOut={() => { addScale.value = withSpring(1, { damping: 12, stiffness: 220 }); }}
                 onPress={() => {
                   hapticLight();
                   onAdd();
                 }}
-                style={styles.deltaPill}
                 hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                activeOpacity={0.7}
               >
-                <Text style={styles.deltaText}>+ 15s</Text>
-              </TouchableOpacity>
+                <Animated.View style={[styles.deltaPill, addAnimStyle]}>
+                  <Text style={styles.deltaText}>+ 15s</Text>
+                </Animated.View>
+              </Pressable>
 
-              <TouchableOpacity
+              <Pressable
+                onPressIn={() => { pauseScale.value = withTiming(0.9, { duration: 60 }); }}
+                onPressOut={() => { pauseScale.value = withSpring(1, { damping: 12, stiffness: 220 }); }}
                 onPress={togglePause}
-                style={styles.pauseBtn}
                 hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                activeOpacity={0.7}
               >
-                <Ionicons
-                  name={isPaused ? 'play' : 'pause'}
-                  size={14}
-                  color="#FFFFFF"
-                />
-              </TouchableOpacity>
+                <Animated.View style={[styles.pauseBtn, pauseAnimStyle]}>
+                  <Ionicons
+                    name={isPaused ? 'play' : 'pause'}
+                    size={14}
+                    color="#FFFFFF"
+                  />
+                </Animated.View>
+              </Pressable>
             </View>
 
-            {/* Right: Vibrant Green Skip Button */}
-            <TouchableOpacity
+            {/* Right: Vibrant Green Skip Button with Tactile Spring */}
+            <Pressable
+              onPressIn={() => { skipScale.value = withTiming(0.92, { duration: 60 }); }}
+              onPressOut={() => { skipScale.value = withSpring(1, { damping: 12, stiffness: 220 }); }}
               onPress={() => {
                 hapticMedium();
                 onSkip();
               }}
-              style={styles.skipBtn}
-              activeOpacity={0.8}
             >
-              <Text style={styles.skipText}>Skip</Text>
-            </TouchableOpacity>
+              <Animated.View style={[styles.skipBtn, skipAnimStyle]}>
+                <Text style={styles.skipText}>Skip</Text>
+              </Animated.View>
+            </Pressable>
           </View>
         </View>
       </Animated.View>

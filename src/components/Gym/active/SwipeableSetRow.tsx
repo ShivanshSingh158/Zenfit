@@ -1,11 +1,12 @@
 import React, { useCallback, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, Pressable, StyleSheet, Alert } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
   withSequence,
   withRepeat,
+  withSpring,
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
@@ -46,6 +47,37 @@ const BlinkingCursor: React.FC = React.memo(() => {
         animStyle,
       ]}
     />
+  );
+});
+
+// Tactile Spring Stepper Button with native UI thread compression
+const SpringStepperButton = React.memo(({
+  onPress,
+  icon,
+}: {
+  onPress: () => void;
+  icon: 'remove' | 'add';
+}) => {
+  const scale = useSharedValue(1);
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <Pressable
+      onPressIn={() => {
+        scale.value = withTiming(0.84, { duration: 50 });
+      }}
+      onPressOut={() => {
+        scale.value = withSpring(1, { damping: 10, stiffness: 240 });
+      }}
+      onPress={onPress}
+      hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+    >
+      <Animated.View style={[rowStyles.stepperBtn, animStyle]}>
+        <Ionicons name={icon} size={15} color="#E5E5EA" />
+      </Animated.View>
+    </Pressable>
   );
 });
 
@@ -94,16 +126,21 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
     transform: [{ scale: checkScale.value }],
   }));
 
+  // Bouncy Spring Pop on Checkmark Completion (OpenGym & Apple HIG feel)
   const handleToggleCompleteInternal = useCallback(() => {
     if (!isCompleted) {
       hapticSuccess();
       checkScale.value = withSequence(
-        withTiming(1.3, { duration: 100 }),
-        withTiming(0.9, { duration: 80 }),
-        withTiming(1, { duration: 100 })
+        withTiming(0.82, { duration: 60, easing: Easing.out(Easing.quad) }),
+        withSpring(1.28, { damping: 9, stiffness: 250, mass: 0.6 }),
+        withSpring(1.0, { damping: 12, stiffness: 180 })
       );
     } else {
       hapticLight();
+      checkScale.value = withSequence(
+        withTiming(0.9, { duration: 50 }),
+        withSpring(1.0, { damping: 12, stiffness: 200 })
+      );
     }
     if (onAction) {
       onAction(idx, 'toggle');
@@ -116,9 +153,9 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
     if (!isCompleted) {
       hapticSuccess();
       checkScale.value = withSequence(
-        withTiming(1.3, { duration: 100 }),
-        withTiming(0.9, { duration: 80 }),
-        withTiming(1, { duration: 100 })
+        withTiming(0.82, { duration: 60 }),
+        withSpring(1.28, { damping: 9, stiffness: 250, mass: 0.6 }),
+        withSpring(1.0, { damping: 12, stiffness: 180 })
       );
       if (onAction) {
         onAction(idx, 'swipe');
@@ -259,19 +296,15 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
             ]}
           >
             {!isCompleted ? (
-              <TouchableOpacity
-                style={rowStyles.stepperBtn}
+              <SpringStepperButton
+                icon="remove"
                 onPress={() => {
                   hapticLight();
                   const curWeight = Number(displayWeight || placeholderWeight || 0);
                   const newWeight = Math.max(0, Math.round((curWeight - 2.5) * 10) / 10);
                   onAction?.(idx, 'textChange', { field: 'weight', text: String(newWeight) });
                 }}
-                hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                activeOpacity={0.6}
-              >
-                <Ionicons name="remove" size={15} color="#E5E5EA" />
-              </TouchableOpacity>
+              />
             ) : null}
 
             <TouchableOpacity
@@ -302,19 +335,15 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
             </TouchableOpacity>
 
             {!isCompleted ? (
-              <TouchableOpacity
-                style={rowStyles.stepperBtn}
+              <SpringStepperButton
+                icon="add"
                 onPress={() => {
                   hapticLight();
                   const curWeight = Number(displayWeight || placeholderWeight || 0);
                   const newWeight = Math.round((curWeight + 2.5) * 10) / 10;
                   onAction?.(idx, 'textChange', { field: 'weight', text: String(newWeight) });
                 }}
-                hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                activeOpacity={0.6}
-              >
-                <Ionicons name="add" size={15} color="#E5E5EA" />
-              </TouchableOpacity>
+              />
             ) : null}
           </View>
         </View>
@@ -329,19 +358,15 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
             ]}
           >
             {!isCompleted ? (
-              <TouchableOpacity
-                style={rowStyles.stepperBtn}
+              <SpringStepperButton
+                icon="remove"
                 onPress={() => {
                   hapticLight();
                   const curReps = Number(displayReps || placeholderReps || 1);
                   const newReps = Math.max(1, curReps - 1);
                   onAction?.(idx, 'textChange', { field: 'reps', text: String(newReps) });
                 }}
-                hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                activeOpacity={0.6}
-              >
-                <Ionicons name="remove" size={15} color="#E5E5EA" />
-              </TouchableOpacity>
+              />
             ) : null}
 
             <TouchableOpacity
@@ -372,19 +397,15 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
             </TouchableOpacity>
 
             {!isCompleted ? (
-              <TouchableOpacity
-                style={rowStyles.stepperBtn}
+              <SpringStepperButton
+                icon="add"
                 onPress={() => {
                   hapticLight();
                   const curReps = Number(displayReps || placeholderReps || 0);
                   const newReps = curReps + 1;
                   onAction?.(idx, 'textChange', { field: 'reps', text: String(newReps) });
                 }}
-                hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                activeOpacity={0.6}
-              >
-                <Ionicons name="add" size={15} color="#E5E5EA" />
-              </TouchableOpacity>
+              />
             ) : null}
           </View>
         </View>
