@@ -28,7 +28,6 @@ import WorkoutTimer from '../../components/Gym/active/WorkoutTimer';
 import SetList from '../../components/Gym/active/SetList';
 import ActiveExerciseHeader from '../../components/Gym/active/ActiveExerciseHeader';
 import ActiveExerciseVideo from '../../components/Gym/active/ActiveExerciseVideo';
-import { StickyLoggingDock } from '../../components/Gym/active/StickyLoggingDock';
 import SupersetPickerModal from '../../components/Gym/exercise/SupersetPickerModal';
 import ActiveSwapModal from '../../components/Gym/active/ActiveSwapModal';
 import AnimatedRestTimer from '../../components/Gym/active/AnimatedRestTimer';
@@ -622,10 +621,10 @@ export default function ActiveLoggingScreen() {
   const dockSelectedRir = dockActiveSet?.rir ?? 1;
   const isKeypadOpen = !!activeKeypad && !isAllComplete && !exercise?.setsLog?.[activeKeypad.setIndex]?.completed;
 
-  // Rest timer sits docked cleanly above whichever bottom bar is showing (keypad or sticky dock)
+  // OpenGym standard: rest timer floats right above the bottom edge, or above keypad when open
   const timerBottomOffset = isKeypadOpen
     ? (Platform.OS === 'android' ? 225 : 235)
-    : (Math.max(insets.bottom, 12) + 115);
+    : (Math.max(insets.bottom, 16) + 12);
 
 
 
@@ -2208,7 +2207,7 @@ export default function ActiveLoggingScreen() {
               justifyContent: 'space-between',
               paddingHorizontal: 20,
               paddingVertical: 18,
-              marginBottom: 120,
+              marginBottom: 48,
             }}>
               <TouchableOpacity
                 disabled={activeExIndex === 0}
@@ -2416,21 +2415,7 @@ export default function ActiveLoggingScreen() {
           onOpenPlateCalculator={() => setShowPlateCalculator(true)}
           onDismiss={() => setActiveKeypad(null)}
         />
-      ) : (
-        <StickyLoggingDock
-          activeSetNumber={dockActiveSetIdx !== -1 ? (dockActiveSet?.setNumber || dockActiveSetIdx + 1) : (exercise?.setsLog?.length || 1)}
-          activeWeight={dockActiveWeight}
-          activeReps={dockActiveReps}
-          selectedRir={dockSelectedRir}
-          isAllComplete={isAllComplete}
-          isLastExercise={activeExIndex === exercises.length - 1}
-          isTimerEnabled={autoTimerEnabled && exercise?.restTimeSecs !== 0}
-          onToggleTimer={handleToggleTimer}
-          onSelectRir={handleSetRIR}
-          onQuickAdjustRep={handleAdjustReps}
-          onLogSetAndRest={isAllComplete ? handleNextExercise : handleLogSet}
-        />
-      )}
+      ) : null}
 
       {/* Sticky Rest Timer Overlay (Rendered outside KeyboardAvoidingView so it never jumps with keyboard) */}
       {(restTimerStartTime && restTimerDurationSecs) ? (

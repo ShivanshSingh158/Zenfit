@@ -158,7 +158,7 @@ export const ExerciseAnimationCard: React.FC<ExerciseAnimationCardProps> = React
         style={[
           styles.animationContainer,
           {
-            backgroundColor: isDark ? 'rgba(229, 229, 234, 0.92)' : '#F2F2F7',
+            backgroundColor: isDark ? '#121214' : '#F2F2F7',
             borderRadius: 14,
             height: resolvedHeight,
           },
