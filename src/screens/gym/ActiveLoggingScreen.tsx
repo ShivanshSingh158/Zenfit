@@ -2039,7 +2039,7 @@ export default function ActiveLoggingScreen() {
             ref={carouselScrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ alignItems: 'center', gap: 10 }}
+            contentContainerStyle={{ alignItems: 'center', gap: 6 }}
             style={{ flex: 1, marginRight: 10 }}
           >
             {exercises.map((ex, idx) => {
@@ -2072,33 +2072,34 @@ export default function ActiveLoggingScreen() {
                     setActiveExIndex(idx);
                   }}
                   style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 18,
+                    width: isCurrent ? 32 : 28,
+                    height: isCurrent ? 32 : 28,
+                    borderRadius: isCurrent ? 16 : 14,
                     alignItems: 'center',
                     justifyContent: 'center',
                     borderWidth: isCurrent ? 2 : 1,
                     borderColor: isCurrent ? '#30D158' : 'rgba(255, 255, 255, 0.08)',
                     padding: isCurrent ? 2 : 0,
+                    backgroundColor: !isCurrent
+                      ? (isExDone ? '#30D158' : isExPartial ? '#D97706' : '#1C1C1E')
+                      : 'transparent',
                   }}
                   activeOpacity={0.7}
                 >
                   <View style={{
-                    width: isCurrent ? 28 : 34,
-                    height: isCurrent ? 28 : 34,
-                    borderRadius: isCurrent ? 14 : 17,
-                    backgroundColor: isExDone
-                      ? '#30D158'
-                      : isExPartial
-                      ? '#D97706'
-                      : '#1C1C1E',
+                    width: isCurrent ? 24 : 26,
+                    height: isCurrent ? 24 : 26,
+                    borderRadius: isCurrent ? 12 : 13,
+                    backgroundColor: isCurrent
+                      ? (isExDone ? '#30D158' : isExPartial ? '#D97706' : '#1C1C1E')
+                      : 'transparent',
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}>
                     <Text style={{
                       fontFamily: FONT_FAMILY.bold,
-                      fontSize: 13,
-                      color: isExDone ? '#000000' : (isExPartial ? '#FFFFFF' : '#8E8E93'),
+                      fontSize: 12,
+                      color: isExDone ? '#000000' : (isExPartial || isCurrent ? '#FFFFFF' : '#8E8E93'),
                     }}>
                       {idx + 1}
                     </Text>
