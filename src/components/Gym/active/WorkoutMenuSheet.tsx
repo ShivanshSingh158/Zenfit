@@ -114,18 +114,6 @@ export const WorkoutMenuSheet: React.FC<WorkoutMenuSheetProps> = ({
                 ) : null}
               </View>
             </TouchableOpacity>
-
-            <View style={styles.divider} />
-
-            <View style={styles.menuRow}>
-              <View style={styles.rowIcon}>
-                <Ionicons name="albums-outline" size={19} color="#FFFFFF" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowText}>Layout</Text>
-                <Text style={styles.subText}>Cards</Text>
-              </View>
-            </View>
           </View>
 
           {/* Option 3: More (Expandable Group) */}

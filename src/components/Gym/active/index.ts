@@ -15,3 +15,4 @@ export * from './WorkoutMenuSheet';
 export * from './ExerciseMenuSheet';
 export * from './WorkoutNoteModal';
 export * from './MiniMannequinButton';
+export * from './WorkoutSettingsSheet';

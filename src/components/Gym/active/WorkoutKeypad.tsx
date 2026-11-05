@@ -43,7 +43,6 @@ export interface WorkoutKeypadProps {
   onSelectField: (field: 'weight' | 'reps') => void;
   onSelectRir?: (rir: number) => void;
   onNextOrComplete: () => void;
-  onOpenPlateCalculator?: () => void;
   onDismiss: () => void;
 }
 
@@ -70,7 +69,6 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(({
   onSelectField,
   onSelectRir,
   onNextOrComplete,
-  onOpenPlateCalculator,
   onDismiss,
 }) => {
   const insets = useSafeAreaInsets();

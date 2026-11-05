@@ -20,7 +20,7 @@ import { calculateExerciseMaxWeight, getPreviousExerciseSession, getExerciseSwap
 import { hapticLight, hapticMedium, hapticSuccess, hapticSelection, hapticError } from '../../utils/haptics';
 import { autoResolveExerciseVideoId } from '../../services/exerciseVideoResolver';
 import { getOverloadSuggestion, getRestDuration } from '../../services/progressiveOverload';
-import { playSetCompleteTone } from '../../services/gymSoundSynthesizer';
+import { playSetCompleteTone, isAudioCuesEnabledGlobal, setAudioCuesEnabledGlobal } from '../../services/gymSoundSynthesizer';
 import { GymNavigationParamList } from '../../types/gym.types';
 
 import { makeActiveLoggingStyles } from './activeLoggingStyles';
@@ -39,10 +39,10 @@ import {
   ExerciseMenuSheet,
   WorkoutNoteModal,
   MiniMannequinButton,
+  WorkoutSettingsSheet,
 } from '../../components/Gym/active';
 import ExerciseDeepDiveModal from '../../components/Gym/exercise/ExerciseDeepDiveModal';
 import { WorkoutKeypad } from '../../components/Gym/active/WorkoutKeypad';
-import { PlateCalculatorModal } from '../../components/Gym/metrics/PlateCalculatorModal';
 import { resolveExerciseEquipment } from '../../utils/equipmentResolver';
 import { insertWarmupLadder } from '../../utils/warmupGenerator';
 import { dismissActiveWorkoutNotification } from '../../services/activeWorkoutNotificationService';
@@ -85,7 +85,9 @@ export default function ActiveLoggingScreen() {
   } | null>(null);
   const [isFieldSelected, setIsFieldSelected] = useState(true);
   const isFieldSelectedRef = useRef(true);
-  const [showPlateCalculator, setShowPlateCalculator] = useState(false);
+  const [showWorkoutSettingsSheet, setShowWorkoutSettingsSheet] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => isAudioCuesEnabledGlobal());
+  const [keepAwakeEnabled, setKeepAwakeEnabled] = useState(true);
   const [restPickerSetIdx, setRestPickerSetIdx] = useState<number | null>(null);
   const [sheetInitialSecs, setSheetInitialSecs] = useState<number>(90);
 
@@ -2420,7 +2422,6 @@ export default function ActiveLoggingScreen() {
           }}
           onSelectRir={handleSetRIR}
           onNextOrComplete={handleKeypadNextOrComplete}
-          onOpenPlateCalculator={() => setShowPlateCalculator(true)}
           onDismiss={() => setActiveKeypad(null)}
         />
       ) : null}
@@ -2455,15 +2456,6 @@ export default function ActiveLoggingScreen() {
         </View>
       ) : null}
 
-      {/* Plate Calculator Modal */}
-      {showPlateCalculator && (
-        <PlateCalculatorModal
-          visible={showPlateCalculator}
-          initialWeight={Number(dockActiveWeight) || 60}
-          onClose={() => setShowPlateCalculator(false)}
-        />
-      )}
-
       {/* Deep-Dive Inspector Modal */}
       {deepDiveVisible && exercise && (
         <ExerciseDeepDiveModal
@@ -2476,7 +2468,7 @@ export default function ActiveLoggingScreen() {
         />
       )}
 
-            {/* What This Session Hits Sheet */}
+      {/* What This Session Hits Sheet */}
       <WhatThisSessionHitsSheet
         visible={showWhatHitsSheet}
         exercises={exercises}
@@ -2486,11 +2478,11 @@ export default function ActiveLoggingScreen() {
       {/* Workout Menu Sheet */}
       <WorkoutMenuSheet
         visible={showWorkoutMenuSheet}
-        restDurationText="1:30 rest · Sound"
+        restDurationText={`${Math.floor((exercise?.restTimeSecs || 90) / 60)}:${String((exercise?.restTimeSecs || 90) % 60).padStart(2, '0')} rest · ${soundEnabled ? 'Sound' : 'Mute'}`}
         sessionNote={sessionNote}
         onOpenWorkoutSettings={() => {
           setShowWorkoutMenuSheet(false);
-          setRestPickerSetIdx(activeSetIndex);
+          setShowWorkoutSettingsSheet(true);
         }}
         onAddExercise={() => {
           setShowWorkoutMenuSheet(false);
@@ -2507,6 +2499,35 @@ export default function ActiveLoggingScreen() {
         }}
         onDiscardWorkout={handleDiscardWorkout}
         onClose={() => setShowWorkoutMenuSheet(false)}
+      />
+
+      {/* Workout Settings Bottom Sheet (OpenGym Standard) */}
+      <WorkoutSettingsSheet
+        visible={showWorkoutSettingsSheet}
+        defaultRestSecs={exercise?.restTimeSecs || 90}
+        autoTimerEnabled={autoTimerEnabled}
+        soundEnabled={soundEnabled}
+        keepAwakeEnabled={keepAwakeEnabled}
+        onSelectDefaultRest={(secs) => {
+          const curRealIdx = stateRef.current.realExerciseIndex;
+          const curEx = stateRef.current.exercise;
+          if (curEx && curRealIdx !== undefined) {
+            updateExercise(curRealIdx, { ...curEx, restTimeSecs: secs });
+          }
+        }}
+        onToggleAutoTimer={(val) => {
+          setAutoTimerEnabled(val);
+          setAutoTimerEnabledGlobal(val);
+          saveGymProfile({ autoTimer: val }).catch(() => {});
+        }}
+        onToggleSound={(val) => {
+          setSoundEnabled(val);
+          setAudioCuesEnabledGlobal(val);
+        }}
+        onToggleKeepAwake={(val) => {
+          setKeepAwakeEnabled(val);
+        }}
+        onClose={() => setShowWorkoutSettingsSheet(false)}
       />
 
       {/* Exercise Menu Sheet */}
@@ -2540,13 +2561,9 @@ export default function ActiveLoggingScreen() {
           setShowExerciseMenuSheet(false);
           setDeepDiveVisible(true);
         }}
-        onPlateCalculator={() => {
-          setShowExerciseMenuSheet(false);
-          setShowPlateCalculator(true);
-        }}
         onHowToDoIt={() => {
           setShowExerciseMenuSheet(false);
-          setDeepDiveVisible(true);
+          setShowVideo(true);
         }}
         onRemoveExercise={() => {
           setShowExerciseMenuSheet(false);

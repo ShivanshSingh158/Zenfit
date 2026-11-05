@@ -28,7 +28,6 @@ export interface ExerciseMenuSheetProps {
   onAddWarmupSet: () => void;
   onConfigureRestTimer: () => void;
   onViewHistory: () => void;
-  onPlateCalculator?: () => void;
   onHowToDoIt?: () => void;
   onRemoveExercise: () => void;
   onClose: () => void;
@@ -44,7 +43,6 @@ export const ExerciseMenuSheet: React.FC<ExerciseMenuSheetProps> = ({
   onAddWarmupSet,
   onConfigureRestTimer,
   onViewHistory,
-  onPlateCalculator,
   onHowToDoIt,
   onRemoveExercise,
   onClose,
@@ -179,7 +177,7 @@ export const ExerciseMenuSheet: React.FC<ExerciseMenuSheetProps> = ({
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowText}>More</Text>
                 <Text style={styles.subText} numberOfLines={1}>
-                  Plate loading, How to do it...
+                  How to do it, Delete exercise...
                 </Text>
               </View>
               <Ionicons
@@ -191,26 +189,6 @@ export const ExerciseMenuSheet: React.FC<ExerciseMenuSheetProps> = ({
 
             {showMoreExpanded && (
               <>
-                {onPlateCalculator && (
-                  <>
-                    <View style={styles.divider} />
-                    <TouchableOpacity
-                      style={styles.menuRow}
-                      onPress={() => {
-                        hapticLight();
-                        onClose();
-                        onPlateCalculator();
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.rowIcon}>
-                        <Ionicons name="calculator-outline" size={19} color="#FFFFFF" />
-                      </View>
-                      <Text style={styles.rowText}>Plate loading / Calculator</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-
                 {onHowToDoIt && (
                   <>
                     <View style={styles.divider} />
