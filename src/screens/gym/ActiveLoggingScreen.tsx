@@ -87,6 +87,7 @@ export default function ActiveLoggingScreen() {
   const isFieldSelectedRef = useRef(true);
   const [showPlateCalculator, setShowPlateCalculator] = useState(false);
   const [restPickerSetIdx, setRestPickerSetIdx] = useState<number | null>(null);
+  const [sheetInitialSecs, setSheetInitialSecs] = useState<number>(90);
 
   const {
     log,
@@ -889,15 +890,22 @@ export default function ActiveLoggingScreen() {
     }
   }, [noteModalConfig.target, updateExercise]);
 
-  const handleSelectRest = useCallback((secs: number | null) => {
-    const chosen = secs ?? 90;
-    const curRealIdx = stateRef.current.realExerciseIndex;
-    const curEx = stateRef.current.exercise;
-    if (curEx && curRealIdx !== undefined) {
-      updateExercise(curRealIdx, { ...curEx, restTimeSecs: chosen });
+  const handleSelectRest = useCallback((secs: number) => {
+    const chosen = secs;
+    if (chosen <= 0) {
+      clearRestTimer();
+    } else {
+      if (restTimerStartTime) {
+        startRestTimer(chosen, stateRef.current.exercise?.name);
+      }
+      const curRealIdx = stateRef.current.realExerciseIndex;
+      const curEx = stateRef.current.exercise;
+      if (curEx && curRealIdx !== undefined) {
+        updateExercise(curRealIdx, { ...curEx, restTimeSecs: chosen });
+      }
     }
     setRestPickerSetIdx(null);
-  }, [updateExercise]);
+  }, [clearRestTimer, startRestTimer, restTimerStartTime, updateExercise]);
 
   const _oldPromptFinishWorkout = useCallback(() => {
     flushPendingInputs();
@@ -1854,11 +1862,11 @@ export default function ActiveLoggingScreen() {
   }, [partnerExercise, activeExercises]);
 
   const handleTimerAdd = useCallback(() => {
-    setRestTimerDuration(restTimerInitialRef.current + 30);
+    setRestTimerDuration(restTimerInitialRef.current + 15);
   }, [setRestTimerDuration]);
 
   const handleTimerSubtract = useCallback(() => {
-    setRestTimerDuration(Math.max(10, restTimerInitialRef.current - 30));
+    setRestTimerDuration(Math.max(10, restTimerInitialRef.current - 15));
   }, [setRestTimerDuration]);
 
   const handleTimerSkip = useCallback(() => {
@@ -2436,7 +2444,13 @@ export default function ActiveLoggingScreen() {
             onAdd={handleTimerAdd}
             onSubtract={handleTimerSubtract}
             onSkip={handleTimerSkip}
-            onEditDuration={() => setRestPickerSetIdx(activeSetIndex)}
+            onEditDuration={(currentRemainingSecs) => {
+              const rem = currentRemainingSecs != null && currentRemainingSecs > 0
+                ? currentRemainingSecs
+                : (exercise?.restTimeSecs || 90);
+              setSheetInitialSecs(rem);
+              setRestPickerSetIdx(activeSetIndex !== -1 ? activeSetIndex : 0);
+            }}
           />
         </View>
       ) : null}
@@ -2576,13 +2590,13 @@ export default function ActiveLoggingScreen() {
         onClose={() => setNoteModalConfig(prev => ({ ...prev, visible: false }))}
       />
 
-      {/* Custom Rest Timer Picker Sheet */}
+      {/* OpenGym Standard "Time left" Rest Timer Bottom Sheet */}
       <SetRestPickerSheet
         visible={restPickerSetIdx !== null}
-        setNumber={restPickerSetIdx !== null ? restPickerSetIdx + 1 : 1}
-        initialRestSecs={exercise?.restTimeSecs || 90}
-        defaultRestSecs={90}
+        initialRestSecs={sheetInitialSecs}
+        defaultRestSecs={exercise?.restTimeSecs || 90}
         onSelectRestSecs={handleSelectRest}
+        onSkip={handleTimerSkip}
         onClose={() => setRestPickerSetIdx(null)}
       />
 

@@ -1,12 +1,13 @@
 /**
  * SetRestPickerSheet.tsx — ZenFit
  *
- * Custom Rest Timer Picker per Individual Set (Inspired by openGym v1.4.3):
- * Allows athletes to configure bespoke rest durations for heavy top sets (e.g. 180s-240s),
- * standard hypertrophy sets (90s-120s), or quick pump sets (30s-60s).
+ * Exact OpenGym Parity "Time left" Bottom Sheet Modal.
+ * Replaces the old preset targets sheet with OpenGym's authentic 2-column wheel picker
+ * showing live countdown, scrollable minutes/seconds, "Scroll to 0:00 to end the rest now",
+ * and a full-width neon green "Done" button.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,80 +15,113 @@ import {
   Modal,
   TouchableOpacity,
   Pressable,
+  ScrollView,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  Dimensions,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { FONT_FAMILY, RADIUS } from '../../../theme/tokens';
-import { useTheme } from '../../../contexts/ThemeContext';
-import { hapticSelection, hapticLight, hapticMedium } from '../../../utils/haptics';
+import { FONT_FAMILY } from '../../../theme/tokens';
+import { hapticSelection, hapticMedium, hapticLight } from '../../../utils/haptics';
 
 interface SetRestPickerSheetProps {
   visible: boolean;
-  setNumber: number;
   initialRestSecs?: number | null;
-  defaultRestSecs: number;
-  onSelectRestSecs: (secs: number | null) => void; // null = reset to default
+  defaultRestSecs?: number;
+  onSelectRestSecs: (secs: number) => void;
+  onSkip?: () => void;
   onClose: () => void;
 }
 
-const PRESET_DURATIONS = [
-  { secs: 30, label: '30s', desc: 'Pump / Iso' },
-  { secs: 45, label: '45s', desc: 'Short rest' },
-  { secs: 60, label: '1:00', desc: 'Standard' },
-  { secs: 90, label: '1:30', desc: 'Hypertrophy' },
-  { secs: 120, label: '2:00', desc: 'Compound' },
-  { secs: 180, label: '3:00', desc: 'Heavy Top Set' },
-  { secs: 240, label: '4:00', desc: 'Max Effort' },
-  { secs: 300, label: '5:00', desc: 'Power / PR' },
-];
+const ITEM_HEIGHT = 44;
+const VISIBLE_ITEMS = 5;
+const CONTAINER_HEIGHT = ITEM_HEIGHT * VISIBLE_ITEMS; // 220px
+const PADDING_OFFSET = ITEM_HEIGHT * 2; // 88px so 1st item centers at offset 0
 
-function formatTime(totalSecs: number): string {
-  const m = Math.floor(totalSecs / 60);
-  const s = totalSecs % 60;
-  return `${m}:${s < 10 ? '0' : ''}${s}`;
-}
+// Minutes: 0 to 20
+const MINUTES_DATA = Array.from({ length: 21 }, (_, i) => i);
+// Seconds: 0 to 59
+const SECONDS_DATA = Array.from({ length: 60 }, (_, i) => i);
 
 export const SetRestPickerSheet: React.FC<SetRestPickerSheetProps> = ({
   visible,
-  setNumber,
   initialRestSecs,
-  defaultRestSecs,
+  defaultRestSecs = 90,
   onSelectRestSecs,
+  onSkip,
   onClose,
 }) => {
-  const { colors, isDark } = useTheme();
-  const [selectedSecs, setSelectedSecs] = useState<number>(
-    initialRestSecs || defaultRestSecs || 90
-  );
+  const effectiveInitialSecs = useMemo(() => {
+    if (initialRestSecs != null && initialRestSecs >= 0) return initialRestSecs;
+    return defaultRestSecs;
+  }, [initialRestSecs, defaultRestSecs]);
 
+  const [selectedMin, setSelectedMin] = useState<number>(() => Math.floor(effectiveInitialSecs / 60));
+  const [selectedSec, setSelectedSec] = useState<number>(() => effectiveInitialSecs % 60);
+
+  const minScrollRef = useRef<ScrollView>(null);
+  const secScrollRef = useRef<ScrollView>(null);
+  const isUserScrollingRef = useRef(false);
+
+  // Sync state whenever sheet opens
   useEffect(() => {
     if (visible) {
-      setSelectedSecs(initialRestSecs || defaultRestSecs || 90);
+      const m = Math.floor(effectiveInitialSecs / 60);
+      const s = effectiveInitialSecs % 60;
+      setSelectedMin(m);
+      setSelectedSec(s);
+
+      // Scroll wheels to center on the selected initial value
+      setTimeout(() => {
+        minScrollRef.current?.scrollTo({ y: m * ITEM_HEIGHT, animated: false });
+        secScrollRef.current?.scrollTo({ y: s * ITEM_HEIGHT, animated: false });
+      }, 50);
     }
-  }, [visible, initialRestSecs, defaultRestSecs]);
+  }, [visible, effectiveInitialSecs]);
 
-  const handleAdjust = (delta: number) => {
-    hapticLight();
-    setSelectedSecs(prev => Math.max(15, Math.min(600, prev + delta)));
-  };
+  const handleMinScrollEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const idx = Math.max(0, Math.min(MINUTES_DATA.length - 1, Math.round(y / ITEM_HEIGHT)));
+    setSelectedMin(prev => {
+      if (prev !== idx) {
+        hapticSelection();
+        return idx;
+      }
+      return prev;
+    });
+  }, []);
 
-  const handleSelectPreset = (secs: number) => {
+  const handleSecScrollEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const idx = Math.max(0, Math.min(SECONDS_DATA.length - 1, Math.round(y / ITEM_HEIGHT)));
+    setSelectedSec(prev => {
+      if (prev !== idx) {
+        hapticSelection();
+        return idx;
+      }
+      return prev;
+    });
+  }, []);
+
+  const handleSelectMin = useCallback((m: number) => {
     hapticSelection();
-    setSelectedSecs(secs);
-  };
+    setSelectedMin(m);
+    minScrollRef.current?.scrollTo({ y: m * ITEM_HEIGHT, animated: true });
+  }, []);
 
-  const handleSave = () => {
+  const handleSelectSec = useCallback((s: number) => {
+    hapticSelection();
+    setSelectedSec(s);
+    secScrollRef.current?.scrollTo({ y: s * ITEM_HEIGHT, animated: true });
+  }, []);
+
+  const handleDone = () => {
     hapticMedium();
-    onSelectRestSecs(selectedSecs);
-    onClose();
-  };
-
-  const handleResetToDefault = () => {
-    hapticLight();
-    onSelectRestRestDefault();
-  };
-
-  const onSelectRestRestDefault = () => {
-    onSelectRestSecs(null);
+    const totalSecs = selectedMin * 60 + selectedSec;
+    if (totalSecs === 0 && onSkip) {
+      onSkip();
+    } else {
+      onSelectRestSecs(totalSecs);
+    }
     onClose();
   };
 
@@ -97,131 +131,127 @@ export const SetRestPickerSheet: React.FC<SetRestPickerSheetProps> = ({
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType="slide"
       onRequestClose={onClose}
     >
       <View style={styles.backdrop}>
         <Pressable style={styles.dismissOverlay} onPress={onClose} />
 
-        <View style={[styles.sheetCard, { backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF' }]}>
-          {/* Header */}
-          <View style={styles.headerRow}>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name="timer-outline" size={17} color="#FF9F0A" />
-                <Text style={[styles.title, { color: colors.textPrimary }]}>
-                  Set {setNumber} Rest Timer
-                </Text>
-              </View>
-              <Text style={styles.subtitle}>
-                Custom rest countdown triggered upon completing this set
-              </Text>
-            </View>
+        <View style={styles.sheetCard}>
+          {/* 1. Drag Handle Bar */}
+          <View style={styles.handleBar} />
 
-            <TouchableOpacity
-              onPress={onClose}
-              style={[styles.closeBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F2F2F7' }]}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons name="close" size={16} color={colors.textPrimary} />
-            </TouchableOpacity>
+          {/* 2. Top Header Title: "Time left" */}
+          <Text style={styles.title}>Time left</Text>
+
+          {/* 3. Big Centered Live Countdown: e.g. "1:14" */}
+          <View style={styles.countdownCenter}>
+            <Text style={styles.countdownText}>
+              {selectedMin}:{selectedSec < 10 ? `0${selectedSec}` : selectedSec}
+            </Text>
           </View>
 
-          {/* Large Time Display & Stepper Wheel Controls */}
-          <View style={[styles.stepperContainer, { backgroundColor: isDark ? '#141416' : '#F2F2F7' }]}>
-            <TouchableOpacity
-              onPress={() => handleAdjust(-15)}
-              style={styles.stepBtn}
-              activeOpacity={0.7}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Text style={[styles.stepBtnText, { color: colors.textPrimary }]}>−15s</Text>
-            </TouchableOpacity>
+          {/* 4. OpenGym Dual Wheel Picker (Minutes & Seconds) */}
+          <View style={styles.pickerContainer}>
+            {/* Center Selection Highlight Bar */}
+            <View style={styles.selectionPill} pointerEvents="none" />
 
-            <View style={styles.timeCenterBlock}>
-              <Text style={[styles.timeDigits, { color: '#FF9F0A' }]}>
-                {formatTime(selectedSecs)}
-              </Text>
-              <Text style={styles.timeUnitLabel}>
-                {selectedSecs} seconds {initialRestSecs === selectedSecs ? '• Custom' : selectedSecs === defaultRestSecs ? '• Default' : ''}
-              </Text>
-            </View>
-
-            <TouchableOpacity
-              onPress={() => handleAdjust(15)}
-              style={styles.stepBtn}
-              activeOpacity={0.7}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Text style={[styles.stepBtnText, { color: colors.textPrimary }]}>+15s</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Quick Presets Grid */}
-          <Text style={styles.sectionHeading}>POPULAR TARGETS</Text>
-          <View style={styles.presetsGrid}>
-            {PRESET_DURATIONS.map(p => {
-              const isSelected = selectedSecs === p.secs;
-              return (
-                <TouchableOpacity
-                  key={p.secs}
-                  onPress={() => handleSelectPreset(p.secs)}
-                  style={[
-                    styles.presetTile,
-                    {
-                      backgroundColor: isSelected
-                        ? (isDark ? 'rgba(255, 159, 10, 0.22)' : 'rgba(255, 159, 10, 0.15)')
-                        : (isDark ? 'rgba(255,255,255,0.05)' : '#F2F2F7'),
-                      borderColor: isSelected ? '#FF9F0A' : 'transparent',
-                    },
-                  ]}
-                  activeOpacity={0.75}
-                >
-                  <Text
-                    style={[
-                      styles.presetLabel,
-                      { color: isSelected ? '#FF9F0A' : colors.textPrimary },
-                      isSelected && { fontFamily: FONT_FAMILY.bold },
-                    ]}
-                  >
-                    {p.label}
-                  </Text>
-                  <Text style={[styles.presetDesc, isSelected && { color: '#FF9F0A' }]}>
-                    {p.desc}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* Action Footer */}
-          <View style={styles.footerRow}>
-            {initialRestSecs != null && (
-              <TouchableOpacity
-                onPress={handleResetToDefault}
-                style={[styles.resetBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#E5E5EA' }]}
-                activeOpacity={0.7}
+            {/* Column 1: Minutes */}
+            <View style={styles.columnWrapper}>
+              <ScrollView
+                ref={minScrollRef}
+                showsVerticalScrollIndicator={false}
+                snapToInterval={ITEM_HEIGHT}
+                decelerationRate="fast"
+                contentContainerStyle={{
+                  paddingTop: PADDING_OFFSET,
+                  paddingBottom: PADDING_OFFSET,
+                }}
+                onMomentumScrollEnd={handleMinScrollEnd}
+                onScrollEndDrag={handleMinScrollEnd}
               >
-                <Text style={[styles.resetBtnText, { color: colors.textPrimary }]}>
-                  Reset ({defaultRestSecs}s)
-                </Text>
-              </TouchableOpacity>
-            )}
+                {MINUTES_DATA.map((min) => {
+                  const isSelected = min === selectedMin;
+                  const distance = Math.abs(min - selectedMin);
+                  return (
+                    <TouchableOpacity
+                      key={`min-${min}`}
+                      style={styles.itemRow}
+                      activeOpacity={0.7}
+                      onPress={() => handleSelectMin(min)}
+                    >
+                      <Text
+                        style={[
+                          styles.itemText,
+                          isSelected && styles.itemTextSelected,
+                          distance === 1 && styles.itemTextDistance1,
+                          distance >= 2 && styles.itemTextDistance2,
+                        ]}
+                      >
+                        {min}
+                        {isSelected ? <Text style={styles.unitText}> min</Text> : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
 
-            <TouchableOpacity
-              onPress={handleSave}
-              style={[
-                styles.saveBtn,
-                { flex: initialRestSecs != null ? 1 : undefined, width: initialRestSecs == null ? '100%' : undefined },
-              ]}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="checkmark" size={17} color="#000000" />
-              <Text style={styles.saveBtnText}>
-                Set {formatTime(selectedSecs)} for Set {setNumber}
-              </Text>
-            </TouchableOpacity>
+            {/* Column 2: Seconds */}
+            <View style={styles.columnWrapper}>
+              <ScrollView
+                ref={secScrollRef}
+                showsVerticalScrollIndicator={false}
+                snapToInterval={ITEM_HEIGHT}
+                decelerationRate="fast"
+                contentContainerStyle={{
+                  paddingTop: PADDING_OFFSET,
+                  paddingBottom: PADDING_OFFSET,
+                }}
+                onMomentumScrollEnd={handleSecScrollEnd}
+                onScrollEndDrag={handleSecScrollEnd}
+              >
+                {SECONDS_DATA.map((sec) => {
+                  const isSelected = sec === selectedSec;
+                  const distance = Math.abs(sec - selectedSec);
+                  return (
+                    <TouchableOpacity
+                      key={`sec-${sec}`}
+                      style={styles.itemRow}
+                      activeOpacity={0.7}
+                      onPress={() => handleSelectSec(sec)}
+                    >
+                      <Text
+                        style={[
+                          styles.itemText,
+                          isSelected && styles.itemTextSelected,
+                          distance === 1 && styles.itemTextDistance1,
+                          distance >= 2 && styles.itemTextDistance2,
+                        ]}
+                      >
+                        {sec}
+                        {isSelected ? <Text style={styles.unitText}> sec</Text> : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
           </View>
+
+          {/* 5. Subtitle Instruction */}
+          <Text style={styles.instructionText}>
+            Scroll to 0:00 to end the rest now.
+          </Text>
+
+          {/* 6. Neon Green Full-Width "Done" Button */}
+          <TouchableOpacity
+            style={styles.doneBtn}
+            activeOpacity={0.82}
+            onPress={handleDone}
+          >
+            <Text style={styles.doneBtnText}>Done</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </Modal>
@@ -240,140 +270,111 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sheetCard: {
-    borderTopLeftRadius: RADIUS.xl,
-    borderTopRightRadius: RADIUS.xl,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 34,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 8,
+    backgroundColor: '#161618',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 28,
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
+  handleBar: {
+    width: 38,
+    height: 4.5,
+    borderRadius: 3,
+    backgroundColor: '#3A3A3C',
+    alignSelf: 'center',
+    marginBottom: 16,
   },
   title: {
-    fontSize: 16,
     fontFamily: FONT_FAMILY.bold,
-    letterSpacing: -0.2,
+    fontSize: 20,
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+    marginBottom: 12,
   },
-  subtitle: {
-    fontSize: 11.5,
-    fontFamily: FONT_FAMILY.regular,
-    color: '#8E8E93',
-    marginTop: 2,
-  },
-  closeBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  countdownCenter: {
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 4,
+    marginBottom: 10,
   },
-  stepperContainer: {
+  countdownText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 44,
+    color: '#FFFFFF',
+    letterSpacing: -1,
+  },
+  pickerContainer: {
+    height: CONTAINER_HEIGHT,
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderRadius: RADIUS.lg,
-    marginVertical: 4,
+    position: 'relative',
+    marginHorizontal: 10,
   },
-  stepBtn: {
-    backgroundColor: 'rgba(142, 142, 147, 0.2)',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: RADIUS.md,
-  },
-  stepBtnText: {
-    fontSize: 13,
-    fontFamily: FONT_FAMILY.bold,
-  },
-  timeCenterBlock: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  timeDigits: {
-    fontSize: 32,
-    fontFamily: FONT_FAMILY.bold,
-    letterSpacing: -0.5,
-  },
-  timeUnitLabel: {
-    fontSize: 11,
-    fontFamily: FONT_FAMILY.medium,
-    color: '#8E8E93',
-    marginTop: 2,
-  },
-  sectionHeading: {
-    fontSize: 10.5,
-    fontFamily: FONT_FAMILY.bold,
-    color: '#8E8E93',
-    letterSpacing: 0.5,
-    marginTop: 14,
-    marginBottom: 8,
-  },
-  presetsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  presetTile: {
-    width: '23%',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    borderRadius: RADIUS.md,
-    alignItems: 'center',
-    justifyContent: 'center',
+  selectionPill: {
+    position: 'absolute',
+    top: PADDING_OFFSET,
+    left: 4,
+    right: 4,
+    height: ITEM_HEIGHT,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
+    zIndex: 0,
   },
-  presetLabel: {
-    fontSize: 13,
-    fontFamily: FONT_FAMILY.semibold,
+  columnWrapper: {
+    flex: 1,
+    height: CONTAINER_HEIGHT,
+    zIndex: 1,
   },
-  presetDesc: {
-    fontSize: 8.5,
-    fontFamily: FONT_FAMILY.regular,
+  itemRow: {
+    height: ITEM_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  itemText: {
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: 18,
     color: '#8E8E93',
-    marginTop: 2,
   },
-  footerRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 18,
-  },
-  resetBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  resetBtnText: {
-    fontSize: 12.5,
-    fontFamily: FONT_FAMILY.semibold,
-  },
-  saveBtn: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 13,
-    borderRadius: 999,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  saveBtnText: {
-    color: '#000000',
-    fontSize: 13.5,
+  itemTextSelected: {
     fontFamily: FONT_FAMILY.bold,
+    fontSize: 21,
+    color: '#FFFFFF',
+  },
+  unitText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  itemTextDistance1: {
+    color: '#71717A',
+    fontSize: 17,
+  },
+  itemTextDistance2: {
+    color: '#3F3F46',
+    fontSize: 15,
+  },
+  instructionText: {
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: 13,
+    color: '#8E8E93',
+    textAlign: 'center',
+    marginTop: 18,
+    marginBottom: 18,
+  },
+  doneBtn: {
+    backgroundColor: '#30D158',
+    borderRadius: 14,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  doneBtnText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 17,
+    color: '#000000',
   },
 });

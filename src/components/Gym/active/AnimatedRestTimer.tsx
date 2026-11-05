@@ -34,7 +34,7 @@ interface AnimatedRestTimerProps {
   onAdd: () => void;
   onSubtract: () => void;
   onSkip: () => void;
-  onEditDuration?: () => void;
+  onEditDuration?: (currentRemainingSecs?: number) => void;
 }
 
 function formatTime(totalSecs: number): string {
@@ -227,7 +227,7 @@ export const AnimatedRestTimer: React.FC<AnimatedRestTimerProps> = React.memo(
               style={styles.leftCol}
               onPress={() => {
                 hapticLight();
-                onEditDuration?.();
+                onEditDuration?.(remSecs);
               }}
               activeOpacity={0.7}
             >
