@@ -28,6 +28,7 @@ export interface GymExerciseLog {
   isCompound?: boolean;
   lastSessionSets?: any[];
   progressionPolicy?: 'linear' | 'double' | 'triple' | 'top_backoff';
+  notes?: string;
   _idx?: number;
 }
 

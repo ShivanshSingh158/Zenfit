@@ -13,4 +13,5 @@ export * from './WhatThisSessionHitsSheet';
 export * from './FinishEarlySheet';
 export * from './WorkoutMenuSheet';
 export * from './ExerciseMenuSheet';
+export * from './WorkoutNoteModal';
 export * from './MiniMannequinButton';

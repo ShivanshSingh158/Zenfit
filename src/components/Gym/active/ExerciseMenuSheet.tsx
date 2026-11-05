@@ -22,11 +22,14 @@ export interface ExerciseMenuSheetProps {
   visible: boolean;
   exerciseName: string;
   currentRestText?: string;
+  exerciseNote?: string;
   onAddNote: () => void;
   onSwapExercise: () => void;
   onAddWarmupSet: () => void;
   onConfigureRestTimer: () => void;
   onViewHistory: () => void;
+  onPlateCalculator?: () => void;
+  onHowToDoIt?: () => void;
   onRemoveExercise: () => void;
   onClose: () => void;
 }
@@ -35,11 +38,14 @@ export const ExerciseMenuSheet: React.FC<ExerciseMenuSheetProps> = ({
   visible,
   exerciseName,
   currentRestText = 'Default (1:30)',
+  exerciseNote = '',
   onAddNote,
   onSwapExercise,
   onAddWarmupSet,
   onConfigureRestTimer,
   onViewHistory,
+  onPlateCalculator,
+  onHowToDoIt,
   onRemoveExercise,
   onClose,
 }) => {
@@ -75,7 +81,14 @@ export const ExerciseMenuSheet: React.FC<ExerciseMenuSheetProps> = ({
               <View style={styles.rowIcon}>
                 <Ionicons name="document-text-outline" size={19} color="#FFFFFF" />
               </View>
-              <Text style={styles.rowText}>Add note</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowText}>{exerciseNote ? 'Edit note' : 'Add note'}</Text>
+                {exerciseNote ? (
+                  <Text style={styles.subText} numberOfLines={1}>
+                    {exerciseNote}
+                  </Text>
+                ) : null}
+              </View>
             </TouchableOpacity>
 
             <View style={styles.divider} />
@@ -166,7 +179,7 @@ export const ExerciseMenuSheet: React.FC<ExerciseMenuSheetProps> = ({
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowText}>More</Text>
                 <Text style={styles.subText} numberOfLines={1}>
-                  Exercise settings, Plate loading, How to...
+                  Plate loading, How to do it...
                 </Text>
               </View>
               <Ionicons
@@ -175,6 +188,50 @@ export const ExerciseMenuSheet: React.FC<ExerciseMenuSheetProps> = ({
                 color="#8E8E93"
               />
             </TouchableOpacity>
+
+            {showMoreExpanded && (
+              <>
+                {onPlateCalculator && (
+                  <>
+                    <View style={styles.divider} />
+                    <TouchableOpacity
+                      style={styles.menuRow}
+                      onPress={() => {
+                        hapticLight();
+                        onClose();
+                        onPlateCalculator();
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.rowIcon}>
+                        <Ionicons name="calculator-outline" size={19} color="#FFFFFF" />
+                      </View>
+                      <Text style={styles.rowText}>Plate loading / Calculator</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                {onHowToDoIt && (
+                  <>
+                    <View style={styles.divider} />
+                    <TouchableOpacity
+                      style={styles.menuRow}
+                      onPress={() => {
+                        hapticLight();
+                        onClose();
+                        onHowToDoIt();
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.rowIcon}>
+                        <Ionicons name="information-circle-outline" size={19} color="#FFFFFF" />
+                      </View>
+                      <Text style={styles.rowText}>How to do it</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </>
+            )}
           </View>
 
           {/* Remove Exercise Row */}

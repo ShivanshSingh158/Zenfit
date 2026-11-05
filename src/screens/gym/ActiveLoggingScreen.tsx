@@ -38,6 +38,7 @@ import {
   FinishEarlySheet,
   WorkoutMenuSheet,
   ExerciseMenuSheet,
+  WorkoutNoteModal,
   MiniMannequinButton,
 } from '../../components/Gym/active';
 import ExerciseDeepDiveModal from '../../components/Gym/exercise/ExerciseDeepDiveModal';
@@ -257,6 +258,19 @@ export default function ActiveLoggingScreen() {
   const [showExerciseMenuSheet, setShowExerciseMenuSheet] = useState(false);
   const [showFinishEarlySheet, setShowFinishEarlySheet] = useState(false);
   const [uncheckedSetsCount, setUncheckedSetsCount] = useState(0);
+  const [completedSetsCount, setCompletedSetsCount] = useState(0);
+  const [sessionNote, setSessionNote] = useState('');
+  const [noteModalConfig, setNoteModalConfig] = useState<{
+    visible: boolean;
+    title: string;
+    initialNote: string;
+    target: 'session' | 'exercise';
+  }>({
+    visible: false,
+    title: '',
+    initialNote: '',
+    target: 'session',
+  });
 
   
 
@@ -858,13 +872,33 @@ export default function ActiveLoggingScreen() {
     const { exercises: allExs } = stateRef.current;
     const allSets = (allExs || []).flatMap((e: any) => e.setsLog || []);
     const uncompleted = allSets.filter((s: any) => !s.completed).length;
-    if (uncompleted > 0) {
-      setUncheckedSetsCount(uncompleted);
-      setShowFinishEarlySheet(true);
-    } else {
-      handleFinishAndSave();
+    const completed = allSets.filter((s: any) => s.completed).length;
+    setUncheckedSetsCount(uncompleted);
+    setCompletedSetsCount(completed);
+    setShowFinishEarlySheet(true);
+  }, [flushPendingInputs]);
+
+  const handleSaveNote = useCallback((noteText: string) => {
+    if (noteModalConfig.target === 'session') {
+      setSessionNote(noteText);
+    } else if (noteModalConfig.target === 'exercise') {
+      const curRealIdx = stateRef.current.realExerciseIndex;
+      const curEx = stateRef.current.exercise;
+      if (curEx && curRealIdx !== undefined) {
+        updateExercise(curRealIdx, { ...curEx, notes: noteText });
+      }
     }
-  }, [flushPendingInputs, handleFinishAndSave]);
+  }, [noteModalConfig.target, updateExercise]);
+
+  const handleSelectRest = useCallback((secs: number | null) => {
+    const chosen = secs ?? 90;
+    const curRealIdx = stateRef.current.realExerciseIndex;
+    const curEx = stateRef.current.exercise;
+    if (curEx && curRealIdx !== undefined) {
+      updateExercise(curRealIdx, { ...curEx, restTimeSecs: chosen });
+    }
+    setRestPickerSetIdx(null);
+  }, [updateExercise]);
 
   const _oldPromptFinishWorkout = useCallback(() => {
     flushPendingInputs();
@@ -1861,89 +1895,7 @@ export default function ActiveLoggingScreen() {
         <View style={{ alignItems: 'center', marginTop: 24 }}>
           <ActivityIndicator size="small" color={colors.accentPrimary} />
         </View>
-  
-      {/* What This Session Hits Sheet */}
-      <WhatThisSessionHitsSheet
-        visible={showWhatHitsSheet}
-        exercises={exercises}
-        onClose={() => setShowWhatHitsSheet(false)}
-      />
-
-      {/* Workout Menu Sheet */}
-      <WorkoutMenuSheet
-        visible={showWorkoutMenuSheet}
-        restDurationText="1:30"
-        onOpenWorkoutSettings={() => {
-          setShowWorkoutMenuSheet(false);
-          setRestPickerSetIdx(activeSetIndex);
-        }}
-        onAddExercise={() => {
-          setShowWorkoutMenuSheet(false);
-          (navigation as any).navigate('ExerciseLibrary', { date, mode: 'add' });
-        }}
-        onAddSessionNote={() => {
-          setShowWorkoutMenuSheet(false);
-        }}
-        onDiscardWorkout={handleDiscardWorkout}
-        onClose={() => setShowWorkoutMenuSheet(false)}
-      />
-
-      {/* Exercise Menu Sheet */}
-      <ExerciseMenuSheet
-        visible={showExerciseMenuSheet}
-        exerciseName={exercise?.name || ''}
-        currentRestText={exercise?.restTimeSecs ? `${Math.floor(exercise.restTimeSecs / 60)}:${String(exercise.restTimeSecs % 60).padStart(2, '0')}` : '1:30'}
-        onAddNote={() => {
-          setShowExerciseMenuSheet(false);
-        }}
-        onSwapExercise={() => {
-          setShowExerciseMenuSheet(false);
-          handleSwapPress();
-        }}
-        onAddWarmupSet={() => {
-          setShowExerciseMenuSheet(false);
-          handleAutoWarmup();
-        }}
-        onConfigureRestTimer={() => {
-          setShowExerciseMenuSheet(false);
-          setRestPickerSetIdx(activeSetIndex);
-        }}
-        onViewHistory={() => {
-          setShowExerciseMenuSheet(false);
-          setDeepDiveVisible(true);
-        }}
-        onRemoveExercise={() => {
-          setShowExerciseMenuSheet(false);
-          Alert.alert(
-            'Remove Exercise',
-            `Are you sure you want to remove ${exercise?.name}?`,
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Remove',
-                style: 'destructive',
-                onPress: () => {
-                  const nextExercises = exercises.filter((_: any, idx: number) => idx !== activeExIndex);
-                  if (nextExercises.length > 0) {
-                    setActiveExIndex(Math.max(0, activeExIndex - 1));
-                  }
-                }
-              }
-            ]
-          );
-        }}
-        onClose={() => setShowExerciseMenuSheet(false)}
-      />
-
-      {/* Finish Early Sheet */}
-      <FinishEarlySheet
-        visible={showFinishEarlySheet}
-        uncheckedSetsCount={uncheckedSetsCount}
-        onFinishAndSave={handleFinishAndSave}
-        onDiscard={handleDiscardWorkout}
-        onClose={() => setShowFinishEarlySheet(false)}
-      />
-    </SafeAreaView>
+      </SafeAreaView>
     );
   }
 
@@ -2590,7 +2542,132 @@ export default function ActiveLoggingScreen() {
         />
       )}
 
-      {/* ── High-Contrast Screen Flash Rest Alert Overlay (pointerEvents none) ── */}
+            {/* What This Session Hits Sheet */}
+      <WhatThisSessionHitsSheet
+        visible={showWhatHitsSheet}
+        exercises={exercises}
+        onClose={() => setShowWhatHitsSheet(false)}
+      />
+
+      {/* Workout Menu Sheet */}
+      <WorkoutMenuSheet
+        visible={showWorkoutMenuSheet}
+        restDurationText="1:30 rest · Sound"
+        sessionNote={sessionNote}
+        onOpenWorkoutSettings={() => {
+          setShowWorkoutMenuSheet(false);
+          setRestPickerSetIdx(activeSetIndex);
+        }}
+        onAddExercise={() => {
+          setShowWorkoutMenuSheet(false);
+          (navigation as any).navigate('ExerciseLibrary', { date, mode: 'add' });
+        }}
+        onAddSessionNote={() => {
+          setShowWorkoutMenuSheet(false);
+          setNoteModalConfig({
+            visible: true,
+            title: 'Session Note',
+            initialNote: sessionNote,
+            target: 'session',
+          });
+        }}
+        onDiscardWorkout={handleDiscardWorkout}
+        onClose={() => setShowWorkoutMenuSheet(false)}
+      />
+
+      {/* Exercise Menu Sheet */}
+      <ExerciseMenuSheet
+        visible={showExerciseMenuSheet}
+        exerciseName={exercise?.name || ''}
+        currentRestText={exercise?.restTimeSecs ? `${Math.floor(exercise.restTimeSecs / 60)}:${String(exercise.restTimeSecs % 60).padStart(2, '0')}` : '1:30'}
+        exerciseNote={exercise?.notes || ''}
+        onAddNote={() => {
+          setShowExerciseMenuSheet(false);
+          setNoteModalConfig({
+            visible: true,
+            title: `Note for ${exercise?.name}`,
+            initialNote: exercise?.notes || '',
+            target: 'exercise',
+          });
+        }}
+        onSwapExercise={() => {
+          setShowExerciseMenuSheet(false);
+          handleSwapPress();
+        }}
+        onAddWarmupSet={() => {
+          setShowExerciseMenuSheet(false);
+          handleAutoWarmup();
+        }}
+        onConfigureRestTimer={() => {
+          setShowExerciseMenuSheet(false);
+          setRestPickerSetIdx(activeSetIndex);
+        }}
+        onViewHistory={() => {
+          setShowExerciseMenuSheet(false);
+          setDeepDiveVisible(true);
+        }}
+        onPlateCalculator={() => {
+          setShowExerciseMenuSheet(false);
+          setShowPlateCalculator(true);
+        }}
+        onHowToDoIt={() => {
+          setShowExerciseMenuSheet(false);
+          setDeepDiveVisible(true);
+        }}
+        onRemoveExercise={() => {
+          setShowExerciseMenuSheet(false);
+          Alert.alert(
+            'Remove Exercise',
+            `Are you sure you want to remove ${exercise?.name}?`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Remove',
+                style: 'destructive',
+                onPress: () => {
+                  const nextExercises = exercises.filter((_: any, idx: number) => idx !== activeExIndex);
+                  if (nextExercises.length > 0) {
+                    setActiveExIndex(Math.max(0, activeExIndex - 1));
+                  }
+                }
+              }
+            ]
+          );
+        }}
+        onClose={() => setShowExerciseMenuSheet(false)}
+      />
+
+      {/* Finish Early Sheet */}
+      <FinishEarlySheet
+        visible={showFinishEarlySheet}
+        uncheckedSetsCount={uncheckedSetsCount}
+        completedSetsCount={completedSetsCount}
+        onFinishAndSave={handleFinishAndSave}
+        onDiscard={handleDiscardWorkout}
+        onClose={() => setShowFinishEarlySheet(false)}
+      />
+
+      {/* Workout / Exercise Note Modal */}
+      <WorkoutNoteModal
+        visible={noteModalConfig.visible}
+        title={noteModalConfig.title}
+        initialNote={noteModalConfig.initialNote}
+        onSave={handleSaveNote}
+        onClose={() => setNoteModalConfig(prev => ({ ...prev, visible: false }))}
+      />
+
+      {/* Custom Rest Timer Picker Sheet */}
+      <SetRestPickerSheet
+        visible={restPickerSetIdx !== null}
+        setNumber={restPickerSetIdx !== null ? restPickerSetIdx + 1 : 1}
+        initialRestSecs={exercise?.restTimeSecs || 90}
+        defaultRestSecs={90}
+        onSelectRestSecs={handleSelectRest}
+        onClose={() => setRestPickerSetIdx(null)}
+      />
+
+
+{/* ── High-Contrast Screen Flash Rest Alert Overlay (pointerEvents none) ── */}
       <Animated.View
         pointerEvents="none"
         style={[

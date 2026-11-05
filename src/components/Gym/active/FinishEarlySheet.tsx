@@ -2,7 +2,7 @@
  * FinishEarlySheet.tsx — ZenFit
  *
  * Finish Workout Early Confirmation Sheet (OpenGym Pattern):
- * Prompts the athlete when completing a workout session with unlogged sets,
+ * Prompts the athlete when completing a workout session,
  * offering explicit 'Finish and save' and 'Discard workout' actions.
  */
 
@@ -22,6 +22,7 @@ import { hapticMedium, hapticError } from '../../../utils/haptics';
 export interface FinishEarlySheetProps {
   visible: boolean;
   uncheckedSetsCount: number;
+  completedSetsCount?: number;
   onFinishAndSave: () => void;
   onDiscard: () => void;
   onClose: () => void;
@@ -30,10 +31,28 @@ export interface FinishEarlySheetProps {
 export const FinishEarlySheet: React.FC<FinishEarlySheetProps> = ({
   visible,
   uncheckedSetsCount,
+  completedSetsCount = 0,
   onFinishAndSave,
   onDiscard,
   onClose,
 }) => {
+  const isNothingLogged = completedSetsCount === 0 && uncheckedSetsCount > 0;
+  const isAllDone = uncheckedSetsCount === 0;
+
+  const title = isNothingLogged
+    ? 'Nothing logged yet'
+    : isAllDone
+    ? 'Finish workout?'
+    : 'Finish early?';
+
+  const subtitle = isNothingLogged
+    ? 'You haven’t checked off any sets. Finish the workout anyway?'
+    : isAllDone
+    ? 'All scheduled sets complete. Ready to record your session?'
+    : `${uncheckedSetsCount} ${
+        uncheckedSetsCount === 1 ? 'set' : 'sets'
+      } still unchecked. Finish the workout now?`;
+
   return (
     <Modal
       visible={visible}
@@ -46,17 +65,8 @@ export const FinishEarlySheet: React.FC<FinishEarlySheetProps> = ({
           {/* Sheet Handle */}
           <View style={styles.sheetHandle} />
 
-          <Text style={styles.title}>
-            {uncheckedSetsCount > 0 ? 'Finish early?' : 'Finish workout?'}
-          </Text>
-
-          <Text style={styles.subtitle}>
-            {uncheckedSetsCount > 0
-              ? `${uncheckedSetsCount} ${
-                  uncheckedSetsCount === 1 ? 'set' : 'sets'
-                } still unchecked. Finish the workout now?`
-              : 'All scheduled sets complete. Ready to record your session?'}
-          </Text>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
 
           {/* Action 1: Finish and save (Solid Green Badge + Green Text) */}
           <TouchableOpacity
@@ -123,35 +133,43 @@ const styles = StyleSheet.create({
     fontFamily: FONT_FAMILY.bold,
     fontSize: 20,
     color: '#FFFFFF',
-    letterSpacing: -0.4,
-    marginBottom: 6,
-    paddingHorizontal: 4,
+    textAlign: 'center',
+    marginBottom: 8,
   },
   subtitle: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 14,
     color: '#8E8E93',
+    textAlign: 'center',
+    marginBottom: 24,
+    paddingHorizontal: 20,
     lineHeight: 20,
-    marginBottom: 18,
-    paddingHorizontal: 4,
   },
   actionCard: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 14,
     backgroundColor: '#1C1C1E',
     borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    paddingVertical: 15,
+    paddingHorizontal: 16,
     marginBottom: 10,
-    gap: 14,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   iconBoxGreen: {
-    width: 38,
-    height: 38,
+    width: 34,
+    height: 34,
     borderRadius: 10,
     backgroundColor: '#30D158',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconBoxRed: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 69, 58, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -159,14 +177,6 @@ const styles = StyleSheet.create({
     fontFamily: FONT_FAMILY.bold,
     fontSize: 16,
     color: '#30D158',
-  },
-  iconBoxRed: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255, 69, 58, 0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   discardBtnText: {
     fontFamily: FONT_FAMILY.bold,

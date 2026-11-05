@@ -21,6 +21,7 @@ import { hapticSelection, hapticLight } from '../../../utils/haptics';
 export interface WorkoutMenuSheetProps {
   visible: boolean;
   restDurationText?: string;
+  sessionNote?: string;
   onOpenWorkoutSettings: () => void;
   onAddExercise: () => void;
   onAddSessionNote?: () => void;
@@ -31,6 +32,7 @@ export interface WorkoutMenuSheetProps {
 export const WorkoutMenuSheet: React.FC<WorkoutMenuSheetProps> = ({
   visible,
   restDurationText = '1:30 rest · Sound',
+  sessionNote = '',
   onOpenWorkoutSettings,
   onAddExercise,
   onAddSessionNote,
@@ -101,7 +103,16 @@ export const WorkoutMenuSheet: React.FC<WorkoutMenuSheetProps> = ({
               <View style={styles.rowIcon}>
                 <Ionicons name="document-text-outline" size={19} color="#FFFFFF" />
               </View>
-              <Text style={styles.rowText}>Add session note</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowText}>
+                  {sessionNote ? 'Edit session note' : 'Add session note'}
+                </Text>
+                {sessionNote ? (
+                  <Text style={styles.subText} numberOfLines={1}>
+                    {sessionNote}
+                  </Text>
+                ) : null}
+              </View>
             </TouchableOpacity>
 
             <View style={styles.divider} />
@@ -133,7 +144,7 @@ export const WorkoutMenuSheet: React.FC<WorkoutMenuSheetProps> = ({
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowText}>More</Text>
                 <Text style={styles.subText} numberOfLines={1}>
-                  Add routine, Rename workout, Don't co...
+                  Discard workout, Session options...
                 </Text>
               </View>
               <Ionicons
