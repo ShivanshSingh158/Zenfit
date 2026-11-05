@@ -2125,17 +2125,13 @@ export default function ActiveLoggingScreen() {
             keyboardDismissMode="on-drag"
           >
 
-            {/* ── OpenGym Focused Exercise Hero Card with Directional Physics ── */}
+            {/* ── OpenGym Focused Exercise & Sets View with Directional Physics ── */}
             <Animated.View style={{
               transform: [{ translateX: cardSlideAnim }],
               opacity: cardOpacityAnim,
-              backgroundColor: '#1C1C1E',
-              borderRadius: 16,
-              overflow: 'hidden',
-              borderWidth: 1,
-              borderColor: 'rgba(255, 255, 255, 0.08)',
-              marginBottom: 14,
+              width: '100%',
             }}>
+              {/* Exercise Header: Freely on the dark background */}
               <ActiveExerciseHeader
                 exercise={exercise}
                 partnerExercise={partnerExercise}
@@ -2158,35 +2154,37 @@ export default function ActiveLoggingScreen() {
 
               {/* Form Video Player Component */}
               {showVideo && (
-                <ActiveExerciseVideo
-                  exercise={exercise}
-                  appState={appState}
-                  isRefreshingVideo={isRefreshingVideo}
-                  colors={colors}
-                  styles={styles}
-                  onRefreshVideo={handleRefreshVideo}
-                  onCloseVideo={() => setShowVideo(false)}
-                  onError={async (err: any) => {
-                    console.warn('[YoutubeIframe Error] Video unavailable:', exercise.name, exercise.videoId, err);
-                    const retries = videoRetryCountMapRef.current[exercise.name] || 0;
-                    if (retries >= 1) {
-                      updateExercise(realExerciseIndex, { ...exercise, videoId: '' });
-                      setShowVideo(false);
-                      return;
-                    }
-                    videoRetryCountMapRef.current[exercise.name] = retries + 1;
-                    const freshId = await autoResolveExerciseVideoId(exercise.name, true);
-                    if (freshId && freshId !== exercise.videoId) {
-                      updateExercise(realExerciseIndex, { ...exercise, videoId: freshId });
-                    } else {
-                      updateExercise(realExerciseIndex, { ...exercise, videoId: '' });
-                      setShowVideo(false);
-                    }
-                  }}
-                />
+                <View style={{ marginTop: 8, marginBottom: 8, borderRadius: 16, overflow: 'hidden' }}>
+                  <ActiveExerciseVideo
+                    exercise={exercise}
+                    appState={appState}
+                    isRefreshingVideo={isRefreshingVideo}
+                    colors={colors}
+                    styles={styles}
+                    onRefreshVideo={handleRefreshVideo}
+                    onCloseVideo={() => setShowVideo(false)}
+                    onError={async (err: any) => {
+                      console.warn('[YoutubeIframe Error] Video unavailable:', exercise.name, exercise.videoId, err);
+                      const retries = videoRetryCountMapRef.current[exercise.name] || 0;
+                      if (retries >= 1) {
+                        updateExercise(realExerciseIndex, { ...exercise, videoId: '' });
+                        setShowVideo(false);
+                        return;
+                      }
+                      videoRetryCountMapRef.current[exercise.name] = retries + 1;
+                      const freshId = await autoResolveExerciseVideoId(exercise.name, true);
+                      if (freshId && freshId !== exercise.videoId) {
+                        updateExercise(realExerciseIndex, { ...exercise, videoId: freshId });
+                      } else {
+                        updateExercise(realExerciseIndex, { ...exercise, videoId: '' });
+                        setShowVideo(false);
+                      }
+                    }}
+                  />
+                </View>
               )}
 
-              {/* Set Rows with Stepper Pills & Checkmark Circles */}
+              {/* Set Rows with Stepper Pills & Checkmark Circles: Separate Rounded Card Container */}
               <SetList
                 setsLog={exercise.setsLog}
                 activeSetIndex={activeSetIndex}
@@ -2194,7 +2192,7 @@ export default function ActiveLoggingScreen() {
                 lastSessionSets={resolvedLastSessionSets}
                 colors={colors}
                 isDark={isDark}
-                styles={{ ...styles, tableCard: { backgroundColor: 'transparent', borderWidth: 0 } }}
+                styles={styles}
                 hasWarmups={hasWarmups}
                 allWarmupsCompleted={allWarmupsCompleted}
                 showCompletedWarmups={showCompletedWarmups}

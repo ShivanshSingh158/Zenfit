@@ -212,6 +212,16 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
           <Text style={headerStyles.planText}>
             Plan: {exercise.targetSets || 4} × {exercise.targetReps || '8'}
           </Text>
+
+          {/* Last Time History Row (OpenGym) */}
+          {lastTimeData ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+              <Text style={headerStyles.planText}>
+                Last time: {lastTimeData}
+              </Text>
+              <Ionicons name="time-outline" size={13} color="#8E8E93" />
+            </View>
+          ) : null}
         </View>
       </View>
 
@@ -241,9 +251,9 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
 
 const headerStyles = StyleSheet.create({
   cardHeader: {
-    paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 6,
+    paddingHorizontal: 2,
+    paddingTop: 8,
+    paddingBottom: 4,
   },
   heroRow: {
     flexDirection: 'row',
@@ -251,37 +261,38 @@ const headerStyles = StyleSheet.create({
     gap: 12,
   },
   thumbnailBox: {
-    width: 62,
-    height: 62,
-    borderRadius: 12,
-    backgroundColor: '#1E2026',
+    width: 66,
+    height: 66,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   thumbImg: {
     width: '100%',
     height: '100%',
-    borderRadius: 12,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
   },
   expandOverlay: {
     position: 'absolute',
     bottom: 3,
     right: 3,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   detailsCol: {
     flex: 1,
     justifyContent: 'center',
-    gap: 4,
+    gap: 3,
   },
   titleRow: {
     flexDirection: 'row',
@@ -289,7 +300,7 @@ const headerStyles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   exerciseTitle: {
-    fontSize: 17,
+    fontSize: 18,
     fontFamily: FONT_FAMILY.bold,
     color: '#FFFFFF',
     letterSpacing: -0.3,
@@ -297,9 +308,9 @@ const headerStyles = StyleSheet.create({
     marginRight: 8,
   },
   dotsBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -311,7 +322,7 @@ const headerStyles = StyleSheet.create({
     marginTop: 2,
   },
   tagBadge: {
-    backgroundColor: '#2C2C2E',
+    backgroundColor: '#1C1C1E',
     borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -322,7 +333,7 @@ const headerStyles = StyleSheet.create({
     color: '#8E8E93',
   },
   planText: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontFamily: FONT_FAMILY.regular,
     color: '#8E8E93',
     marginTop: 2,
@@ -332,10 +343,10 @@ const headerStyles = StyleSheet.create({
     paddingVertical: 2,
   },
   progressionText: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontFamily: FONT_FAMILY.medium,
     color: '#30D158',
-    lineHeight: 16,
+    lineHeight: 17,
   },
   supersetBanner: {
     flexDirection: 'row',

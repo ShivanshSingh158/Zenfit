@@ -69,9 +69,9 @@ export const SetList: React.FC<SetListProps> = React.memo(({
       <View style={{
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 10,
-        paddingTop: 12,
-        paddingBottom: 8,
+        paddingHorizontal: 6,
+        paddingTop: 10,
+        paddingBottom: 6,
       }}>
         <View style={{ width: 32 }} />
         <Text style={{ flex: 1, textAlign: 'center', fontFamily: FONT_FAMILY.medium, fontSize: 13, color: '#8E8E93' }}>
@@ -80,7 +80,7 @@ export const SetList: React.FC<SetListProps> = React.memo(({
         <Text style={{ flex: 1, textAlign: 'center', fontFamily: FONT_FAMILY.medium, fontSize: 13, color: '#8E8E93' }}>
           Reps
         </Text>
-        <View style={{ width: 42 }} />
+        <View style={{ width: 44 }} />
       </View>
 
       {/* Collapsible Warm-up Phase Header */}
@@ -190,15 +190,15 @@ export const SetList: React.FC<SetListProps> = React.memo(({
             flexDirection: 'row',
             alignItems: 'center',
             paddingVertical: 14,
-            paddingHorizontal: 16,
+            paddingHorizontal: 12,
             gap: 6,
           }}
           activeOpacity={0.7}
         >
-          <Ionicons name="add" size={17} color="#30D158" />
+          <Ionicons name="add" size={18} color="#30D158" />
           <Text style={{
             fontFamily: FONT_FAMILY.bold,
-            fontSize: 14.5,
+            fontSize: 15,
             color: '#30D158',
           }}>
             Add set

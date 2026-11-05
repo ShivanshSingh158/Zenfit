@@ -75,7 +75,7 @@ const SpringStepperButton = React.memo(({
       hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
     >
       <Animated.View style={[rowStyles.stepperBtn, animStyle]}>
-        <Ionicons name={icon} size={15} color="#E5E5EA" />
+        <Ionicons name={icon} size={16} color="#E5E5EA" />
       </Animated.View>
     </Pressable>
   );
@@ -221,7 +221,7 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
   // Compute set badge tag & color: Normal -> Warmup (W) -> Drop (D) -> Failure (F)
   let setBadgeText = `${set.setNumber || idx + 1}`;
   let setBadgeColor = '#8E8E93';
-  let setBadgeBg = '#1C1C1E';
+  let setBadgeBg = '#242426';
 
   if (set.setType === 'drop') {
     setBadgeText = 'D';
@@ -398,7 +398,7 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
           </View>
         </View>
 
-        {/* 4. CHECKMARK BUTTON COLUMN (Width: 42) */}
+        {/* 4. CHECKMARK BUTTON COLUMN (Width: 44) */}
         <View style={rowStyles.colCheck}>
           <Animated.View style={animatedCheckStyle}>
             <TouchableOpacity
@@ -412,7 +412,7 @@ export const SwipeableSetRow: React.FC<SwipeableSetRowProps> = React.memo(({
               activeOpacity={0.7}
             >
               {isCompleted ? (
-                <Ionicons name="checkmark" size={16} color="#000000" />
+                <Ionicons name="checkmark" size={18} color="#000000" />
               ) : null}
             </TouchableOpacity>
           </Animated.View>
@@ -453,7 +453,7 @@ const rowStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 5,
-    paddingHorizontal: 10,
+    paddingHorizontal: 6,
     backgroundColor: 'transparent',
   },
   rowActive: {
@@ -468,32 +468,32 @@ const rowStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   setBadgeWrap: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   setNumberText: {
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: FONT_FAMILY.bold,
   },
   colInput: {
     flex: 1,
-    paddingHorizontal: 5,
+    paddingHorizontal: 4,
     alignItems: 'center',
     justifyContent: 'center',
   },
   stepperPill: {
     width: '100%',
-    height: 40,
+    height: 44,
     borderRadius: 10,
-    backgroundColor: '#2C2C2E',
+    backgroundColor: '#27272A',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.05)',
     paddingHorizontal: 2,
   },
   stepperPillCompleted: {
@@ -505,8 +505,8 @@ const rowStyles = StyleSheet.create({
     backgroundColor: 'rgba(48, 209, 88, 0.08)',
   },
   stepperBtn: {
-    width: 32,
-    height: 36,
+    width: 36,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -519,7 +519,7 @@ const rowStyles = StyleSheet.create({
   numericInputText: {
     color: '#FFFFFF',
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 15,
+    fontSize: 16,
     textAlign: 'center',
   },
   numericInputTextCompleted: {
@@ -534,16 +534,16 @@ const rowStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   colCheck: {
-    width: 42,
+    width: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',

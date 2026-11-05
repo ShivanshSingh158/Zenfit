@@ -114,12 +114,15 @@ export const makeActiveLoggingStyles = (colors: any, isDark: boolean = true) => 
 
     // ── Apple Inset Grouped Set Table ──────────────────────────────────────
     tableCard: {
-      backgroundColor: isDark ? '#141417' : colors.surface,
-      borderRadius: 16,
+      backgroundColor: isDark ? '#18181B' : colors.surface,
+      borderRadius: 18,
       overflow: 'hidden',
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : colors.border,
-      marginBottom: 14,
+      paddingVertical: 10,
+      paddingHorizontal: 8,
+      marginTop: 12,
+      marginBottom: 16,
     },
     tableHeaderRow: {
       flexDirection: 'row',
