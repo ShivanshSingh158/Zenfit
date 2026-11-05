@@ -27,7 +27,6 @@ import { makeActiveLoggingStyles } from './activeLoggingStyles';
 import WorkoutTimer from '../../components/Gym/active/WorkoutTimer';
 import SetList from '../../components/Gym/active/SetList';
 import ActiveExerciseHeader from '../../components/Gym/active/ActiveExerciseHeader';
-import ActiveExerciseVideo from '../../components/Gym/active/ActiveExerciseVideo';
 import SupersetPickerModal from '../../components/Gym/exercise/SupersetPickerModal';
 import ActiveSwapModal from '../../components/Gym/active/ActiveSwapModal';
 import AnimatedRestTimer from '../../components/Gym/active/AnimatedRestTimer';
@@ -2151,38 +2150,6 @@ export default function ActiveLoggingScreen() {
                 onNoteChange={handleNoteChange}
                 onOpenExerciseMenu={() => setShowExerciseMenuSheet(true)}
               />
-
-              {/* Form Video Player Component */}
-              {showVideo && (
-                <View style={{ marginTop: 8, marginBottom: 8, borderRadius: 16, overflow: 'hidden' }}>
-                  <ActiveExerciseVideo
-                    exercise={exercise}
-                    appState={appState}
-                    isRefreshingVideo={isRefreshingVideo}
-                    colors={colors}
-                    styles={styles}
-                    onRefreshVideo={handleRefreshVideo}
-                    onCloseVideo={() => setShowVideo(false)}
-                    onError={async (err: any) => {
-                      console.warn('[YoutubeIframe Error] Video unavailable:', exercise.name, exercise.videoId, err);
-                      const retries = videoRetryCountMapRef.current[exercise.name] || 0;
-                      if (retries >= 1) {
-                        updateExercise(realExerciseIndex, { ...exercise, videoId: '' });
-                        setShowVideo(false);
-                        return;
-                      }
-                      videoRetryCountMapRef.current[exercise.name] = retries + 1;
-                      const freshId = await autoResolveExerciseVideoId(exercise.name, true);
-                      if (freshId && freshId !== exercise.videoId) {
-                        updateExercise(realExerciseIndex, { ...exercise, videoId: freshId });
-                      } else {
-                        updateExercise(realExerciseIndex, { ...exercise, videoId: '' });
-                        setShowVideo(false);
-                      }
-                    }}
-                  />
-                </View>
-              )}
 
               {/* Set Rows with Stepper Pills & Checkmark Circles: Separate Rounded Card Container */}
               <SetList
