@@ -28,9 +28,7 @@ import { GYM_PLAN } from '../../../data/gymPlan';
 import VolumeTrendLine from '../Charts/VolumeTrendLine';
 import StrengthProgressionChart from '../Charts/StrengthProgressionChart';
 import type { ExerciseSpark } from '../Charts/StrengthProgressionChart';
-import EffortDistributionCard from '../Charts/EffortDistributionCard';
 import ExerciseDeepDiveModal from '../exercise/ExerciseDeepDiveModal';
-import ConsistencyHeatmap from '../Charts/ConsistencyHeatmap';
 import AnatomicalBodyMapCard from './AnatomicalBodyMapCard';
 import WeeklyReportSkeleton from './WeeklyReportSkeleton';
 import {
@@ -45,7 +43,6 @@ import type { GymDayLog, GymPlanDay, UserGymPlanDoc } from '../../../types/gym.t
 import { makeStyles } from './weeklyGymReportStyles';
 import { computeOrGetHotCache, generateDatasetFingerprint } from '../../../utils/hotCacheStore';
 import WeeklyHighlightsCarousel, { WeeklyHighlightStats } from './WeeklyHighlightsCarousel';
-import VolumeZoneRadarBar, { MuscleVolumeEntry } from './VolumeZoneRadarBar';
 import { computeUnifiedAnalytics } from '../../../services/gymAnalyticsEngine';
 
 
@@ -745,21 +742,6 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
     adherenceRate,
   ]);
 
-  // ── MEV vs MRV Volume Entries ─────────────────────────────────────────────
-  const muscleVolumeEntries: MuscleVolumeEntry[] = useMemo(() => {
-    return displayMuscles.map(m => {
-      const stats = thisWeekMuscle[m] || { sets: 0 };
-      const direct = stats.sets;
-      const synergist = Math.round(stats.sets * 0.4);
-      return {
-        muscleGroup: m,
-        directSets: direct,
-        synergistSets: synergist,
-        effectiveSets: Math.round(direct + synergist * 0.5),
-      };
-    });
-  }, [displayMuscles, thisWeekMuscle]);
-
   // ── GYM-GPT Weekly Intelligence Hook & State ──────────────────────────────
   const [aiAnalysis, setAiAnalysis] = useState<WeeklyGymAnalysis | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -885,242 +867,6 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
             onSelectExercise={name => setSelectedDeepDiveEx(name)}
           />
 
-          {/* 1.8 ── Interactive Volume Radar / Zone Bar (MEV vs MRV) ──────── */}
-          <VolumeZoneRadarBar
-            volumes={muscleVolumeEntries}
-            title="VOLUME LANDMARKS"
-            subtitle="Weekly sets vs recovery thresholds"
-          />
-
-          {/* 2. ── GYM-GPT Weekly Intelligence Card (Collapsible) ────────────── */}
-          <View style={[st.aiCard, isAiCollapsed && st.aiCardCollapsed]}>
-            {/* Header with Title, Grade Badge, Sync Button, and Fold/Unfold Chevron */}
-            <TouchableOpacity
-              style={[st.aiCardHeader, isAiCollapsed && st.aiCardHeaderCollapsed]}
-              onPress={() => {
-                hapticLight();
-                toggleAiCard(!isAiCollapsed);
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1, minWidth: 0 }}>
-                <View style={st.aiSparkleBadge}>
-<Ionicons name="barbell" size={18} color="#a599ff" />
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={st.aiSectionTitle} numberOfLines={1}>SCIENTIFIC PERFORMANCE REPORT</Text>
-                  <Text style={st.aiSectionSubtitle} numberOfLines={1}>
-                    Deterministic Overload & Tonnage
-                  </Text>
-                </View>
-              </View>
-
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                {aiAnalysis && (
-                  <View style={st.aiScoreBadge}>
-                    <Text style={st.aiScoreBadgeText}>
-                      {aiAnalysis.scoreGrade} • {aiAnalysis.score}%
-                    </Text>
-                  </View>
-                )}
-                <View style={st.aiFoldBtn}>
-                  <Ionicons
-                    name={isAiCollapsed ? 'chevron-down' : 'chevron-up'}
-                    size={14}
-                    color={COLORS.textTertiary}
-                  />
-                </View>
-              </View>
-            </TouchableOpacity>
-
-            {/* Horizontal "Click to open" prompt with clean spacing when collapsed */}
-            {isAiCollapsed && (
-              <TouchableOpacity
-                style={st.aiCollapsedRow}
-                onPress={() => {
-                  hapticLight();
-                  toggleAiCard(false);
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={st.aiCollapsedLeft}>
-<Ionicons name="barbell" size={12} color="#a599ff" />
-                  <Text style={st.aiClickToOpenText}>Click to open</Text>
-                  {aiAnalysis?.headline ? (
-                    <>
-                      <Text style={st.aiCollapsedDot}>•</Text>
-                      <Text style={st.aiCollapsedHeadlineText} numberOfLines={1}>
-                        {aiAnalysis.headline}
-                      </Text>
-                    </>
-                  ) : null}
-                </View>
-                <Ionicons name="chevron-forward" size={12} color="#a599ff" />
-              </TouchableOpacity>
-            )}
-
-            {/* FIX: Animated.View with maxHeight interpolation replaces LayoutAnimation */}
-            {!isAiCollapsed && (
-              aiLoading ? (
-                <View style={st.aiLoadingState}>
-                  <ActivityIndicator size="small" color="#a599ff" />
-                  <Text style={st.aiLoadingText}>
-                    Synthesizing 30-day mesocycle & progressive overload...
-                  </Text>
-                </View>
-              ) : aiError ? (
-                <View style={st.aiErrorState}>
-                  <Ionicons name="alert-circle-outline" size={18} color={COLORS.error} />
-                  <Text style={st.aiErrorText}>Analysis failed. Check connection and retry.</Text>
-                  <TouchableOpacity
-                    style={st.aiErrorRetryBtn}
-                    onPress={() => { hapticLight(); loadWeeklyAnalysis(true); }}
-                  >
-                    <Ionicons name="refresh" size={13} color="#a599ff" />
-                    <Text style={st.aiErrorRetryText}>Retry Analysis</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : aiAnalysis ? (
-                <View style={st.aiContent}>
-                  {/* Headline & Executive Verdict */}
-                  <View style={st.aiHeroBlock}>
-                    <FormattedText
-                      text={aiAnalysis.headline}
-                      style={st.aiHeadline}
-                      boldColor="#ffffff"
-                    />
-                    <FormattedText
-                      text={aiAnalysis.verdict}
-                      style={st.aiVerdict}
-                      boldColor="#ffffff"
-                    />
-                  </View>
-
-                  {/* Directives (Numbered Luxury Action Cards) */}
-                  {aiAnalysis.nextWeekDirectives && aiAnalysis.nextWeekDirectives.length > 0 && (
-                    <View style={st.aiBlock}>
-                      <View style={st.aiBlockHeader}>
-                        <Ionicons name="flag" size={13} color="#a599ff" />
-                        <Text style={[st.aiBlockTitle, { color: '#a599ff' }]}>
-                          NEXT CYCLE DIRECTIVES
-                        </Text>
-                      </View>
-
-                      <View style={{ gap: 8, marginTop: 4 }}>
-                        {aiAnalysis.nextWeekDirectives.map((directive, idx) => (
-                          <View key={idx} style={st.aiDirectiveCard}>
-                            <View style={st.aiDirectiveNumPill}>
-                              <Text style={st.aiDirectiveNumText}>0{idx + 1}</Text>
-                            </View>
-                            <FormattedText
-                              text={directive}
-                              style={st.aiDirectiveText}
-                              boldColor="#ffffff"
-                            />
-                          </View>
-                        ))}
-                      </View>
-                    </View>
-                  )}
-
-                  {/* Overload Comparison vs Last Week */}
-                  <View style={st.aiBlock}>
-                    <View style={st.aiBlockHeader}>
-                      <Ionicons name="swap-horizontal" size={13} color={COLORS.accentGreen} />
-                      <Text style={[st.aiBlockTitle, { color: COLORS.accentGreen }]}>
-                        VS LAST WEEK (PROGRESSIVE OVERLOAD)
-                      </Text>
-                    </View>
-
-                    {aiAnalysis.comparisonVsLastWeek?.volumeDeltaText ? (
-                      <View style={st.aiVolumePill}>
-                        <Ionicons name="trending-up" size={12} color={COLORS.accentGreen} style={{ marginRight: 4 }} />
-                        <Text style={st.aiVolumePillText}>
-                          {aiAnalysis.comparisonVsLastWeek.volumeDeltaText}
-                        </Text>
-                      </View>
-                    ) : null}
-
-                    {aiAnalysis.comparisonVsLastWeek?.keyOverloads?.map((item, idx) => (
-                      <View key={idx} style={st.aiBulletRow}>
-                        <Text style={st.aiBulletDot}>•</Text>
-                        <FormattedText
-                          text={item}
-                          style={st.aiBulletText}
-                          boldColor="#ffffff"
-                        />
-                      </View>
-                    ))}
-
-                    {aiAnalysis.comparisonVsLastWeek?.summary ? (
-                      <FormattedText
-                        text={aiAnalysis.comparisonVsLastWeek.summary}
-                        style={st.aiSubSummary}
-                        boldColor="#d1d1d6"
-                      />
-                    ) : null}
-                  </View>
-
-                  {/* 30-Day Mesocycle Dynamics & Fatigue Indicator */}
-                  <View style={st.aiBlock}>
-                    <View style={st.aiBlockHeader}>
-                      <Ionicons name="analytics" size={13} color={COLORS.accentAmber} />
-                      <Text style={[st.aiBlockTitle, { color: COLORS.accentAmber }]}>
-                        30-DAY MESOCYCLE DYNAMICS
-                      </Text>
-                    </View>
-
-                    <FormattedText
-                      text={aiAnalysis.thirtyDayTrend.trajectory}
-                      style={st.aiTrajectoryText}
-                      boldColor="#ffffff"
-                    />
-
-                    {aiAnalysis.thirtyDayTrend?.laggingMuscles?.map((item, idx) => (
-                      <View key={idx} style={st.aiBulletRow}>
-                        <Text style={[st.aiBulletDot, { color: COLORS.accentAmber }]}>⚡</Text>
-                        <FormattedText
-                          text={item}
-                          style={st.aiBulletText}
-                          boldColor="#ffffff"
-                        />
-                      </View>
-                    ))}
-
-                    {aiAnalysis.thirtyDayTrend?.fatigueIndicator ? (
-                      <View style={st.aiFatigueBox}>
-                        <Ionicons name="shield-checkmark" size={13} color={COLORS.accentAmber} />
-                        <FormattedText
-                          text={aiAnalysis.thirtyDayTrend.fatigueIndicator}
-                          style={st.aiFatigueText}
-                          boldColor={COLORS.accentAmber}
-                        />
-                      </View>
-                    ) : null}
-                  </View>
-                </View>
-              ) : (
-                <View style={st.aiPromptState}>
-                  <Text style={st.aiPromptTitle}>Weekly Intelligence & Overload Report</Text>
-                  <Text style={st.aiPromptSub}>
-                    Generate S.A.R.A's AI breakdown for this week's volume progression, fatigue index, and next cycle directives.
-                  </Text>
-                  <TouchableOpacity
-                    style={st.aiGenerateBtn}
-                    onPress={() => {
-                      hapticMedium();
-                      loadWeeklyAnalysis(false);
-                    }}
-                    activeOpacity={0.75}
-                  >
-<Ionicons name="analytics" size={16} color="#fff" />
-                    <Text style={st.aiGenerateBtnText}>Generate Weekly Scientific Report</Text>
-                  </TouchableOpacity>
-                </View>
-              )
-            )}
-          </View>
-
           {/* 2.5 ── Anatomical Muscle Heatmap & Recovery BodyMap (Dual-View Vector Engine) ──── */}
           <AnatomicalBodyMapCard
             gymLogs={weekLogs}
@@ -1129,70 +875,20 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
             defaultMode="volume"
           />
 
-          {/* 2.8 ── Effort & Intensity Intelligence (OpenGym Hypertrophy Stimulus Engine) ──── */}
-          <EffortDistributionCard weekLogs={weekLogs} />
-
-          {/* 3. ── Muscle Target Adherence (Dynamic Donut Circles) ───────────── */}
-          <View style={st.card}>
-            <View style={st.cardHeaderRow}>
-              <Text style={st.sectionLabel}>MUSCLE TARGET ADHERENCE</Text>
-              <View style={st.adherenceBadge}>
-                <Text style={st.adherenceBadgeText}>
-                  {adherenceRate >= 100 ? '100% Plan Hit' : `${adherenceRate}% Plan Hit`}
-                </Text>
-              </View>
-            </View>
-
-            <View style={st.muscleGrid}>
-              {displayMuscles.map(muscle => {
-                const stats = thisWeekMuscle[muscle] || { sets: 0, totalKg: 0, sessions: 0 };
-                const plannedTarget = plannedMuscleTargets[muscle] || stats.sets || 1;
-                const pct = Math.min(100, Math.round((stats.sets / plannedTarget) * 100));
-                const isComplete = stats.sets >= plannedTarget && plannedTarget > 0;
-                const color = isComplete ? COLORS.accentGreen : (MUSCLE_COLORS[muscle] ?? COLORS.accentPrimary);
-                const prev = prevWeekMuscle[muscle];
-                const delta = stats.sets - (prev?.sets ?? 0);
-
-                return (
-                  <View key={muscle} style={st.muscleCard}>
-                    <View style={st.ringWrapper}>
-                      <DonutRing pct={pct} color={color} size={66} strokeWidth={6.5} />
-                      <View style={st.ringCenter}>
-                        <Text style={[st.ringNum, { color }]}>
-                          {stats.sets}
-                          <Text style={st.ringTarget}>/{plannedTarget}</Text>
-                        </Text>
-                        <Text style={st.ringUnit}>
-                          {isComplete ? '✓ Done' : `${pct}%`}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <Text style={st.muscleName} numberOfLines={1}>
-                      {muscle}
-                    </Text>
-
-                    <View style={st.muscleChangeRow}>
-                      {delta !== 0 ? (
-                        <Text
-                          style={{
-                            fontSize: 10,
-                            fontFamily: FONT_FAMILY.bold,
-                            color: delta > 0 ? COLORS.accentGreen : COLORS.error,
-                          }}
-                        >
-                          {delta > 0 ? '▲ +' : '▼ -'}{Math.abs(delta)} sets
-                        </Text>
-                      ) : (
-                        <Text style={{ fontSize: 10, color: COLORS.textTertiary }}>
-                          • on track
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
+          <View style={st.muscleBadgesWrap}>
+            {displayMuscles.map(m => {
+              const sets = thisWeekMuscle[m]?.sets ?? 0;
+              const target = plannedMuscleTargets[m] ?? 0;
+              const color = MUSCLE_COLORS[m] ?? '#30D158';
+              return (
+                <View key={m} style={st.muscleBadge}>
+                  <View style={[st.muscleBadgeDot, { backgroundColor: color }]} />
+                  <Text style={st.muscleBadgeText}>
+                    {m} <Text style={st.muscleBadgeSets}>{sets}{target > 0 ? `/${target}` : ''} sets</Text>
+                  </Text>
+                </View>
+              );
+            })}
           </View>
 
           {/* 3.5 ── Untrained Planned Muscles Alert ─────────────────────────── */}
@@ -1215,88 +911,10 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
             </View>
           )}
 
-          {/* 4. ── Highlights & Top Lift Card (Subtle Obsidian Gold) ─────────── */}
-          {weeklyHighlights.topLift && (
-            <View style={st.highlightCard}>
-              <View style={st.highlightHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <View style={st.trophyCircle}>
-                    <Ionicons name="trophy" size={13} color="#e6c875" />
-                  </View>
-                  <View>
-                    <Text style={st.highlightTitle}>WEEKLY BEST LIFTS</Text>
-                    <Text style={st.highlightSubtitle}>Peak Load & Volume Leaders</Text>
-                  </View>
-                </View>
-                <View style={st.highlightBadge}>
-                  <Text style={st.highlightBadgeText}>🏆 PR Highs</Text>
-                </View>
-              </View>
-
-              <View style={st.highlightPodsGrid}>
-                {/* Pod 1: Heaviest Lift (Tappable Deep-Dive) */}
-                <TouchableOpacity
-                  style={st.highlightPod}
-                  activeOpacity={0.75}
-                  onPress={() => {
-                    hapticLight();
-                    setSelectedDeepDiveEx(weeklyHighlights.topLift!.name);
-                  }}
-                >
-                  <View style={st.highlightPodHeader}>
-                    <Ionicons name="barbell-outline" size={12} color="#e6c875" />
-                    <Text style={st.highlightPodTag}>HEAVIEST LIFT</Text>
-                  </View>
-                  <Text style={st.highlightLiftName} numberOfLines={1}>
-                    {weeklyHighlights.topLift.name}
-                  </Text>
-                  <View style={st.highlightStatRow}>
-                    <Text style={st.highlightWeightText}>
-                      {weeklyHighlights.topLift.weight}
-                      <Text style={st.highlightUnit}> kg</Text>
-                    </Text>
-                    <Text style={st.highlightRepsText}>
-                      • {weeklyHighlights.topLift.reps} reps
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-
-                {/* Pod 2: Volume Leader (Tappable Deep-Dive) */}
-                {weeklyHighlights.topVolumeExercise && (
-                  <TouchableOpacity
-                    style={st.highlightPod}
-                    activeOpacity={0.75}
-                    onPress={() => {
-                      hapticLight();
-                      setSelectedDeepDiveEx(weeklyHighlights.topVolumeExercise!.name);
-                    }}
-                  >
-                    <View style={st.highlightPodHeader}>
-                      <Ionicons name="layers-outline" size={12} color="#89dceb" />
-                      <Text style={[st.highlightPodTag, { color: '#89dceb' }]}>VOLUME LEADER</Text>
-                    </View>
-                    <Text style={st.highlightLiftName} numberOfLines={1}>
-                      {weeklyHighlights.topVolumeExercise.name}
-                    </Text>
-                    <View style={st.highlightStatRow}>
-                      <Text style={[st.highlightWeightText, { color: '#ffffff' }]}>
-                        {Math.round(weeklyHighlights.topVolumeExercise.volume / 100) / 10}k
-                        <Text style={st.highlightUnit}> kg</Text>
-                      </Text>
-                      <Text style={st.highlightRepsText}>
-                        • workload
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          )}
-
           {/* 5. ── Volume Trends (This week vs last week line overlay) ──────── */}
           <VolumeTrendLine thisWeek={dailyVolume} lastWeek={prevDailyVolume} height={140} />
 
-          {/* 6. ── Strength Progression Sparklines with Interactive Deep-Dive Modal ── */}
+          {/* 4. ── Strength Progression Sparklines with Interactive Deep-Dive Modal ── */}
           {strengthProgressionData.length > 0 && (
             <StrengthProgressionChart
               exercises={strengthProgressionData}
@@ -1307,7 +925,152 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
             />
           )}
 
-          {/* 7. ── Cardio & Conditioning (Elevated Luxury Pods Design) ─────── */}
+          {/* 5. ── Coach's 60-Second Takeaway (Concise & Actionable AI) ──────── */}
+          <View style={[st.aiCard, isAiCollapsed && st.aiCardCollapsed]}>
+            <TouchableOpacity
+              style={[st.aiCardHeader, isAiCollapsed && st.aiCardHeaderCollapsed]}
+              onPress={() => {
+                hapticLight();
+                toggleAiCard(!isAiCollapsed);
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1, minWidth: 0 }}>
+                <View style={st.aiSparkleBadge}>
+                  <Ionicons name="sparkles" size={16} color="#a599ff" />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={st.aiSectionTitle} numberOfLines={1}>COACH'S 60-SECOND TAKEAWAYS</Text>
+                  <Text style={st.aiSectionSubtitle} numberOfLines={1}>
+                    Weekly Insights & Directives
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                {aiAnalysis && (
+                  <View style={st.aiScoreBadge}>
+                    <Text style={st.aiScoreBadgeText}>
+                      {aiAnalysis.scoreGrade} • {aiAnalysis.score}%
+                    </Text>
+                  </View>
+                )}
+                <View style={st.aiFoldBtn}>
+                  <Ionicons
+                    name={isAiCollapsed ? 'chevron-down' : 'chevron-up'}
+                    size={14}
+                    color={COLORS.textTertiary}
+                  />
+                </View>
+              </View>
+            </TouchableOpacity>
+
+            {isAiCollapsed && (
+              <TouchableOpacity
+                style={st.aiCollapsedRow}
+                onPress={() => {
+                  hapticLight();
+                  toggleAiCard(false);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={st.aiCollapsedLeft}>
+                  <Ionicons name="sparkles" size={12} color="#a599ff" />
+                  <Text style={st.aiClickToOpenText}>Click to open</Text>
+                  {aiAnalysis?.headline ? (
+                    <>
+                      <Text style={st.aiCollapsedDot}>•</Text>
+                      <Text style={st.aiCollapsedHeadlineText} numberOfLines={1}>
+                        {aiAnalysis.headline}
+                      </Text>
+                    </>
+                  ) : null}
+                </View>
+                <Ionicons name="chevron-forward" size={12} color="#a599ff" />
+              </TouchableOpacity>
+            )}
+
+            {!isAiCollapsed && (
+              aiLoading ? (
+                <View style={st.aiLoadingState}>
+                  <ActivityIndicator size="small" color="#a599ff" />
+                  <Text style={st.aiLoadingText}>
+                    Synthesizing weekly coaching insights...
+                  </Text>
+                </View>
+              ) : aiError ? (
+                <View style={st.aiErrorState}>
+                  <Ionicons name="alert-circle-outline" size={18} color={COLORS.error} />
+                  <Text style={st.aiErrorText}>Analysis failed. Check connection and retry.</Text>
+                  <TouchableOpacity
+                    style={st.aiErrorRetryBtn}
+                    onPress={() => { hapticLight(); loadWeeklyAnalysis(true); }}
+                  >
+                    <Ionicons name="refresh" size={13} color="#a599ff" />
+                    <Text style={st.aiErrorRetryText}>Retry Analysis</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : aiAnalysis ? (
+                <View style={st.aiContent}>
+                  {/* Executive Verdict */}
+                  <View style={st.aiHeroBlock}>
+                    <FormattedText
+                      text={aiAnalysis.verdict || aiAnalysis.headline}
+                      style={st.aiVerdict}
+                      boldColor="#ffffff"
+                    />
+                  </View>
+
+                  {/* Next Cycle Directives (Max 2 cards) */}
+                  {aiAnalysis.nextWeekDirectives && aiAnalysis.nextWeekDirectives.length > 0 && (
+                    <View style={st.aiBlock}>
+                      <View style={st.aiBlockHeader}>
+                        <Ionicons name="flag" size={13} color="#a599ff" />
+                        <Text style={[st.aiBlockTitle, { color: '#a599ff' }]}>
+                          NEXT CYCLE DIRECTIVES
+                        </Text>
+                      </View>
+
+                      <View style={{ gap: 8, marginTop: 4 }}>
+                        {aiAnalysis.nextWeekDirectives.slice(0, 2).map((directive, idx) => (
+                          <View key={idx} style={st.aiDirectiveCard}>
+                            <View style={st.aiDirectiveNumPill}>
+                              <Text style={st.aiDirectiveNumText}>0{idx + 1}</Text>
+                            </View>
+                            <FormattedText
+                              text={directive}
+                              style={st.aiDirectiveText}
+                              boldColor="#ffffff"
+                            />
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <View style={st.aiPromptState}>
+                  <Text style={st.aiPromptTitle}>Weekly Coach Insights</Text>
+                  <Text style={st.aiPromptSub}>
+                    Generate S.A.R.A's concise coaching analysis and directives for next week.
+                  </Text>
+                  <TouchableOpacity
+                    style={st.aiGenerateBtn}
+                    onPress={() => {
+                      hapticMedium();
+                      loadWeeklyAnalysis(false);
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <Ionicons name="sparkles" size={16} color="#fff" />
+                    <Text style={st.aiGenerateBtnText}>Generate Coaching Takeaways</Text>
+                  </TouchableOpacity>
+                </View>
+              )
+            )}
+          </View>
+
+          {/* 6. ── Cardio & Conditioning (Elevated Luxury Pods Design) ─────── */}
           {cardioSummary.sessions > 0 && (
             <View style={st.cardioCard}>
               <View style={st.cardioHeaderRow}>

@@ -1,10 +1,12 @@
 import React, { memo, useMemo } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Image as ExpoImage } from 'expo-image';
 import { resolveMuscleColor, getPreviousExerciseSession } from '../../../utils/gymUtils';
 import { FONT_FAMILY } from '../../../theme/tokens';
 import { ExerciseCatalogEntry } from './ExerciseSearchDropdown';
 import { hapticLight, hapticSuccess } from '../../../utils/haptics';
+import { resolveExercise, getExerciseStillPosterUrl } from '../../../services/exerciseMediaService';
 
 export interface ExerciseCardItemProps {
   item: ExerciseCatalogEntry;
@@ -194,6 +196,9 @@ export const ExerciseCardItem: React.FC<ExerciseCardItemProps> = memo(({
   const muscleColor = resolveMuscleColor(primaryMuscle);
   const { snippet } = getPastPerformanceSnippet(item.name, gymLogs);
 
+  const def = useMemo(() => resolveExercise(item.name), [item.name]);
+  const stillUrl = useMemo(() => (def ? getExerciseStillPosterUrl(def) : ''), [def]);
+
   // Resolve "Also known as" aliases
   const aliasDisplay = useMemo(() => {
     if (!item.aliases || item.aliases.length === 0) return null;
@@ -232,13 +237,28 @@ export const ExerciseCardItem: React.FC<ExerciseCardItemProps> = memo(({
       }}
     >
       <View style={styles.exerciseCardInner}>
-        <View style={{ flex: 1, paddingRight: 12 }}>
+        {/* Square Still Thumbnail */}
+        <View style={cardStyles.thumbBox}>
+          {stillUrl ? (
+            <ExpoImage
+              source={{ uri: stillUrl }}
+              style={cardStyles.thumbImg}
+              contentFit="contain"
+              recyclingKey={item.name}
+              cachePolicy="memory-disk"
+            />
+          ) : (
+            <Ionicons name="barbell-outline" size={20} color="#8E8E93" />
+          )}
+        </View>
+
+        <View style={{ flex: 1, paddingHorizontal: 12 }}>
           <Text style={styles.cardTitle} numberOfLines={1}>
             {item.name}
           </Text>
 
           {aliasDisplay ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2, marginBottom: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 1, marginBottom: 2 }}>
               <Text style={{ fontSize: 11, color: isDark ? '#A599FF' : '#6C5CE7', marginRight: 4, fontFamily: FONT_FAMILY.bold }}>↳</Text>
               <Text style={{ fontSize: 11, color: isDark ? 'rgba(255, 255, 255, 0.50)' : 'rgba(0, 0, 0, 0.55)', fontFamily: FONT_FAMILY.medium }} numberOfLines={1}>
                 Also known as: <Text style={{ color: isDark ? '#DDD6FE' : '#4C1D95', fontFamily: FONT_FAMILY.bold }}>{aliasDisplay}</Text>
@@ -273,3 +293,20 @@ export const ExerciseCardItem: React.FC<ExerciseCardItemProps> = memo(({
 });
 
 export default ExerciseCardItem;
+
+const cardStyles = StyleSheet.create({
+  thumbBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    flexShrink: 0,
+  },
+  thumbImg: {
+    width: 44,
+    height: 44,
+  },
+});

@@ -532,7 +532,7 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(({
                       {item.name}
                     </Text>
                     <Text style={styles.metaSubtitle} numberOfLines={1}>
-                      {mName} · {equip.type}
+                      {mName}
                     </Text>
                   </View>
 

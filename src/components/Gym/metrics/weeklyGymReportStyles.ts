@@ -835,5 +835,37 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
       fontFamily: FONT_FAMILY.medium,
       flex: 1,
     },
+    // Muscle Badges Strip under Body Map
+    muscleBadgesWrap: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+      marginTop: 10,
+      marginBottom: 12,
+      paddingHorizontal: 2,
+    },
+    muscleBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7',
+      borderRadius: RADIUS.full,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    muscleBadgeDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+    },
+    muscleBadgeText: {
+      fontFamily: FONT_FAMILY.medium,
+      fontSize: 12,
+      color: colors.textPrimary,
+    },
+    muscleBadgeSets: {
+      fontFamily: FONT_FAMILY.bold,
+      color: colors.textSecondary,
+    },
   });
 
