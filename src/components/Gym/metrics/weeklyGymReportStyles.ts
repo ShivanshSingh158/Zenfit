@@ -18,7 +18,6 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     title: {
       fontSize: 22,
-      fontWeight: '700',
       color: colors.textPrimary,
       fontFamily: FONT_FAMILY.bold,
     },
@@ -32,12 +31,12 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 5,
-      backgroundColor: isDark ? 'rgba(165,153,255,0.1)' : 'rgba(108,92,231,0.08)',
+      backgroundColor: isDark ? 'rgba(10, 132, 255, 0.12)' : 'rgba(10, 132, 255, 0.08)',
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(165,153,255,0.25)' : 'rgba(108,92,231,0.2)',
-      borderRadius: RADIUS.full,
-      paddingHorizontal: 12,
-      paddingVertical: 5,
+      borderColor: isDark ? 'rgba(10, 132, 255, 0.28)' : 'rgba(10, 132, 255, 0.22)',
+      borderRadius: RADIUS.sm,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
     },
     restBadgeText: {
       fontSize: 11,
@@ -47,7 +46,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
 
     // Empty Card
     emptyCard: {
-      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
+      backgroundColor: colors.surface,
       borderRadius: RADIUS.xl,
       alignItems: 'center',
       paddingVertical: 40,
@@ -58,7 +57,6 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     emptyText: {
       fontSize: 15,
-      fontWeight: '600',
       color: colors.textPrimary,
       textAlign: 'center',
     },
@@ -72,7 +70,6 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     // Section Headers
     sectionLabel: {
       fontSize: 10,
-      fontWeight: '700',
       color: colors.textTertiary,
       letterSpacing: 1.2,
       fontFamily: FONT_FAMILY.bold,
@@ -86,7 +83,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
 
     // Shared Card Wrapper
     card: {
-      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
+      backgroundColor: colors.surface,
       borderRadius: RADIUS.xl,
       padding: 16,
       marginBottom: 12,
@@ -102,7 +99,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     statCard: {
       flex: 1,
-      backgroundColor: isDark ? '#1C1C1E' : (colors.surface2 || '#F8F7FC'),
+      backgroundColor: colors.surface2,
       borderRadius: RADIUS.xl,
       padding: 14,
       alignItems: 'center',
@@ -112,7 +109,6 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     statValue: {
       fontSize: 21,
-      fontWeight: '700',
       color: colors.textPrimary,
       fontFamily: FONT_FAMILY.bold,
     },
@@ -129,7 +125,6 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     changeBadge: {
       fontSize: 10,
-      fontWeight: '600',
       marginTop: 2,
       fontFamily: FONT_FAMILY.medium,
     },
@@ -142,7 +137,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
 
     // Highlights & Top Lifts (Subtle Luxury Obsidian)
     highlightCard: {
-      backgroundColor: isDark ? '#121215' : colors.surface,
+      backgroundColor: colors.surface,
       borderRadius: RADIUS.xl,
       padding: 16,
       marginBottom: 12,
@@ -170,8 +165,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     highlightTitle: {
       fontSize: 11,
-      fontWeight: '700',
-      color: '#e6c875',
+      color: colors.accentAmber,
       letterSpacing: 1.2,
       fontFamily: FONT_FAMILY.bold,
     },
@@ -192,7 +186,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     highlightBadgeText: {
       fontSize: 10,
       fontFamily: FONT_FAMILY.bold,
-      color: '#e6c875',
+      color: colors.accentAmber,
     },
     highlightPodsGrid: {
       flexDirection: 'row',
@@ -200,7 +194,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     highlightPod: {
       flex: 1,
-      backgroundColor: isDark ? '#1C1C1E' : (colors.surface2 || '#F8F7FC'),
+      backgroundColor: colors.surface2,
       borderRadius: RADIUS.lg,
       padding: 12,
       borderWidth: 1,
@@ -215,14 +209,12 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     highlightPodTag: {
       fontSize: 9,
-      fontWeight: '700',
-      color: '#e6c875',
+      color: colors.accentAmber,
       letterSpacing: 0.9,
       fontFamily: FONT_FAMILY.bold,
     },
     highlightLiftName: {
       fontSize: 12.5,
-      fontWeight: '600',
       color: colors.textPrimary,
       fontFamily: FONT_FAMILY.medium,
       lineHeight: 16,
@@ -235,8 +227,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     highlightWeightText: {
       fontSize: 16,
-      fontWeight: '700',
-      color: '#e6c875',
+      color: colors.accentAmber,
       fontFamily: FONT_FAMILY.bold,
     },
     highlightUnit: {
@@ -262,7 +253,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     adherenceBadgeText: {
       fontSize: 10,
       fontFamily: FONT_FAMILY.bold,
-      color: isDark ? '#5EDA9E' : '#059669',
+      color: colors.accentGreen,
     },
     muscleGrid: {
       flexDirection: 'row',
@@ -289,7 +280,6 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     ringNum: {
       fontSize: 13,
-      fontWeight: '700',
       lineHeight: 16,
       color: colors.textPrimary,
       fontFamily: FONT_FAMILY.bold,
@@ -335,7 +325,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     barTrack: {
       flex: 1,
       width: '100%',
-      backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#EAE9F2',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : colors.surface2,
       borderRadius: RADIUS.sm,
       overflow: 'hidden',
       justifyContent: 'flex-end',
@@ -352,7 +342,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
 
     // Cardio Summary (Luxury Obsidian Pods)
     cardioCard: {
-      backgroundColor: isDark ? '#121215' : colors.surface,
+      backgroundColor: colors.surface,
       borderRadius: RADIUS.xl,
       padding: 16,
       marginBottom: 12,
@@ -380,8 +370,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     cardioSectionTitle: {
       fontSize: 11,
-      fontWeight: '700',
-      color: isDark ? colors.accentAmber : '#D97706',
+      color: colors.accentAmber,
       letterSpacing: 1.2,
       fontFamily: FONT_FAMILY.bold,
     },
@@ -402,7 +391,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     cardioTagText: {
       fontSize: 10,
       fontFamily: FONT_FAMILY.bold,
-      color: isDark ? colors.accentAmber : '#D97706',
+      color: colors.accentAmber,
     },
     cardioPodsGrid: {
       flexDirection: 'row',
@@ -411,7 +400,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     cardioPod: {
       flex: 1,
-      backgroundColor: isDark ? '#1C1C1E' : (colors.surface2 || '#F8F7FC'),
+      backgroundColor: colors.surface2,
       borderRadius: RADIUS.lg,
       padding: 10,
       alignItems: 'center',
@@ -431,7 +420,6 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
       fontSize: 16,
       fontFamily: FONT_FAMILY.bold,
       color: colors.textPrimary,
-      fontWeight: '700',
     },
     cardioPodUnit: {
       fontSize: 10,
@@ -483,8 +471,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     warningTitle: {
       fontSize: 10,
-      fontWeight: '700',
-      color: isDark ? colors.accentAmber : '#EA580C',
+      color: colors.accentAmber,
       letterSpacing: 1.2,
       fontFamily: FONT_FAMILY.bold,
     },
@@ -500,26 +487,26 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     chip: {
       backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
-      borderRadius: RADIUS.full,
-      paddingHorizontal: 9,
+      borderRadius: RADIUS.sm,
+      paddingHorizontal: 8,
       paddingVertical: 3,
       borderWidth: 1,
       borderColor: isDark ? 'rgba(255,159,77,0.2)' : 'rgba(249, 115, 22, 0.25)',
     },
     chipText: {
       fontSize: 10,
-      color: isDark ? colors.accentAmber : '#EA580C',
+      color: colors.accentAmber,
       fontFamily: FONT_FAMILY.bold,
     },
 
     // ── GYM-GPT AI Section Styles (Minimalist Obsidian Editorial) ──────────────
     aiCard: {
-      backgroundColor: isDark ? '#121215' : colors.surface,
+      backgroundColor: colors.surface,
       borderRadius: RADIUS.xl,
       padding: 18,
       marginBottom: 12,
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(165,153,255,0.18)' : 'rgba(108,92,231,0.15)',
+      borderColor: isDark ? 'rgba(10, 132, 255, 0.22)' : 'rgba(10, 132, 255, 0.16)',
     },
     aiCardHeader: {
       flexDirection: 'row',
@@ -531,18 +518,17 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
       borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border,
     },
     aiSparkleBadge: {
-      width: 26,
-      height: 26,
-      borderRadius: 13,
-      backgroundColor: isDark ? 'rgba(165,153,255,0.12)' : 'rgba(108,92,231,0.10)',
+      width: 28,
+      height: 28,
+      borderRadius: RADIUS.sm,
+      backgroundColor: isDark ? 'rgba(10, 132, 255, 0.14)' : 'rgba(10, 132, 255, 0.10)',
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(165,153,255,0.25)' : 'rgba(108,92,231,0.2)',
+      borderColor: isDark ? 'rgba(10, 132, 255, 0.28)' : 'rgba(10, 132, 255, 0.20)',
     },
     aiSectionTitle: {
       fontSize: 11,
-      fontWeight: '700',
       color: colors.accentPrimary,
       letterSpacing: 1.2,
       fontFamily: FONT_FAMILY.bold,
@@ -559,17 +545,17 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
       borderColor: isDark ? 'rgba(94, 218, 158, 0.25)' : 'rgba(16, 185, 129, 0.25)',
       paddingHorizontal: 9,
       paddingVertical: 3,
-      borderRadius: RADIUS.full,
+      borderRadius: RADIUS.sm,
     },
     aiScoreBadgeText: {
       fontSize: 10,
       fontFamily: FONT_FAMILY.bold,
-      color: isDark ? '#5EDA9E' : '#059669',
+      color: colors.accentGreen,
     },
     aiRefreshBtn: {
-      width: 26,
-      height: 26,
-      borderRadius: 13,
+      width: 32,
+      height: 32,
+      borderRadius: RADIUS.inner,
       backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
       alignItems: 'center',
       justifyContent: 'center',
@@ -606,7 +592,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
       lineHeight: 19,
     },
     aiBlock: {
-      backgroundColor: isDark ? '#1C1C1E' : (colors.surface2 || '#F8F7FC'),
+      backgroundColor: colors.surface2,
       borderRadius: RADIUS.lg,
       padding: 14,
       borderWidth: 1,
@@ -621,7 +607,6 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     aiBlockTitle: {
       fontSize: 10,
-      fontWeight: '700',
       letterSpacing: 1.1,
       fontFamily: FONT_FAMILY.bold,
     },
@@ -640,7 +625,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     aiVolumePillText: {
       fontSize: 11,
       fontFamily: FONT_FAMILY.bold,
-      color: isDark ? '#5EDA9E' : '#059669',
+      color: colors.accentGreen,
     },
     aiBulletRow: {
       flexDirection: 'row',
@@ -691,7 +676,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     aiFatigueText: {
       flex: 1,
       fontSize: 11.5,
-      color: isDark ? colors.accentAmber : '#EA580C',
+      color: colors.accentAmber,
       fontFamily: FONT_FAMILY.medium,
       lineHeight: 16,
     },
@@ -699,18 +684,18 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
       flexDirection: 'row',
       alignItems: 'flex-start',
       gap: 10,
-      backgroundColor: isDark ? '#1C1C1E' : (colors.surface2 || '#F8F7FC'),
+      backgroundColor: colors.surface2,
       borderRadius: RADIUS.md,
       paddingHorizontal: 12,
       paddingVertical: 10,
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(165,153,255,0.12)' : 'rgba(108,92,231,0.15)',
+      borderColor: isDark ? 'rgba(10, 132, 255, 0.16)' : 'rgba(10, 132, 255, 0.15)',
     },
     aiDirectiveNumPill: {
       width: 22,
       height: 22,
       borderRadius: 6,
-      backgroundColor: isDark ? 'rgba(165,153,255,0.15)' : 'rgba(108,92,231,0.12)',
+      backgroundColor: isDark ? 'rgba(10, 132, 255, 0.15)' : 'rgba(10, 132, 255, 0.12)',
       alignItems: 'center',
       justifyContent: 'center',
       marginTop: 1,
@@ -747,12 +732,13 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 8,
-      backgroundColor: isDark ? 'rgba(165,153,255,0.12)' : 'rgba(108,92,231,0.10)',
+      gap: 6,
+      minHeight: 38,
+      backgroundColor: isDark ? 'rgba(10, 132, 255, 0.14)' : 'rgba(10, 132, 255, 0.10)',
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(165,153,255,0.3)' : 'rgba(108,92,231,0.25)',
+      borderColor: isDark ? 'rgba(10, 132, 255, 0.32)' : 'rgba(10, 132, 255, 0.25)',
       borderRadius: RADIUS.lg,
-      paddingVertical: 12,
+      paddingVertical: 8,
       marginTop: 4,
     },
     aiGenerateBtnText: {
@@ -775,13 +761,15 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
     aiErrorRetryBtn: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 32,
       gap: 5,
-      backgroundColor: isDark ? 'rgba(165,153,255,0.12)' : 'rgba(108,92,231,0.10)',
+      backgroundColor: isDark ? 'rgba(10, 132, 255, 0.14)' : 'rgba(10, 132, 255, 0.10)',
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(165,153,255,0.25)' : 'rgba(108,92,231,0.2)',
+      borderColor: isDark ? 'rgba(10, 132, 255, 0.28)' : 'rgba(10, 132, 255, 0.20)',
       borderRadius: RADIUS.lg,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
       marginTop: 4,
     },
     aiErrorRetryText: {
@@ -809,6 +797,7 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+      minHeight: 38,
       paddingTop: 4,
       paddingHorizontal: 2,
     },
@@ -835,37 +824,61 @@ export const makeStyles = (colors: any, isDark: boolean = true) =>
       fontFamily: FONT_FAMILY.medium,
       flex: 1,
     },
-    // Muscle Badges Strip under Body Map
-    muscleBadgesWrap: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 6,
-      marginTop: 10,
+    // Muscle Volume Breakdown Card
+    muscleDistributionCard: {
+      backgroundColor: colors.surface,
+      borderRadius: RADIUS.xl,
+      padding: 16,
+      marginTop: 8,
       marginBottom: 12,
-      paddingHorizontal: 2,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255,255,255,0.06)' : colors.border,
+      gap: 12,
     },
-    muscleBadge: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7',
-      borderRadius: RADIUS.full,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
+    cardSectionLabel: {
+      fontSize: 11,
+      fontFamily: FONT_FAMILY.bold,
+      color: colors.textTertiary,
+      letterSpacing: 0.8,
+      textTransform: 'uppercase',
     },
-    muscleBadgeDot: {
-      width: 6,
-      height: 6,
-      borderRadius: 3,
-    },
-    muscleBadgeText: {
+    cardSubLabel: {
+      fontSize: 11.5,
       fontFamily: FONT_FAMILY.medium,
-      fontSize: 12,
+      color: colors.textTertiary,
+      marginTop: 2,
+    },
+    muscleProgressList: {
+      gap: 10,
+    },
+    muscleProgressItem: {
+      gap: 5,
+    },
+    muscleProgressLabelRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    muscleProgressName: {
+      fontSize: 13,
+      fontFamily: FONT_FAMILY.bold,
       color: colors.textPrimary,
     },
-    muscleBadgeSets: {
-      fontFamily: FONT_FAMILY.bold,
-      color: colors.textSecondary,
+    muscleProgressStat: {
+      fontSize: 12,
+      fontFamily: FONT_FAMILY.medium,
+      color: colors.textPrimary,
+    },
+    muscleProgressTrack: {
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : colors.surface2,
+      overflow: 'hidden',
+    },
+    muscleProgressFill: {
+      height: '100%',
+      borderRadius: 3,
+      backgroundColor: colors.accentPrimary,
     },
   });
 

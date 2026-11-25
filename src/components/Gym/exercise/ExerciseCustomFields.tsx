@@ -1,6 +1,9 @@
 import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, Switch, Platform } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View, Text, TextInput, Switch, Platform } from 'react-native';
+import { Video, X } from 'lucide-react-native';
+import { ICON, TOUCH } from '../../../theme/tokens';
+import { useTheme } from '../../../contexts/ThemeContext';
+import { TactileButton } from '../../ui';
 import { GymPlanDay } from '../../../types/gym.types';
 
 export interface ExerciseCustomFieldsProps {
@@ -34,18 +37,18 @@ export const ExerciseCustomFields: React.FC<ExerciseCustomFieldsProps> = React.m
   savePermanently,
   setSavePermanently,
   planDay,
-  colors,
   styles,
-  isDark = true,
 }) => {
+  const { tokens } = useTheme();
+
   return (
     <>
-      {/* Sets / Reps / Rest • 3-column row */}
       <View style={styles.metaRow}>
         <View style={[styles.inputGroup, { flex: 1 }]}>
           <Text style={styles.inputLabel}>SETS</Text>
           <TextInput
             style={styles.inputCompact}
+            maxFontSizeMultiplier={1.25}
             keyboardType="numeric"
             value={sets}
             onChangeText={setSets}
@@ -57,6 +60,7 @@ export const ExerciseCustomFields: React.FC<ExerciseCustomFieldsProps> = React.m
           <Text style={styles.inputLabel}>REPS</Text>
           <TextInput
             style={styles.inputCompact}
+            maxFontSizeMultiplier={1.25}
             value={reps}
             onChangeText={setReps}
             textAlign="center"
@@ -67,6 +71,7 @@ export const ExerciseCustomFields: React.FC<ExerciseCustomFieldsProps> = React.m
           <Text style={styles.inputLabel}>REST (SEC)</Text>
           <TextInput
             style={styles.inputCompact}
+            maxFontSizeMultiplier={1.25}
             keyboardType="numeric"
             value={restTime}
             onChangeText={setRestTime}
@@ -75,38 +80,38 @@ export const ExerciseCustomFields: React.FC<ExerciseCustomFieldsProps> = React.m
         </View>
       </View>
 
-      {/* YouTube Link */}
       <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>YOUTUBE LINK (OPTIONAL)</Text>
+        <Text style={styles.inputLabel}>VIDEO REFERENCE LINK (OPTIONAL)</Text>
         <View style={styles.searchRow}>
-          <Ionicons
-            name="videocam-outline"
-            size={17}
-            color={colors.textTertiary}
+          <Video
+            size={ICON.sm + 1}
+            strokeWidth={ICON.strokeWidth}
+            color={tokens.text.secondary}
             style={{ marginRight: 8 }}
           />
           <TextInput
             style={styles.searchInput}
             placeholder="e.g. https://youtu.be/..."
-            placeholderTextColor={colors.textTertiary}
+            placeholderTextColor={tokens.text.muted}
             value={videoLink}
             onChangeText={setVideoLink}
             autoCapitalize="none"
             autoCorrect={false}
           />
           {videoLink.length > 0 && (
-            <TouchableOpacity
+            <TactileButton
+              variant="custom"
               onPress={() => setVideoLink('')}
               style={styles.clearBtn}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              hitSlop={TOUCH.hitSlop}
+              accessibilityLabel="Clear video link"
             >
-              <Ionicons name="close-circle" size={17} color={colors.textTertiary} />
-            </TouchableOpacity>
+              <X size={ICON.sm + 1} strokeWidth={ICON.strokeWidth} color={tokens.text.secondary} />
+            </TactileButton>
           )}
         </View>
       </View>
 
-      {/* Save to Master Split */}
       {planDay && (
         <View style={styles.masterSplitContainer}>
           <View style={{ flex: 1, paddingRight: 8 }}>
@@ -116,8 +121,14 @@ export const ExerciseCustomFields: React.FC<ExerciseCustomFieldsProps> = React.m
           <Switch
             value={savePermanently}
             onValueChange={setSavePermanently}
-            trackColor={{ false: 'rgba(255,255,255,0.12)', true: colors.accentPrimary || '#A599FF' }}
-            thumbColor={Platform.OS === 'ios' ? '#fff' : savePermanently ? '#fff' : '#f4f3f4'}
+            trackColor={{ false: tokens.border.subtle, true: tokens.accent.primary }}
+            thumbColor={
+              Platform.OS === 'ios'
+                ? tokens.text.primary
+                : savePermanently
+                ? tokens.accent.onPrimary
+                : tokens.text.secondary
+            }
           />
         </View>
       )}

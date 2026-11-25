@@ -11,6 +11,7 @@
 import React, { createContext, useContext, useEffect, useMemo } from 'react';
 import { View, StyleSheet, ViewStyle, DimensionValue } from 'react-native';
 import Animated, {
+  cancelAnimation,
   useSharedValue,
   useAnimatedStyle,
   withRepeat,
@@ -50,6 +51,9 @@ export function ShimmerHost({ children, style, duration = 850 }: ShimmerHostProp
       -1,
       true
     );
+    return () => {
+      cancelAnimation(shimmerOpacity);
+    };
   }, [duration, isDark, shimmerOpacity]);
 
   const baseColor = useMemo(
@@ -109,6 +113,9 @@ export function SkeletonBox({
         -1,
         true
       );
+      return () => {
+        cancelAnimation(localOpacity);
+      };
     }
   }, [ctx, localOpacity]);
 

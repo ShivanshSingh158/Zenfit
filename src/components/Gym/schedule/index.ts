@@ -2,11 +2,8 @@ export * from './AddToDaySheet';
 export * from './GymScheduleDayCard';
 export * from './GymScheduleReminderTab';
 export * from './GymScheduleSettingsModal';
-export * from './GymTemplateModal';
 export * from './PreSessionMuscleHitMap';
 export * from './RoutineEditorModal';
 export * from './RoutineSplitCard';
-export * from './SchedulePatternCard';
 export * from './SwapRoutineModal';
-export * from './WeeklyScheduleStrip';
 

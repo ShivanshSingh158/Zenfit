@@ -5,22 +5,25 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React from 'react';
-import { InteractionManager } from 'react-native';
+import { InteractionManager, Platform } from 'react-native';
 import { LiveWorkoutWidget } from '../widgets/LiveWorkoutWidget';
 import { LiveWorkoutWidgetData } from '../types/widget.types';
 import { formatLocalDateStr } from '../utils/dateUtils';
 import { planDayIndexForDate, resolvePlanDay } from '../data/gymPlan';
 import { dismissActiveWorkoutNotification } from './activeWorkoutNotificationService';
+import { getGymProfileSync } from '../hooks/useGymProfile';
 
 const LIVE_WORKOUT_STORAGE_KEY = '@zenfit_widget_live_workout_data';
 
 let nativeRequestWidgetUpdate: any = null;
-try {
-  const mod = require('react-native-android-widget');
-  if (mod && typeof mod.requestWidgetUpdate === 'function') {
-    nativeRequestWidgetUpdate = mod.requestWidgetUpdate;
-  }
-} catch {}
+if (Platform.OS === 'android') {
+  try {
+    const mod = require('react-native-android-widget');
+    if (mod && typeof mod.requestWidgetUpdate === 'function') {
+      nativeRequestWidgetUpdate = mod.requestWidgetUpdate;
+    }
+  } catch {}
+}
 
 const requestWidgetUpdate = async (options: any): Promise<void> => {
   if (typeof nativeRequestWidgetUpdate === 'function') {
@@ -153,10 +156,10 @@ export function buildLiveWorkoutWidgetData({
   let completedSetsCount = 0;
   let totalSetsCount = 0;
   allExercises.forEach(ex => {
-    totalSetsCount += ex.targetSets;
-    if (ex.sets) {
-      completedSetsCount += ex.sets.filter((s: any) => s.completed).length;
-    }
+    const completedInEx = ex.sets ? ex.sets.filter((s: any) => s.completed).length : 0;
+    const actualSetsLen = ex.sets ? ex.sets.length : ex.targetSets;
+    totalSetsCount += Math.max(ex.targetSets, actualSetsLen, completedInEx);
+    completedSetsCount += completedInEx;
   });
 
   let duration: number | undefined = todayGym?.workoutDurationMinutes;
@@ -168,6 +171,7 @@ export function buildLiveWorkoutWidgetData({
 
   return {
     dateStr,
+    unit: getGymProfileSync()?.unitIsLbs ? 'lbs' : 'kg',
     dayName: dayOfWeek,
     displayDate,
     isActive,
@@ -209,12 +213,13 @@ export async function getCachedLiveWorkoutData(): Promise<LiveWorkoutWidgetData 
 }
 
 export async function updateLiveWorkoutWidget(data?: LiveWorkoutWidgetData | null): Promise<void> {
+  if (Platform.OS !== 'android') return;
   if (data) _pendingWidgetData = data;
   const now = Date.now();
   const elapsed = now - _lastWidgetUpdateTime;
 
   if (elapsed < 3000) {
-    if (_pendingWidgetUpdateTimer) clearTimeout(_pendingWidgetUpdateTimer);
+    if (_pendingWidgetUpdateTimer) return;
     _pendingWidgetUpdateTimer = setTimeout(() => {
       _pendingWidgetUpdateTimer = null;
       updateLiveWorkoutWidget(_pendingWidgetData);
@@ -224,29 +229,32 @@ export async function updateLiveWorkoutWidget(data?: LiveWorkoutWidgetData | nul
 
   _lastWidgetUpdateTime = now;
 
-  setTimeout(() => {
-    InteractionManager.runAfterInteractions(async () => {
-      try {
-        const widgetData = _pendingWidgetData || data || (await getCachedLiveWorkoutData());
-        _pendingWidgetData = null;
-        if (!widgetData) return;
-        await requestWidgetUpdate({
-          widgetName: 'LiveWorkout',
-          renderWidget: (props: any) =>
-            React.createElement(LiveWorkoutWidget, {
-              data: widgetData,
-              width: props?.width || 330,
-              height: props?.height || 280,
-            }),
-          widgetNotFound: () => {},
-        });
-      } catch (_) {}
-    });
-  }, 100);
+  InteractionManager.runAfterInteractions(async () => {
+    try {
+      const widgetData = _pendingWidgetData || data || (await getCachedLiveWorkoutData());
+      _pendingWidgetData = null;
+      if (!widgetData) return;
+      await requestWidgetUpdate({
+        widgetName: 'LiveWorkout',
+        renderWidget: (props: any) =>
+          React.createElement(LiveWorkoutWidget, {
+            data: widgetData,
+            width: props?.width || 330,
+            height: props?.height || 280,
+          }),
+        widgetNotFound: () => {},
+      });
+    } catch (_) {}
+  });
 }
 
 export async function handleWidgetClickAction(payload: any): Promise<void> {
+  if (!payload?.action) return;
   if (payload.action === 'finish_workout_session') {
     await dismissActiveWorkoutNotification();
   }
+  try {
+    const { DeviceEventEmitter } = require('react-native');
+    DeviceEventEmitter.emit('WIDGET_WORKOUT_ACTION', payload);
+  } catch (_) {}
 }

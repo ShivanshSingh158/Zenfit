@@ -17,10 +17,12 @@ import { useCoreData } from '../contexts/domains/CoreDataContext';
 import { GymProfile } from '../types/gym.types';
 import { getL1Sync, setL1Sync } from '../utils/bootManifest';
 import { COLLECTION } from '../config/constants';
+import { safeWrite } from '../utils/safeWrite';
 
 export { GymProfile };
 
-const PROFILE_KEY = 'gym_profile_v1';
+export const PROFILE_STORAGE_KEY = 'gym_profile_v1';
+const PROFILE_KEY = PROFILE_STORAGE_KEY;
 
 let memoryProfile: GymProfile | null = null;
 
@@ -28,12 +30,25 @@ export function clearGymProfileMemory() {
   memoryProfile = null;
 }
 
-let memoryAutoTimerOverride: boolean | null = null;
+export function normalizeGymProfileAliases(p: Partial<GymProfile>): Partial<GymProfile> {
+  const norm = { ...p };
+  // Issue #69: Bidirectional mirroring of ambiguous/alias fields
+  if (norm.weightKg != null && norm.bodyweightKg == null) norm.bodyweightKg = norm.weightKg;
+  if (norm.bodyweightKg != null && norm.weightKg == null) norm.weightKg = norm.bodyweightKg;
+  if (norm.age != null && norm.ageYears == null) norm.ageYears = norm.age;
+  if (norm.ageYears != null && norm.age == null) norm.age = norm.ageYears;
+  if (norm.goal != null && norm.primaryGoal == null) norm.primaryGoal = norm.goal;
+  if (norm.primaryGoal != null && norm.goal == null) norm.goal = norm.primaryGoal as any;
+  return norm;
+}
 
 export function setAutoTimerEnabledGlobal(enabled: boolean) {
-  memoryAutoTimerOverride = enabled;
   if (memoryProfile) {
     memoryProfile = { ...memoryProfile, autoTimer: enabled };
+  }
+  const l1 = getL1Sync<GymProfile>(PROFILE_KEY, DEFAULT_PROFILE);
+  if (l1) {
+    setL1Sync(PROFILE_KEY, { ...l1, autoTimer: enabled });
   }
   DeviceEventEmitter.emit('auto_timer_setting_changed', enabled);
 }
@@ -47,9 +62,7 @@ export function isHapticsEnabledSync(): boolean {
 }
 
 export function isAutoTimerEnabledSync(): boolean {
-  if (memoryAutoTimerOverride !== null) {
-    return memoryAutoTimerOverride;
-  }
+  // Issue #67: Read memoryProfile and L1 directly as single source of truth (no desync override)
   if (memoryProfile && typeof memoryProfile.autoTimer === 'boolean') {
     return memoryProfile.autoTimer;
   }
@@ -58,6 +71,50 @@ export function isAutoTimerEnabledSync(): boolean {
     return l1.autoTimer;
   }
   return true;
+}
+
+export function isAudioCuesEnabledSync(): boolean {
+  if (memoryProfile && typeof memoryProfile.audioCues === 'boolean') {
+    return memoryProfile.audioCues;
+  }
+  const l1 = getL1Sync<GymProfile>(PROFILE_KEY, DEFAULT_PROFILE);
+  return l1?.audioCues ?? true;
+}
+
+export function isKeepAwakeEnabledSync(): boolean {
+  if (memoryProfile && typeof memoryProfile.keepAwake === 'boolean') {
+    return memoryProfile.keepAwake;
+  }
+  const l1 = getL1Sync<GymProfile>(PROFILE_KEY, DEFAULT_PROFILE);
+  return l1?.keepAwake ?? true;
+}
+
+export function getDefaultRestSecsSync(): number {
+  const val = memoryProfile?.defaultRestSecs ?? getL1Sync<GymProfile>(PROFILE_KEY, DEFAULT_PROFILE)?.defaultRestSecs;
+  return typeof val === 'number' && val >= 15 ? val : 90;
+}
+
+export function setKeepAwakeEnabledGlobal(enabled: boolean) {
+  if (memoryProfile) {
+    memoryProfile = { ...memoryProfile, keepAwake: enabled };
+  }
+  const l1 = getL1Sync<GymProfile>(PROFILE_KEY, DEFAULT_PROFILE);
+  if (l1) {
+    setL1Sync(PROFILE_KEY, { ...l1, keepAwake: enabled });
+  }
+  DeviceEventEmitter.emit('keep_awake_setting_changed', enabled);
+}
+
+export function setDefaultRestSecsGlobal(secs: number) {
+  const clamped = Math.max(15, Math.min(600, Math.round(secs)));
+  if (memoryProfile) {
+    memoryProfile = { ...memoryProfile, defaultRestSecs: clamped };
+  }
+  const l1 = getL1Sync<GymProfile>(PROFILE_KEY, DEFAULT_PROFILE);
+  if (l1) {
+    setL1Sync(PROFILE_KEY, { ...l1, defaultRestSecs: clamped });
+  }
+  DeviceEventEmitter.emit('default_rest_setting_changed', clamped);
 }
 
 export function getGymProfileSync(): GymProfile {
@@ -85,7 +142,44 @@ export const DEFAULT_PROFILE: GymProfile = {
   autoTimer: true,
   hapticsEnabled: true,
   audioCues: true,
+  defaultRestSecs: 90,
+  keepAwake: true,
 };
+
+let _activeProfileUid: string | null = null;
+let _profileUnsub: (() => void) | null = null;
+
+function ensureProfileSubscription(uid?: string | null) {
+  if (!uid || uid === 'guest_local_user') return;
+  if (uid === _activeProfileUid) return;
+  if (_profileUnsub) {
+    _profileUnsub();
+    _profileUnsub = null;
+  }
+  _activeProfileUid = uid;
+  const docRef = doc(db, COLLECTION.USER_PROFILES, uid);
+  _profileUnsub = onSnapshot(docRef, snap => {
+    if (snap.exists()) {
+      const cloudData = (snap.data()?.gymProfile || snap.data()) as Partial<GymProfile> & { updatedAt?: number };
+      const current = memoryProfile || getL1Sync<GymProfile>(PROFILE_KEY, DEFAULT_PROFILE);
+      const currentTs = (current as any)?.updatedAt || 0;
+      const cloudTs = cloudData?.updatedAt || 0;
+
+      // Issue #23: Only let cloud win if its timestamp is newer or equal
+      if (cloudTs >= currentTs) {
+        const merged = normalizeGymProfileAliases({
+          ...DEFAULT_PROFILE,
+          ...(current || {}),
+          ...cloudData,
+        }) as GymProfile;
+        memoryProfile = merged;
+        setL1Sync(PROFILE_KEY, merged);
+        AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(merged)).catch(() => {});
+        DeviceEventEmitter.emit('gym_profile_updated', merged);
+      }
+    }
+  }, () => {});
+}
 
 export function useGymProfile() {
   const { user } = useCoreData();
@@ -94,63 +188,29 @@ export function useGymProfile() {
   const [profileLoaded, setProfileLoaded] = useState(true);
   const profileRef = useRef<GymProfile>(initial);
 
-  // 1. Initial fast local load from AsyncStorage
+  // 1. Singleton Cloud Firestore real-time synchronization (Issue #36)
   useEffect(() => {
-    let cancelled = false;
-    if (memoryProfile) {
-      setProfileLoaded(true);
-      return;
+    if (user?.uid && !(user as any).isAnonymous) {
+      ensureProfileSubscription(user.uid);
     }
-    AsyncStorage.getItem(PROFILE_KEY)
-      .then(raw => {
-        if (cancelled || !raw) return;
-        try {
-          const merged = { ...DEFAULT_PROFILE, ...JSON.parse(raw) };
-          memoryProfile = merged;
-          profileRef.current = merged;
-          setGymProfile(merged);
-        } catch (_) {}
-      })
-      .finally(() => {
-        if (!cancelled) setProfileLoaded(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // 2. Cloud Firestore real-time synchronization
-  useEffect(() => {
-    if (!user?.uid || (user as any).isAnonymous) return;
-    const docRef = doc(db, COLLECTION.USER_PROFILES, user.uid);
-    const unsub = onSnapshot(docRef, snap => {
-      if (snap.exists()) {
-        const cloudData = (snap.data()?.gymProfile || snap.data()) as Partial<GymProfile>;
-        const merged: GymProfile = {
-          ...DEFAULT_PROFILE,
-          ...(profileRef.current || {}),
-          ...cloudData,
-        };
-        memoryProfile = merged;
-        profileRef.current = merged;
-        setGymProfile(merged);
-        AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(merged)).catch(() => {});
-      }
-    }, _err => {
-      // Silently ignore guest/transient sync errors
-    });
-    return () => unsub();
   }, [user?.uid]);
 
   // Cross-component synchronisation via DeviceEventEmitter
   useEffect(() => {
+    profileRef.current = memoryProfile || gymProfile;
     const sub = DeviceEventEmitter.addListener('gym_profile_updated', (updated: GymProfile) => {
       memoryProfile = updated;
       profileRef.current = updated;
       setGymProfile(updated);
     });
     const subLogout = DeviceEventEmitter.addListener('auth_state_changed', () => {
+      if (_profileUnsub) {
+        _profileUnsub();
+        _profileUnsub = null;
+      }
+      _activeProfileUid = null;
       memoryProfile = null;
+      setGymProfile(DEFAULT_PROFILE);
     });
     return () => {
       sub.remove();
@@ -159,23 +219,45 @@ export function useGymProfile() {
   }, []);
 
   const saveGymProfile = useCallback(async (profile: Partial<GymProfile>) => {
-    const next = { ...profileRef.current, ...profile };
+    const now = Date.now();
+    const normalizedPatch = normalizeGymProfileAliases(profile);
+    const next = normalizeGymProfileAliases({ ...profileRef.current, ...normalizedPatch, updatedAt: now }) as GymProfile;
     memoryProfile = next;
     profileRef.current = next;
     setGymProfile(next);
     setL1Sync(PROFILE_KEY, next);
     DeviceEventEmitter.emit('gym_profile_updated', next);
-    if (profile.hapticsEnabled !== undefined) {
-      DeviceEventEmitter.emit('haptics_setting_changed', profile.hapticsEnabled);
+    if (next.hapticsEnabled !== undefined) {
+      DeviceEventEmitter.emit('haptics_setting_changed', next.hapticsEnabled);
     }
-    if (profile.autoTimer !== undefined) {
-      DeviceEventEmitter.emit('auto_timer_setting_changed', profile.autoTimer);
+    if (next.autoTimer !== undefined) {
+      DeviceEventEmitter.emit('auto_timer_setting_changed', next.autoTimer);
+    }
+    if (next.audioCues !== undefined) {
+      DeviceEventEmitter.emit('audio_cues_setting_changed', next.audioCues);
+    }
+    if (next.keepAwake !== undefined) {
+      DeviceEventEmitter.emit('keep_awake_setting_changed', next.keepAwake);
+    }
+    if (next.defaultRestSecs !== undefined) {
+      DeviceEventEmitter.emit('default_rest_setting_changed', next.defaultRestSecs);
+    }
+    if (next.unitIsLbs !== undefined) {
+      DeviceEventEmitter.emit('weight_unit_changed', next.unitIsLbs);
     }
     await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(next));
 
     // Also persist to Cloud Firestore if user is authenticated and not anonymous
     if (user?.uid && !(user as any).isAnonymous) {
-      setDoc(doc(db, COLLECTION.USER_PROFILES, user.uid), { gymProfile: next }, { merge: true }).catch(() => {});
+      const docRef = doc(db, COLLECTION.USER_PROFILES, user.uid);
+      const payload = { gymProfile: next };
+      safeWrite(
+        () => setDoc(docRef, payload, { merge: true }),
+        COLLECTION.USER_PROFILES,
+        'set',
+        payload,
+        user.uid
+      ).catch(() => {});
     }
   }, [user?.uid]);
 

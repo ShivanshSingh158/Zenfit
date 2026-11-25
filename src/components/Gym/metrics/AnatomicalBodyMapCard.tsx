@@ -9,26 +9,36 @@
  * - Subtle, Apple iOS HIG aesthetics (no chunky pills, 0 outer borders).
  */
 
-import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, useWindowDimensions, Modal, Pressable } from 'react-native';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Path, G } from 'react-native-svg';
-import { Ionicons } from '@expo/vector-icons';
-import { FONT_FAMILY } from '../../../theme/tokens';
+import {
+  AlertCircle,
+  ArrowLeftRight,
+  CheckCircle2,
+  Minus,
+  Plus,
+  Sparkles,
+  Trash2,
+  X,
+  Zap,
+} from 'lucide-react-native';
+import BottomSheet from '../../ui/BottomSheet';
+import { TactileButton } from '../../ui/TactileButton';
+import { NumericText } from '../../ui/NumericText';
+import { IOSSegmentedControl } from '../../ui/IOSSegmentedControl';
+import { AnimatedProgressBar } from '../../ui/AnimatedProgressBar';
+import { DARK_TOKENS, FONT_FAMILY, ICON, LIGHT_TOKENS, RADIUS, SPACE, TOUCH } from '../../../theme/tokens';
+import { useResponsiveMetrics } from '../../../theme/responsive';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { feedback } from '../../../utils/haptics';
 import { generateDatasetFingerprint } from '../../../utils/hotCacheStore';
 import { useGymPlan } from '../../../contexts/domains/WellnessContext';
 import { AddToDaySheet } from '../schedule/AddToDaySheet';
-import { GYM_PLAN, GYM_PLAN_ARNOLD } from '../../../data/gymPlan';
-import {
-  BODY_PATHS,
-  ViewGeometry,
-  getMergedMusclePath,
-  getMergedInertPath,
-} from './bodyPaths';
+import { resolvePlanDay } from '../../../data/gymPlan';
+import { STATIC_BODY_SVG, CachedBodyView } from './muscleMapSvgCache';
 import {
   MUSCLES,
-  INERT,
   MUSCLE_NAME,
   MuscleSlug,
   calculateMuscleLoad,
@@ -51,6 +61,20 @@ const IS_TINY_MUSCLE = new Set<MuscleSlug>([
   'obliques',
 ]);
 
+const AnatomicalHeatmapPalette = {
+  inertDark: '#18181B',
+  inertLight: '#D1D1D6',
+  strokeDark: '#09090B',
+  untrainedBaseDark: '#27272A',
+  untrainedBaseLight: '#E5E5EA',
+  untrainedRecoveryDark: '#1C2E24',
+  untrainedRecoveryLight: '#D1F2D9',
+  volumeMrvRisk: '#FF9F0A',
+  volumeMav: '#38BDF8',
+  volumeMev: '#0A84FF',
+  volumeBelowMev: '#0055D4',
+} as const;
+
 const InertSilhouetteLayer = React.memo(function InertSilhouetteLayer({
   inertD,
   isDark,
@@ -58,7 +82,7 @@ const InertSilhouetteLayer = React.memo(function InertSilhouetteLayer({
   inertD: string;
   isDark: boolean;
 }) {
-  const inertColor = isDark ? '#18171C' : '#D1D1D6';
+  const inertColor = isDark ? AnatomicalHeatmapPalette.inertDark : AnatomicalHeatmapPalette.inertLight;
   if (!inertD) return null;
   return <Path d={inertD} fill={inertColor} pointerEvents="none" />;
 });
@@ -72,27 +96,17 @@ const MemoizedMuscleGroup = React.memo<{
   onPress: (slug: MuscleSlug) => void;
 }>(
   function MemoizedMuscleGroup({ slug, d, fill, isSelected, isDark, onPress }) {
+    const selectedStroke = isDark ? DARK_TOKENS.text.primary : LIGHT_TOKENS.bg.surface;
+    const baseStroke = isDark ? AnatomicalHeatmapPalette.strokeDark : LIGHT_TOKENS.bg.surface;
     return (
       <G onPress={() => onPress(slug)}>
-        {/* Generous touch target cushion (26 SVG units) for ALL muscles with non-zero alpha */}
-        <Path
-          d={d}
-          fill="none"
-          stroke="rgba(0,0,0,0.02)"
-          strokeWidth={26}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          onPress={() => onPress(slug)}
-        />
-        {/* Visible anatomical muscle */}
         <Path
           key={`muscle-${slug}`}
           d={d}
           fill={fill}
-          stroke={isSelected ? '#FFFFFF' : isDark ? '#111016' : '#FFFFFF'}
+          stroke={isSelected ? selectedStroke : baseStroke}
           strokeWidth={isSelected ? 4 : 1.2}
           strokeLinejoin="round"
-          onPress={() => onPress(slug)}
         />
       </G>
     );
@@ -129,9 +143,10 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
   onAddCorrectiveExercise,
   style,
 }) => {
-  const { colors, isDark } = useTheme();
-  const { width: screenWidth } = useWindowDimensions();
-  const colWidth = Math.min((screenWidth - 64) / 2, 175);
+  const { colors, isDark, tokens } = useTheme();
+  const styles = useMemo(() => makeStyles(tokens), [tokens]);
+  const { width: screenWidth, effectiveWidth, bodyMapHeight } = useResponsiveMetrics();
+  const colWidth = Math.max(116, Math.floor((effectiveWidth - 64) / 2));
   const { userGymPlan, updateMasterPlan } = useGymPlan();
 
   const initialMode = defaultMode || 'fatigue';
@@ -144,6 +159,22 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
   const [initialDayIndex, setInitialDayIndex] = useState<number>(1);
   const [removeTarget, setRemoveTarget] = useState<{ exerciseName: string; exerciseId?: string; dayIndex: number; dayName: string } | null>(null);
   const [actionToast, setActionToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  const showTimedToast = (msg: string) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setActionToast(msg);
+    toastTimerRef.current = setTimeout(() => {
+      setActionToast(null);
+      toastTimerRef.current = null;
+    }, 3000);
+  };
 
   React.useEffect(() => {
     if (defaultMode) {
@@ -201,7 +232,7 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
     [weeklyFatigue, needFatigue]
   );
 
-  const currentGenderGeo = BODY_PATHS[bodyGender] || BODY_PATHS.male;
+  const currentGenderSvg = STATIC_BODY_SVG[bodyGender] || STATIC_BODY_SVG.male;
 
   // ── Status Counts & Metrics ───────────────────────────────────────────────
   const fatigueSummary = useMemo(() => {
@@ -220,18 +251,21 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
   }, [weeklyFatigue]);
 
   const volumeSummary = useMemo(() => {
-    let optimalCount = 0;
-    for (const slug of MUSCLES) {
-      const lm = getHypertrophyLandmarkInfo(weeklyMuscleLoad[slug] || 0, weekBounds.restDayName, slug);
-      if (lm.tier === 'mav') optimalCount++;
-    }
-    // Count actual completed working sets in targetLogs instead of summing multi-muscle fractional weights
     let actualWorkingSets = 0;
     for (const log of targetLogs || []) {
       for (const ex of log.exercises || []) {
         if (ex.skipped) continue;
-        actualWorkingSets += (ex.setsLog || []).filter((s: any) => s.completed && !s.isWarmup).length;
+        for (const s of ex.setsLog || []) {
+          if (s.completed && !s.isWarmup && s.setType !== 'warmup') {
+            actualWorkingSets += 1;
+          }
+        }
       }
+    }
+    let optimalCount = 0;
+    for (const slug of MUSCLES) {
+      const lm = getHypertrophyLandmarkInfo(weeklyMuscleLoad[slug] || 0, weekBounds.restDayName, slug);
+      if (lm.tier === 'mav') optimalCount++;
     }
     return { optimalCount, totalSetsSum: actualWorkingSets };
   }, [weeklyMuscleLoad, targetLogs, weekBounds.restDayName]);
@@ -260,35 +294,49 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
   // ── Color Map (O(1) lookup) ────────────────────────────────────────────────
   const muscleColorMap = useMemo<Record<MuscleSlug, string>>(() => {
     const map = {} as Record<MuscleSlug, string>;
-    const baseColor = isDark ? '#232128' : '#E5E5EA';
+    const baseColor = isDark
+      ? AnatomicalHeatmapPalette.untrainedBaseDark
+      : AnatomicalHeatmapPalette.untrainedBaseLight;
 
     for (const slug of MUSCLES) {
       if (mode === 'fatigue') {
         const r = weeklyFatigue[slug];
         if (!r || r.totalSets === 0) {
-          map[slug] = isDark ? '#1E3329' : '#D1F2D9';
+          map[slug] = isDark
+            ? AnatomicalHeatmapPalette.untrainedRecoveryDark
+            : AnatomicalHeatmapPalette.untrainedRecoveryLight;
         } else if (r.state === 'fatigued') {
-          map[slug] = '#FF453A'; // 🔴 Rest Priority
+          map[slug] = tokens.accent.crimson;
         } else if (r.state === 'recovering') {
-          map[slug] = '#FF9F0A'; // 🟡 Recovering
+          map[slug] = tokens.status.warning;
         } else {
-          map[slug] = '#30D158'; // 🟢 100% Ready (Supercompensated)
+          map[slug] = tokens.status.success;
         }
       } else if (mode === 'volume') {
         const sets = weeklyMuscleLoad[slug] || 0;
         if (sets <= 0) {
           map[slug] = baseColor;
         } else {
-          // Strictly synced with getHypertrophyLandmarkInfo!
           const lm = getHypertrophyLandmarkInfo(sets, weekBounds.restDayName, slug);
-          map[slug] = lm.tierColor;
+          // Cohesive Apple Blue depth ramp
+          if (lm.tier === 'mrv_risk') {
+            map[slug] = AnatomicalHeatmapPalette.volumeMrvRisk;
+          } else if (lm.tier === 'mav') {
+            map[slug] = AnatomicalHeatmapPalette.volumeMav;
+          } else if (lm.tier === 'mev') {
+            map[slug] = AnatomicalHeatmapPalette.volumeMev;
+          } else if (lm.tier === 'below_mev') {
+            map[slug] = AnatomicalHeatmapPalette.volumeBelowMev;
+          } else {
+            map[slug] = baseColor;
+          }
         }
       } else if (mode === 'balance') {
         const b = balanceModel[slug];
         if (b && b.status !== 'untrained') {
-          if (b.status === 'optimal') map[slug] = '#30D158';
-          else if (b.status === 'dominant') map[slug] = '#FF9F0A';
-          else if (b.status === 'lagging') map[slug] = '#FF453A';
+          if (b.status === 'optimal') map[slug] = tokens.status.success;
+          else if (b.status === 'dominant') map[slug] = tokens.status.warning;
+          else if (b.status === 'lagging') map[slug] = tokens.accent.crimson;
           else map[slug] = baseColor;
         } else {
           map[slug] = baseColor;
@@ -298,88 +346,39 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
       }
     }
     return map;
-  }, [mode, isDark, weeklyFatigue, weeklyMuscleLoad, balanceModel, weekBounds.restDayName]);
+  }, [mode, isDark, tokens.accent.crimson, tokens.status.warning, tokens.status.success, weeklyFatigue, weeklyMuscleLoad, balanceModel, weekBounds.restDayName]);
 
   const handleMusclePress = React.useCallback((slug: MuscleSlug) => {
     feedback.selectionChange();
     setSelectedMuscle(prev => (prev === slug ? null : slug));
   }, []);
 
-  const dynamicStyles = useMemo(() => ({
-    card: {
-      backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
-      borderColor: isDark ? 'transparent' : '#E5E5EA',
-      borderWidth: isDark ? 0 : 1,
-    },
-    segControl: {
-      backgroundColor: isDark ? '#2C2C2E' : '#E5E5EA',
-    },
-    segBtnActive: {
-      backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
-    },
-    segBtnTextActive: {
-      color: isDark ? '#FFFFFF' : '#000000',
-    },
-    inspectorCard: {
-      backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7',
-    },
-    inspectorTitle: {
-      color: isDark ? '#FFFFFF' : '#000000',
-    },
-    inspectorStatusText: {
-      color: isDark ? '#FFFFFF' : '#000000',
-    },
-    dailyRecCard: {
-      backgroundColor: isDark ? '#26262A' : '#F2F2F7',
-    },
-    pairCard: {
-      backgroundColor: isDark ? '#26262A' : '#F2F2F7',
-    },
-    pairSideTitle: {
-      color: isDark ? '#8E8E93' : '#636366',
-    },
-    pairSetsNum: {
-      color: isDark ? '#FFFFFF' : '#000000',
-    },
-    pairPrescriptionText: {
-      color: isDark ? '#E5E5EA' : '#1C1C1E',
-    },
-    guideCard: {
-      backgroundColor: isDark ? '#26262A' : '#F2F2F7',
-    },
-    guideBold: {
-      color: isDark ? '#FFFFFF' : '#000000',
-    },
-    inspectorDirectiveBox: {
-      backgroundColor: isDark ? '#1E1E20' : '#E5E5EA',
-    },
-    inspectorDirectiveText: {
-      color: isDark ? '#E5E5EA' : '#1C1C1E',
-    },
-    landmarkTrackBg: {
-      backgroundColor: isDark ? '#1C1C1E' : '#E5E5EA',
-    },
-  }), [isDark]);
-
-  // ── Render Single SVG View (Front or Back) ──────────────────────────────────
+  // ── Render Single Pre-Cached SVG View (Front or Back) ──────────────────────
   const renderBodySvg = (
-    viewGeo: ViewGeometry,
+    viewCache: CachedBodyView,
     label: string
   ) => {
-    const inertD = getMergedInertPath(viewGeo, INERT);
-    const selectedD = selectedMuscle ? getMergedMusclePath(viewGeo, selectedMuscle) : '';
+    const selectedD = selectedMuscle ? viewCache.paths[selectedMuscle] || '' : '';
+    // Derive exact aspect-ratio height from viewBox to prevent Male/Female distortion
+    const vbParts = viewCache.vb.split(/\s+/).map(Number);
+    const vbW = vbParts[2] || 0;
+    const vbH = vbParts[3] || 0;
+    const aspect = vbW > 0 && vbH > 0 ? vbH / vbW : 1.76;
+    const svgHeight = Math.round(colWidth * aspect);
 
     return (
       <View style={[styles.bodyViewCol, { width: colWidth }]}>
-        <Svg viewBox={viewGeo.vb} style={styles.svgCanvas}>
-          <InertSilhouetteLayer inertD={inertD} isDark={isDark} />
+        <Svg viewBox={viewCache.vb} style={[styles.svgCanvas, { height: svgHeight }]}>
+          <InertSilhouetteLayer inertD={viewCache.inertD} isDark={isDark} />
           <G>
             {MUSCLES.map(slug => {
-              const d = getMergedMusclePath(viewGeo, slug);
+              const d = viewCache.paths[slug];
               if (!d) return null;
 
               const isSelected = selectedMuscle === slug;
-              const fill = muscleColorMap[slug] || (isDark ? '#232128' : '#E5E5EA');
+              const fill = muscleColorMap[slug] || (
+                isDark ? AnatomicalHeatmapPalette.untrainedBaseDark : AnatomicalHeatmapPalette.untrainedBaseLight
+              );
 
               return (
                 <MemoizedMuscleGroup
@@ -398,7 +397,7 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
               <Path
                 d={selectedD}
                 fill="none"
-                stroke="#FFFFFF"
+                stroke={isDark ? tokens.text.primary : tokens.bg.surface}
                 strokeWidth={4.5}
                 strokeLinejoin="round"
                 pointerEvents="none"
@@ -421,93 +420,67 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
     : null;
 
   return (
-    <View style={[styles.card, dynamicStyles.card, style]}>
+    <View style={[styles.card, !isDark && { borderColor: tokens.border.subtle, borderWidth: 1 }, style]}>
 
-      {/* ── 3-Part Apple iOS HIG Segmented Control (Minimalist, Zero Pills) ── */}
-      <View style={[styles.segControl, dynamicStyles.segControl]}>
-        <TouchableOpacity
-          style={[styles.segBtn, mode === 'fatigue' && [styles.segBtnActive, dynamicStyles.segBtnActive]]}
-          onPress={() => {
-            feedback.selectionChange();
-            setMode('fatigue');
-          }}
-          activeOpacity={0.8}
-        >
-          <Text style={[styles.segBtnText, mode === 'fatigue' && [styles.segBtnTextActive, dynamicStyles.segBtnTextActive]]} numberOfLines={1}>
-            Recovery
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.segBtn, mode === 'volume' && [styles.segBtnActive, dynamicStyles.segBtnActive]]}
-          onPress={() => {
-            feedback.selectionChange();
-            setMode('volume');
-          }}
-          activeOpacity={0.8}
-        >
-          <Text style={[styles.segBtnText, mode === 'volume' && [styles.segBtnTextActive, dynamicStyles.segBtnTextActive]]} numberOfLines={1}>
-            Coverage
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.segBtn, mode === 'balance' && [styles.segBtnActive, dynamicStyles.segBtnActive]]}
-          onPress={() => {
-            feedback.selectionChange();
-            setMode('balance');
-          }}
-          activeOpacity={0.8}
-        >
-          <Text style={[styles.segBtnText, mode === 'balance' && [styles.segBtnTextActive, dynamicStyles.segBtnTextActive]]} numberOfLines={1}>
-            Symmetry
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {/* ── 3-Part Gliding Segmented Control ── */}
+      <IOSSegmentedControl
+        segments={[
+          { id: 'fatigue', label: 'Recovery' },
+          { id: 'volume', label: 'Coverage' },
+          { id: 'balance', label: 'Symmetry' },
+        ]}
+        activeId={mode}
+        onSelect={(id) => setMode(id)}
+        height={34}
+      />
 
       {/* ── Subtitle Status Overview Strip ─────────────────────────────────── */}
       <View style={styles.overviewStrip}>
         {mode === 'fatigue' && (
-          <Text style={styles.overviewStripText} numberOfLines={1}>
-            {fatigueSummary.ready > 0 ? `🟢 ${fatigueSummary.ready} Ready` : '🟢 Ready'} ·{' '}
-            {fatigueSummary.recovering > 0 ? `🟡 ${fatigueSummary.recovering} Recovering` : '0 Recovering'} ·{' '}
-            {fatigueSummary.fatigued > 0 ? `🔴 ${fatigueSummary.fatigued} Resting` : '0 Resting'}
-          </Text>
+          <NumericText style={styles.overviewStripText} numberOfLines={1}>
+            {fatigueSummary.ready > 0 ? `${fatigueSummary.ready} Ready` : 'Ready'} ·{' '}
+            {fatigueSummary.recovering > 0 ? `${fatigueSummary.recovering} Recovering` : '0 Recovering'} ·{' '}
+            {fatigueSummary.fatigued > 0 ? `${fatigueSummary.fatigued} Strained` : '0 Strained'}
+          </NumericText>
         )}
 
         {mode === 'volume' && (
-          <Text style={styles.overviewStripText} numberOfLines={1}>
-            {volumeSummary.optimalCount} Muscles Stimulated · {volumeSummary.totalSetsSum} Sets This Week
-          </Text>
+          <NumericText style={styles.overviewStripText} numberOfLines={1}>
+            {volumeSummary.optimalCount} Muscles On Target · {volumeSummary.totalSetsSum} Sets This Week
+          </NumericText>
         )}
 
         {mode === 'balance' && (
-          <Text style={styles.overviewStripText} numberOfLines={1}>
-            Pull vs Push: {balanceSummary.pushPullRatio}x · {balanceSummary.laggingCount > 0 ? `🔴 ${balanceSummary.laggingCount} Imbalanced` : '🟢 Balanced'}
-          </Text>
+          <NumericText style={styles.overviewStripText} numberOfLines={1}>
+            Weekly Muscle Balance · {balanceSummary.laggingCount > 0 ? `${balanceSummary.laggingCount} Area Behind` : 'Balanced'}
+          </NumericText>
         )}
       </View>
 
       {/* ── Main Dual-View BodyMap (Front & Back) — Locked at Top Y-Position across all tabs ── */}
       <View style={styles.bodyDualContainer}>
-        {renderBodySvg(currentGenderGeo.front, 'FRONT')}
-        {renderBodySvg(currentGenderGeo.back, 'BACK')}
+        {renderBodySvg(currentGenderSvg.front, 'FRONT')}
+        {renderBodySvg(currentGenderSvg.back, 'BACK')}
       </View>
 
       {/* ── Interactive Muscle Detail Inspector ─────────────────────────────── */}
       {selectedData ? (
-        <View style={[styles.inspectorCard, dynamicStyles.inspectorCard]}>
+        <View style={styles.inspectorCard}>
           <View style={styles.inspectorTop}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-              <View style={[styles.inspectorDot, { backgroundColor: muscleColorMap[selectedMuscle!] || '#FFFFFF' }]} />
-              <Text style={[styles.inspectorTitle, dynamicStyles.inspectorTitle]}>{selectedData.name}</Text>
+              <View style={[styles.inspectorDot, { backgroundColor: muscleColorMap[selectedMuscle!] || tokens.text.primary }]} />
+              <Text style={styles.inspectorTitle}>{selectedData.name}</Text>
             </View>
-            <TouchableOpacity
+            <TactileButton
+              variant="icon"
+              haptic="light"
               onPress={() => setSelectedMuscle(null)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={styles.inspectorCloseBtn}
+              hitSlop={TOUCH.hitSlop}
+              accessibilityLabel="Close muscle inspector"
             >
-              <Ionicons name="close-circle" size={18} color="#8E8E93" />
-            </TouchableOpacity>
+              <X size={15} color={tokens.text.secondary} strokeWidth={ICON.strokeWidth} />
+            </TactileButton>
           </View>
 
           <View style={styles.inspectorContent}>
@@ -521,16 +494,16 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
               const isFatigued = !isEffectivelyReady && rawState === 'fatigued';
 
               const statusColor = isEffectivelyReady
-                ? '#30D158'
+                ? tokens.status.success
                 : isFatigued
-                ? '#FF453A'
-                : '#FF9F0A';
+                ? tokens.status.danger
+                : tokens.status.warning;
 
               return (
                 <View style={{ gap: 6 }}>
                   <View style={styles.inspectorMetricRow}>
-                    <Text style={styles.inspectorStatusLabel}>Recovery Status:</Text>
-                    <Text
+                    <Text style={styles.inspectorStatusLabel}>Status:</Text>
+                    <NumericText
                       numberOfLines={1}
                       ellipsizeMode="tail"
                       style={[
@@ -539,40 +512,33 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
                       ]}
                     >
                       {isEffectivelyReady
-                        ? '⚡ 100% Fresh (Train Hard)'
-                        : `⏱️ Full readiness in ~${recHours}h`}
-                    </Text>
+                        ? 'Ready to Train'
+                        : `Ready in ~${recHours}h`}
+                    </NumericText>
                   </View>
 
-                  {/* Daily Directive */}
+                  {/* Concise Directive */}
                   <View
                     style={[
                       styles.inspectorDirectiveBox,
-                      dynamicStyles.inspectorDirectiveBox,
-                      {
-                        borderColor: isEffectivelyReady
-                          ? 'rgba(48, 209, 88, 0.3)'
-                          : isFatigued
-                          ? 'rgba(255, 69, 58, 0.3)'
-                          : 'rgba(255, 159, 10, 0.3)',
-                      },
+                      { borderColor: tokens.border.subtle },
                     ]}
                   >
-                    <Ionicons
-                      name={isEffectivelyReady ? 'checkmark-circle' : 'alert-circle'}
-                      size={14}
-                      color={statusColor}
-                    />
-                    <Text style={[styles.inspectorDirectiveText, dynamicStyles.inspectorDirectiveText]}>
+                    {isEffectivelyReady ? (
+                      <CheckCircle2 size={14} color={statusColor} strokeWidth={ICON.strokeWidth} />
+                    ) : (
+                      <AlertCircle size={14} color={statusColor} strokeWidth={ICON.strokeWidth} />
+                    )}
+                    <Text style={styles.inspectorDirectiveText}>
                       {isEffectivelyReady
-                        ? '🟢 READY TO TRAIN: Fully recovered and at 100% strength. Great day to lift heavy or push for a personal record.'
+                        ? 'Recovered and ready to lift heavy.'
                         : isFatigued
-                        ? `🔴 NEEDS REST: Still healing from ${selectedData.weeklyRecovery?.totalSets || 0} sets this week. Skip heavy lifting on this muscle today so it can rebuild and grow.`
-                        : `🟡 ALMOST RECOVERED (~${readinessPct}%): Safe for light exercises, but wait ~${recHours}h before going heavy again.`}
+                        ? `Still recovering from ${selectedData.weeklyRecovery?.totalSets || 0} sets recently. Rest before heavy sets.`
+                        : `About ${readinessPct}% recovered — light sets fine, heavy in ~${recHours}h.`}
                     </Text>
                   </View>
 
-                  <Text style={styles.inspectorMetaText}>
+                  <NumericText style={styles.inspectorMetaText}>
                     {selectedData.weeklyRecovery?.lastTrainedDaysAgo != null
                       ? `Last trained: ${
                           selectedData.weeklyRecovery.lastTrainedDaysAgo === 0
@@ -584,67 +550,76 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
                           (selectedData.weeklyRecovery.totalSets || 0) > 0
                             ? ` · ${selectedData.weeklyRecovery.totalSets} ${
                                 selectedData.weeklyRecovery.totalSets === 1 ? 'set' : 'sets'
-                              } this week`
+                              } (7d)`
                             : ''
                         }`
-                      : 'No sets logged for this muscle this week.'}
-                  </Text>
+                      : 'Not trained this week'}
+                  </NumericText>
                 </View>
               );
             })()}
 
-            {/* Mode 2: Volume Status & Adaptive Hypertrophy Landmarks */}
+            {/* Mode 2: Volume Status & Consistent Landmarks */}
             {mode === 'volume' && (() => {
               const landmark = getHypertrophyLandmarkInfo(selectedData.weeklySets, weekBounds.restDayName, selectedMuscle!);
-              const progressPct = Math.min(100, Math.round((selectedData.weeklySets / 20) * 100));
+              const scaleMax = landmark.mrvLimit || 20;
+              const progressPct = Math.min(100, Math.round((selectedData.weeklySets / scaleMax) * 100));
 
               return (
                 <View style={{ gap: 6 }}>
                   <View style={styles.inspectorMetricRow}>
-                    <Text style={styles.inspectorStatusLabel}>Weekly Volume:</Text>
-                    <Text
+                    <Text style={styles.inspectorStatusLabel}>This Week:</Text>
+                    <NumericText
                       style={[styles.inspectorCountdownVal, { color: landmark.tierColor }]}
                     >
                       {selectedData.weeklySets === 0
-                        ? '0 sets · Untrained'
-                        : `${selectedData.weeklySets} ${selectedData.weeklySets === 1 ? 'set' : 'sets'} · ${landmark.tierLabel.replace(/\s*\(\d+\s*sets\)/i, '').replace(/^Not Trained Yet$/i, 'Untrained')}`}
-                    </Text>
+                        ? '0 sets · Not Trained'
+                        : `${selectedData.weeklySets} ${selectedData.weeklySets === 1 ? 'set' : 'sets'} · ${landmark.tierLabel.replace(/\s*\(\d+\s*sets\)/i, '')}`}
+                    </NumericText>
                   </View>
 
-                  {/* Hypertrophy Landmarks Bar */}
+                  {/* Accurate Dynamic Scale Bar */}
                   <View style={styles.landmarkScaleWrap}>
-                    <View style={[styles.landmarkTrackBg, dynamicStyles.landmarkTrackBg]}>
-                      <View
-                        style={[
-                          styles.landmarkTrackFill,
-                          { width: `${progressPct}%`, backgroundColor: landmark.tierColor },
-                        ]}
-                      />
-                    </View>
+                    <AnimatedProgressBar
+                      progress={progressPct / 100}
+                      height={6}
+                      borderRadius={RADIUS.xs}
+                      durationMs={360}
+                      replayKey={`${mode}-${selectedMuscle}`}
+                      color={landmark.tierColor}
+                      trackColor={tokens.bg.elevated}
+                    />
                     <View style={styles.landmarkTicksRow}>
-                      <Text style={styles.landmarkTickText}>0 (Untrained)</Text>
-                      <Text style={[styles.landmarkTickText, selectedData.weeklySets >= 10 && selectedData.weeklySets <= 16 && { color: '#30D158' }]}>
-                        Growth (10–16)
-                      </Text>
-                      <Text style={[styles.landmarkTickText, selectedData.weeklySets >= 20 && { color: '#FF9F0A' }]}>
-                        Overworked (20+)
-                      </Text>
+                      <NumericText style={styles.landmarkTickText}>0</NumericText>
+                      <NumericText
+                        style={[
+                          styles.landmarkTickText,
+                          selectedData.weeklySets >= landmark.mavMinTarget &&
+                            selectedData.weeklySets <= landmark.mavMaxTarget && { color: tokens.status.success },
+                        ]}
+                      >
+                        Ideal ({landmark.mavMinTarget}–{landmark.mavMaxTarget})
+                      </NumericText>
+                      <NumericText
+                        style={[
+                          styles.landmarkTickText,
+                          selectedData.weeklySets > landmark.mrvLimit && { color: tokens.status.warning },
+                        ]}
+                      >
+                        High ({landmark.mrvLimit}+)
+                      </NumericText>
                     </View>
                   </View>
 
-                  {/* Actionable Weekly Deficit Banner */}
+                  {/* Actionable Weekly Guidance */}
                   <View
                     style={[
                       styles.inspectorDirectiveBox,
-                      dynamicStyles.inspectorDirectiveBox,
                       { borderColor: `${landmark.tierColor}44` },
                     ]}
                   >
-                    <Ionicons name="sparkles" size={14} color={landmark.tierColor} />
-                    <Text style={[styles.inspectorDirectiveText, dynamicStyles.inspectorDirectiveText]}>
-                      <Text style={{ fontFamily: FONT_FAMILY.bold, color: landmark.tierColor }}>
-                        Target Insight:{' '}
-                      </Text>
+                    <Sparkles size={14} color={landmark.tierColor} strokeWidth={ICON.strokeWidth} />
+                    <Text style={styles.inspectorDirectiveText}>
                       {landmark.actionableMessage}
                     </Text>
                   </View>
@@ -656,7 +631,7 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
             {mode === 'balance' && (
               <View style={{ gap: 6 }}>
                 <View style={styles.inspectorMetricRow}>
-                  <Text style={styles.inspectorStatusLabel}>Symmetry Balance:</Text>
+                  <Text style={styles.inspectorStatusLabel}>Balance:</Text>
                   <Text
                     numberOfLines={1}
                     ellipsizeMode="tail"
@@ -665,22 +640,22 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
                       {
                         color:
                           selectedData.balance?.status === 'optimal'
-                            ? '#30D158'
+                            ? tokens.status.success
                             : selectedData.balance?.status === 'dominant'
-                            ? '#FF9F0A'
+                            ? tokens.status.warning
                             : selectedData.balance?.status === 'lagging'
-                            ? '#FF453A'
-                            : '#8E8E93',
+                            ? tokens.status.danger
+                            : tokens.text.secondary,
                       },
                     ]}
                   >
                     {selectedData.balance?.status === 'optimal'
-                      ? '🟢 Balanced'
+                      ? 'Balanced'
                       : selectedData.balance?.status === 'dominant'
-                      ? '🟠 Over-Trained Side'
+                      ? 'Trained More'
                       : selectedData.balance?.status === 'lagging'
-                      ? '🔴 Needs Catch-Up'
-                      : 'Not Trained Yet'}
+                      ? 'Behind'
+                      : 'Not Tracked'}
                   </Text>
                 </View>
 
@@ -688,43 +663,22 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
                 <View
                   style={[
                     styles.inspectorDirectiveBox,
-                    dynamicStyles.inspectorDirectiveBox,
-                    {
-                      borderColor:
-                        selectedData.balance?.status === 'lagging'
-                          ? 'rgba(255, 69, 58, 0.4)'
-                          : selectedData.balance?.status === 'dominant'
-                          ? 'rgba(255, 159, 10, 0.4)'
-                          : 'rgba(48, 209, 88, 0.4)',
-                    },
+                    { borderColor: tokens.border.subtle },
                   ]}
                 >
-                  <Ionicons
-                    name="bulb-outline"
+                  <Zap
                     size={14}
+                    strokeWidth={ICON.strokeWidth}
                     color={
                       selectedData.balance?.status === 'lagging'
-                        ? '#FF453A'
+                        ? tokens.status.danger
                         : selectedData.balance?.status === 'dominant'
-                        ? '#FF9F0A'
-                        : '#30D158'
+                        ? tokens.status.warning
+                        : tokens.status.success
                     }
                   />
-                  <Text style={[styles.inspectorDirectiveText, dynamicStyles.inspectorDirectiveText]}>
-                    <Text
-                      style={{
-                        fontFamily: FONT_FAMILY.bold,
-                        color:
-                          selectedData.balance?.status === 'lagging'
-                            ? '#FF453A'
-                            : selectedData.balance?.status === 'dominant'
-                            ? '#FF9F0A'
-                            : '#30D158',
-                      }}
-                    >
-                      How to Fix:{' '}
-                    </Text>
-                    {selectedData.balance?.recommendation || 'Maintain consistent antagonistic volume across sessions.'}
+                  <Text style={styles.inspectorDirectiveText}>
+                    {selectedData.balance?.recommendation || 'Keep your push and pull sets steady across the week.'}
                   </Text>
                 </View>
 
@@ -732,12 +686,14 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
                 {(Boolean(selectedData.balance?.addExerciseName) || Boolean(selectedData.balance?.removeExerciseName)) && (
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
                     {Boolean(selectedData.balance?.addExerciseName) && (
-                      <TouchableOpacity
+                      <TactileButton
+                        variant="custom"
+                        haptic="none"
                         style={[
                           styles.correctiveActionBtn,
                           {
-                            borderColor: 'rgba(48, 209, 88, 0.45)',
-                            backgroundColor: 'rgba(48, 209, 88, 0.12)',
+                            borderColor: tokens.status.success,
+                            backgroundColor: tokens.status.successDim,
                             flex: 1,
                             minWidth: 130,
                           },
@@ -751,17 +707,18 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
                           });
                           setInitialDayIndex(selectedData.balance?.targetDayIndex || 2);
                         }}
-                        activeOpacity={0.7}
                       >
-                        <Ionicons name="add-circle" size={15} color="#30D158" />
-                        <Text style={[styles.correctiveActionBtnText, { color: '#30D158' }]} numberOfLines={2}>
+                        <Plus size={15} color={tokens.status.success} strokeWidth={ICON.strokeWidth} />
+                        <Text style={[styles.correctiveActionBtnText, { color: tokens.status.success }]} numberOfLines={2}>
                           + Add {selectedData.balance?.addExerciseName} to {selectedData.balance?.targetDayName || 'Plan'}
                         </Text>
-                      </TouchableOpacity>
+                      </TactileButton>
                     )}
 
                     {Boolean(selectedData.balance?.removeExerciseName) && (
-                      <TouchableOpacity
+                      <TactileButton
+                        variant="custom"
+                        haptic="none"
                         style={[
                           styles.correctiveActionBtn,
                           {
@@ -780,13 +737,12 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
                             dayName: selectedData.balance?.removeDayName || 'Plan',
                           });
                         }}
-                        activeOpacity={0.7}
                       >
-                        <Ionicons name="trash-outline" size={15} color="#FF453A" />
-                        <Text style={[styles.correctiveActionBtnText, { color: '#FF453A' }]} numberOfLines={2}>
+                        <Trash2 size={15} color={tokens.accent.crimson} strokeWidth={ICON.strokeWidth} />
+                        <Text style={[styles.correctiveActionBtnText, { color: tokens.accent.crimson }]} numberOfLines={2}>
                           - Remove {selectedData.balance?.removeExerciseName} from {selectedData.balance?.removeDayName || 'Plan'}
                         </Text>
-                      </TouchableOpacity>
+                      </TactileButton>
                     )}
                   </View>
                 )}
@@ -806,12 +762,12 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
 
       {/* ── Mode 1 (Recovery): Clean Active Tissue Status Strip ────────── */}
       {mode === 'fatigue' && !selectedData && (
-        <View style={[styles.dailyRecCard, dynamicStyles.dailyRecCard, { paddingVertical: 10, paddingHorizontal: 12 }]}>
+        <View style={[styles.dailyRecCard, { paddingVertical: 10, paddingHorizontal: SPACE.md }]}>
           {recoveryRecs.restPriority.length > 0 ? (
             <View style={{ gap: 6 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={[styles.statusDot, { backgroundColor: '#FF9F0A' }]} />
-                <Text style={[styles.dailyRecTitle, { fontSize: 11 }]}>RECOVERING TISSUE</Text>
+                <View style={[styles.statusDot, { backgroundColor: tokens.status.warning }]} />
+                <Text style={[styles.dailyRecTitle, { fontSize: 11 }]}>CURRENTLY RECOVERING</Text>
               </View>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                 {recoveryRecs.restPriority.slice(0, 4).map(m => (
@@ -819,169 +775,244 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
                     key={m.slug}
                     style={{
                       backgroundColor: 'rgba(255, 159, 10, 0.12)',
-                      paddingHorizontal: 8,
+                      paddingHorizontal: SPACE.sm,
                       paddingVertical: 3,
                       borderRadius: 6,
                       borderWidth: 1,
                       borderColor: 'rgba(255, 159, 10, 0.25)',
                     }}
                   >
-                    <Text style={{ fontFamily: FONT_FAMILY.medium, fontSize: 11, color: '#FF9F0A' }}>
-                      {m.name} (~{m.estimatedHours}h)
-                    </Text>
+                    <NumericText style={{ fontFamily: FONT_FAMILY.medium, fontSize: 11, color: tokens.status.warning }}>
+                      {m.name} · ~{m.estimatedHours}h left
+                    </NumericText>
                   </View>
                 ))}
               </View>
             </View>
           ) : (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <View style={[styles.statusDot, { backgroundColor: '#30D158' }]} />
-              <Text style={{ fontFamily: FONT_FAMILY.medium, fontSize: 12, color: '#30D158' }}>
-                All 18 muscle groups are 100% recovered and prime for heavy lifting.
+              <View style={[styles.statusDot, { backgroundColor: tokens.status.success }]} />
+              <Text style={{ fontFamily: FONT_FAMILY.medium, fontSize: 12, color: tokens.status.success }}>
+                All muscles are recovered and ready to train.
               </Text>
             </View>
           )}
         </View>
       )}
 
-      {/* ── Mode 3 (Symmetry): Core Antagonistic Pair Cards ───────────────── */}
+      {/* ── Mode 3 (Symmetry): Core Muscle Balance Pairs ─────────────────── */}
       {mode === 'balance' && (
         <View style={styles.antagonistSection}>
           <View style={styles.antagonistHeaderRow}>
-            <Ionicons name="git-compare-outline" size={14} color="#8E8E93" />
-            <Text style={styles.antagonistSectionTitle}>MUSCLE BALANCE & POSTURE</Text>
+            <ArrowLeftRight size={14} color={tokens.text.secondary} strokeWidth={ICON.strokeWidth} />
+            <Text style={styles.antagonistSectionTitle}>WEEKLY MUSCLE BALANCE</Text>
           </View>
 
-          {antagonisticPairs.map(pair => {
-            const loggedA = Math.round(pair.setsA);
-            const loggedB = Math.round(pair.setsB);
-            const totalA = Math.round(pair.totalSetsA);
-            const totalB = Math.round(pair.totalSetsB);
-            const plannedA = Math.round(pair.upcomingSetsA);
-            const plannedB = Math.round(pair.upcomingSetsB);
+          <View style={styles.pairGroupCard}>
+            {antagonisticPairs.map((pair, idx) => {
+              const loggedA = Math.round(pair.setsA);
+              const loggedB = Math.round(pair.setsB);
+              const totalA = Math.round(pair.totalSetsA);
+              const totalB = Math.round(pair.totalSetsB);
+              const plannedA = Math.round(pair.upcomingSetsA);
+              const plannedB = Math.round(pair.upcomingSetsB);
+              const combinedSets = totalA + totalB;
+              const pctA = combinedSets > 0 ? Math.round((totalA / combinedSets) * 100) : 50;
+              const pctB = 100 - pctA;
 
-            return (
-              <View key={pair.id} style={[styles.pairCard, dynamicStyles.pairCard]}>
-                <View style={styles.pairTopRow}>
-                  <Text style={styles.pairCategory}>{pair.category}</Text>
-                  <View style={[styles.pairStatusBadge, { backgroundColor: `${pair.statusColor}22` }]}>
-                    <View style={[styles.statusDot, { backgroundColor: pair.statusColor }]} />
-                    <Text style={[styles.pairStatusText, { color: pair.statusColor }]}>
-                      {pair.humanStatus || pair.statusLabel}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Clean Plain-English Sets Comparison Row (No vague algebra or confusing percentages) */}
-                <View style={styles.pairMetricsRow}>
-                  <View style={styles.pairSideCol}>
-                    <Text style={[styles.pairSideTitle, dynamicStyles.pairSideTitle]} numberOfLines={1}>{pair.nameA}</Text>
-                    <Text style={[styles.pairSetsNum, dynamicStyles.pairSetsNum]}>
-                      {totalA === 0 ? (
-                        <>0 <Text style={styles.pairSetsUnit}>sets</Text></>
-                      ) : loggedA === 0 && plannedA > 0 ? (
-                        <>{plannedA} <Text style={[styles.pairSetsUnit, { color: '#A599FF' }]}>sets planned</Text></>
-                      ) : (
-                        <>{totalA} <Text style={styles.pairSetsUnit}>sets this week</Text></>
-                      )}
-                    </Text>
-                  </View>
-
-                  <View style={[styles.pairSideCol, { alignItems: 'flex-end' }]}>
-                    <Text style={[styles.pairSideTitle, dynamicStyles.pairSideTitle]} numberOfLines={1}>{pair.nameB}</Text>
-                    <Text style={[styles.pairSetsNum, dynamicStyles.pairSetsNum]}>
-                      {totalB === 0 ? (
-                        <>0 <Text style={styles.pairSetsUnit}>sets</Text></>
-                      ) : loggedB === 0 && plannedB > 0 ? (
-                        <>{plannedB} <Text style={[styles.pairSetsUnit, { color: '#64D2FF' }]}>sets planned</Text></>
-                      ) : (
-                        <>{totalB} <Text style={styles.pairSetsUnit}>sets this week</Text></>
-                      )}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Prescriptive Guidance */}
-                <View style={[styles.pairPrescriptionBox, dynamicStyles.inspectorDirectiveBox]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, flex: 1 }}>
-                    <Ionicons
-                      name={pair.status === 'optimal' ? 'checkmark-circle-outline' : 'bulb-outline'}
-                      size={14}
-                      color={pair.statusColor}
-                      style={{ marginTop: 1 }}
-                    />
-                    <Text style={[styles.pairPrescriptionText, dynamicStyles.pairPrescriptionText]}>
-                      {pair.correctiveRecommendation}
-                    </Text>
-                  </View>
-
-                  {/* 1-Tap ADD Action: Opens AddToDaySheet targeting user's specific split day */}
-                  {pair.actionType === 'add' && pair.correctiveExerciseName && (
-                    <TouchableOpacity
-                      style={[styles.correctiveActionBtn, { borderColor: `${pair.statusColor}55`, backgroundColor: `${pair.statusColor}18` }]}
-                      onPress={() => {
-                        feedback.tap();
-                        const laggingSlugs = pair.status === 'lagging_a' ? pair.musclesA : pair.musclesB;
-                        const targetMuscleSlug = laggingSlugs[0] || 'upper-back';
-                        setAddToDayTarget({
-                          id: pair.correctiveExerciseId || `corr_${Date.now()}`,
-                          name: pair.correctiveExerciseName!,
-                          muscle: MUSCLE_NAME[targetMuscleSlug] || targetMuscleSlug,
-                        });
-                        setInitialDayIndex(pair.targetDayIndex || 1);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="add-circle" size={15} color={pair.statusColor} />
-                      <Text style={[styles.correctiveActionBtnText, { color: pair.statusColor }]} numberOfLines={2}>
-                        + Add {pair.correctiveExerciseName} to Routine
+              return (
+                <View key={pair.id} style={[styles.pairRowItem, idx > 0 && styles.pairRowDivider]}>
+                  <View style={styles.pairTopRow}>
+                    <Text style={styles.pairCategory}>{pair.category}</Text>
+                    <View style={[styles.pairStatusBadge, { backgroundColor: `${pair.statusColor}22` }]}>
+                      <View style={[styles.statusDot, { backgroundColor: pair.statusColor }]} />
+                      <Text style={[styles.pairStatusText, { color: pair.statusColor }]}>
+                        {pair.humanStatus || pair.statusLabel}
                       </Text>
-                    </TouchableOpacity>
-                  )}
+                    </View>
+                  </View>
 
-                  {/* 1-Tap REMOVE Action: Confirms and removes actual scheduled exercise from routine */}
-                  {pair.actionType === 'remove' && pair.removeExerciseName && (
-                    <TouchableOpacity
-                      style={[styles.correctiveActionBtn, { borderColor: 'rgba(255, 69, 58, 0.45)', backgroundColor: 'rgba(255, 69, 58, 0.12)' }]}
-                      onPress={() => {
-                        feedback.tap();
-                        setRemoveTarget({
-                          exerciseName: pair.removeExerciseName!,
-                          exerciseId: pair.removeExerciseId,
-                          dayIndex: pair.removeDayIndex || 1,
-                          dayName: pair.removeDayName || 'Plan',
-                        });
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="remove-circle" size={15} color="#FF453A" />
-                      <Text style={[styles.correctiveActionBtnText, { color: '#FF453A' }]} numberOfLines={2}>
-                        - Remove {pair.removeExerciseName} from {pair.removeDayName || 'Plan'}
+                  {/* Explicit Done vs Scheduled Comparison */}
+                  <View style={styles.pairMetricsRow}>
+                    <View style={styles.pairSideCol}>
+                      <Text style={styles.pairSideTitle} numberOfLines={1}>{pair.nameA}</Text>
+                      {loggedA > 0 && plannedA > 0 ? (
+                        <NumericText style={styles.pairSetsNum}>
+                          {loggedA} <Text style={styles.pairSetsUnit}>done</Text>
+                          <Text style={[styles.pairSetsUnit, { color: tokens.accent.secondary }]}> · {plannedA} scheduled</Text>
+                        </NumericText>
+                      ) : loggedA > 0 ? (
+                        <NumericText style={styles.pairSetsNum}>
+                          {loggedA} <Text style={styles.pairSetsUnit}>done</Text>
+                        </NumericText>
+                      ) : plannedA > 0 ? (
+                        <NumericText style={styles.pairSetsNum}>
+                          0 <Text style={styles.pairSetsUnit}>done</Text>
+                          <Text style={[styles.pairSetsUnit, { color: tokens.accent.secondary }]}> · {plannedA} scheduled</Text>
+                        </NumericText>
+                      ) : (
+                        <NumericText style={styles.pairSetsNum}>
+                          0 <Text style={styles.pairSetsUnit}>sets</Text>
+                        </NumericText>
+                      )}
+                    </View>
+
+                    <View style={[styles.pairSideCol, { alignItems: 'flex-end' }]}>
+                      <Text style={styles.pairSideTitle} numberOfLines={1}>{pair.nameB}</Text>
+                      {loggedB > 0 && plannedB > 0 ? (
+                        <NumericText style={styles.pairSetsNum}>
+                          {loggedB} <Text style={styles.pairSetsUnit}>done</Text>
+                          <Text style={[styles.pairSetsUnit, { color: tokens.accent.primary }]}> · {plannedB} scheduled</Text>
+                        </NumericText>
+                      ) : loggedB > 0 ? (
+                        <NumericText style={styles.pairSetsNum}>
+                          {loggedB} <Text style={styles.pairSetsUnit}>done</Text>
+                        </NumericText>
+                      ) : plannedB > 0 ? (
+                        <NumericText style={styles.pairSetsNum}>
+                          0 <Text style={styles.pairSetsUnit}>done</Text>
+                          <Text style={[styles.pairSetsUnit, { color: tokens.accent.primary }]}> · {plannedB} scheduled</Text>
+                        </NumericText>
+                      ) : (
+                        <NumericText style={styles.pairSetsNum}>
+                          0 <Text style={styles.pairSetsUnit}>sets</Text>
+                        </NumericText>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* 50 / 50 Visual Split Bar */}
+                  <View style={styles.balanceBarContainer}>
+                    <View style={styles.balanceBarTrack}>
+                      <View
+                        style={[
+                          styles.balanceBarFillLeft,
+                          { width: `${pctA}%`, backgroundColor: tokens.accent.secondary },
+                        ]}
+                      />
+                      <View style={styles.balanceCenterTick} />
+                      <View
+                        style={[
+                          styles.balanceBarFillRight,
+                          { width: `${pctB}%`, backgroundColor: tokens.accent.primary },
+                        ]}
+                      />
+                    </View>
+                    <View style={styles.balanceSubRow}>
+                      <NumericText style={styles.balanceSubLeft}>{pctA}%</NumericText>
+                      <NumericText style={styles.balanceSubCenter}>
+                        {combinedSets > 0 ? 'Ideal 50 / 50' : 'No weekly sets yet'}
+                      </NumericText>
+                      <NumericText style={styles.balanceSubRight}>{pctB}%</NumericText>
+                    </View>
+                  </View>
+
+                  {/* Prescriptive Guidance */}
+                  <View style={styles.pairPrescriptionBox}>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, flex: 1 }}>
+                      {pair.status === 'optimal' ? (
+                        <CheckCircle2
+                          size={14}
+                          color={pair.statusColor}
+                          strokeWidth={ICON.strokeWidth}
+                          style={{ marginTop: 1 }}
+                        />
+                      ) : (
+                        <Zap
+                          size={14}
+                          color={pair.statusColor}
+                          strokeWidth={ICON.strokeWidth}
+                          style={{ marginTop: 1 }}
+                        />
+                      )}
+                      <Text style={styles.pairPrescriptionText}>
+                        {pair.correctiveRecommendation}
                       </Text>
-                    </TouchableOpacity>
-                  )}
+                    </View>
+
+                    {/* 1-Tap ADD Action: Opens AddToDaySheet targeting user's specific split day */}
+                    {pair.actionType === 'add' && pair.correctiveExerciseName && (
+                      <TactileButton
+                        variant="custom"
+                        haptic="none"
+                        style={[styles.correctiveActionBtn, { borderColor: `${pair.statusColor}55`, backgroundColor: `${pair.statusColor}18` }]}
+                        onPress={() => {
+                          feedback.tap();
+                          const laggingSlugs = pair.status === 'lagging_a' ? pair.musclesA : pair.musclesB;
+                          const targetMuscleSlug = laggingSlugs[0] || 'upper-back';
+                          setAddToDayTarget({
+                            id: pair.correctiveExerciseId || `corr_${Date.now()}`,
+                            name: pair.correctiveExerciseName!,
+                            muscle: MUSCLE_NAME[targetMuscleSlug] || targetMuscleSlug,
+                          });
+                          setInitialDayIndex(pair.targetDayIndex || 1);
+                        }}
+                      >
+                        <Plus size={15} color={pair.statusColor} strokeWidth={ICON.strokeWidth} />
+                        <Text style={[styles.correctiveActionBtnText, { color: pair.statusColor }]} numberOfLines={2}>
+                          Add {pair.correctiveExerciseName} to Routine
+                        </Text>
+                      </TactileButton>
+                    )}
+
+                    {/* 1-Tap REMOVE Action: Confirms and removes actual scheduled exercise from routine */}
+                    {pair.actionType === 'remove' && pair.removeExerciseName && (
+                      <TactileButton
+                        variant="custom"
+                        haptic="none"
+                        style={[styles.correctiveActionBtn, { borderColor: 'rgba(255, 69, 58, 0.45)', backgroundColor: 'rgba(255, 69, 58, 0.12)' }]}
+                        onPress={() => {
+                          feedback.tap();
+                          setRemoveTarget({
+                            exerciseName: pair.removeExerciseName!,
+                            exerciseId: pair.removeExerciseId,
+                            dayIndex: pair.removeDayIndex || 1,
+                            dayName: pair.removeDayName || 'Plan',
+                          });
+                        }}
+                      >
+                        <Minus size={15} color={tokens.accent.crimson} strokeWidth={ICON.strokeWidth} />
+                        <Text style={[styles.correctiveActionBtnText, { color: tokens.accent.crimson }]} numberOfLines={2}>
+                          Remove {pair.removeExerciseName} from {pair.removeDayName || 'Plan'}
+                        </Text>
+                      </TactileButton>
+                    )}
+                  </View>
                 </View>
-              </View>
-            );
-          })}
+              );
+            })}
+          </View>
         </View>
       )}
 
-      {/* ── Dynamic Legend Bar (Clean Apple Typography, No Pills) ─────────── */}
+      {/* ── Dynamic Legend Bar ──────────────────────────────────────────── */}
       <View style={styles.legendRow}>
         {mode === 'fatigue' && (
           <View style={styles.legendItemsWrap}>
             <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#30D158' }]} />
-              <Text style={styles.legendLabel}>Fresh (Ready)</Text>
+              <View style={[styles.legendDot, { backgroundColor: tokens.status.success }]} />
+              <Text style={styles.legendLabel}>Ready</Text>
             </View>
             <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#FF9F0A' }]} />
+              <View style={[styles.legendDot, { backgroundColor: tokens.status.warning }]} />
               <Text style={styles.legendLabel}>Recovering</Text>
             </View>
             <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#545458' }]} />
-              <Text style={styles.legendLabel}>Rested</Text>
+              <View style={[styles.legendDot, { backgroundColor: tokens.accent.crimson }]} />
+              <Text style={styles.legendLabel}>Strained</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View
+                style={[
+                  styles.legendDot,
+                  {
+                    backgroundColor: isDark
+                      ? AnatomicalHeatmapPalette.untrainedRecoveryDark
+                      : AnatomicalHeatmapPalette.untrainedRecoveryLight,
+                  },
+                ]}
+              />
+              <Text style={styles.legendLabel}>Not Trained</Text>
             </View>
           </View>
         )}
@@ -989,16 +1020,20 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
         {mode === 'volume' && (
           <View style={styles.legendItemsWrap}>
             <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#30D158' }]} />
-              <Text style={styles.legendLabel}>Optimal (8–16 sets)</Text>
+              <View style={[styles.legendDot, { backgroundColor: AnatomicalHeatmapPalette.volumeMav }]} />
+              <Text style={styles.legendLabel}>Ideal</Text>
             </View>
             <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#FF9F0A' }]} />
-              <Text style={styles.legendLabel}>Light (1–7 sets)</Text>
+              <View style={[styles.legendDot, { backgroundColor: AnatomicalHeatmapPalette.volumeMev }]} />
+              <Text style={styles.legendLabel}>Moderate</Text>
             </View>
             <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#545458' }]} />
-              <Text style={styles.legendLabel}>Untrained</Text>
+              <View style={[styles.legendDot, { backgroundColor: AnatomicalHeatmapPalette.volumeBelowMev }]} />
+              <Text style={styles.legendLabel}>Light</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: AnatomicalHeatmapPalette.volumeMrvRisk }]} />
+              <Text style={styles.legendLabel}>Very High</Text>
             </View>
           </View>
         )}
@@ -1006,15 +1041,15 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
         {mode === 'balance' && (
           <View style={styles.legendItemsWrap}>
             <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#30D158' }]} />
+              <View style={[styles.legendDot, { backgroundColor: tokens.status.success }]} />
               <Text style={styles.legendLabel}>Balanced</Text>
             </View>
             <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#FF9F0A' }]} />
-              <Text style={styles.legendLabel}>Trained More</Text>
+              <View style={[styles.legendDot, { backgroundColor: tokens.status.warning }]} />
+              <Text style={styles.legendLabel}>More Load</Text>
             </View>
             <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: '#FF453A' }]} />
+              <View style={[styles.legendDot, { backgroundColor: tokens.accent.crimson }]} />
               <Text style={styles.legendLabel}>Needs Catch-Up</Text>
             </View>
           </View>
@@ -1029,84 +1064,73 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
         initialSets={3}
         onClose={() => setAddToDayTarget(null)}
         onSuccess={(dayName) => {
+          const addedName = addToDayTarget?.name || 'Exercise';
           feedback.success();
-          setActionToast(`✓ Added ${addToDayTarget?.name} to ${dayName}`);
-          setTimeout(() => setActionToast(null), 3500);
-          setAddToDayTarget(null);
+          showTimedToast(`Added ${addedName} to ${dayName}`);
+          // Don't call setAddToDayTarget(null) here — onClose handles dismissal
         }}
       />
 
-      {/* ── Remove Exercise from Plan Confirmation Modal ── */}
-      <Modal
+      {/* ── Remove Exercise from Plan Obsidian Sheet ── */}
+      <BottomSheet
         visible={removeTarget !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setRemoveTarget(null)}
+        onClose={() => setRemoveTarget(null)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setRemoveTarget(null)}>
-          <Pressable
-            style={[styles.confirmCard, { backgroundColor: isDark ? '#1C1B24' : '#FFFFFF' }]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View style={styles.confirmIconWrap}>
-              <Ionicons name="trash-outline" size={24} color="#FF453A" />
-            </View>
-            <Text style={[styles.confirmTitle, { color: isDark ? '#FFFFFF' : '#1C1C1E' }]}>
-              Remove from {removeTarget?.dayName}?
-            </Text>
-            <Text style={[styles.confirmDesc, { color: isDark ? '#8E8E93' : '#636366' }]}>
-              Remove <Text style={{ color: isDark ? '#FFFFFF' : '#1C1C1E', fontFamily: FONT_FAMILY.bold }}>{removeTarget?.exerciseName}</Text> from your routine to prevent muscle overload and protect joints.
-            </Text>
-            <View style={styles.confirmBtnRow}>
-              <TouchableOpacity
-                style={[styles.confirmBtn, styles.confirmCancelBtn]}
-                onPress={() => setRemoveTarget(null)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.confirmCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.confirmBtn, styles.confirmRemoveBtn]}
-                onPress={async () => {
-                  if (!removeTarget) return;
-                  feedback.success();
-                  const isArnold = userGymPlan?.templateId === 'arnold';
-                  const basePlan = isArnold ? GYM_PLAN_ARNOLD : GYM_PLAN;
-                  const currentDay = userGymPlan?.customDays?.[removeTarget.dayIndex] || basePlan.find(d => d.dayIndex === removeTarget.dayIndex) || basePlan[removeTarget.dayIndex - 1];
+        <View style={styles.confirmSheetBody}>
+          <View style={styles.confirmIconWrap}>
+            <Trash2 size={22} color={tokens.accent.crimson} strokeWidth={ICON.strokeWidth} />
+          </View>
+          <Text style={[styles.confirmTitle, { color: tokens.text.primary }]}>
+            Remove from {removeTarget?.dayName}?
+          </Text>
+          <Text style={[styles.confirmDesc, { color: tokens.text.secondary }]}>
+            Remove <Text style={{ color: tokens.text.primary, fontFamily: FONT_FAMILY.bold }}>{removeTarget?.exerciseName}</Text> from this split day to keep push and pull volume balanced.
+          </Text>
+          <View style={styles.confirmBtnRow}>
+            <TactileButton
+              variant="secondary"
+              label="Cancel"
+              style={{ flex: 1 }}
+              onPress={() => setRemoveTarget(null)}
+            />
+            <TactileButton
+              variant="danger"
+              label="Remove"
+              haptic="none"
+              style={{ flex: 1 }}
+              onPress={async () => {
+                if (!removeTarget) return;
+                feedback.success();
+                const currentDay = resolvePlanDay(userGymPlan, removeTarget.dayIndex);
 
-                  if (currentDay) {
-                    const targetNameLower = removeTarget.exerciseName.trim().toLowerCase();
-                    const targetWords = targetNameLower.replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(w => w.length > 2);
-                    const updatedExercises = (currentDay.exercises || []).filter(e => {
-                      if (removeTarget.exerciseId && e.id && e.id === removeTarget.exerciseId) return false;
-                      const exName = (e.name || '').trim().toLowerCase();
-                      if (exName === targetNameLower) return false;
-                      if (exName.includes(targetNameLower) || targetNameLower.includes(exName)) return false;
-                      if (targetWords.length > 0 && targetWords.every(w => exName.includes(w))) return false;
-                      return true;
-                    });
-                    await updateMasterPlan(removeTarget.dayIndex, {
-                      ...currentDay,
-                      exercises: updatedExercises,
-                    });
-                    setActionToast(`✓ Removed ${removeTarget.exerciseName} from ${removeTarget.dayName}`);
-                    setTimeout(() => setActionToast(null), 3500);
-                  }
-                  setRemoveTarget(null);
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.confirmRemoveText}>Remove</Text>
-              </TouchableOpacity>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+                if (currentDay) {
+                  const targetNameLower = removeTarget.exerciseName.trim().toLowerCase();
+                  const targetWords = targetNameLower.replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+                  const updatedExercises = (currentDay.exercises || []).filter(e => {
+                    if (removeTarget.exerciseId && e.id && e.id === removeTarget.exerciseId) return false;
+                    const exName = (e.name || '').trim().toLowerCase();
+                    if (exName === targetNameLower) return false;
+                    if (exName.includes(targetNameLower) || targetNameLower.includes(exName)) return false;
+                    if (targetWords.length > 0 && targetWords.every(w => exName.includes(w))) return false;
+                    return true;
+                  });
+                  await updateMasterPlan(removeTarget.dayIndex, {
+                    ...currentDay,
+                    exercises: updatedExercises,
+                  });
+                  showTimedToast(`Removed ${removeTarget.exerciseName} from ${removeTarget.dayName}`);
+                }
+                setRemoveTarget(null);
+              }}
+            />
+          </View>
+        </View>
+      </BottomSheet>
 
       {/* ── Action Success Toast ── */}
       {actionToast && (
         <View style={styles.toastContainer}>
-          <Ionicons name="checkmark-circle" size={15} color="#30D158" />
+          <CheckCircle2 size={15} color={tokens.status.success} strokeWidth={ICON.strokeWidth} />
           <Text style={styles.toastText}>{actionToast}</Text>
         </View>
       )}
@@ -1121,49 +1145,51 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
     prev.defaultMode === next.defaultMode &&
     prev.weekAnchorDate === next.weekAnchorDate &&
     prev.style === next.style &&
+    prev.onAddCorrectiveExercise === next.onAddCorrectiveExercise &&
     (prev.gymLogs === next.gymLogs || generateDatasetFingerprint(prev.gymLogs) === generateDatasetFingerprint(next.gymLogs))
   );
 });
 
 // ── Minimalist Apple iOS HIG Stylesheet ──────────────────────────────────────
-const styles = StyleSheet.create({
+const makeStyles = (tokens: typeof DARK_TOKENS) => StyleSheet.create({
   card: {
-    borderRadius: 16,
-    borderWidth: 0,
-    padding: 14,
+    borderRadius: RADIUS.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.border.subtle,
+    padding: SPACE.md,
     marginBottom: 10,
-    backgroundColor: '#1C1C1E',
+    backgroundColor: tokens.isDark ? '#0F1015' : tokens.bg.surface,
   },
 
   // Segmented Control (Minimal, Subtle, No Pills)
   segControl: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2C2C2E',
-    borderRadius: 12,
+    backgroundColor: tokens.bg.elevated,
+    borderRadius: RADIUS.md,
     padding: 3,
-    marginBottom: 8,
-    height: 38,
+    marginBottom: SPACE.sm,
+    minHeight: TOUCH.minTarget,
     gap: 2,
   },
   segBtn: {
     flex: 1,
-    height: 32,
+    minHeight: 42,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 9,
-    paddingHorizontal: 4,
+    borderRadius: RADIUS.inner,
+    paddingHorizontal: SPACE.xs,
   },
   segBtnActive: {
-    backgroundColor: '#1C1C1E',
+    backgroundColor: tokens.bg.surface,
   },
   segBtnText: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 12.5,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
   segBtnTextActive: {
-    color: '#FFFFFF',
+    color: tokens.text.primary,
     fontFamily: FONT_FAMILY.bold,
   },
 
@@ -1176,7 +1202,7 @@ const styles = StyleSheet.create({
   overviewStripText: {
     fontSize: 11.5,
     fontFamily: FONT_FAMILY.medium,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
 
   // Dual Body Map
@@ -1184,8 +1210,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
-    paddingVertical: 4,
+    gap: SPACE.md,
+    paddingVertical: SPACE.xs,
   },
   bodyViewCol: {
     alignItems: 'center',
@@ -1197,18 +1223,18 @@ const styles = StyleSheet.create({
   bodyViewLabel: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 10,
-    color: '#636366',
+    color: tokens.text.muted,
     letterSpacing: 1,
-    marginTop: 4,
+    marginTop: SPACE.xs,
   },
 
   // Interactive Inspector Card
   inspectorCard: {
-    backgroundColor: '#2C2C2E',
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 8,
-    marginBottom: 4,
+    backgroundColor: tokens.bg.elevated,
+    borderRadius: RADIUS.md,
+    padding: SPACE.md,
+    marginTop: SPACE.sm,
+    marginBottom: SPACE.xs,
   },
   inspectorTop: {
     flexDirection: 'row',
@@ -1224,7 +1250,13 @@ const styles = StyleSheet.create({
   inspectorTitle: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 14,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
+  },
+  inspectorCloseBtn: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   inspectorContent: {
     paddingLeft: 15,
@@ -1232,29 +1264,29 @@ const styles = StyleSheet.create({
   inspectorStatusText: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 12.5,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
   },
   inspectorBodyText: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 11.5,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
     lineHeight: 16,
     marginTop: 2,
   },
   tapPromptText: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 11.5,
-    color: '#636366',
+    color: tokens.text.muted,
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: SPACE.sm,
     marginBottom: 2,
   },
 
   // Educational Guide Card
   guideCard: {
-    backgroundColor: '#26262A',
-    borderRadius: 12,
-    padding: 12,
+    backgroundColor: tokens.bg.elevated,
+    borderRadius: RADIUS.md,
+    padding: SPACE.md,
     marginTop: 10,
   },
   guideHeaderRow: {
@@ -1266,21 +1298,21 @@ const styles = StyleSheet.create({
   guideHeaderTitle: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 10.5,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
     letterSpacing: 0.5,
   },
   guideBullets: {
-    gap: 4,
+    gap: SPACE.xs,
   },
   guideBulletText: {
     fontSize: 11.5,
     fontFamily: FONT_FAMILY.regular,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
     lineHeight: 16,
   },
   guideBold: {
     fontFamily: FONT_FAMILY.bold,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
   },
 
   // Legend Bar (Minimal, No Pills)
@@ -1288,16 +1320,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 10,
-    paddingTop: 8,
+    paddingTop: SPACE.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(84, 84, 88, 0.36)',
+    borderTopColor: tokens.border.subtle,
   },
   legendItemsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
+    gap: SPACE.md,
   },
   legendItem: {
     flexDirection: 'row',
@@ -1312,15 +1344,15 @@ const styles = StyleSheet.create({
   legendLabel: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 11,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
 
   // Mode 1: Daily Recovery Recommendation Card
   dailyRecCard: {
-    backgroundColor: '#26262A',
-    borderRadius: 12,
+    backgroundColor: tokens.bg.elevated,
+    borderRadius: RADIUS.md,
     padding: 10,
-    marginBottom: 8,
+    marginBottom: SPACE.sm,
   },
   dailyRecSection: {
     gap: 5,
@@ -1338,7 +1370,7 @@ const styles = StyleSheet.create({
   dailyRecTitle: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 10,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
     letterSpacing: 0.6,
   },
   recChipsWrap: {
@@ -1349,46 +1381,46 @@ const styles = StyleSheet.create({
   },
   primeChip: {
     backgroundColor: 'rgba(48, 209, 88, 0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: SPACE.sm,
+    paddingVertical: SPACE.xs,
+    borderRadius: RADIUS.sm,
     borderWidth: 1,
     borderColor: 'rgba(48, 209, 88, 0.3)',
   },
   primeChipSelected: {
-    backgroundColor: '#30D158',
-    borderColor: '#30D158',
+    backgroundColor: tokens.status.success,
+    borderColor: tokens.status.success,
   },
   primeChipText: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 11,
-    color: '#30D158',
+    color: tokens.status.success,
   },
   restChip: {
     backgroundColor: 'rgba(255, 69, 58, 0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: SPACE.sm,
+    paddingVertical: SPACE.xs,
+    borderRadius: RADIUS.sm,
     borderWidth: 1,
     borderColor: 'rgba(255, 69, 58, 0.3)',
   },
   restChipSelected: {
-    backgroundColor: '#FF453A',
-    borderColor: '#FF453A',
+    backgroundColor: tokens.accent.crimson,
+    borderColor: tokens.accent.crimson,
   },
   restChipText: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 11,
-    color: '#FF453A',
+    color: tokens.accent.crimson,
   },
   chipTextSelected: {
-    color: '#FFFFFF',
+    color: tokens.accent.onPrimary,
     fontFamily: FONT_FAMILY.bold,
   },
   dailyRecEmpty: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 11,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
     fontStyle: 'italic',
   },
 
@@ -1397,14 +1429,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
-    paddingBottom: 4,
+    gap: SPACE.sm,
+    paddingBottom: SPACE.xs,
   },
   inspectorStatusLabel: {
     flexShrink: 0,
     fontFamily: FONT_FAMILY.medium,
     fontSize: 12,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
   inspectorCountdownVal: {
     flex: 1,
@@ -1417,9 +1449,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 7,
-    backgroundColor: '#1E1E20',
-    borderRadius: 8,
-    padding: 8,
+    backgroundColor: tokens.bg.canvas,
+    borderRadius: RADIUS.sm,
+    padding: SPACE.sm,
     borderWidth: 1,
     marginTop: 2,
   },
@@ -1427,25 +1459,25 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: FONT_FAMILY.regular,
     fontSize: 11.5,
-    color: '#E5E5EA',
+    color: tokens.text.primary,
     lineHeight: 16,
   },
   inspectorMetaText: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 11,
-    color: '#8E8E93',
-    marginTop: 4,
+    color: tokens.text.secondary,
+    marginTop: SPACE.xs,
     lineHeight: 15,
   },
 
   // Hypertrophy Landmark Gauge
   landmarkScaleWrap: {
     marginTop: 2,
-    marginBottom: 4,
+    marginBottom: SPACE.xs,
   },
   landmarkTrackBg: {
     height: 6,
-    backgroundColor: '#1C1C1E',
+    backgroundColor: tokens.bg.surface,
     borderRadius: 3,
     overflow: 'hidden',
   },
@@ -1456,18 +1488,18 @@ const styles = StyleSheet.create({
   landmarkTicksRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 4,
+    marginTop: SPACE.xs,
   },
   landmarkTickText: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 9.5,
-    color: '#636366',
+    color: tokens.text.muted,
   },
 
   // Mode 3: 3 Core Antagonistic Pair Cards
   antagonistSection: {
     marginTop: 10,
-    gap: 8,
+    gap: SPACE.sm,
   },
   antagonistHeaderRow: {
     flexDirection: 'row',
@@ -1478,33 +1510,42 @@ const styles = StyleSheet.create({
   antagonistSectionTitle: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 10.5,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
     letterSpacing: 0.6,
   },
-  pairCard: {
-    backgroundColor: '#26262A',
-    borderRadius: 12,
-    padding: 10,
-    gap: 6,
+  pairGroupCard: {
+    backgroundColor: tokens.isDark ? '#14161D' : tokens.bg.elevated,
+    borderRadius: RADIUS.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.border.subtle,
+    overflow: 'hidden',
+  },
+  pairRowItem: {
+    padding: 12,
+    gap: 8,
+  },
+  pairRowDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: tokens.border.subtle,
   },
   pairTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: SPACE.sm,
   },
   pairCategory: {
     flex: 1,
     flexShrink: 1,
     fontFamily: FONT_FAMILY.bold,
     fontSize: 12,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
   },
   pairStatusBadge: {
     flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACE.xs,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
@@ -1517,42 +1558,45 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: SPACE.sm,
     paddingVertical: 3,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(84, 84, 88, 0.25)',
+    borderColor: tokens.border.subtle,
   },
   pairSideCol: {
     flex: 1,
+    minWidth: 0,
   },
   pairSideTitle: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 11,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
     marginBottom: 1,
   },
   pairSetsNum: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 14,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
   },
   pairSetsUnit: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 10,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
   pairPlannedUnit: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 10.5,
-    color: '#A599FF',
+    color: tokens.accent.secondary,
   },
   balanceBarContainer: {
-    paddingVertical: 4,
+    paddingVertical: SPACE.xs,
     gap: 3,
   },
   balanceBarTrack: {
     height: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: tokens.border.subtle,
     borderRadius: 3,
     flexDirection: 'row',
     overflow: 'hidden',
@@ -1568,7 +1612,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 2,
     marginLeft: -1,
-    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    backgroundColor: tokens.text.muted,
     zIndex: 2,
   },
   balanceBarFillRight: {
@@ -1582,39 +1626,40 @@ const styles = StyleSheet.create({
   balanceSubLeft: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 9.5,
-    color: '#A599FF',
+    color: tokens.accent.secondary,
   },
   balanceSubCenter: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 10,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
   balanceSubRight: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 9.5,
-    color: '#64D2FF',
+    color: tokens.accent.primary,
   },
   pairPrescriptionBox: {
-    backgroundColor: '#1E1E20',
-    borderRadius: 8,
-    padding: 8,
+    backgroundColor: tokens.bg.canvas,
+    borderRadius: RADIUS.sm,
+    padding: SPACE.sm,
     gap: 6,
   },
   pairPrescriptionText: {
     flex: 1,
     fontFamily: FONT_FAMILY.regular,
     fontSize: 11,
-    color: '#D1D1D6',
+    color: tokens.text.secondary,
     lineHeight: 15,
   },
   correctiveActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'stretch',
+    minHeight: 38,
     gap: 7,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: RADIUS.inner,
     borderWidth: 1,
     marginTop: 3,
   },
@@ -1625,98 +1670,57 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   // Modal & Toast Styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.72)',
-    justifyContent: 'center',
+  confirmSheetBody: {
+    paddingHorizontal: SPACE.lg,
+    paddingTop: SPACE.xs,
+    paddingBottom: SPACE.lg,
     alignItems: 'center',
-    padding: 24,
-  },
-  confirmCard: {
-    width: '100%',
-    maxWidth: 340,
-    borderRadius: 18,
-    padding: 20,
-    alignItems: 'center',
-    gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.35,
-    shadowRadius: 20,
-    elevation: 10,
+    gap: SPACE.md,
   },
   confirmIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: RADIUS.inner,
     backgroundColor: 'rgba(255, 69, 58, 0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   confirmTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 16,
+    fontSize: 17,
     textAlign: 'center',
   },
   confirmDesc: {
     fontFamily: FONT_FAMILY.regular,
-    fontSize: 13,
+    fontSize: 13.5,
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 19,
   },
   confirmBtnRow: {
     flexDirection: 'row',
     gap: 10,
     width: '100%',
-    marginTop: 4,
-  },
-  confirmBtn: {
-    flex: 1,
-    height: 40,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  confirmCancelBtn: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  confirmCancelText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-    color: '#8E8E93',
-  },
-  confirmRemoveBtn: {
-    backgroundColor: '#FF453A',
-  },
-  confirmRemoveText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-    color: '#FFFFFF',
+    marginTop: SPACE.xs,
   },
   toastContainer: {
     position: 'absolute',
-    bottom: 12,
+    bottom: SPACE.md,
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#1C1B24',
+    backgroundColor: tokens.bg.elevated,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: SPACE.sm,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(48, 209, 88, 0.35)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
     zIndex: 999,
   },
   toastText: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 12,
-    color: '#30D158',
+    color: tokens.status.success,
   },
 });
 

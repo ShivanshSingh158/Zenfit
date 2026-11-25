@@ -159,10 +159,15 @@ export function getOverloadSuggestion(
     .map((s) => s.targetReps)
     .join(', ');
 
+  // Issue #109: Count completed working sets only (excluding warmups) when indexing livePrescribedSets
+  const completedWorkingCount = completedSetsToday
+    ? completedSetsToday.filter(s => !s.isWarmup && s.setType !== 'warmup').length
+    : 0;
+
   const activeHeadline =
-    completedSetsToday && completedSetsToday.length > 0 && baseRec.state !== 'BASELINE'
+    completedWorkingCount > 0 && baseRec.state !== 'BASELINE'
       ? `Next Target: ${
-          livePrescribedSets[completedSetsToday.length]?.label ??
+          livePrescribedSets[completedWorkingCount]?.label ??
           `${baseRec.recommendedWeight} kg × ${repTargetsJoined}`
         }`
       : baseRec.headline;
@@ -230,7 +235,7 @@ export function evaluateProgression(
 }
 
 // ─── 1RM Calculator ──────────────────────────────────────────────────────────
-export function calculate1RM(weight: number, reps: number, formula: OneRMFormula = 'epley'): number {
+export function calculate1RM(weight: number, reps: number, formula: OneRMFormula = 'hybrid'): number {
   return Math.round(estimate1RM(weight, reps, formula));
 }
 
@@ -238,6 +243,7 @@ export function calculate1RM(weight: number, reps: number, formula: OneRMFormula
 const PR_STORAGE_KEY = 'zentrack_exercise_prs_v1';
 
 export interface ExercisePR {
+  exerciseName?: string;
   best1RM: number;
   heaviestWeight: number;
   bestReps: number;
@@ -246,19 +252,124 @@ export interface ExercisePR {
 
 export type PRRecord = Record<string, ExercisePR>;
 
+let _prMemoryCache: PRRecord | null = null;
+let _cachedMergedPRs: PRRecord | null = null;
+let _cachedMergedPRsFingerprint: string = '';
+
+export function invalidatePRCache(): void {
+  _prMemoryCache = null;
+  _cachedMergedPRs = null;
+  _cachedMergedPRsFingerprint = '';
+}
+
 async function readPRs(): Promise<PRRecord> {
+  if (_prMemoryCache !== null) return _prMemoryCache;
   try {
     const raw = await AsyncStorage.getItem(PR_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    _prMemoryCache = raw ? JSON.parse(raw) : {};
+    return _prMemoryCache!;
   } catch {
-    return {};
+    _prMemoryCache = {};
+    return _prMemoryCache;
   }
 }
 
 async function writePRs(record: PRRecord): Promise<void> {
+  _prMemoryCache = record;
+  _cachedMergedPRs = null;
+  _cachedMergedPRsFingerprint = '';
   try {
     await AsyncStorage.setItem(PR_STORAGE_KEY, JSON.stringify(record));
   } catch { /* ignore */ }
+}
+
+/**
+ * Accurately formats any ISO date (YYYY-MM-DD) or date string into standard Day Month Year (e.g. "12 Aug 2025").
+ */
+export function formatPRDate(dateStr: string | undefined | null): string {
+  if (!dateStr) return '';
+  try {
+    const cleaned = String(dateStr).trim();
+    const parts = cleaned.split('-');
+    if (parts.length === 3) {
+      const year = parts[0];
+      const monthIdx = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      if (monthIdx >= 0 && monthIdx < 12 && !isNaN(day)) {
+        return `${day} ${months[monthIdx]} ${year}`;
+      }
+    }
+    const d = new Date(cleaned.length === 10 ? `${cleaned}T12:00:00` : cleaned);
+    if (!isNaN(d.getTime())) {
+      const day = d.getDate();
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${day} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    }
+  } catch {
+    // fallback
+  }
+  return String(dateStr);
+}
+
+/**
+ * Extracts real all-time Personal Records dynamically from user's workout history logs.
+ * Evaluates all valid completed working sets chronologically, extracting heaviest weight,
+ * max reps at load, estimated 1RM, and the exact calendar date achieved.
+ */
+export function extractAllPRsFromLogs(logs: any[]): PRRecord {
+  const prs: PRRecord = {};
+  if (!Array.isArray(logs) || logs.length === 0) return prs;
+
+  const sorted = [...logs]
+    .filter(Boolean)
+    .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  for (const log of sorted) {
+    const logDate = log.date || '';
+    for (const ex of log.exercises || []) {
+      if (ex.skipped || !ex.name) continue;
+      const rawName = String(ex.name).trim();
+      if (!rawName) continue;
+      const normKey = normalizeExerciseKey(rawName) || rawName.toLowerCase();
+
+      for (const set of ex.setsLog || []) {
+        if (!set || !set.completed || set.isWarmup || set.setType === 'warmup') continue;
+        const w = Number(set.weight ?? (set as any).weightKg) || 0;
+        const r = Number(set.reps) || 0;
+        if (w <= 0 || r <= 0) continue;
+
+        const e1rm = calculate1RM(w, r);
+        const existing = prs[normKey];
+
+        if (!existing) {
+          prs[normKey] = {
+            exerciseName: rawName,
+            best1RM: e1rm,
+            heaviestWeight: w,
+            bestReps: r,
+            achievedAt: logDate,
+          };
+        } else {
+          const isHigher1RM = e1rm > existing.best1RM;
+          const isHeavier = w > existing.heaviestWeight;
+          const isMoreRepsAtSame = w === existing.heaviestWeight && r > existing.bestReps;
+
+          if (isHigher1RM || isHeavier || isMoreRepsAtSame) {
+            prs[normKey] = {
+              exerciseName: existing.exerciseName || rawName,
+              best1RM: Math.max(existing.best1RM, e1rm),
+              heaviestWeight: Math.max(existing.heaviestWeight, w),
+              bestReps: w >= existing.heaviestWeight ? r : existing.bestReps,
+              achievedAt: logDate || existing.achievedAt,
+            };
+          }
+        }
+      }
+    }
+  }
+
+  return prs;
 }
 
 export async function detectPR(
@@ -279,6 +390,7 @@ export async function detectPR(
 
   if (!existing || new1RM > existing.best1RM) {
     prs[key] = {
+      exerciseName,
       best1RM: new1RM,
       heaviestWeight: weight,
       bestReps: reps,
@@ -291,10 +403,44 @@ export async function detectPR(
   return { isNewPR: false, previous1RM, new1RM };
 }
 
-export async function getAllPRs(): Promise<PRRecord> {
-  return readPRs();
+export async function getAllPRs(logs?: any[]): Promise<PRRecord> {
+  const fp = logs && Array.isArray(logs) ? `${logs.length}_${logs[0]?.date || ''}_${logs[logs.length - 1]?.date || ''}` : 'empty';
+  if (_cachedMergedPRs && _cachedMergedPRsFingerprint === fp) {
+    return _cachedMergedPRs;
+  }
+
+  const stored = await readPRs();
+  if (!logs || !Array.isArray(logs) || logs.length === 0) {
+    _cachedMergedPRs = stored;
+    _cachedMergedPRsFingerprint = fp;
+    return stored;
+  }
+  const fromLogs = extractAllPRsFromLogs(logs);
+  const merged: PRRecord = { ...stored };
+
+  for (const [key, logPR] of Object.entries(fromLogs)) {
+    const storedPR = merged[key];
+    if (!storedPR) {
+      merged[key] = logPR;
+    } else {
+      merged[key] = {
+        exerciseName: storedPR.exerciseName || logPR.exerciseName,
+        best1RM: Math.max(storedPR.best1RM || 0, logPR.best1RM || 0),
+        heaviestWeight: Math.max(storedPR.heaviestWeight || 0, logPR.heaviestWeight || 0),
+        bestReps: (logPR.heaviestWeight || 0) >= (storedPR.heaviestWeight || 0) ? logPR.bestReps : storedPR.bestReps,
+        achievedAt: (logPR.achievedAt && (!storedPR.achievedAt || logPR.achievedAt >= storedPR.achievedAt))
+          ? logPR.achievedAt
+          : (storedPR.achievedAt || logPR.achievedAt),
+      };
+    }
+  }
+
+  _cachedMergedPRs = merged;
+  _cachedMergedPRsFingerprint = fp;
+  return merged;
 }
 
 export async function clearAllPRs(): Promise<void> {
+  invalidatePRCache();
   await AsyncStorage.removeItem(PR_STORAGE_KEY);
 }

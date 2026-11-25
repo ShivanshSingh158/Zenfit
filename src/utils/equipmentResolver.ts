@@ -224,12 +224,18 @@ export function resolveExerciseEquipment(name: string, aliases: string[] = []): 
     primary.includes('yoga') ||
     primary.includes('pilates') ||
     primary.includes('push up') ||
+    primary.includes('push-up') ||
     primary.includes('pull up') ||
+    primary.includes('pull-up') ||
     primary.includes('chin up') ||
+    primary.includes('chin-up') ||
     primary.includes('dip') ||
     primary.includes('plank') ||
     primary.includes('crunch') ||
     primary.includes('sit up') ||
+    primary.includes('sit-up') ||
+    primary.includes('muscle up') ||
+    primary.includes('muscle-up') ||
     primary.includes('air squat') ||
     primary.includes('burpee') ||
     primary.includes('lunge') ||
@@ -311,7 +317,7 @@ export function resolveExerciseMuscleGroup(rawMuscle: string): string {
   if (m.includes('quad') || m.includes('rectus femoris') || m.includes('vmo') || m.includes('leg')) return 'Quads';
 
   // 6. Core & Abdominals
-  if (m.includes('ab') || m.includes('core') || m.includes('oblique') || m.includes('transverse') || m.includes('hip flexor')) return 'Abdominals';
+  if (/\babs?\b|\babdominal/i.test(m) || m.includes('core') || m.includes('oblique') || m.includes('transverse') || m.includes('hip flexor')) return 'Abdominals';
 
-  return 'Chest'; // fallback
+  return 'Olympic / Full Body'; // fallback for compound / unknown movements
 }

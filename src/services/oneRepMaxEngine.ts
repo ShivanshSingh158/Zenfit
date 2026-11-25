@@ -28,11 +28,14 @@ export const REP_CAP = 15;
 /**
  * Calculates Effective Reps accounting for Reps in Reserve.
  * A set of 8 reps @ 2 RIR represents the muscular capacity of 10 reps to failure.
+ * Capped at REP_CAP (15) to prevent high-rep/calisthenics singularities.
  */
 export function getEffectiveReps(reps: number, rir?: number | null): number {
   const safeReps = Math.max(0, reps || 0);
-  const safeRir = Math.max(0, Math.min(6, Number(rir ?? 0)));
-  return safeReps + safeRir;
+  // Guard against NaN/non-finite rir inputs
+  const numRir = typeof rir === 'number' ? rir : (rir != null ? Number(rir) : 0);
+  const safeRir = Number.isFinite(numRir) ? Math.max(0, Math.min(6, numRir)) : 0;
+  return Math.min(REP_CAP, safeReps + safeRir);
 }
 
 /**
@@ -108,14 +111,18 @@ export function calculateHybrid1RM(
   category: MovementCategory = 'STANDARD_COMPOUND'
 ): number | null {
   if (weight <= 0 || reps <= 0) return 0;
-  const rEff = getEffectiveReps(reps, rir);
+  const numRir = typeof rir === 'number' ? rir : (rir != null ? Number(rir) : 0);
+  const safeRir = Number.isFinite(numRir) ? Math.max(0, Math.min(6, numRir)) : 0;
+  const rawReps = Math.max(0, reps || 0) + safeRir;
 
-  if (rEff <= 1) return weight;
+  if (rawReps <= 1) return weight;
 
   // Beyond 15 effective reps, anaerobic lactate & cardiovascular limits invalidate 1RM
-  if (rEff > 15) {
+  if (rawReps > REP_CAP) {
     return null;
   }
+
+  const rEff = Math.min(REP_CAP, rawReps);
 
   // Tier 1: Neural Strength Zone (1-8 reps)
   if (rEff <= 8) {
@@ -141,46 +148,48 @@ export function estimate1RM(
   category: MovementCategory = 'STANDARD_COMPOUND'
 ): number {
   if (weight <= 0 || reps <= 0) return 0;
-  if (reps === 1) return weight;
+  const rEff = getEffectiveReps(reps, rir);
+  if (rEff <= 1) return weight;
 
   if (formula === 'hybrid') {
     const hybrid = calculateHybrid1RM(weight, reps, rir, category);
     if (hybrid !== null) return hybrid;
-    // Fallback for > 15 reps if caller requires a raw number: clamped damped Epley
-    return Math.round(weight * (1 + 15 / 33) * 10) / 10;
+    // Fallback for > 15 reps if caller requires a raw number: category-aware clamped damped Epley
+    const k = category === 'HEAVY_COMPOUND' ? 33 : category === 'ISOLATION' ? 35 : 31;
+    return Math.round(weight * (1 + 15 / k) * 10) / 10;
   }
 
   let val = 0;
   switch (formula) {
     case 'brzycki':
-      val = brzycki1RM(weight, reps);
+      val = brzycki1RM(weight, rEff);
       break;
     case 'lombardi':
-      val = lombardi1RM(weight, reps);
+      val = lombardi1RM(weight, rEff);
       break;
     case 'oconner':
-      val = oconner1RM(weight, reps);
+      val = oconner1RM(weight, rEff);
       break;
     case 'mayhew':
-      val = mayhew1RM(weight, reps);
+      val = mayhew1RM(weight, rEff);
       break;
     case 'wathen':
-      val = wathen1RM(weight, reps);
+      val = wathen1RM(weight, rEff);
       break;
     case 'average': {
       const sum =
-        epley1RM(weight, reps) +
-        brzycki1RM(weight, reps) +
-        lombardi1RM(weight, reps) +
-        oconner1RM(weight, reps) +
-        mayhew1RM(weight, reps) +
-        wathen1RM(weight, reps);
+        epley1RM(weight, rEff) +
+        brzycki1RM(weight, rEff) +
+        lombardi1RM(weight, rEff) +
+        oconner1RM(weight, rEff) +
+        mayhew1RM(weight, rEff) +
+        wathen1RM(weight, rEff);
       val = sum / 6;
       break;
     }
     case 'epley':
     default:
-      val = epley1RM(weight, reps);
+      val = epley1RM(weight, rEff);
       break;
   }
 

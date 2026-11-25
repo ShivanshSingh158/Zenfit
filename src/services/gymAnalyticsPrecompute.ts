@@ -26,6 +26,7 @@ import {
   calculateMuscleFatigue,
   calculateMuscleLoad,
 } from './muscleRecoveryService';
+import { computeUnifiedAnalytics } from './gymAnalyticsEngine';
 
 let _pendingPrecomputeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -168,7 +169,7 @@ export function precomputeGymAnalytics(
 
               const mult = getVolumeMultiplier(ex.name);
               for (const s of ex.setsLog || []) {
-                if (!s.completed) continue;
+                if (!s.completed || s.isWarmup) continue;
                 isWorkout = true;
                 totalSets++;
                 muscleSets[bucket] = (muscleSets[bucket] || 0) + 1;
@@ -222,6 +223,9 @@ export function precomputeGymAnalytics(
         // 5. Pre-warm Anatomical Muscle Recovery & Fatigue
         calculateMuscleFatigue(gymLogs, today);
         calculateMuscleLoad(gymLogs, 7, today, false);
+
+        // 6. Pre-warm Canonical Unified Analytics Engine cache for 0ms UI load
+        computeUnifiedAnalytics(gymLogs);
       } catch (e) {
         // Silent failure in background pre-compute; render-time fallbacks remain safe
       }

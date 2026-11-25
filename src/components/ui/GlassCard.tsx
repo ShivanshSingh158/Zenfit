@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
-import { View, StyleSheet, ViewStyle, StyleProp, Platform } from 'react-native';
-import { BlurView } from 'expo-blur';
-import { RADIUS, SHADOW } from '../../theme/tokens';
-import { useTheme } from "../../contexts/ThemeContext";
+import { View, StyleSheet, ViewStyle, StyleProp } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useTheme } from '../../contexts/ThemeContext';
+import { SHADOW } from '../../theme/tokens';
 
 interface GlassCardProps {
   children: React.ReactNode;
@@ -14,57 +14,60 @@ interface GlassCardProps {
 }
 
 /**
- * GlassCard — reusable glassmorphic container.
- * High-performance hardware blur on iOS; smooth zero-cost translucent surface on Android.
+ * GlassCard — Layered surface card separating outer elevation shadow from clipped inner glass sheen.
  */
 function GlassCardComponent({
   children,
   style,
-  intensity = 25,
-  padding = 20,
-  borderRadius = RADIUS.md,
+  padding,
+  borderRadius,
   noBorder = false,
 }: GlassCardProps) {
-  const { colors, isDark } = useTheme();
-  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const { tokens } = useTheme();
+  const resolvedRadius = borderRadius ?? tokens.radius.card;
+  const resolvedPadding = padding ?? tokens.space.md;
+
+  const styles = useMemo(() => makeStyles(tokens), [tokens]);
 
   return (
-    <View
-      style={[
-        styles.container,
-        { borderRadius, borderWidth: noBorder ? 0 : 1 },
-        SHADOW.md,
-        style,
-      ]}
-    >
-      {Platform.OS === 'ios' ? (
-        <BlurView
-          intensity={intensity}
-          tint={isDark ? 'dark' : 'light'}
-          style={[StyleSheet.absoluteFillObject, { borderRadius }]}
-        />
-      ) : (
+    <View style={[{ borderRadius: resolvedRadius }, SHADOW.md, style]}>
+      <View
+        style={[
+          styles.container,
+          {
+            borderRadius: resolvedRadius,
+            borderWidth: noBorder ? 0 : tokens.border.hairlineWidth,
+          },
+        ]}
+      >
         <View
           style={[
             StyleSheet.absoluteFillObject,
             {
-              borderRadius,
-              backgroundColor: isDark ? 'rgba(18, 18, 24, 0.82)' : 'rgba(255, 255, 255, 0.88)',
+              borderRadius: resolvedRadius,
+              backgroundColor: tokens.bg.glass,
             },
           ]}
         />
-      )}
-      <View style={{ padding }}>{children}</View>
+        <LinearGradient
+          colors={tokens.gradients.surfaceSheen}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={[StyleSheet.absoluteFillObject, { borderRadius: resolvedRadius }]}
+          pointerEvents="none"
+        />
+        <View style={{ padding: resolvedPadding }}>{children}</View>
+      </View>
     </View>
   );
 }
 
-const makeStyles = (colors: any, isDark: boolean) =>
+const makeStyles = (tokens: ReturnType<typeof useTheme>['tokens']) =>
   StyleSheet.create({
     container: {
       overflow: 'hidden',
-      borderColor: colors.border || (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
-      backgroundColor: isDark ? 'rgba(12, 12, 16, 0.65)' : 'rgba(255, 255, 255, 0.75)',
+      borderColor: tokens.border.subtle,
+      backgroundColor: tokens.bg.surface,
     },
   });
 

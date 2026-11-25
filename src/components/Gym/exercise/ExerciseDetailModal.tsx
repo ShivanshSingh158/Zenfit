@@ -1,17 +1,17 @@
 /**
  * ExerciseDetailModal.tsx — ZenTrack Mobile
  *
- * Full Screen / Sheet Inspection Modal for any Exercise:
- * - Shows high-quality looping form animation (GIF).
- * - Target & Synergist muscle breakdowns.
- * - Multi-lingual instructions (EN / HI).
- * - Equipment requirements and quick addition button.
+ * Full Screen / Sheet Inspection Modal for any Exercise.
  */
-import React from 'react';
-import { View, Text, Modal, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import React, { useMemo } from 'react';
+import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TactileButton } from '../../ui';
+import BottomSheet from '../../ui/BottomSheet';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { FONT_FAMILY, ICON, RADIUS, SPACE, TOUCH, ThemeTokens } from '../../../theme/tokens';
+import { useLatestNonNull } from '../../../hooks/useLatestNonNull';
 import ExerciseAnimationCard from './ExerciseAnimationCard';
 
 interface ExerciseDetailModalProps {
@@ -27,81 +27,93 @@ export function ExerciseDetailModal({
   exerciseName,
   onOpenYoutube,
 }: ExerciseDetailModalProps) {
-  const { colors, isDark } = useTheme();
+  const { tokens } = useTheme();
+  const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const insets = useSafeAreaInsets();
-
-  if (!visible) return null;
+  const displayName = useLatestNonNull(exerciseName || null) || '';
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: isDark ? '#0c0c10' : '#FFFFFF',
-              paddingBottom: Math.max(insets.bottom, 20),
-            },
-          ]}
-        >
-          {/* Header */}
-          <View style={styles.header}>
-            <Text style={[styles.title, { color: colors.textPrimary }]} numberOfLines={1}>
-              {exerciseName}
-            </Text>
-            <Pressable onPress={onClose} style={styles.closeBtn} hitSlop={12}>
-              <Ionicons name="close" size={20} color={colors.textSecondary} />
-            </Pressable>
-          </View>
-
-          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            <ExerciseAnimationCard
-              exerciseName={exerciseName}
-              onOpenYoutube={onOpenYoutube}
-              showInstructions={true}
-            />
-          </ScrollView>
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      avoidKeyboard={false}
+      noPadding={true}
+    >
+      <View
+        style={[
+          styles.sheet,
+          {
+            paddingBottom: Math.max(insets.bottom, SPACE.lg),
+          },
+        ]}
+      >
+        <View style={styles.header}>
+          <Text style={styles.title} numberOfLines={1}>
+            {displayName}
+          </Text>
+          <TactileButton
+            variant="custom"
+            onPress={onClose}
+            style={styles.closeBtn}
+            hitSlop={TOUCH.hitSlop}
+            accessibilityLabel="Close exercise details"
+          >
+            <X size={16} strokeWidth={ICON.strokeWidth} color={tokens.text.secondary} />
+          </TactileButton>
         </View>
+
+        <ScrollView
+          style={{ flexShrink: 1 }}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
+        >
+          <ExerciseAnimationCard
+            exerciseName={displayName}
+            onOpenYoutube={onOpenYoutube}
+            showInstructions={true}
+          />
+        </ScrollView>
       </View>
-    </Modal>
+    </BottomSheet>
   );
 }
 
 export default ExerciseDetailModal;
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'flex-end',
-  },
+const makeStyles = (tokens: ThemeTokens) => StyleSheet.create({
   sheet: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '88%',
-    paddingTop: 16,
+    width: '100%',
+    maxHeight: '100%',
+    flexShrink: 1,
+    paddingTop: SPACE.md,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: SPACE.lg + 4,
+    paddingBottom: SPACE.md,
+    borderBottomWidth: tokens.border.hairlineWidth,
+    borderBottomColor: tokens.border.subtle,
   },
   title: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 17,
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: tokens.fontSize.lg,
+    color: tokens.text.primary,
     flex: 1,
     textTransform: 'capitalize',
   },
   closeBtn: {
-    padding: 4,
-    marginLeft: 12,
+    width: 32,
+    height: 32,
+    borderRadius: RADIUS.inner,
+    backgroundColor: tokens.bg.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: SPACE.md,
   },
   scrollContent: {
-    padding: 16,
+    padding: SPACE.lg,
   },
 });

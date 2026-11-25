@@ -1,11 +1,25 @@
-import React, { memo } from 'react';
-import { View, Text, TouchableOpacity, Alert } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import React, { memo, useEffect, useState } from 'react';
+import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import {
+  Activity,
+  ArrowLeftRight,
+  BookOpen,
+  CheckCircle2,
+  ChevronRight,
+  Dumbbell,
+  Link2,
+  Pencil,
+  Trash2,
+  Unlink,
+} from 'lucide-react-native';
 import BottomSheet from '../../ui/BottomSheet';
-import { FONT_FAMILY } from '../../../theme/tokens';
-import { hapticMedium } from '../../../utils/haptics';
+import { NumericText, TactileButton } from '../../ui';
+import { useTheme } from '../../../contexts/ThemeContext';
+import { FONT_FAMILY, ICON, SPACE } from '../../../theme/tokens';
 import { GymCardioLog, GymPlanDay } from '../../../types/gym.types';
-import { planDayIndexForDate, resolvePlanDay } from '../../../hooks/useGymLog';
+import { useLatestNonNull } from '../../../hooks/useLatestNonNull';
+import { afterSheetDismiss } from '../../../utils/sheetCoordinator';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface GymExerciseOptionsSheetProps {
   exerciseMenuFor: any | null;
@@ -26,8 +40,9 @@ interface GymExerciseOptionsSheetProps {
   colors: any;
   isDark: boolean;
   s: any;
-  onOpenDeepDive?: (ex: any) => void;
+  onOpenDeepDive?: (ex: any, initialTab?: 'guide' | 'analytics') => void;
   onOpenSwapModal?: (ex: any) => void;
+  onOpenEditExercise?: (ex: any) => void;
 }
 
 export const GymExerciseOptionsSheet = memo(function GymExerciseOptionsSheet({
@@ -43,284 +58,440 @@ export const GymExerciseOptionsSheet = memo(function GymExerciseOptionsSheet({
   reorderExercisesFull,
   log,
   selectedDate,
-  userGymPlan,
-  updateMasterPlan,
-  navigation,
-  colors,
   isDark,
+  navigation,
   s,
   onOpenDeepDive,
   onOpenSwapModal,
+  onOpenEditExercise,
 }: GymExerciseOptionsSheetProps) {
+  const { tokens } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const activeExercise = useLatestNonNull(exerciseMenuFor);
+  const activeSuperset = useLatestNonNull(supersetPickerFor);
+  const activeCardio = useLatestNonNull(cardioMenuFor);
+
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
+  const [supersetNotice, setSupersetNotice] = useState(false);
+
+  useEffect(() => {
+    if (exerciseMenuFor) {
+      setConfirmRemoveOpen(false);
+      setSupersetNotice(false);
+    }
+  }, [exerciseMenuFor]);
+
+  const sheetBg = isDark ? '#0B0C10' : '#F8F8FA';
+  const surfaceBg = isDark ? '#14161D' : '#FFFFFF';
+  const hairlineColor = isDark ? 'rgba(255, 255, 255, 0.08)' : tokens.border.subtle;
+
+  const availablePartners = (log?.exercises || []).filter(
+    (e: any) => !e.skipped && e.exerciseId !== activeExercise?.exerciseId
+  );
+
   return (
     <>
-      {/* ─── Themed Exercise Options Bottom Sheet ──────────────────────────────── */}
-      {!!exerciseMenuFor && (
-        <BottomSheet visible={!!exerciseMenuFor} onClose={() => setExerciseMenuFor(null)} avoidKeyboard={false}>
-          <View style={{ gap: 8, paddingBottom: 16 }}>
-            <Text style={{ fontSize: 18, fontFamily: FONT_FAMILY.bold, color: colors.textPrimary }}>
-              {exerciseMenuFor?.name || 'Exercise Options'}
-            </Text>
-            <Text style={{ fontSize: 13, color: colors.textMuted, marginBottom: 8, fontFamily: FONT_FAMILY.medium }}>
-              {exerciseMenuFor?.muscle ? `${exerciseMenuFor.muscle} • ` : ''}
-              {exerciseMenuFor?.setsLog?.length || exerciseMenuFor?.targetSets || 3} sets, {exerciseMenuFor?.targetReps || '8–12'} reps
-            </Text>
+      <BottomSheet
+        visible={!!exerciseMenuFor}
+        onClose={() => setExerciseMenuFor(null)}
+        avoidKeyboard={false}
+        sheetBackgroundColor={sheetBg}
+      >
+        <View style={{ paddingBottom: Math.max(insets.bottom, SPACE.lg) }}>
+          <Text style={{ fontSize: 18, fontFamily: FONT_FAMILY.bold, color: tokens.text.primary }}>
+            {activeExercise?.name || 'Exercise Options'}
+          </Text>
+          <NumericText style={{ fontSize: 12.5, color: tokens.text.secondary, marginTop: 2, marginBottom: SPACE.md, fontFamily: FONT_FAMILY.medium }}>
+            {activeExercise?.muscle ? `${activeExercise.muscle} · ` : ''}
+            {activeExercise?.setsLog?.length || activeExercise?.targetSets || 3} sets × {activeExercise?.targetReps || '8–12'} reps
+          </NumericText>
 
-            {/* Option 1: Exercise Details & Deep Dive */}
-            <TouchableOpacity
-              style={s.menuActionRow}
-              activeOpacity={0.7}
-              onPress={() => {
-                const ex = exerciseMenuFor;
-                setExerciseMenuFor(null);
-                if (onOpenDeepDive) {
-                  onOpenDeepDive(ex);
-                } else {
-                  navigation.navigate('ExerciseDetail', { exerciseId: ex.exerciseId, date: log?.date ?? selectedDate });
-                }
-              }}
+          {confirmRemoveOpen ? (
+            <View
+              style={[
+                localStyles.groupedCard,
+                { backgroundColor: surfaceBg, borderColor: hairlineColor, padding: 14, gap: 12 },
+              ]}
             >
-              <View style={[s.menuActionIcon, { backgroundColor: isDark ? 'rgba(165,153,255,0.12)' : 'rgba(108,92,231,0.08)' }]}>
-                <Ionicons name="book-outline" size={18} color={colors.accentPrimary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.menuActionTitle}>Exercise Details & Guide</Text>
-                <Text style={s.menuActionSub}>Instructions, muscle anatomy & 1RM trend</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
-            </TouchableOpacity>
-
-            {/* Option 2: Swap Exercise */}
-            <TouchableOpacity
-              style={s.menuActionRow}
-              activeOpacity={0.7}
-              onPress={() => {
-                const ex = exerciseMenuFor;
-                setExerciseMenuFor(null);
-                if (onOpenSwapModal) {
-                  onOpenSwapModal(ex);
-                } else {
-                  navigation.navigate('ExerciseSwap', { originalExerciseId: ex.exerciseId, date: log?.date ?? selectedDate });
-                }
-              }}
-            >
-              <View style={[s.menuActionIcon, { backgroundColor: isDark ? 'rgba(56,189,248,0.12)' : 'rgba(2,132,199,0.08)' }]}>
-                <Ionicons name="swap-horizontal" size={18} color={isDark ? '#38bdf8' : '#0284C7'} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.menuActionTitle}>Swap Exercise...</Text>
-                <Text style={s.menuActionSub}>Choose alternative target movements</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
-            </TouchableOpacity>
-
-            {/* Option 3: Link/Unlink Superset */}
-            {exerciseMenuFor?.supersetGroup ? (
-              <TouchableOpacity
-                style={s.menuActionRow}
-                activeOpacity={0.7}
-                onPress={() => {
-                  const ex = exerciseMenuFor;
-                  setExerciseMenuFor(null);
-                  const updated = (log?.exercises || []).map((e: any) =>
-                    e.exerciseId === ex.exerciseId ? { ...e, supersetGroup: undefined } : e
-                  );
-                  reorderExercisesFull(updated);
-                }}
-              >
-                <View style={[s.menuActionIcon, { backgroundColor: 'rgba(255,105,97,0.12)' }]}>
-                  <Ionicons name="link-outline" size={18} color="#ff6961" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.menuActionTitle, { color: '#ff6961' }]}>Remove from Superset ({exerciseMenuFor.supersetGroup})</Text>
-                  <Text style={s.menuActionSub}>Unlink from paired exercise</Text>
-                </View>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={s.menuActionRow}
-                activeOpacity={0.7}
-                onPress={() => {
-                  const ex = exerciseMenuFor;
-                  setExerciseMenuFor(null);
-                  const availablePartners = (log?.exercises || []).filter((e: any) => !e.skipped && e.exerciseId !== ex.exerciseId);
-                  if (availablePartners.length === 0) {
-                    Alert.alert('Superset', 'Add at least 2 exercises to create a superset.', [{ text: 'OK' }]);
-                    return;
-                  }
-                  setSupersetPickerFor(ex);
-                }}
-              >
-                <View style={[s.menuActionIcon, { backgroundColor: isDark ? 'rgba(255,159,77,0.12)' : 'rgba(217,119,6,0.08)' }]}>
-                  <Ionicons name="link-outline" size={18} color={isDark ? '#ff9f4d' : '#D97706'} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.menuActionTitle}>Link as Superset...</Text>
-                  <Text style={s.menuActionSub}>Pair with another movement for back-to-back sets</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
-              </TouchableOpacity>
-            )}
-
-            {/* Option 4: Delete Exercise */}
-            <TouchableOpacity
-              style={s.menuActionRow}
-              activeOpacity={0.7}
-              onPress={() => {
-                const ex = exerciseMenuFor;
-                setExerciseMenuFor(null);
-                hapticMedium();
-                Alert.alert(
-                  'Remove Exercise',
-                  `Remove "${ex?.name}" from today's workout? This removes it for today only and keeps your weekly plan unchanged.`,
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Remove from Today',
-                      style: 'destructive',
-                      onPress: () => {
-                        deleteExercise(ex.exerciseId);
-                      },
-                    },
-                  ]
-                );
-              }}
-            >
-              <View style={[s.menuActionIcon, { backgroundColor: 'rgba(255,105,97,0.12)' }]}>
-                <Ionicons name="trash-outline" size={18} color="#ff6961" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[s.menuActionTitle, { color: '#ff6961' }]}>Delete Exercise</Text>
-                <Text style={s.menuActionSub}>Remove from today's workout only</Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Cancel / Go Back Button */}
-            <TouchableOpacity
-              style={s.menuCancelBtn}
-              activeOpacity={0.7}
-              onPress={() => setExerciseMenuFor(null)}
-            >
-              <Text style={s.menuCancelText}>Go Back</Text>
-            </TouchableOpacity>
-          </View>
-        </BottomSheet>
-      )}
-
-      {/* ─── Themed Superset Partner Picker Bottom Sheet ──────────────────── */}
-      {!!supersetPickerFor && (
-        <BottomSheet visible={!!supersetPickerFor} onClose={() => setSupersetPickerFor(null)} avoidKeyboard={false}>
-          <View style={{ gap: 8, paddingBottom: 16 }}>
-            <Text style={{ fontSize: 18, fontFamily: FONT_FAMILY.bold, color: colors.textPrimary }}>
-              Select Superset Partner
-            </Text>
-            <Text style={{ fontSize: 13, color: colors.textMuted, marginBottom: 8, fontFamily: FONT_FAMILY.medium }}>
-              Pair "{supersetPickerFor?.name}" with:
-            </Text>
-            {(log?.exercises || [])
-              .filter((e: any) => !e.skipped && e.exerciseId !== supersetPickerFor?.exerciseId)
-              .map((partner: any) => (
-                <TouchableOpacity
-                  key={partner.exerciseId}
-                  style={s.menuActionRow}
-                  activeOpacity={0.7}
+              <Text style={{ fontSize: 15, fontFamily: FONT_FAMILY.bold, color: tokens.text.primary }}>
+                Remove from today's workout?
+              </Text>
+              <Text style={{ fontSize: 12.5, fontFamily: FONT_FAMILY.regular, color: tokens.text.secondary, lineHeight: 18 }}>
+                Removes {activeExercise?.name} for today only. Your weekly plan stays unchanged.
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TactileButton
+                  variant="secondary"
+                  size="md"
+                  style={{ flex: 1 }}
+                  onPress={() => setConfirmRemoveOpen(false)}
+                >
+                  <Text style={{ fontSize: 13.5, fontFamily: FONT_FAMILY.bold, color: tokens.text.primary }}>
+                    Keep
+                  </Text>
+                </TactileButton>
+                <TactileButton
+                  variant="custom"
+                  size="md"
+                  haptic="medium"
+                  style={{
+                    flex: 1,
+                    minHeight: 38,
+                    borderRadius: 12,
+                    backgroundColor: tokens.status.dangerDim,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
                   onPress={() => {
-                    const ex = supersetPickerFor;
-                    setSupersetPickerFor(null);
-                    const usedGroups = new Set(
-                      (log?.exercises || []).map((e: any) => e.supersetGroup).filter(Boolean)
-                    );
-                    let nextCharCode = 65; // 'A'
-                    while (usedGroups.has(String.fromCharCode(nextCharCode)) && nextCharCode < 90) {
-                      nextCharCode++;
-                    }
-                    const groupLetter = partner.supersetGroup || String.fromCharCode(nextCharCode);
-                    const updated = (log?.exercises || []).map((e: any) => {
-                      if (e.exerciseId === ex.exerciseId || e.exerciseId === partner.exerciseId) {
-                        return { ...e, supersetGroup: groupLetter };
-                      }
-                      return e;
-                    });
-                    reorderExercisesFull(updated);
+                    const ex = activeExercise;
+                    setConfirmRemoveOpen(false);
+                    setExerciseMenuFor(null);
+                    if (ex) deleteExercise(ex.exerciseId);
                   }}
                 >
-                  <View style={[s.menuActionIcon, { backgroundColor: isDark ? 'rgba(165,153,255,0.12)' : 'rgba(108,92,231,0.08)' }]}>
-                    <Ionicons name="barbell-outline" size={18} color={colors.accentPrimary} />
+                  <Text style={{ fontSize: 13.5, fontFamily: FONT_FAMILY.bold, color: tokens.status.danger }}>
+                    Remove
+                  </Text>
+                </TactileButton>
+              </View>
+            </View>
+          ) : (
+            <>
+              <View style={[localStyles.groupedCard, { backgroundColor: surfaceBg, borderColor: hairlineColor }]}>
+                {Boolean(onOpenEditExercise) && (
+                  <>
+                    <TactileButton
+                      variant="custom"
+                      style={localStyles.groupedRow}
+                      onPress={() => {
+                        const ex = activeExercise;
+                        setExerciseMenuFor(null);
+                        if (!ex) return;
+                        afterSheetDismiss(() => onOpenEditExercise?.(ex));
+                      }}
+                    >
+                      <View style={[localStyles.rowIcon, { backgroundColor: tokens.accent.primaryDim }]}>
+                        <Pencil size={16} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.menuActionTitle}>Edit Exercise</Text>
+                        <Text style={s.menuActionSub}>Sets, reps, rest time & weekly plan</Text>
+                      </View>
+                      <ChevronRight size={ICON.sm} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} />
+                    </TactileButton>
+                    <View style={[localStyles.divider, { backgroundColor: hairlineColor }]} />
+                  </>
+                )}
+
+                <TactileButton
+                  variant="custom"
+                  style={localStyles.groupedRow}
+                  onPress={() => {
+                    const ex = activeExercise;
+                    setExerciseMenuFor(null);
+                    if (!ex) return;
+                    afterSheetDismiss(() => {
+                      if (onOpenDeepDive) {
+                        onOpenDeepDive(ex, 'guide');
+                      } else {
+                        navigation.navigate('ExerciseDetail', { exerciseId: ex.exerciseId, date: log?.date ?? selectedDate });
+                      }
+                    });
+                  }}
+                >
+                  <View style={[localStyles.rowIcon, { backgroundColor: tokens.accent.primaryDim }]}>
+                    <BookOpen size={16} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={s.menuActionTitle}>{partner.name}</Text>
-                    <Text style={s.menuActionSub}>{partner.muscle || 'Exercise'}</Text>
+                    <Text style={s.menuActionTitle}>Form & Guide</Text>
+                    <Text style={s.menuActionSub}>Animation, cues & target breakdown</Text>
                   </View>
-                  <Ionicons name="checkmark-circle-outline" size={18} color={colors.accentPrimary} />
-                </TouchableOpacity>
-              ))}
-            <TouchableOpacity
-              style={s.menuCancelBtn}
-              activeOpacity={0.7}
-              onPress={() => setSupersetPickerFor(null)}
-            >
-              <Text style={s.menuCancelText}>Go Back</Text>
-            </TouchableOpacity>
-          </View>
-        </BottomSheet>
-      )}
+                  <ChevronRight size={ICON.sm} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} />
+                </TactileButton>
 
-      {/* ─── Themed Cardio Options Bottom Sheet ───────────────────────────── */}
-      {!!cardioMenuFor && (
-        <BottomSheet visible={!!cardioMenuFor} onClose={() => setCardioMenuFor(null)} avoidKeyboard={false}>
-          <View style={{ gap: 8, paddingBottom: 16 }}>
-            <Text style={{ fontSize: 18, fontFamily: FONT_FAMILY.bold, color: colors.textPrimary }}>
-              {cardioMenuFor?.type || 'Cardio Options'}
-            </Text>
-            <TouchableOpacity
-              style={s.menuActionRow}
-              activeOpacity={0.7}
+                <View style={[localStyles.divider, { backgroundColor: hairlineColor }]} />
+
+                <TactileButton
+                  variant="custom"
+                  style={localStyles.groupedRow}
+                  onPress={() => {
+                    const ex = activeExercise;
+                    setExerciseMenuFor(null);
+                    if (!ex) return;
+                    afterSheetDismiss(() => {
+                      if (onOpenDeepDive) {
+                        onOpenDeepDive(ex, 'analytics');
+                      } else {
+                        navigation.navigate('ExerciseDetail', { exerciseId: ex.exerciseId, date: log?.date ?? selectedDate });
+                      }
+                    });
+                  }}
+                >
+                  <View style={[localStyles.rowIcon, { backgroundColor: tokens.status.successDim }]}>
+                    <Activity size={16} strokeWidth={ICON.strokeWidth} color={tokens.status.success} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.menuActionTitle}>Analytics & PRs</Text>
+                    <Text style={s.menuActionSub}>Records, 1RM trend & past sessions</Text>
+                  </View>
+                  <ChevronRight size={ICON.sm} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} />
+                </TactileButton>
+
+                <View style={[localStyles.divider, { backgroundColor: hairlineColor }]} />
+
+                <TactileButton
+                  variant="custom"
+                  style={localStyles.groupedRow}
+                  onPress={() => {
+                    const ex = activeExercise;
+                    setExerciseMenuFor(null);
+                    if (!ex) return;
+                    afterSheetDismiss(() => {
+                      if (onOpenSwapModal) {
+                        onOpenSwapModal(ex);
+                      } else {
+                        navigation.navigate('ExerciseSwap', { originalExerciseId: ex.exerciseId, date: log?.date ?? selectedDate });
+                      }
+                    });
+                  }}
+                >
+                  <View style={[localStyles.rowIcon, { backgroundColor: tokens.status.infoDim }]}>
+                    <ArrowLeftRight size={16} strokeWidth={ICON.strokeWidth} color={tokens.status.info} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.menuActionTitle}>Swap Exercise</Text>
+                    <Text style={s.menuActionSub}>Choose an alternative movement</Text>
+                  </View>
+                  <ChevronRight size={ICON.sm} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} />
+                </TactileButton>
+
+                <View style={[localStyles.divider, { backgroundColor: hairlineColor }]} />
+
+                {activeExercise?.supersetGroup ? (
+                  <TactileButton
+                    variant="custom"
+                    style={localStyles.groupedRow}
+                    onPress={() => {
+                      const ex = activeExercise;
+                      setExerciseMenuFor(null);
+                      if (!ex) return;
+                      const updated = (log?.exercises || []).map((e: any) =>
+                        e.exerciseId === ex.exerciseId ? { ...e, supersetGroup: undefined } : e
+                      );
+                      reorderExercisesFull(updated);
+                    }}
+                  >
+                    <View style={[localStyles.rowIcon, { backgroundColor: tokens.status.dangerDim }]}>
+                      <Unlink size={16} strokeWidth={ICON.strokeWidth} color={tokens.status.danger} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.menuActionTitle, { color: tokens.status.danger }]}>
+                        Unlink Superset ({activeExercise.supersetGroup})
+                      </Text>
+                      <Text style={s.menuActionSub}>Separate paired exercises</Text>
+                    </View>
+                  </TactileButton>
+                ) : (
+                  <TactileButton
+                    variant="custom"
+                    style={localStyles.groupedRow}
+                    onPress={() => {
+                      const ex = activeExercise;
+                      if (!ex) return;
+                      if (availablePartners.length === 0) {
+                        setSupersetNotice(true);
+                        return;
+                      }
+                      setExerciseMenuFor(null);
+                      afterSheetDismiss(() => setSupersetPickerFor(ex));
+                    }}
+                  >
+                    <View style={[localStyles.rowIcon, { backgroundColor: tokens.status.warningDim }]}>
+                      <Link2 size={16} strokeWidth={ICON.strokeWidth} color={tokens.status.warning} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.menuActionTitle}>Link as Superset</Text>
+                      <Text style={[s.menuActionSub, supersetNotice && { color: tokens.status.warning }]}>
+                        {supersetNotice
+                          ? 'Add at least 2 exercises to link a superset'
+                          : 'Pair with another movement for back-to-back sets'}
+                      </Text>
+                    </View>
+                    <ChevronRight size={ICON.sm} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} />
+                  </TactileButton>
+                )}
+              </View>
+
+              <TactileButton
+                variant="custom"
+                haptic="medium"
+                style={[localStyles.dangerCard, { backgroundColor: surfaceBg, borderColor: hairlineColor }]}
+                onPress={() => setConfirmRemoveOpen(true)}
+              >
+                <View style={[localStyles.rowIcon, { backgroundColor: tokens.status.dangerDim }]}>
+                  <Trash2 size={16} strokeWidth={ICON.strokeWidth} color={tokens.status.danger} />
+                </View>
+                <Text style={[s.menuActionTitle, { color: tokens.status.danger, flex: 1 }]}>
+                  Remove from Today
+                </Text>
+              </TactileButton>
+            </>
+          )}
+        </View>
+      </BottomSheet>
+
+      <BottomSheet
+        visible={!!supersetPickerFor}
+        onClose={() => setSupersetPickerFor(null)}
+        avoidKeyboard={false}
+        sheetBackgroundColor={sheetBg}
+      >
+        <View style={{ gap: SPACE.sm, paddingBottom: Math.max(insets.bottom, SPACE.lg) }}>
+          <Text style={{ fontSize: 18, fontFamily: FONT_FAMILY.bold, color: tokens.text.primary }}>
+            Link Superset
+          </Text>
+          <Text style={{ fontSize: 12.5, color: tokens.text.secondary, marginBottom: SPACE.xs, fontFamily: FONT_FAMILY.medium }}>
+            Pair "{activeSuperset?.name}" with:
+          </Text>
+          <ScrollView style={{ maxHeight: Math.min(320, Math.round(windowHeight * 0.42)) }} showsVerticalScrollIndicator={false} nestedScrollEnabled>
+            <View style={[localStyles.groupedCard, { backgroundColor: surfaceBg, borderColor: hairlineColor }]}>
+            {(log?.exercises || [])
+              .filter((e: any) => !e.skipped && e.exerciseId !== activeSuperset?.exerciseId)
+              .map((partner: any, pIdx: number) => (
+                <React.Fragment key={partner.exerciseId || partner.name || pIdx}>
+                  {pIdx > 0 && <View style={[localStyles.divider, { backgroundColor: hairlineColor }]} />}
+                  <TactileButton
+                    variant="custom"
+                    style={localStyles.groupedRow}
+                    onPress={() => {
+                      const ex = activeSuperset;
+                      setSupersetPickerFor(null);
+                      if (!ex) return;
+                      const usedGroups = new Set(
+                        (log?.exercises || []).map((e: any) => e.supersetGroup).filter(Boolean)
+                      );
+                      let nextCharCode = 65;
+                      while (usedGroups.has(String.fromCharCode(nextCharCode)) && nextCharCode < 90) {
+                        nextCharCode++;
+                      }
+                      const groupLetter = partner.supersetGroup || String.fromCharCode(nextCharCode);
+                      const updated = (log?.exercises || []).map((e: any) => {
+                        if (e.exerciseId === ex.exerciseId || e.exerciseId === partner.exerciseId) {
+                          return { ...e, supersetGroup: groupLetter };
+                        }
+                        return e;
+                      });
+                      reorderExercisesFull(updated);
+                    }}
+                  >
+                    <View style={[localStyles.rowIcon, { backgroundColor: tokens.accent.primaryDim }]}>
+                      <Dumbbell size={16} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.menuActionTitle}>{partner.name}</Text>
+                      <Text style={s.menuActionSub}>{partner.muscle || 'Exercise'}</Text>
+                    </View>
+                    <CheckCircle2 size={ICON.md - 2} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
+                  </TactileButton>
+                </React.Fragment>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+      </BottomSheet>
+
+      <BottomSheet
+        visible={!!cardioMenuFor}
+        onClose={() => setCardioMenuFor(null)}
+        avoidKeyboard={false}
+        sheetBackgroundColor={sheetBg}
+      >
+        <View style={{ gap: SPACE.sm, paddingBottom: Math.max(insets.bottom, SPACE.lg) }}>
+          <Text style={{ fontSize: 18, fontFamily: FONT_FAMILY.bold, color: tokens.text.primary, marginBottom: 4 }}>
+            {activeCardio?.type || 'Cardio Options'}
+          </Text>
+          <View style={[localStyles.groupedCard, { backgroundColor: surfaceBg, borderColor: hairlineColor }]}>
+            <TactileButton
+              variant="custom"
+              style={localStyles.groupedRow}
               onPress={() => {
-                const c = cardioMenuFor;
+                const c = activeCardio;
                 setCardioMenuFor(null);
-                if (c) setLogCardioFor(c);
+                if (c) afterSheetDismiss(() => setLogCardioFor(c));
               }}
             >
-              <View style={[s.menuActionIcon, { backgroundColor: isDark ? 'rgba(56,189,248,0.12)' : 'rgba(2,132,199,0.08)' }]}>
-                <Ionicons name="create-outline" size={18} color={isDark ? '#38bdf8' : '#0284C7'} />
+              <View style={[localStyles.rowIcon, { backgroundColor: tokens.status.infoDim }]}>
+                <Pencil size={16} strokeWidth={ICON.strokeWidth} color={tokens.status.info} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.menuActionTitle}>Log / Edit Cardio</Text>
-                <Text style={s.menuActionSub}>Update duration, distance, speed & pace</Text>
+                <Text style={s.menuActionSub}>Update duration, distance & speed</Text>
               </View>
-              <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
-            </TouchableOpacity>
+              <ChevronRight size={ICON.sm} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} />
+            </TactileButton>
 
-            <TouchableOpacity
-              style={s.menuActionRow}
-              activeOpacity={0.7}
+            <View style={[localStyles.divider, { backgroundColor: hairlineColor }]} />
+
+            <TactileButton
+              variant="custom"
+              style={localStyles.groupedRow}
               onPress={() => {
-                const c = cardioMenuFor;
+                const c = activeCardio;
                 setCardioMenuFor(null);
                 if (c) deleteCardio(c.id);
               }}
             >
-              <View style={[s.menuActionIcon, { backgroundColor: 'rgba(255,105,97,0.12)' }]}>
-                <Ionicons name="trash-outline" size={18} color="#ff6961" />
+              <View style={[localStyles.rowIcon, { backgroundColor: tokens.status.dangerDim }]}>
+                <Trash2 size={16} strokeWidth={ICON.strokeWidth} color={tokens.status.danger} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[s.menuActionTitle, { color: '#ff6961' }]}>Delete Cardio</Text>
+                <Text style={[s.menuActionTitle, { color: tokens.status.danger }]}>Remove Cardio</Text>
                 <Text style={s.menuActionSub}>Remove from today's workout</Text>
               </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={s.menuCancelBtn}
-              activeOpacity={0.7}
-              onPress={() => setCardioMenuFor(null)}
-            >
-              <Text style={s.menuCancelText}>Go Back</Text>
-            </TouchableOpacity>
+            </TactileButton>
           </View>
-        </BottomSheet>
-      )}
+        </View>
+      </BottomSheet>
     </>
   );
+});
+
+const localStyles = StyleSheet.create({
+  groupedCard: {
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  groupedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 12,
+    minHeight: 52,
+  },
+  rowIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 58,
+  },
+  dangerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 12,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
 });
 
 export default GymExerciseOptionsSheet;

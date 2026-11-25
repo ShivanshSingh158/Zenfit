@@ -1,23 +1,10 @@
+/**
+ * legacy.types.ts — ZenFit Mobile
+ * Cleaned wellness log interfaces.
+ */
+
 import { GymLog } from './gym.types';
 export type { GymLog };
-
-export type Task = any;
-export type Habit = any;
-export type HabitLog = any;
-export type StorageNode = any;
-export type Note = any;
-export type Goal = any;
-export type CustomEvent = any;
-export type AttendanceSubject = any;
-export type AttendanceLog = any;
-export type Assignment = any;
-export type Semester = any;
-export type SemesterSubject = any;
-export type LearningTopic = any;
-export type LearningSubTask = any;
-export type JobApplication = any;
-export type WeeklyReview = any;
-export type ContentLog = any;
 
 export interface WaterLog {
   id: string;

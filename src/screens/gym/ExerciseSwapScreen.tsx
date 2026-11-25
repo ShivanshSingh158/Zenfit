@@ -1,19 +1,19 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, TextInput, ScrollView, Platform,
-  KeyboardAvoidingView, Alert, FlatList,
+  View, Text, TextInput, ScrollView, FlatList,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
-import { StatusBar } from 'expo-status-bar';
+import { ArrowLeft, Calendar, Dumbbell, Search, X, ArrowLeftRight } from 'lucide-react-native';
 
-import { SPACE, FONT_FAMILY } from '../../theme/tokens';
+import { SPACE, ICON } from '../../theme/tokens';
+import { ScreenWrapper, TactileButton } from '../../components/ui';
+import BottomSheet from '../../components/ui/BottomSheet';
 import { useGymLog, todayStr, planDayIndexForDate, getCustomPlanDay } from '../../hooks/useGymLog';
 import { useGymPlan, useGymLogs } from '../../contexts/domains/WellnessContext';
-import { GYM_PLAN, GYM_PLAN_PPL, GYM_PLAN_ARNOLD } from '../../data/gymPlan';
+import { resolvePlanDay } from '../../data/gymPlan';
 import { EXERCISE_DATABASE } from '../../data/exerciseDatabase';
+import { loadMergedCustomExercises } from '../../services/exerciseCatalogService';
 import {
   resolveMuscleColor, hexToRgba, canonicalizeMuscle,
   resolveExerciseTargetMuscle, getExerciseSwapAlternatives, getPreviousExerciseSession
@@ -33,6 +33,9 @@ export interface SwapRecommendation {
   restTimeSecs: number;
   reason: string;
   videoId?: string;
+  matchPercentage?: number;
+  muscleDivision?: string;
+  equipment?: string;
 }
 
 export interface TemplateExerciseSwapItem {
@@ -90,15 +93,35 @@ export function ExerciseSwapScreen() {
   const originalExerciseId = route.params?.originalExerciseId;
   const date = route.params?.date || todayStr();
 
-  const { colors, isDark } = useTheme();
-  const styles = useMemo(() => makeExerciseSwapStyles(colors, isDark), [colors, isDark]);
+  const { colors, isDark, tokens } = useTheme();
+  const styles = useMemo(() => makeExerciseSwapStyles(colors, isDark, tokens), [colors, isDark, tokens]);
 
   const { log, updateExercise } = useGymLog(date);
   const { userGymPlan, updateMasterPlan } = useGymPlan();
   const { gymLogs } = useGymLogs();
 
   const [search, setSearch] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'template' | 'exact' | 'category'>('all');
+  const [customExercises, setCustomExercises] = useState<any[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    loadMergedCustomExercises().then(customs => {
+      if (mounted && customs?.length) {
+        setCustomExercises(customs);
+      }
+    }).catch(() => {});
+    return () => { mounted = false; };
+  }, []);
+
+  const [pendingSwapConfirm, setPendingSwapConfirm] = useState<{
+    oldName: string;
+    newName: string;
+    targetMuscleResolved: string;
+    targetSets: number;
+    targetReps: string;
+    restTimeSecs: number;
+    newVideoId?: string;
+  } | null>(null);
 
   const originalExercise = useMemo(() => {
     if (!log || !originalExerciseId) return null;
@@ -169,10 +192,10 @@ export function ExerciseSwapScreen() {
     if (userGymPlan?.customDays && Object.keys(userGymPlan.customDays).length > 0) {
       Object.values(userGymPlan.customDays).forEach((day: any) => processDay(day, 'My Routine'));
     } else {
-      const templateId = userGymPlan?.templateId;
-      const activePlan = templateId === 'arnold' ? GYM_PLAN_ARNOLD : (templateId === 'ppl' ? GYM_PLAN_PPL : GYM_PLAN);
-      const label = templateId === 'arnold' ? 'Arnold Routine' : (templateId === 'ppl' ? 'PPL Routine' : 'Standard Routine');
-      activePlan.forEach(day => processDay(day, label));
+      const label = userGymPlan?.name || 'Current Routine';
+      for (let dIdx = 1; dIdx <= 7; dIdx++) {
+        processDay(resolvePlanDay(userGymPlan, dIdx), label);
+      }
     }
 
     return results.sort((a, b) => {
@@ -194,6 +217,9 @@ export function ExerciseSwapScreen() {
       restTimeSecs: alt.restTimeSecs,
       reason: alt.reason || `Biomechanical alternative matching ${alt.muscle}`,
       videoId: alt.videoId,
+      matchPercentage: alt.matchPercentage,
+      muscleDivision: alt.muscleDivision,
+      equipment: alt.equipment,
     }));
   }, [origName, rawMuscle]);
 
@@ -225,30 +251,37 @@ export function ExerciseSwapScreen() {
         muscleBgColor: hexToRgba(muscleColor, 0.1),
       });
     }
+    for (const cust of customExercises) {
+      const key = (cust.name || '').toLowerCase().trim();
+      if (!key || map.has(key)) continue;
+      const muscleColor = resolveMuscleColor(cust.muscle || 'Mixed');
+      map.set(key, {
+        id: cust.id || `cust_${key}`,
+        name: cust.name,
+        muscle: cust.muscle || 'Mixed',
+        targetSets: cust.targetSets || 3,
+        targetReps: cust.targetReps || '8–12',
+        restTimeSecs: cust.restTimeSecs || 90,
+        videoId: cust.videoId,
+        isFromTemplate: false,
+        aliases: cust.aliases || [],
+        muscleColor,
+        muscleBgColor: hexToRgba(muscleColor, 0.1),
+      });
+    }
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [templateExercises]);
+  }, [templateExercises, customExercises]);
 
   const filteredExercises = useMemo(() => {
-    let list = allExercises;
     const lowerSearch = search.trim().toLowerCase();
+    if (!lowerSearch) return allExercises;
 
-    if (filterType === 'template') {
-      list = list.filter(ex => ex.isFromTemplate);
-    } else if (filterType === 'exact' && origMuscle) {
-      const targetLower = origMuscle.toLowerCase();
-      list = list.filter(ex => (ex.muscle || '').toLowerCase().includes(targetLower) || targetLower.includes((ex.muscle || '').toLowerCase()));
-    } else if (filterType === 'category' && canonicalMuscle) {
-      list = list.filter(ex => canonicalizeMuscle(ex.muscle).toLowerCase() === canonicalMuscle.toLowerCase());
-    }
-
-    if (!lowerSearch) return list;
-
-    return list.filter(ex =>
+    return allExercises.filter(ex =>
       ex.name.toLowerCase().includes(lowerSearch) ||
       (ex.muscle && ex.muscle.toLowerCase().includes(lowerSearch)) ||
       (ex.aliases && ex.aliases.some((a: string) => a.toLowerCase().includes(lowerSearch)))
     );
-  }, [allExercises, search, filterType, origMuscle, canonicalMuscle]);
+  }, [allExercises, search]);
 
   const handleSwap = useCallback((newExDef: any) => {
     if (!log || !originalExerciseId) return;
@@ -303,222 +336,271 @@ export function ExerciseSwapScreen() {
       }).catch(() => {});
     }
 
-    Alert.alert(
-      'Exercise Swapped!',
-      `Replaced "${oldName}" with "${newExDef.name}".\n\nDo you want to save "${newExDef.name}" permanently for all future workouts on this day?`,
-      [
-        { text: 'Today Only', style: 'cancel', onPress: () => navigation.goBack() },
-        {
-          text: 'Save for Future Days',
-          onPress: async () => {
-            try {
-              const planIdx = planDayIndexForDate(date);
-              const currentMasterDay = getCustomPlanDay(userGymPlan?.customDays, planIdx) || GYM_PLAN.find(d => d.dayIndex === planIdx);
-              if (currentMasterDay && updateMasterPlan) {
-                const targetOldName = (oldName || '').toLowerCase().trim();
-                let updatedExercises = [...currentMasterDay.exercises];
-                const matchIndex = updatedExercises.findIndex((e: any) =>
-                  (e.id && e.id === originalExerciseId) ||
-                  (e.exerciseId && e.exerciseId === originalExerciseId) ||
-                  (targetOldName && (e.name || '').toLowerCase().trim() === targetOldName)
-                );
+    setPendingSwapConfirm({
+      oldName,
+      newName: newExDef.name,
+      targetMuscleResolved: targetMuscleResolved || newExDef.muscle || existingLog.muscle,
+      targetSets,
+      targetReps,
+      restTimeSecs,
+      newVideoId: newExDef.videoId || undefined,
+    });
+  }, [log, originalExerciseId, updateExercise, gymLogs]);
 
-                if (matchIndex !== -1) {
-                  updatedExercises[matchIndex] = {
-                    ...updatedExercises[matchIndex],
-                    name: newExDef.name,
-                    muscle: targetMuscleResolved || newExDef.muscle || updatedExercises[matchIndex].muscle,
-                    targetSets,
-                    targetReps,
-                    restTimeSecs,
-                    videoId: newExDef.videoId || undefined,
-                  };
-                }
-                await updateMasterPlan(planIdx, { ...currentMasterDay, exercises: updatedExercises });
-              }
-            } catch (_) {}
-            navigation.goBack();
-          },
-        },
-      ]
-    );
-  }, [log, originalExerciseId, updateExercise, gymLogs, date, userGymPlan, updateMasterPlan, navigation]);
+  const handleConfirmTodayOnly = useCallback(() => {
+    setPendingSwapConfirm(null);
+    navigation.goBack();
+  }, [navigation]);
 
-  const renderSwapItem = useCallback(({ item }: { item: any }) => {
-    const aliasDisplay = (() => {
-      if (!item.aliases || item.aliases.length === 0) return null;
-      const cleanItemName = item.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const distinct = item.aliases.filter((a: string) => a.toLowerCase().replace(/[^a-z0-9]/g, '') !== cleanItemName);
-      if (distinct.length === 0) return null;
+  const handleConfirmSaveMasterPlan = useCallback(async () => {
+    const pending = pendingSwapConfirm;
+    setPendingSwapConfirm(null);
+    if (!pending) {
+      navigation.goBack();
+      return;
+    }
+    try {
+      const planIdx = planDayIndexForDate(date);
+      const currentMasterDay = resolvePlanDay(userGymPlan, planIdx);
+      if (currentMasterDay && updateMasterPlan) {
+        const targetOldName = (pending.oldName || '').toLowerCase().trim();
+        let updatedExercises = [...currentMasterDay.exercises];
+        const matchIndex = updatedExercises.findIndex((e: any) =>
+          (e.id && e.id === originalExerciseId) ||
+          (e.exerciseId && e.exerciseId === originalExerciseId) ||
+          (targetOldName && (e.name || '').toLowerCase().trim() === targetOldName)
+        );
 
-      if (search && search.trim().length > 1) {
-        const q = search.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-        const matched = distinct.find((a: string) => a.toLowerCase().replace(/[^a-z0-9]/g, '').includes(q));
-        if (matched) {
-          const others = distinct.filter((a: string) => a !== matched).slice(0, 1);
-          return [matched, ...others].join(' • ');
+        if (matchIndex !== -1) {
+          updatedExercises[matchIndex] = {
+            ...updatedExercises[matchIndex],
+            name: pending.newName,
+            muscle: pending.targetMuscleResolved || updatedExercises[matchIndex].muscle,
+            targetSets: pending.targetSets,
+            targetReps: pending.targetReps,
+            restTimeSecs: pending.restTimeSecs,
+            videoId: pending.newVideoId,
+          };
+          await updateMasterPlan(planIdx, { ...currentMasterDay, exercises: updatedExercises });
         }
       }
-      return distinct.slice(0, 2).join(' • ');
-    })();
+    } catch (_) {}
+    navigation.goBack();
+  }, [pendingSwapConfirm, date, userGymPlan, updateMasterPlan, originalExerciseId, navigation]);
+
+  const renderSwapItem = useCallback(({ item }: { item: any }) => {
+    const muscleDotColor = item.muscleColor || resolveMuscleColor(item.muscle);
+    const subtitleParts = [item.muscle];
+    if (item.isFromTemplate && (item.templateDayName || item.dayName || item.routineName)) {
+      subtitleParts.push(String(item.templateDayName || item.dayName || item.routineName).split(' ')[0]);
+    }
 
     return (
-      <TouchableOpacity
+      <TactileButton
+        variant="custom"
         style={styles.exerciseCard}
         onPress={() => handleSwap(item)}
-        activeOpacity={0.7}
+        scaleTo={0.985}
       >
         <View style={styles.exerciseInfo}>
-          <Text style={styles.exerciseName}>{item.name}</Text>
-          {aliasDisplay ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 1, marginBottom: 2 }}>
-              <Text style={{ fontSize: 11, color: colors.accentPrimary, marginRight: 3, fontFamily: FONT_FAMILY.bold }}>↳</Text>
-              <Text style={{ fontSize: 10.5, color: colors.textMuted, fontFamily: FONT_FAMILY.medium }} numberOfLines={1}>
-                Also known as: <Text style={{ color: colors.accentPrimary, fontFamily: FONT_FAMILY.bold }}>{aliasDisplay}</Text>
-              </Text>
-            </View>
-          ) : null}
-          <View style={styles.badgeRow}>
-            <View style={[styles.muscleBadge, { backgroundColor: item.muscleBgColor }]}>
-              <Text style={[styles.muscleBadgeText, { color: item.muscleColor }]}>{item.muscle}</Text>
-            </View>
-            {item.isFromTemplate && (
-              <View style={styles.templateBadge}>
-                <Ionicons name="calendar-outline" size={11} color="#a599ff" />
-                <Text style={styles.templateBadgeText}>{item.templateDayName || item.routineName}</Text>
-              </View>
-            )}
+          <View style={styles.exerciseTitleRow}>
+            <View style={[styles.muscleIndicatorDot, { backgroundColor: muscleDotColor }]} />
+            <Text style={styles.exerciseName} numberOfLines={1}>{item.name}</Text>
           </View>
+          <Text style={styles.exerciseMetaLine} numberOfLines={1}>
+            {subtitleParts.join(' · ')}
+          </Text>
         </View>
         <View style={styles.swapAction}>
-          <Ionicons name="swap-horizontal" size={18} color="#a599ff" />
+          <ArrowLeftRight size={13} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
           <Text style={styles.swapActionText}>Swap</Text>
         </View>
-      </TouchableOpacity>
+      </TactileButton>
     );
-  }, [styles, handleSwap, search]);
+  }, [styles, handleSwap, tokens]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+    <ScreenWrapper edges={['top', 'bottom']} keyboardAvoiding>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()} activeOpacity={0.7}>
-          <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
-        </TouchableOpacity>
+        <TactileButton
+          variant="custom"
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          accessibilityLabel="Back"
+        >
+          <ArrowLeft size={22} color={tokens.text.primary} strokeWidth={ICON.strokeWidth} />
+        </TactileButton>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Swap Exercise</Text>
           <Text style={styles.headerSub} numberOfLines={1}>
-            Replacing: <Text style={{ color: colors.textPrimary, fontFamily: FONT_FAMILY.bold }}>{origName}</Text>
+            Replacing <Text style={styles.headerSubHighlight}>{origName}</Text>
           </Text>
         </View>
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <View style={styles.searchContainer}>
-          <Ionicons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search exercises or muscles..."
-            placeholderTextColor={colors.textMuted}
-            value={search}
-            onChangeText={setSearch}
-            autoCapitalize="none"
-          />
-          {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')}>
-              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-            </TouchableOpacity>
-          )}
-        </View>
+      <View style={styles.searchContainer}>
+        <Search size={18} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search exercises or muscles..."
+          placeholderTextColor={tokens.text.muted}
+          value={search}
+          onChangeText={setSearch}
+          autoCapitalize="none"
+        />
+        {search.length > 0 && (
+          <TactileButton
+            variant="custom"
+            onPress={() => setSearch('')}
+            style={styles.clearSearchBtn}
+            accessibilityLabel="Clear search"
+          >
+            <X size={18} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />
+          </TactileButton>
+        )}
+      </View>
 
-        {search.trim().length > 0 ? (
-          <FlatList
-            data={filteredExercises}
-            keyExtractor={item => item.id}
-            contentContainerStyle={styles.list}
-            showsVerticalScrollIndicator={false}
-            renderItem={renderSwapItem}
-            ListEmptyComponent={
-              <View style={styles.emptyState}>
-                <Ionicons name="barbell-outline" size={32} color={colors.textMuted} />
-                <Text style={styles.emptyText}>No exercises found.</Text>
-              </View>
-            }
-          />
-        ) : (
-          <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-            {/* Template Exercises */}
-            {templateExercises.length > 0 && (
-              <View style={{ marginBottom: SPACE.lg }}>
-                <View style={styles.sectionHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Ionicons name="calendar" size={15} color="#a599ff" />
-                    <Text style={styles.sectionHeaderTitle}>From Workout Template ({templateExercises.length})</Text>
-                  </View>
-                  <Text style={styles.sectionHeaderSub}>Routine Matches</Text>
+      {search.trim().length > 0 ? (
+        <FlatList
+          data={filteredExercises}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
+          renderItem={renderSwapItem}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Dumbbell size={32} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />
+              <Text style={styles.emptyText}>No exercises found.</Text>
+            </View>
+          }
+        />
+      ) : (
+        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+          {/* From Your Plan */}
+          {templateExercises.length > 0 && (
+            <View style={{ marginBottom: SPACE[20] }}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionHeaderLeft}>
+                  <Calendar size={14} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />
+                  <Text style={styles.sectionHeaderTitle} maxFontSizeMultiplier={1.25}>
+                    From Your Plan ({templateExercises.length})
+                  </Text>
                 </View>
+              </View>
 
+              <View style={styles.groupedCard}>
                 {templateExercises.map((tplEx, idx) => (
-                  <TouchableOpacity
+                  <TactileButton
+                    variant="custom"
                     key={tplEx.id || idx}
-                    style={styles.templateSwapCard}
+                    style={[
+                      styles.groupedRow,
+                      idx < templateExercises.length - 1 && styles.groupedRowDivider,
+                    ]}
                     onPress={() => handleSwap(tplEx)}
-                    activeOpacity={0.7}
+                    scaleTo={0.985}
                   >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.exerciseName}>{tplEx.name}</Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                        <View style={[styles.muscleBadge, { backgroundColor: hexToRgba(resolveMuscleColor(tplEx.muscle), 0.12) }]}>
-                          <Text style={[styles.muscleBadgeText, { color: resolveMuscleColor(tplEx.muscle) }]}>{tplEx.muscle}</Text>
-                        </View>
-                        <Text style={{ fontFamily: FONT_FAMILY.medium, fontSize: 11, color: colors.textMuted }}>
-                          {tplEx.dayName}
-                        </Text>
+                    <View style={styles.exerciseInfo}>
+                      <View style={styles.exerciseTitleRow}>
+                        <View style={[styles.muscleIndicatorDot, { backgroundColor: resolveMuscleColor(tplEx.muscle) }]} />
+                        <Text style={styles.exerciseName} numberOfLines={1}>{tplEx.name}</Text>
                       </View>
+                      <Text style={styles.exerciseMetaLine} numberOfLines={1}>
+                        {tplEx.muscle} · {tplEx.dayName.split(' ')[0]} · {tplEx.targetSets || 3} × {tplEx.targetReps || '8–12'}
+                      </Text>
                     </View>
-                    <Ionicons name="swap-horizontal" size={18} color="#a599ff" />
-                  </TouchableOpacity>
+                    <View style={styles.swapAction}>
+                      <ArrowLeftRight size={13} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                      <Text style={styles.swapActionText}>Swap</Text>
+                    </View>
+                  </TactileButton>
                 ))}
               </View>
-            )}
-
-            {/* Scientific Biomechanical Alternatives */}
-            <View style={{ marginBottom: SPACE.lg }}>
-              <View style={styles.sectionHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="fitness-outline" size={15} color={colors.accentPrimary} />
-                  <Text style={styles.sectionHeaderTitle}>Target Muscle Matches ({biomechanicalSwaps.length})</Text>
-                </View>
-                <Text style={styles.sectionHeaderSub}>Alternative Movements</Text>
-              </View>
-
-              {biomechanicalSwaps.map((item, idx) => (
-                <TouchableOpacity
-                  key={item.id || idx}
-                  style={styles.exerciseCard}
-                  onPress={() => handleSwap(item)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.exerciseInfo}>
-                    <Text style={styles.exerciseName}>{item.name}</Text>
-                    <Text style={{ fontFamily: FONT_FAMILY.regular, fontSize: 12, color: colors.textTertiary, marginTop: 2 }}>
-                      {item.reason}
-                    </Text>
-                    <View style={[styles.muscleBadge, { backgroundColor: hexToRgba(resolveMuscleColor(item.muscle), 0.12), marginTop: 6, alignSelf: 'flex-start' }]}>
-                      <Text style={[styles.muscleBadgeText, { color: resolveMuscleColor(item.muscle) }]}>{item.muscle}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.swapAction}>
-                    <Ionicons name="swap-horizontal" size={18} color="#a599ff" />
-                    <Text style={styles.swapActionText}>Swap</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
             </View>
-          </ScrollView>
-        )}
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          )}
+
+          {/* Best Alternatives */}
+          <View style={{ marginBottom: SPACE[24] }}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionHeaderLeft}>
+                <Dumbbell size={14} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />
+                <Text style={styles.sectionHeaderTitle} maxFontSizeMultiplier={1.25}>
+                  Best Alternatives ({biomechanicalSwaps.length})
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.groupedCard}>
+              {biomechanicalSwaps.map((item, idx) => {
+                const division = item.muscleDivision || item.muscle;
+                const equip = item.equipment && item.equipment !== 'Alternative' ? item.equipment : null;
+                const metaParts = [division];
+                if (equip) metaParts.push(equip);
+                metaParts.push(`${item.targetSets || 3} × ${item.targetReps || '8–12'}`);
+
+                return (
+                  <TactileButton
+                    variant="custom"
+                    key={item.id || idx}
+                    style={[
+                      styles.groupedRow,
+                      idx < biomechanicalSwaps.length - 1 && styles.groupedRowDivider,
+                    ]}
+                    onPress={() => handleSwap(item)}
+                    scaleTo={0.985}
+                  >
+                    <View style={styles.exerciseInfo}>
+                      <View style={styles.exerciseTitleRow}>
+                        <View style={[styles.muscleIndicatorDot, { backgroundColor: resolveMuscleColor(division) }]} />
+                        <Text style={styles.exerciseName} numberOfLines={1}>{item.name}</Text>
+                      </View>
+                      <Text style={styles.exerciseMetaLine} numberOfLines={1}>
+                        {metaParts.join(' · ')}
+                      </Text>
+                    </View>
+                    <View style={styles.swapAction}>
+                      <ArrowLeftRight size={13} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                      <Text style={styles.swapActionText}>Swap</Text>
+                    </View>
+                  </TactileButton>
+                );
+              })}
+            </View>
+          </View>
+        </ScrollView>
+      )}
+
+      <BottomSheet
+        visible={!!pendingSwapConfirm}
+        onClose={handleConfirmTodayOnly}
+        sheetBackgroundColor={isDark ? '#0B0C10' : '#F8F8FA'}
+      >
+        <View style={styles.confirmSheetBody}>
+          <Text style={styles.confirmTitle}>Exercise Swapped</Text>
+          <Text style={styles.confirmDesc}>
+            Replaced "{pendingSwapConfirm?.oldName}" with "{pendingSwapConfirm?.newName}" for today. Do you want to update your weekly plan for future sessions too?
+          </Text>
+          <View style={styles.confirmBtnStack}>
+            <TactileButton
+              variant="custom"
+              style={styles.confirmPrimaryBtn}
+              onPress={handleConfirmSaveMasterPlan}
+              scaleTo={0.98}
+            >
+              <Text style={styles.confirmPrimaryText}>Save for Future Days</Text>
+            </TactileButton>
+            <TactileButton
+              variant="custom"
+              style={styles.confirmSecondaryBtn}
+              onPress={handleConfirmTodayOnly}
+              scaleTo={0.98}
+            >
+              <Text style={styles.confirmSecondaryText}>Today Only</Text>
+            </TactileButton>
+          </View>
+        </View>
+      </BottomSheet>
+    </ScreenWrapper>
   );
 }
 

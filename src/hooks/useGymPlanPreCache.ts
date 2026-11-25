@@ -11,7 +11,7 @@ import { useEffect, useRef } from 'react';
 import { InteractionManager } from 'react-native';
 import { useGymPlan, getWorkoutActiveGlobal } from '../contexts/domains/WellnessContext';
 import { GYM_PLAN } from '../data/gymPlan';
-import { preCacheExercises } from '../services/exerciseMediaService';
+import { preCacheExercises, preCacheAllCuratedExercises } from '../services/exerciseMediaService';
 import { getExerciseCatalogue, getCategoryMap } from '../components/Gym/exercise/AddExerciseModal';
 
 export function useGymPlanPreCache() {
@@ -38,15 +38,15 @@ export function useGymPlanPreCache() {
   useEffect(() => {
     // Never run media downloads during an active workout
     if (getWorkoutActiveGlobal()) return;
-    const names: string[] = [];
+    const nameSet = new Set<string>();
 
     // Collect from userGymPlan.customDays
     if (userGymPlan?.customDays) {
       Object.values(userGymPlan.customDays).forEach((day: any) => {
         if (day?.exercises && Array.isArray(day.exercises)) {
           day.exercises.forEach((ex: any) => {
-            if (ex?.name && !names.includes(ex.name)) {
-              names.push(ex.name);
+            if (ex?.name) {
+              nameSet.add(ex.name);
             }
           });
         }
@@ -54,28 +54,38 @@ export function useGymPlanPreCache() {
     }
 
     // Include default GYM_PLAN exercises if customDays is empty
-    if (names.length === 0) {
+    if (nameSet.size === 0) {
       GYM_PLAN.forEach(day => {
         if (day?.exercises && Array.isArray(day.exercises)) {
           day.exercises.forEach(ex => {
-            if (ex?.name && !names.includes(ex.name)) {
-              names.push(ex.name);
+            if (ex?.name) {
+              nameSet.add(ex.name);
             }
           });
         }
       });
     }
 
-    const planHash = names.sort().join('|');
+    const names = Array.from(nameSet).sort();
+    const planHash = names.join('|');
     if (planHash === lastPlanHashRef.current || names.length === 0) return;
     lastPlanHashRef.current = planHash;
 
     let timer: ReturnType<typeof setTimeout> | null = null;
     const task = InteractionManager.runAfterInteractions(() => {
       timer = setTimeout(() => {
+        if (getWorkoutActiveGlobal()) return;
         preCacheExercises(names).then(count => {
           if (count > 0) {
-            console.log(`[GymPlanPreCache] Pre-cached ${count} exercise GIFs for offline workouts.`);
+            console.log(`[GymPlanPreCache] Pre-cached ${count} active routine exercises.`);
+          }
+          // Progressively pre-cache all remaining curated exercises (total ~9 MB) for 100% offline coverage
+          if (!getWorkoutActiveGlobal()) {
+            preCacheAllCuratedExercises().then(total => {
+              if (total > 0) {
+                console.log(`[GymPlanPreCache] Successfully cached all curated exercises (${total} downloaded) for instant offline access.`);
+              }
+            }).catch(() => {});
           }
         }).catch(err => {
           console.warn('[GymPlanPreCache] Pre-cache error:', err);
@@ -87,5 +97,5 @@ export function useGymPlanPreCache() {
       task.cancel();
       if (timer) clearTimeout(timer);
     };
-  }, [userGymPlan?.updatedAt, userGymPlan?.templateId]);
+  }, [userGymPlan?.updatedAt, userGymPlan?.templateId, userGymPlan?.customDays]);
 }

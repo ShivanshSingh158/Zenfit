@@ -1,292 +1,235 @@
-import { StyleSheet, Platform } from 'react-native';
-import { FONT_FAMILY, SPACE, RADIUS } from '../../theme/tokens';
+import { StyleSheet } from 'react-native';
+import { DARK_TOKENS, LIGHT_TOKENS, ThemeTokens, FONT_FAMILY, SPACE, RADIUS, TOUCH } from '../../theme/tokens';
 
 const stylesCache = new Map<string, any>();
 
-export const makeExerciseSwapStyles = (colors: any, isDark: boolean = true) => {
-  const cacheKey = `${isDark ? 'dark' : 'light'}_${colors?.background || ''}_${colors?.border || ''}_${colors?.textPrimary || ''}`;
-  let cached = stylesCache.get(cacheKey);
+export const makeExerciseSwapStyles = (
+  colors: any,
+  isDark: boolean = true,
+  tokens?: ThemeTokens,
+) => {
+  const t = tokens || (isDark ? DARK_TOKENS : LIGHT_TOKENS);
+  const canvasBg = isDark ? '#050507' : t.bg.canvas;
+  const surfaceBg = isDark ? '#0F1015' : t.bg.surface;
+  const elevatedBg = isDark ? '#14161D' : t.bg.elevated;
+  const hairline = StyleSheet.hairlineWidth;
+
+  const cacheKey = `${isDark ? 'dark' : 'light'}_${canvasBg}_${t.accent.primary}_${t.border.subtle}_${t.text.primary}`;
+  const cached = stylesCache.get(cacheKey);
   if (cached) return cached;
 
   const styles = StyleSheet.create({
-    safeArea: { flex: 1, backgroundColor: isDark ? '#000000' : colors.background },
-    backButton: { padding: SPACE.xs },
+    safeArea: { flex: 1, backgroundColor: canvasBg },
+    backButton: {
+      width: TOUCH.minTarget,
+      height: TOUCH.minTarget,
+      borderRadius: RADIUS.inner,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    groupedCard: {
+      backgroundColor: surfaceBg,
+      borderRadius: RADIUS.card,
+      borderWidth: hairline,
+      borderColor: t.border.subtle,
+      overflow: 'hidden',
+    },
+    groupedRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: SPACE[16],
+      paddingVertical: 14,
+      gap: SPACE[12],
+    },
+    groupedRowDivider: {
+      borderBottomWidth: hairline,
+      borderBottomColor: t.border.subtle,
+    },
     exerciseCard: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
-      padding: SPACE.md,
-      borderRadius: RADIUS.md,
-      marginBottom: SPACE.sm,
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.06)' : colors.border,
+      backgroundColor: surfaceBg,
+      paddingHorizontal: SPACE[16],
+      paddingVertical: 14,
+      borderRadius: RADIUS.card,
+      marginBottom: SPACE[8],
+      borderWidth: hairline,
+      borderColor: t.border.subtle,
     },
-    exerciseInfo: { flex: 1, paddingRight: SPACE.sm },
-    exerciseName: { fontFamily: FONT_FAMILY.bold, fontSize: 15, color: colors.textPrimary, marginBottom: 2, textTransform: 'capitalize' },
-    badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-    muscleBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+    exerciseInfo: { flex: 1, gap: 4 },
+    exerciseTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    muscleIndicatorDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 3.5,
+      flexShrink: 0,
+    },
+    exerciseName: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 15,
+      color: t.text.primary,
+      textTransform: 'capitalize',
+      flexShrink: 1,
+    },
+    exerciseMetaLine: {
+      fontFamily: FONT_FAMILY.body,
+      fontSize: 12,
+      color: t.text.secondary,
+      paddingLeft: 15,
+    },
+    equipChip: {
+      backgroundColor: elevatedBg,
+      paddingHorizontal: SPACE[8],
+      paddingVertical: 2,
+      borderRadius: RADIUS.xs,
+    },
+    equipChipText: {
+      fontFamily: FONT_FAMILY.medium,
+      fontSize: 10,
+      color: t.text.secondary,
+    },
+    badgeRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE[8], marginTop: 2, paddingLeft: 15, flexWrap: 'wrap' },
+    muscleBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SPACE[8], paddingVertical: 3, borderRadius: RADIUS.full },
     muscleBadgeText: { fontFamily: FONT_FAMILY.bold, fontSize: 10, textTransform: 'uppercase' },
     swapAction: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 4,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: RADIUS.sm,
-      backgroundColor: isDark ? 'rgba(165,153,255,0.1)' : 'rgba(108,92,231,0.08)',
+      justifyContent: 'center',
+      gap: 5,
+      minHeight: 34,
+      paddingHorizontal: 12,
+      borderRadius: RADIUS.full,
+      backgroundColor: t.accent.primaryDim,
     },
-    swapActionText: { fontFamily: FONT_FAMILY.bold, fontSize: 11, color: colors.accentPrimary },
-    root: { flex: 1, backgroundColor: isDark ? '#000000' : colors.background },
+    swapActionText: { fontFamily: FONT_FAMILY.bold, fontSize: 12, color: t.accent.primary },
+    root: { flex: 1, backgroundColor: canvasBg },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: SPACE.lg,
-      paddingTop: Platform.OS === 'ios' ? 10 : 20,
-      paddingBottom: SPACE.sm,
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border,
+      paddingHorizontal: SPACE[16],
+      paddingVertical: SPACE[8],
+      borderBottomWidth: hairline,
+      borderBottomColor: t.border.subtle,
+      gap: SPACE[8],
     },
-    backBtn: { padding: SPACE.xs },
-    headerTitle: { fontFamily: FONT_FAMILY.bold, fontSize: 13, color: colors.textPrimary, letterSpacing: 1.5 },
-    headerSub: { fontFamily: FONT_FAMILY.body, fontSize: 11, color: colors.textMuted, marginTop: 2 },
-
-    originalCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
-      marginHorizontal: SPACE.lg,
-      marginTop: SPACE.md,
-      marginBottom: SPACE.sm,
-      padding: SPACE.md,
-      borderRadius: RADIUS.lg,
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border,
-    },
-    originalCardLeft: { flex: 1, paddingRight: 8 },
-    originalCardLabel: { fontFamily: FONT_FAMILY.bold, fontSize: 9, color: colors.textMuted, letterSpacing: 1.2, marginBottom: 2 },
-    originalCardName: { fontFamily: FONT_FAMILY.bold, fontSize: 15, color: colors.textPrimary, textTransform: 'capitalize' },
-    originalCardMeta: { fontFamily: FONT_FAMILY.body, fontSize: 11, color: colors.textMuted, marginTop: 2 },
-
-    tabContainer: {
-      flexDirection: 'row',
-      marginHorizontal: SPACE.lg,
-      marginVertical: SPACE.md,
-      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
-      borderRadius: RADIUS.lg,
-      padding: 3,
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border,
-    },
-    tabBtn: {
-      flex: 1,
-      flexDirection: 'row',
+    backBtn: {
+      width: TOUCH.minTarget,
+      height: TOUCH.minTarget,
+      borderRadius: RADIUS.inner,
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 6,
-      paddingVertical: 8,
-      borderRadius: RADIUS.md,
     },
-    tabBtnActive: {
-      backgroundColor: colors.accentPrimary,
-    },
-    tabBtnText: {
-      fontFamily: FONT_FAMILY.bold,
-      fontSize: 12,
-      color: colors.textMuted,
-    },
-    tabBtnTextActive: {
-      color: '#ffffff',
-    },
+    headerTitle: { fontFamily: FONT_FAMILY.bold, fontSize: 17, color: t.text.primary, letterSpacing: -0.2 },
+    headerSub: { fontFamily: FONT_FAMILY.body, fontSize: 12, color: t.text.secondary, marginTop: 1 },
+    headerSubHighlight: { fontFamily: FONT_FAMILY.bold, color: t.text.primary },
 
     searchContainer: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
-      marginHorizontal: SPACE.lg,
-      marginBottom: SPACE.sm,
-      paddingHorizontal: SPACE.md,
-      height: 42,
-      borderRadius: RADIUS.md,
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border,
+      backgroundColor: elevatedBg,
+      marginHorizontal: SPACE[16],
+      marginTop: SPACE[12],
+      marginBottom: SPACE[12],
+      paddingLeft: SPACE[12],
+      paddingRight: SPACE[4],
+      height: 44,
+      borderRadius: RADIUS.inner,
+      borderWidth: hairline,
+      borderColor: t.border.subtle,
     },
-    searchIcon: { marginRight: SPACE.sm },
-    searchInput: { flex: 1, fontFamily: FONT_FAMILY.body, fontSize: 14, color: colors.textPrimary, height: '100%' },
-
-    chipRow: {
-      paddingHorizontal: SPACE.lg,
-      paddingBottom: SPACE.sm,
-      gap: 8,
-    },
-    chip: {
-      flexDirection: 'row',
+    searchIcon: { marginRight: SPACE[8] },
+    searchInput: { flex: 1, fontFamily: FONT_FAMILY.body, fontSize: 14, color: t.text.primary, height: '100%' },
+    clearSearchBtn: {
+      width: 40,
+      height: 40,
       alignItems: 'center',
-      gap: 4,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: RADIUS.full,
-      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border,
-    },
-    chipActive: {
-      backgroundColor: colors.accentPrimary,
-      borderColor: colors.accentPrimary,
-    },
-    chipText: {
-      fontFamily: FONT_FAMILY.medium,
-      fontSize: 11,
-      color: colors.textMuted,
-    },
-    chipTextActive: {
-      color: '#ffffff',
-      fontFamily: FONT_FAMILY.bold,
+      justifyContent: 'center',
     },
 
-    list: { paddingHorizontal: SPACE.lg, paddingBottom: 120 },
+    list: { paddingHorizontal: SPACE[16], paddingBottom: 120 },
 
     sectionHeader: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: SPACE.sm,
+      marginBottom: SPACE[8],
       paddingHorizontal: 2,
+    },
+    sectionHeaderLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: SPACE[8],
     },
     sectionHeaderTitle: {
       fontFamily: FONT_FAMILY.bold,
-      fontSize: 12,
-      color: colors.accentPrimary,
-      letterSpacing: 0.5,
-    },
-    sectionHeaderSub: {
-      fontFamily: FONT_FAMILY.body,
-      fontSize: 10,
-      color: colors.textMuted,
-    },
-
-    templateSwapCard: {
-      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
-      borderRadius: RADIUS.lg,
-      padding: SPACE.md,
-      marginBottom: SPACE.sm,
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(165,153,255,0.18)' : 'rgba(108,92,231,0.2)',
-    },
-    templateSwapCardExact: {
-      borderColor: colors.accentPrimary,
-      backgroundColor: isDark ? '#1A1824' : '#F0EFF7',
-    },
-    templateCardTop: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: 6,
-    },
-    dayOriginPill: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-      backgroundColor: isDark ? 'rgba(165,153,255,0.12)' : 'rgba(108,92,231,0.1)',
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: RADIUS.sm,
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(165,153,255,0.2)' : 'rgba(108,92,231,0.2)',
-    },
-    dayOriginText: {
-      fontFamily: FONT_FAMILY.bold,
-      fontSize: 10,
-      color: colors.accentPrimary,
-    },
-    templateCardBody: {
-      marginVertical: 4,
-    },
-    templateExName: {
-      fontFamily: FONT_FAMILY.bold,
-      fontSize: 16,
-      color: colors.textPrimary,
-      marginBottom: 2,
-      textTransform: 'capitalize',
-    },
-    templateExMeta: {
-      fontFamily: FONT_FAMILY.body,
-      fontSize: 12,
-      color: colors.textMuted,
-    },
-    templateCardFooter: {
-      marginTop: 6,
-      paddingTop: 6,
-      borderTopWidth: 1,
-      borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border,
-      flexDirection: 'row',
-      justifyContent: 'flex-end',
-    },
-    templateTapHint: {
-      fontFamily: FONT_FAMILY.bold,
       fontSize: 11,
-      color: colors.accentPrimary,
+      color: t.text.muted,
+      letterSpacing: 0.8,
+      textTransform: 'uppercase',
     },
-
-    aiStatusBanner: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      backgroundColor: isDark ? 'rgba(165,153,255,0.08)' : 'rgba(108,92,231,0.08)',
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderRadius: RADIUS.md,
-      marginBottom: SPACE.md,
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(165,153,255,0.15)' : 'rgba(108,92,231,0.15)',
+    templateMetaText: {
+      fontFamily: FONT_FAMILY.medium,
+      fontSize: 11.5,
+      color: t.text.secondary,
     },
-    aiStatusTitle: {
+    confirmSheetBody: {
+      gap: 14,
+      paddingTop: 6,
+    },
+    confirmTitle: {
       fontFamily: FONT_FAMILY.bold,
-      fontSize: 12,
-      color: colors.accentPrimary,
+      fontSize: 18,
+      color: t.text.primary,
+      letterSpacing: -0.3,
     },
-
-    exerciseRow: {
-      flexDirection: 'row',
+    confirmDesc: {
+      fontFamily: FONT_FAMILY.body,
+      fontSize: 13.5,
+      color: t.text.secondary,
+      lineHeight: 20,
+    },
+    confirmBtnStack: {
+      gap: 10,
+      marginTop: 4,
+    },
+    confirmPrimaryBtn: {
+      minHeight: 48,
+      borderRadius: RADIUS.card,
+      backgroundColor: t.accent.primary,
       alignItems: 'center',
-      justifyContent: 'space-between',
-      backgroundColor: isDark ? '#1C1C1E' : colors.surface,
-      padding: SPACE.md,
-      borderRadius: RADIUS.md,
-      marginBottom: SPACE.sm,
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border,
+      justifyContent: 'center',
+      paddingHorizontal: 16,
     },
-    exInfo: { flex: 1, paddingRight: SPACE.sm },
-    exName: { fontFamily: FONT_FAMILY.bold, fontSize: 15, color: colors.textPrimary, marginBottom: 2, textTransform: 'capitalize' },
-    exTarget: { fontFamily: FONT_FAMILY.body, fontSize: 12, color: colors.textMuted },
-    exReason: { fontFamily: FONT_FAMILY.body, fontSize: 11, color: colors.accentPrimary, marginTop: 2 },
-
-    templateBadge: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 3,
-      backgroundColor: isDark ? 'rgba(165,153,255,0.1)' : 'rgba(108,92,231,0.1)',
-      paddingHorizontal: 6,
-      paddingVertical: 2,
-      borderRadius: RADIUS.sm,
-      borderWidth: 1,
-      borderColor: isDark ? 'rgba(165,153,255,0.2)' : 'rgba(108,92,231,0.2)',
-    },
-    templateBadgeText: {
+    confirmPrimaryText: {
       fontFamily: FONT_FAMILY.bold,
-      fontSize: 9,
-      color: colors.accentPrimary,
+      fontSize: 15,
+      color: t.accent.onPrimary,
+    },
+    confirmSecondaryBtn: {
+      minHeight: 46,
+      borderRadius: RADIUS.card,
+      backgroundColor: elevatedBg,
+      borderWidth: hairline,
+      borderColor: t.border.subtle,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 16,
+    },
+    confirmSecondaryText: {
+      fontFamily: FONT_FAMILY.semibold,
+      fontSize: 14,
+      color: t.text.primary,
     },
 
-    musclePill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-    muscleDot: { width: 6, height: 6, borderRadius: 3, marginRight: 4 },
-    muscleText: { fontFamily: FONT_FAMILY.bold, fontSize: 10, textTransform: 'uppercase' },
-
-    emptyState: { alignItems: 'center', marginTop: 60, gap: SPACE.md },
-    emptyText: { fontFamily: FONT_FAMILY.body, fontSize: 14, color: colors.textMuted },
+    emptyState: { alignItems: 'center', marginTop: 60, gap: SPACE[12] },
+    emptyText: { fontFamily: FONT_FAMILY.body, fontSize: 14, color: t.text.muted },
   });
 
   stylesCache.set(cacheKey, styles);

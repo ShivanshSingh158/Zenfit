@@ -1,74 +1,87 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { hapticSelection } from '../../../utils/haptics';
+import { View, Text } from 'react-native';
+import {
+  Activity,
+  Bike,
+  CheckCircle2,
+  Droplets,
+  Dumbbell,
+  Footprints,
+  Repeat,
+  RefreshCw,
+  TrendingUp,
+  Waves,
+  type LucideIcon,
+} from 'lucide-react-native';
+import { TactileButton } from '../../ui';
+import { ICON, ThemeTokens } from '../../../theme/tokens';
 
 export interface CardioTypeOption {
   label: string;
-  icon: string;
+  Icon: LucideIcon;
 }
 
 export const CARDIO_TYPES: CardioTypeOption[] = [
-  { label: 'Treadmill', icon: 'walk-outline' },
-  { label: 'Cycling', icon: 'bicycle-outline' },
-  { label: 'Rowing', icon: 'boat-outline' },
-  { label: 'Stairmaster', icon: 'trending-up-outline' },
-  { label: 'Elliptical', icon: 'sync-outline' },
-  { label: 'Outdoor Run', icon: 'footsteps-outline' },
-  { label: 'Jump Rope', icon: 'infinite-outline' },
-  { label: 'Swimming', icon: 'water-outline' },
-  { label: 'Other', icon: 'fitness-outline' },
+  { label: 'Treadmill', Icon: Footprints },
+  { label: 'Cycling', Icon: Bike },
+  { label: 'Rowing', Icon: Waves },
+  { label: 'Stairmaster', Icon: TrendingUp },
+  { label: 'Elliptical', Icon: RefreshCw },
+  { label: 'Outdoor Run', Icon: Activity },
+  { label: 'Jump Rope', Icon: Repeat },
+  { label: 'Swimming', Icon: Droplets },
+  { label: 'Other', Icon: Dumbbell },
 ];
 
 export interface CardioTypeSelectorProps {
   selectedType: string | null;
   onSelect: (type: string) => void;
   styles: any;
-  colors: any;
-  isDark: boolean;
+  tokens: ThemeTokens;
 }
 
 export const CardioTypeSelector: React.FC<CardioTypeSelectorProps> = React.memo(({
   selectedType,
   onSelect,
   styles,
-  colors,
-  isDark,
+  tokens,
 }) => {
   return (
     <View style={styles.grid}>
-      {CARDIO_TYPES.map(({ label, icon }) => {
+      {CARDIO_TYPES.map(({ label, Icon }) => {
         const isSelected = selectedType === label;
-        const isFullWidth = false;
 
         return (
-          <TouchableOpacity
+          <TactileButton
             key={label}
+            variant="custom"
+            haptic="selection"
             style={[
               styles.chip,
-              isFullWidth && styles.chipFullWidth,
               isSelected && styles.chipSelected,
             ]}
-            onPress={() => {
-              hapticSelection();
-              onSelect(label);
-            }}
-            activeOpacity={0.75}
+            onPress={() => onSelect(label)}
           >
             <View style={[styles.chipIcon, isSelected && styles.chipIconSelected]}>
-              <Ionicons
-                name={icon as any}
-                size={18}
-                color={isSelected ? (isDark ? '#000000' : '#FFFFFF') : (isDark ? 'rgba(255,255,255,0.75)' : colors.textPrimary)}
+              <Icon
+                size={ICON.md - 2}
+                strokeWidth={ICON.strokeWidth}
+                color={isSelected ? tokens.accent.onPrimary : tokens.text.secondary}
               />
             </View>
-            <Text style={[styles.chipLabel, isSelected && styles.chipLabelSelected]}>
+            <Text
+              style={[styles.chipLabel, isSelected && styles.chipLabelSelected]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.82}
+              maxFontSizeMultiplier={1.25}
+            >
               {label}
             </Text>
             {isSelected && (
-              <Ionicons name="checkmark-circle" size={16} color={isDark ? '#FFFFFF' : '#000000'} />
+              <CheckCircle2 size={ICON.sm} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
             )}
-          </TouchableOpacity>
+          </TactileButton>
         );
       })}
     </View>

@@ -2,35 +2,47 @@
  * ExerciseDeepDiveModal.tsx — ZenTrack Mobile
  *
  * 5-Card Intelligence Progression & Analytics Inspector Modal
- * 1. Today's Progressive Overload Mission Card (Dynamic Double Progression & Unlock Progress)
- * 2. Lifetime Personal Records (4-Pill Grid: Heaviest, Best Set, Max Session Tonnage, Est. 1RM)
- * 3. Performance Trajectory Chart (Tabs: Top Weight, Volume Tonnage, Est. 1RM; Graceful 1-session baseline)
- * 4. Set-by-Set Historical Timeline (Last 5 Workouts with Delta % Tonnage & Rep Badges)
- * 5. Adaptive Reps & Load Target Calculator (Compounds: 1RM-12RM Ladder; Isolations: Hypertrophy Load Zones)
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
-  Modal,
-  TouchableOpacity,
   ScrollView,
   StyleSheet,
-  useWindowDimensions,
+  ActivityIndicator,
 } from 'react-native';
-import Svg, { Path, Circle, Line, Text as SvgText } from 'react-native-svg';
-import { Ionicons } from '@expo/vector-icons';
+import Svg, { Path, Circle, Line } from 'react-native-svg';
+import {
+  Activity,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  ChevronRight,
+  Dumbbell,
+  Flag,
+  PlayCircle,
+  RefreshCw,
+  Sparkles,
+  TrendingUp,
+  Trophy,
+  X,
+  Zap,
+} from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, RADIUS, FONT_FAMILY, SPACE, FONT_SIZE, IOS_DARK } from '../../../theme/tokens';
+import BottomSheet from '../../ui/BottomSheet';
+import { NumericText, TactileButton, AnimatedProgressBar } from '../../ui';
+import { RADIUS, FONT_FAMILY, ICON, SPACE, TOUCH, ThemeTokens } from '../../../theme/tokens';
+import { useResponsiveMetrics } from '../../../theme/responsive';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { hapticLight, hapticSelection } from '../../../utils/haptics';
 import { normalizeExerciseKey, resolveExerciseTargetMuscle, resolveMuscleColor } from '../../../utils/gymUtils';
-import { estimate1RM, calculateRepMaxTable } from '../../../services/oneRepMaxEngine';
+import { estimate1RM } from '../../../services/oneRepMaxEngine';
 import { inferExerciseMeta } from '../../../utils/progressionEngine';
 import { getOverloadSuggestion, OverloadSuggestion } from '../../../utils/progressiveOverload';
 import { GymDayLog } from '../../../types/gym.types';
 import { computeOrGetHotCache, generateDatasetFingerprint } from '../../../utils/hotCacheStore';
+import { parseLocalDate } from '../../../utils/dateCore';
+import { useLatestNonNull } from '../../../hooks/useLatestNonNull';
+import { useWeightUnit, kgToDisplay, unitLabel } from '../../../utils/weightUnit';
 import ExerciseAnimationCard from './ExerciseAnimationCard';
 
 interface Props {
@@ -65,28 +77,48 @@ export function ExerciseDeepDiveModal({
   initialTab = 'guide',
   onClose,
 }: Props) {
-  const { colors, isDark } = useTheme();
+  const { tokens, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(tokens, isDark), [tokens, isDark]);
   const insets = useSafeAreaInsets();
+  const activeName = useLatestNonNull(exerciseName);
+  const activeExercise = useLatestNonNull(exercise);
   const [activeTab, setActiveTab] = useState<'guide' | 'analytics'>(initialTab);
+  const [isContentReady, setIsContentReady] = useState(visible);
+
+  useEffect(() => {
+    if (visible) {
+      setIsContentReady(true);
+    }
+  }, [visible]);
 
   useEffect(() => {
     if (visible && initialTab) {
       setActiveTab(initialTab);
     }
   }, [visible, initialTab]);
+
   const [chartTab, setChartTab] = useState<ChartTab>('weight');
+  const targetKey = useMemo(() => normalizeExerciseKey(activeName || exerciseName || ''), [activeName, exerciseName]);
+  const [sheetSettled, setSheetSettled] = useState(false);
 
-  const targetKey = useMemo(() => normalizeExerciseKey(exerciseName || ''), [exerciseName]);
+  React.useEffect(() => {
+    if (!visible) {
+      setSheetSettled(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setSheetSettled(true);
+    }, 190);
+    return () => clearTimeout(timer);
+  }, [visible]);
 
-  // Extract all historical sessions for this exercise (chronological order)
   const historySessions = useMemo<ProcessedSession[]>(() => {
-    if (!targetKey || !visible) return [];
-    const cacheKey = `ex_deepdive_v2_${targetKey}_${generateDatasetFingerprint(gymLogs)}`;
+    if (!targetKey || !visible || !sheetSettled) return [];
+    const cacheKey = `ex_deepdive_v3_${targetKey}_${generateDatasetFingerprint(gymLogs)}`;
 
-    return computeOrGetHotCache(cacheKey, () => {
-      const sessions: ProcessedSession[] = [];
+    const cached = computeOrGetHotCache(cacheKey, () => {
+      const rawSessions: Array<Omit<ProcessedSession, 'daysAgo'> & { sessionDateMs: number }> = [];
       const sorted = (gymLogs || []).slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-      const nowMs = Date.now();
 
       for (const log of sorted) {
         for (const ex of log.exercises || []) {
@@ -119,14 +151,12 @@ export function ExerciseDeepDiveModal({
                 };
               });
 
-              const sessionDateMs = new Date(log.date).getTime();
-              const daysAgo = Number.isNaN(sessionDateMs)
-                ? 0
-                : Math.max(0, Math.round((nowMs - sessionDateMs) / (1000 * 3600 * 24)));
+              const parsedDate = log.date ? parseLocalDate(String(log.date).slice(0, 10)) : null;
+              const sessionDateMs = parsedDate ? parsedDate.getTime() : NaN;
 
-              sessions.push({
+              rawSessions.push({
                 date: log.date,
-                daysAgo,
+                sessionDateMs,
                 topWeight: maxW,
                 totalVolume: totalVol,
                 totalReps: totalR,
@@ -138,12 +168,32 @@ export function ExerciseDeepDiveModal({
           }
         }
       }
-      return sessions;
+      return rawSessions;
     });
-  }, [gymLogs, targetKey, visible]);
 
-  // Inferred Biomechanics & Equipment
+    // Compute relative daysAgo outside hot cache so cached history stays accurate across calendar days
+    const nowMidnight = new Date();
+    nowMidnight.setHours(0, 0, 0, 0);
+    const nowMs = nowMidnight.getTime();
+    return cached.map((s) => ({
+      date: s.date,
+      daysAgo: Number.isNaN(s.sessionDateMs)
+        ? 0
+        : Math.max(0, Math.round((nowMs - s.sessionDateMs) / 86400000)),
+      topWeight: s.topWeight,
+      totalVolume: s.totalVolume,
+      totalReps: s.totalReps,
+      oneRM: s.oneRM,
+      bestSet: s.bestSet,
+      sets: s.sets,
+    }));
+  }, [gymLogs, targetKey, visible, sheetSettled]);
+
   const inferredMeta = useMemo(() => {
+    const initialWeight =
+      Number(exercise?.topWeight) ||
+      Number(exercise?.lastSessionSets?.[0]?.weight) ||
+      0;
     return inferExerciseMeta(
       {
         name: exerciseName || '',
@@ -151,14 +201,13 @@ export function ExerciseDeepDiveModal({
         isCompound: exercise?.isCompound,
         targetSets: exercise?.targetSets || 3,
       },
-      historySessions[historySessions.length - 1]?.topWeight || 0
+      initialWeight
     );
-  }, [exerciseName, exercise, historySessions]);
+  }, [exerciseName, exercise]);
 
-  // Progressive Overload Suggestion (use passed or calculate dynamically)
   const overloadSuggestion = useMemo(() => {
     if (passedSuggestion) return passedSuggestion;
-    if (!exerciseName) return null;
+    if (!visible || !sheetSettled || !exerciseName) return null;
 
     const lastW = historySessions[historySessions.length - 1]?.topWeight || 0;
     return getOverloadSuggestion(
@@ -176,9 +225,8 @@ export function ExerciseDeepDiveModal({
       String(exercise?.targetReps || '8-12'),
       gymLogs || []
     );
-  }, [passedSuggestion, exerciseName, exercise, inferredMeta, historySessions, gymLogs]);
+  }, [passedSuggestion, visible, sheetSettled, exerciseName, exercise, inferredMeta, historySessions, gymLogs]);
 
-  // All-Time Lifetime PR Metrics
   const lifetimePRs = useMemo(() => {
     let heaviestWeight = 0;
     let bestSet = { weight: 0, reps: 0, e1RM: 0 };
@@ -202,51 +250,19 @@ export function ExerciseDeepDiveModal({
     };
   }, [historySessions]);
 
-  // Scientific 1RM Table (for Compounds)
-  const compoundRepMaxTable = useMemo(() => {
-    return calculateRepMaxTable(lifetimePRs.best1RM || 0);
-  }, [lifetimePRs.best1RM]);
-
-  // Hypertrophy Load Target Table (for Isolations)
-  const isolationRepTargets = useMemo(() => {
-    const workingWeight = historySessions[historySessions.length - 1]?.topWeight || lifetimePRs.heaviestWeight || 20;
-    const step = inferredMeta.incrementKg || 2.5;
-
-    return [
-      {
-        zone: 'Strength / Heavy Hypertrophy',
-        reps: '8–10 Reps',
-        load: Math.round((workingWeight + step) * 10) / 10,
-        desc: 'Overload stimulus (3-4 RIR buffer)',
-      },
-      {
-        zone: 'Optimal Hypertrophy',
-        reps: '10–12 Reps',
-        load: workingWeight,
-        desc: 'Current working anchor load',
-      },
-      {
-        zone: 'Metabolic Stress / Burnout',
-        reps: '15–20 Reps',
-        load: Math.max(workingWeight < 10 ? 1 : step, Math.round((workingWeight - step) * 10) / 10),
-        desc: 'High-rep sarcoplasmic volume',
-      },
-    ];
-  }, [historySessions, lifetimePRs, inferredMeta]);
-
-  // Last 5 Sessions (Newest first)
   const recent5Sessions = useMemo(() => {
     return historySessions.slice(-5).reverse();
   }, [historySessions]);
 
-  // Chart Coordinates Builder
-  const { width: windowWidth } = useWindowDimensions();
-  const chartWidth = Math.max(260, windowWidth - 72);
+  const { clampChartWidth } = useResponsiveMetrics();
+  const unitIsLbs = useWeightUnit();
+  const uLabel = unitLabel(unitIsLbs);
+  const chartWidth = clampChartWidth(72);
   const chartHeight = 135;
 
   const chartData = useMemo(() => {
     if (historySessions.length < 2) return null;
-    const pts = historySessions.slice(-8); // Up to last 8 sessions
+    const pts = historySessions.slice(-8);
     const values = pts.map((p) =>
       chartTab === 'weight' ? p.topWeight : chartTab === 'volume' ? p.totalVolume : p.oneRM
     );
@@ -276,10 +292,9 @@ export function ExerciseDeepDiveModal({
     return { coordinates, pathD: d, minVal, maxVal };
   }, [historySessions, chartTab, chartWidth]);
 
-  // Mission Card Unlock Progress
   const missionProgress = useMemo(() => {
-    if (!overloadSuggestion) {
-      return { pct: 0, text: 'Establish baseline today' };
+    if (!overloadSuggestion || historySessions.length === 0) {
+      return { pct: 0, text: 'Log your first session to unlock target tracking' };
     }
     const totalTarget = overloadSuggestion.totalTargetReps || 36;
     const lastSession = historySessions[historySessions.length - 1];
@@ -295,496 +310,458 @@ export function ExerciseDeepDiveModal({
     };
   }, [overloadSuggestion, historySessions]);
 
-  if (!visible || !exerciseName) return null;
+  if (!activeName) return null;
 
-  const targetMuscle = resolveExerciseTargetMuscle(exerciseName, exercise?.muscle).targetMuscle || 'Muscles';
+  const targetMuscle = resolveExerciseTargetMuscle(activeName, activeExercise?.muscle).targetMuscle || 'Muscles';
 
   return (
-    <Modal
+    <BottomSheet
       visible={visible}
-      transparent
-      animationType="slide"
-      statusBarTranslucent
-      onRequestClose={onClose}
+      onClose={onClose}
+      fullHeight={true}
+      noPadding={true}
+      avoidKeyboard={false}
+      sheetBackgroundColor={isDark ? '#0B0C10' : '#F8F8FA'}
     >
-      <View style={styles.overlay}>
-        <TouchableOpacity
-          style={StyleSheet.absoluteFill}
-          onPress={onClose}
-          activeOpacity={1}
-        />
-        <View
-          style={[
-            styles.modalCard,
-            {
-              backgroundColor: isDark ? '#1C1C1E' : colors.surface,
-              paddingBottom: Math.max(insets.bottom + 16, 28),
-            },
-          ]}
+      <View
+        style={[
+          styles.modalCard,
+          { paddingBottom: Math.max(insets.bottom + SPACE.lg, SPACE.xl + SPACE.xs) },
+        ]}
+      >
+        <View style={styles.modalHeader}>
+          <View style={{ flex: 1, paddingRight: SPACE.sm }}>
+            <Text style={styles.modalTitle} numberOfLines={1}>
+              {activeName}
+            </Text>
+            <NumericText style={styles.modalSubtitle} numberOfLines={1}>
+              {targetMuscle} • {inferredMeta.equipment} {inferredMeta.isCompound ? 'Compound' : 'Isolation'} • Target: {activeExercise?.targetSets || 3} × {activeExercise?.targetReps || '8-12'}
+            </NumericText>
+          </View>
+          <TactileButton
+            variant="custom"
+            onPress={onClose}
+            style={styles.closeBtn}
+            hitSlop={TOUCH.hitSlop}
+            accessibilityLabel="Close exercise deep dive"
+          >
+            <X size={16} strokeWidth={ICON.strokeWidth} color={tokens.text.secondary} />
+          </TactileButton>
+        </View>
+
+        <View style={styles.topSegmentedControl}>
+          <TactileButton
+            variant="custom"
+            haptic="selection"
+            onPress={() => setActiveTab('guide')}
+            style={[styles.topSegmentBtn, activeTab === 'guide' && styles.topSegmentBtnActive]}
+          >
+            <PlayCircle
+              size={ICON.sm - 1}
+              strokeWidth={ICON.strokeWidth}
+              color={activeTab === 'guide' ? tokens.accent.onPrimary : tokens.text.secondary}
+            />
+            <Text style={[styles.topSegmentText, activeTab === 'guide' && styles.topSegmentTextActive]}>
+              Form & Guide
+            </Text>
+          </TactileButton>
+
+          <TactileButton
+            variant="custom"
+            haptic="selection"
+            onPress={() => setActiveTab('analytics')}
+            style={[styles.topSegmentBtn, activeTab === 'analytics' && styles.topSegmentBtnActive]}
+          >
+            <Activity
+              size={ICON.sm - 1}
+              strokeWidth={ICON.strokeWidth}
+              color={activeTab === 'analytics' ? tokens.accent.onPrimary : tokens.text.secondary}
+            />
+            <NumericText style={[styles.topSegmentText, activeTab === 'analytics' && styles.topSegmentTextActive]}>
+              Analytics & PRs{historySessions.length > 0 ? ` (${historySessions.length})` : ''}
+            </NumericText>
+          </TactileButton>
+        </View>
+
+        <ScrollView
+          style={{ flex: 1 }}
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
+          contentContainerStyle={styles.scrollContent}
         >
-          {/* Sheet Drag Handle */}
-          <View style={styles.sheetHandleWrap}>
-            <View style={styles.sheetHandle} />
-          </View>
-
-          {/* Header */}
-          <View style={styles.modalHeader}>
-            <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={[styles.modalTitle, { color: colors.textPrimary }]} numberOfLines={1}>
-                {exerciseName}
-              </Text>
-              <Text style={styles.modalSubtitle} numberOfLines={1}>
-                {targetMuscle} • {inferredMeta.equipment} {inferredMeta.isCompound ? 'Compound' : 'Isolation'} • Target: {exercise?.targetSets || 3} × {exercise?.targetReps || '8-12'}
-              </Text>
+          {!isContentReady ? (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: SPACE.xxl * 2 }}>
+              <ActivityIndicator size="small" color={tokens.accent.primary} />
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: isDark ? '#2C2C2E' : '#E5E5EA', alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="close" size={18} color={colors.textSecondary} />
+          ) : activeTab === 'guide' ? (
+            <>
+              <ExerciseAnimationCard
+                exerciseName={exerciseName}
+                showInstructions={true}
+                showBadges={false}
+                isEmbedded={true}
+                animationHeight={220}
+                style={{ borderRadius: RADIUS.card }}
+              />
+
+              <View style={styles.metaStripCard}>
+                <View style={styles.metaStripItem}>
+                  <Text style={styles.metaStripLabel}>TARGET</Text>
+                  <NumericText style={styles.metaStripValue}>
+                    {exercise?.targetSets || 3} × {exercise?.targetReps || '8-12'}
+                  </NumericText>
+                </View>
+                <View style={styles.metaStripDivider} />
+                <View style={styles.metaStripItem}>
+                  <Text style={styles.metaStripLabel}>REST</Text>
+                  <NumericText style={styles.metaStripValue}>
+                    {exercise?.restTimeSecs || 90}s
+                  </NumericText>
+                </View>
+                <View style={styles.metaStripDivider} />
+                <View style={styles.metaStripItem}>
+                  <Text style={styles.metaStripLabel}>EQUIPMENT</Text>
+                  <Text style={styles.metaStripValue}>
+                    {inferredMeta.equipment}
+                  </Text>
+                </View>
+                <View style={styles.metaStripDivider} />
+                <View style={styles.metaStripItem}>
+                  <Text style={styles.metaStripLabel}>FOCUS</Text>
+                  <Text style={[styles.metaStripValue, { color: resolveMuscleColor(targetMuscle) }]}>
+                    {targetMuscle}
+                  </Text>
+                </View>
               </View>
-            </TouchableOpacity>
-          </View>
 
-          {/* ── Top Segmented Mode Switcher (Apple HIG Capsule) ── */}
-          <View style={[styles.topSegmentedControl, { backgroundColor: isDark ? '#2C2C2E' : '#E5E5EA' }]}>
-            <TouchableOpacity
-              onPress={() => {
-                hapticSelection();
-                setActiveTab('guide');
-              }}
-              style={[styles.topSegmentBtn, activeTab === 'guide' && styles.topSegmentBtnActive]}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name="play-circle-outline"
-                size={15}
-                color={activeTab === 'guide' ? (isDark ? '#FFFFFF' : '#000000') : '#8E8E93'}
-              />
-              <Text style={[styles.topSegmentText, activeTab === 'guide' && styles.topSegmentTextActive]}>
-                Form & Guide
-              </Text>
-            </TouchableOpacity>
+              {overloadSuggestion && historySessions.length > 0 && (
+                <View style={styles.missionCard}>
+                  <View style={styles.missionTopRow}>
+                    <View style={styles.badgePill}>
+                      {overloadSuggestion.state === 'WEIGHT_UNLOCK' ? (
+                        <TrendingUp size={ICON.xs} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
+                      ) : overloadSuggestion.state === 'PLATEAU_BREAK' ? (
+                        <Zap size={ICON.xs} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
+                      ) : overloadSuggestion.state === 'REACTIVE_DELOAD' ? (
+                        <RefreshCw size={ICON.xs} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
+                      ) : (
+                        <Dumbbell size={ICON.xs} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
+                      )}
+                      <Text style={styles.badgePillText}>
+                        {overloadSuggestion.badgeLabel || 'DOUBLE PROGRESSION'}
+                      </Text>
+                    </View>
 
-            <TouchableOpacity
-              onPress={() => {
-                hapticSelection();
-                setActiveTab('analytics');
-              }}
-              style={[styles.topSegmentBtn, activeTab === 'analytics' && styles.topSegmentBtnActive]}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name="analytics-outline"
-                size={15}
-                color={activeTab === 'analytics' ? (isDark ? '#FFFFFF' : '#000000') : '#8E8E93'}
-              />
-              <Text style={[styles.topSegmentText, activeTab === 'analytics' && styles.topSegmentTextActive]}>
-                Analytics & PRs{historySessions.length > 0 ? ` (${historySessions.length})` : ''}
-              </Text>
-            </TouchableOpacity>
-          </View>
+                    <NumericText style={styles.missionTierLabel}>
+                      Δ {kgToDisplay(inferredMeta.incrementKg, unitIsLbs)} {uLabel} steps
+                    </NumericText>
+                  </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-            {activeTab === 'guide' ? (
-              /* ══════════════════════════════════════════════════════════════════
-                 TAB 1: FORM DEMO & BIOMECHANICAL EXECUTION GUIDE
-                 ══════════════════════════════════════════════════════════════════ */
+                  <Text style={styles.missionHeadline}>
+                    {overloadSuggestion.headline}
+                  </Text>
+
+                  <Text style={styles.missionSubheadline}>
+                    {overloadSuggestion.subheadline}
+                  </Text>
+
+                  <View style={styles.progressBarWrapper}>
+                    <AnimatedProgressBar
+                      progress={missionProgress.pct / 100}
+                      height={6}
+                      borderRadius={4}
+                      durationMs={480}
+                      replayKey={visible ? exerciseName || '1' : '0'}
+                      color={tokens.accent.primary}
+                      trackColor={tokens.bg.elevated}
+                      style={{ flex: 1 }}
+                    />
+                    <NumericText style={styles.progressPercentText}>{missionProgress.text}</NumericText>
+                  </View>
+                </View>
+              )}
+
+              {historySessions.length > 0 ? (
+                <TactileButton
+                  variant="custom"
+                  haptic="selection"
+                  style={styles.quickPrBanner}
+                  onPress={() => setActiveTab('analytics')}
+                >
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs + 2 }}>
+                      <Trophy size={ICON.xs + 1} strokeWidth={ICON.strokeWidth} color={tokens.status.gold} />
+                      <NumericText style={styles.quickPrTitle}>
+                        Best: {lifetimePRs.bestSet.weight > 0 ? `${kgToDisplay(lifetimePRs.bestSet.weight, unitIsLbs)}${uLabel} × ${lifetimePRs.bestSet.reps}` : `${kgToDisplay(lifetimePRs.heaviestWeight, unitIsLbs)} ${uLabel}`} · {historySessions.length} sessions logged
+                      </NumericText>
+                    </View>
+                    <Text style={styles.quickPrSubtitle}>
+                      Tap to view trajectory curves, 1RM charts & history
+                    </Text>
+                  </View>
+                  <ChevronRight size={ICON.sm} strokeWidth={ICON.strokeWidth} color={tokens.text.secondary} />
+                </TactileButton>
+              ) : (
+                <View style={styles.quickPrBanner}>
+                  <Sparkles size={ICON.sm} strokeWidth={ICON.strokeWidth} color={tokens.text.secondary} style={{ marginRight: SPACE.xs + 2 }} />
+                  <Text style={[styles.quickPrSubtitle, { flex: 1 }]}>
+                    Log your first set of this exercise to generate overload curves & PR tracking.
+                  </Text>
+                </View>
+              )}
+            </>
+          ) : !sheetSettled ? (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: SPACE.xxl * 2 }}>
+              <ActivityIndicator size="small" color={tokens.accent.primary} />
+            </View>
+          ) : (
+            historySessions.length > 0 ? (
               <>
-                {/* 1. Looping Form Animation GIF with Step-by-Step Execution Cues */}
-                <ExerciseAnimationCard
-                  exerciseName={exerciseName}
-                  showInstructions={true}
-                  showBadges={false}
-                  isEmbedded={true}
-                  animationHeight={220}
-                  style={{ borderRadius: 16 }}
-                />
+                <Text style={styles.sectionHeading}>Performance Summary</Text>
+                <View style={styles.prGrid}>
+                  <View style={styles.prGridPill}>
+                    <Text style={styles.prGridLabel}>HEAVIEST</Text>
+                    <NumericText style={styles.prGridValue}>
+                      {lifetimePRs.heaviestWeight > 0 ? `${kgToDisplay(lifetimePRs.heaviestWeight, unitIsLbs)} ${uLabel}` : 'BW'}
+                    </NumericText>
+                    <Text style={styles.prGridSub}>Top load moved</Text>
+                  </View>
 
-                {/* 2. Biomechanical Spec Strip */}
-                <View style={[styles.metaStripCard, { backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7' }]}>
-                  <View style={styles.metaStripItem}>
-                    <Text style={styles.metaStripLabel}>TARGET</Text>
-                    <Text style={[styles.metaStripValue, { color: colors.textPrimary }]}>
-                      {exercise?.targetSets || 3} × {exercise?.targetReps || '8-12'}
-                    </Text>
+                  <View style={styles.prGridPill}>
+                    <Text style={styles.prGridLabel}>BEST SET</Text>
+                    <NumericText style={styles.prGridValue} numberOfLines={1}>
+                      {lifetimePRs.bestSet.weight > 0
+                        ? `${kgToDisplay(lifetimePRs.bestSet.weight, unitIsLbs)}${uLabel} × ${lifetimePRs.bestSet.reps}`
+                        : '—'}
+                    </NumericText>
+                    <Text style={styles.prGridSub}>Peak working set</Text>
                   </View>
-                  <View style={styles.metaStripDivider} />
-                  <View style={styles.metaStripItem}>
-                    <Text style={styles.metaStripLabel}>REST</Text>
-                    <Text style={[styles.metaStripValue, { color: colors.textPrimary }]}>
-                      {exercise?.restTimeSecs || 90}s
-                    </Text>
+
+                  <View style={styles.prGridPill}>
+                    <Text style={styles.prGridLabel}>MAX VOLUME</Text>
+                    <NumericText style={styles.prGridValue}>
+                      {lifetimePRs.maxSessionVolume > 0 ? `${kgToDisplay(lifetimePRs.maxSessionVolume, unitIsLbs, 0).toLocaleString()} ${uLabel}` : '—'}
+                    </NumericText>
+                    <Text style={styles.prGridSub}>Single session tonnage</Text>
                   </View>
-                  <View style={styles.metaStripDivider} />
-                  <View style={styles.metaStripItem}>
-                    <Text style={styles.metaStripLabel}>EQUIPMENT</Text>
-                    <Text style={[styles.metaStripValue, { color: colors.textPrimary }]}>
-                      {inferredMeta.equipment}
-                    </Text>
-                  </View>
-                  <View style={styles.metaStripDivider} />
-                  <View style={styles.metaStripItem}>
-                    <Text style={styles.metaStripLabel}>FOCUS</Text>
-                    <Text style={[styles.metaStripValue, { color: resolveMuscleColor(targetMuscle) }]}>
-                      {targetMuscle}
-                    </Text>
+
+                  <View style={styles.prGridPill}>
+                    <Text style={styles.prGridLabel}>EST. 1RM</Text>
+                    <NumericText style={styles.prGridValue}>
+                      {lifetimePRs.best1RM > 0 ? `${kgToDisplay(lifetimePRs.best1RM, unitIsLbs)} ${uLabel}` : '—'}
+                    </NumericText>
+                    <Text style={styles.prGridSub}>Power index</Text>
                   </View>
                 </View>
 
-                {/* 3. Progressive Overload Mission Card */}
-                {overloadSuggestion && (
-                  <View style={styles.missionCard}>
-                    <View style={styles.missionTopRow}>
-                      <View style={styles.badgePill}>
-                        <Ionicons
-                          name={
-                            overloadSuggestion.state === 'WEIGHT_UNLOCK'
-                              ? 'trending-up'
-                              : overloadSuggestion.state === 'PLATEAU_BREAK'
-                              ? 'flash'
-                              : overloadSuggestion.state === 'REACTIVE_DELOAD'
-                              ? 'refresh'
-                              : 'barbell-outline'
-                          }
-                          size={13}
-                          color="#FFFFFF"
+                <View style={styles.chartHeaderRow}>
+                  <Text style={[styles.sectionHeading, { marginBottom: 0 }]}>
+                    Performance Trajectory
+                  </Text>
+
+                  <View style={styles.chartTabContainer}>
+                    <TactileButton
+                      variant="custom"
+                      haptic="selection"
+                      onPress={() => setChartTab('weight')}
+                      style={[styles.chartTabBtn, chartTab === 'weight' && styles.chartTabBtnActive]}
+                    >
+                      <Text style={[styles.chartTabText, chartTab === 'weight' && styles.chartTabTextActive]}>Load</Text>
+                    </TactileButton>
+
+                    <TactileButton
+                      variant="custom"
+                      haptic="selection"
+                      onPress={() => setChartTab('volume')}
+                      style={[styles.chartTabBtn, chartTab === 'volume' && styles.chartTabBtnActive]}
+                    >
+                      <Text style={[styles.chartTabText, chartTab === 'volume' && styles.chartTabTextActive]}>Volume</Text>
+                    </TactileButton>
+
+                    <TactileButton
+                      variant="custom"
+                      haptic="selection"
+                      onPress={() => setChartTab('1rm')}
+                      style={[styles.chartTabBtn, chartTab === '1rm' && styles.chartTabBtnActive]}
+                    >
+                      <Text style={[styles.chartTabText, chartTab === '1rm' && styles.chartTabTextActive]}>1RM</Text>
+                    </TactileButton>
+                  </View>
+                </View>
+
+                {chartData ? (
+                  <View style={styles.chartCard}>
+                    <Svg width={chartWidth} height={chartHeight}>
+                      <Line x1={20} y1={22} x2={chartWidth - 20} y2={22} stroke={tokens.charts.gridLine} strokeDasharray="4 4" />
+                      <Line x1={20} y1={chartHeight / 2} x2={chartWidth - 20} y2={chartHeight / 2} stroke={tokens.charts.gridLine} strokeDasharray="4 4" />
+                      <Path
+                        d={chartData.pathD}
+                        fill="none"
+                        stroke={tokens.charts.primarySeries}
+                        strokeWidth={2.5}
+                      />
+                      {chartData.coordinates.map((pt, i) => (
+                        <Circle
+                          key={i}
+                          cx={pt.x}
+                          cy={pt.y}
+                          r={4}
+                          fill={tokens.charts.primarySeries}
                         />
-                        <Text style={styles.badgePillText}>
-                          {overloadSuggestion.badgeLabel || 'DOUBLE PROGRESSION'}
-                        </Text>
-                      </View>
-
-                      <Text style={styles.missionTierLabel}>
-                        Δ {inferredMeta.incrementKg} kg steps
-                      </Text>
-                    </View>
-
-                    <Text style={styles.missionHeadline}>
-                      {overloadSuggestion.headline}
-                    </Text>
-
-                    <Text style={styles.missionSubheadline}>
-                      {overloadSuggestion.subheadline}
-                    </Text>
-
-                    {/* Progress Bar toward next promotion */}
-                    <View style={styles.progressBarWrapper}>
-                      <View style={styles.progressBarTrack}>
-                        <View
-                          style={[
-                            styles.progressBarFill,
-                            {
-                              width: `${missionProgress.pct}%`,
-                              backgroundColor: '#FFFFFF',
-                            },
-                          ]}
-                        />
-                      </View>
-                      <Text style={styles.progressPercentText}>{missionProgress.text}</Text>
+                      ))}
+                    </Svg>
+                    <View style={styles.chartXLabels}>
+                      {chartData.coordinates.map((pt, i) => (
+                        <NumericText key={i} style={styles.chartDateText}>{pt.date}</NumericText>
+                      ))}
                     </View>
                   </View>
-                )}
-
-                {/* 4. Quick PR Snapshot Banner */}
-                {historySessions.length > 0 ? (
-                  <TouchableOpacity
-                    style={[styles.quickPrBanner, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F2F2F7' }]}
-                    onPress={() => {
-                      hapticSelection();
-                      setActiveTab('analytics');
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <Text style={styles.quickPrTitle}>
-                        🏆 Best: {lifetimePRs.bestSet.weight > 0 ? `${lifetimePRs.bestSet.weight}kg × ${lifetimePRs.bestSet.reps}` : `${lifetimePRs.heaviestWeight} kg`} · {historySessions.length} sessions logged
-                      </Text>
-                      <Text style={styles.quickPrSubtitle}>
-                        Tap to view trajectory curves, 1RM charts & history
-                      </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color="#8E8E93" />
-                  </TouchableOpacity>
                 ) : (
-                  <View style={[styles.quickPrBanner, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F2F2F7' }]}>
-                    <Ionicons name="sparkles-outline" size={16} color="#8E8E93" style={{ marginRight: 6 }} />
-                    <Text style={[styles.quickPrSubtitle, { flex: 1 }]}>
-                      Log your first set of this exercise to generate overload curves & PR tracking.
-                    </Text>
+                  <View style={styles.baselineBenchmarkBox}>
+                    <Flag size={ICON.md} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.baselineTitle}>Baseline Established</Text>
+                      <NumericText style={styles.baselineDesc}>
+                        First session benchmark: {kgToDisplay(historySessions[0].topWeight, unitIsLbs)} {uLabel} • Total Volume: {kgToDisplay(historySessions[0].totalVolume, unitIsLbs, 0)} {uLabel} • Est 1RM: {kgToDisplay(historySessions[0].oneRM, unitIsLbs)} {uLabel}.
+                      </NumericText>
+                    </View>
                   </View>
                 )}
+
+                <Text style={styles.sectionHeading}>Set-by-Set Historical Timeline</Text>
+                <View style={styles.timelineList}>
+                  {recent5Sessions.map((session, sIdx) => {
+                    const olderSession = recent5Sessions[sIdx + 1];
+                    let volDeltaPct: number | null = null;
+                    if (olderSession && olderSession.totalVolume > 0) {
+                      volDeltaPct = Math.round(
+                        ((session.totalVolume - olderSession.totalVolume) / olderSession.totalVolume) * 100
+                      );
+                    }
+
+                    const relativeDate = session.daysAgo === 0 ? 'Today' : `${session.daysAgo}d ago`;
+
+                    return (
+                      <View key={sIdx} style={styles.timelineCard}>
+                        <View style={styles.timelineTopRow}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs + 2 }}>
+                            <NumericText style={styles.timelineDateText}>{session.date}</NumericText>
+                            <NumericText style={styles.timelineRelativeDate}>({relativeDate})</NumericText>
+                          </View>
+
+                          <NumericText style={styles.timelineVolumeText}>
+                            Vol: {kgToDisplay(session.totalVolume, unitIsLbs, 0).toLocaleString()} {uLabel} • {session.totalReps} reps
+                          </NumericText>
+                        </View>
+
+                        <View style={styles.setChipsContainer}>
+                          {session.sets.map((s, idx) => (
+                            <View key={idx} style={styles.setChip}>
+                              <NumericText style={styles.setChipText}>
+                                Set {s.setNumber}: <NumericText style={styles.setChipHighlight}>{s.weight > 0 ? `${kgToDisplay(s.weight, unitIsLbs)}${uLabel}` : 'BW'} × {s.reps}</NumericText>
+                              </NumericText>
+                            </View>
+                          ))}
+                        </View>
+
+                        {volDeltaPct !== null && (
+                          <View style={styles.volDeltaRow}>
+                            {volDeltaPct >= 0 ? (
+                              <ArrowUpCircle size={ICON.xs} strokeWidth={ICON.strokeWidth} color={tokens.status.success} />
+                            ) : (
+                              <ArrowDownCircle size={ICON.xs} strokeWidth={ICON.strokeWidth} color={tokens.status.danger} />
+                            )}
+                            <NumericText
+                              style={[
+                                styles.volDeltaText,
+                                { color: volDeltaPct >= 0 ? tokens.status.success : tokens.status.danger },
+                              ]}
+                            >
+                              {volDeltaPct >= 0 ? `+${volDeltaPct}% Volume Increase` : `${volDeltaPct}% Volume Drop`} vs previous session
+                            </NumericText>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
               </>
             ) : (
-              /* ══════════════════════════════════════════════════════════════════
-                 TAB 2: DEEP PERFORMANCE METRICS, TRAJECTORY & HISTORY
-                 ══════════════════════════════════════════════════════════════════ */
-              historySessions.length > 0 ? (
-                <>
-                  {/* CARD 1: PERFORMANCE SUMMARY METRICS */}
-                  <Text style={[styles.sectionHeading, { color: colors.textPrimary }]}>Performance Summary</Text>
-                  <View style={styles.prGrid}>
-                    <View style={[styles.prGridPill, { backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7' }]}>
-                      <Text style={styles.prGridLabel}>HEAVIEST</Text>
-                      <Text style={[styles.prGridValue, { color: '#FFFFFF' }]}>
-                        {lifetimePRs.heaviestWeight > 0 ? `${lifetimePRs.heaviestWeight} kg` : 'BW'}
-                      </Text>
-                      <Text style={styles.prGridSub}>Top load moved</Text>
-                    </View>
-
-                    <View style={[styles.prGridPill, { backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7' }]}>
-                      <Text style={styles.prGridLabel}>BEST SET</Text>
-                      <Text style={[styles.prGridValue, { color: '#FFFFFF' }]} numberOfLines={1}>
-                        {lifetimePRs.bestSet.weight > 0
-                          ? `${lifetimePRs.bestSet.weight}kg × ${lifetimePRs.bestSet.reps}`
-                          : '—'}
-                      </Text>
-                      <Text style={styles.prGridSub}>Peak working set</Text>
-                    </View>
-
-                    <View style={[styles.prGridPill, { backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7' }]}>
-                      <Text style={styles.prGridLabel}>MAX VOLUME</Text>
-                      <Text style={[styles.prGridValue, { color: '#FFFFFF' }]}>
-                        {lifetimePRs.maxSessionVolume > 0 ? `${lifetimePRs.maxSessionVolume.toLocaleString()} kg` : '—'}
-                      </Text>
-                      <Text style={styles.prGridSub}>Single session tonnage</Text>
-                    </View>
-
-                    <View style={[styles.prGridPill, { backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7' }]}>
-                      <Text style={styles.prGridLabel}>EST. 1RM</Text>
-                      <Text style={[styles.prGridValue, { color: '#FFFFFF' }]}>
-                        {lifetimePRs.best1RM > 0 ? `${lifetimePRs.best1RM} kg` : '—'}
-                      </Text>
-                      <Text style={styles.prGridSub}>Power index</Text>
-                    </View>
-                  </View>
-
-                  {/* CARD 2: PERFORMANCE TRAJECTORY CHART */}
-                  <View style={styles.chartHeaderRow}>
-                    <Text style={[styles.sectionHeading, { color: colors.textPrimary, marginBottom: 0 }]}>
-                      Performance Trajectory
-                    </Text>
-
-                    <View style={[styles.chartTabContainer, { backgroundColor: isDark ? '#2C2C2E' : '#E5E5EA' }]}>
-                      <TouchableOpacity
-                        onPress={() => { hapticSelection(); setChartTab('weight'); }}
-                        style={[styles.chartTabBtn, chartTab === 'weight' && styles.chartTabBtnActive]}
-                      >
-                        <Text style={[styles.chartTabText, chartTab === 'weight' && styles.chartTabTextActive]}>Load</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        onPress={() => { hapticSelection(); setChartTab('volume'); }}
-                        style={[styles.chartTabBtn, chartTab === 'volume' && styles.chartTabBtnActive]}
-                      >
-                        <Text style={[styles.chartTabText, chartTab === 'volume' && styles.chartTabTextActive]}>Volume</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        onPress={() => { hapticSelection(); setChartTab('1rm'); }}
-                        style={[styles.chartTabBtn, chartTab === '1rm' && styles.chartTabBtnActive]}
-                      >
-                        <Text style={[styles.chartTabText, chartTab === '1rm' && styles.chartTabTextActive]}>1RM</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  {chartData ? (
-                    <View style={[styles.chartCard, { backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7' }]}>
-                      <Svg width={chartWidth} height={chartHeight}>
-                        <Line x1={20} y1={22} x2={chartWidth - 20} y2={22} stroke="rgba(255,255,255,0.06)" strokeDasharray="4 4" />
-                        <Line x1={20} y1={chartHeight / 2} x2={chartWidth - 20} y2={chartHeight / 2} stroke="rgba(255,255,255,0.06)" strokeDasharray="4 4" />
-                        <Path
-                          d={chartData.pathD}
-                          fill="none"
-                          stroke="#FFFFFF"
-                          strokeWidth={2.5}
-                        />
-                        {chartData.coordinates.map((pt, i) => (
-                          <Circle
-                            key={i}
-                            cx={pt.x}
-                            cy={pt.y}
-                            r={4}
-                            fill="#FFFFFF"
-                          />
-                        ))}
-                      </Svg>
-                      <View style={styles.chartXLabels}>
-                        {chartData.coordinates.map((pt, i) => (
-                          <Text key={i} style={styles.chartDateText}>{pt.date}</Text>
-                        ))}
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={[styles.baselineBenchmarkBox, { backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7' }]}>
-                      <Ionicons name="flag-outline" size={20} color="#FFFFFF" />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.baselineTitle}>Baseline Established</Text>
-                        <Text style={styles.baselineDesc}>
-                          First session benchmark: {historySessions[0].topWeight} kg • Total Volume: {historySessions[0].totalVolume} kg • Est 1RM: {historySessions[0].oneRM} kg.
-                        </Text>
-                      </View>
-                    </View>
-                  )}
-
-                  {/* CARD 3: SET-BY-SET HISTORICAL TIMELINE */}
-                  <Text style={[styles.sectionHeading, { color: colors.textPrimary }]}>Set-by-Set Historical Timeline</Text>
-                  <View style={styles.timelineList}>
-                    {recent5Sessions.map((session, sIdx) => {
-                      const olderSession = recent5Sessions[sIdx + 1];
-                      let volDeltaPct: number | null = null;
-                      if (olderSession && olderSession.totalVolume > 0) {
-                        volDeltaPct = Math.round(
-                          ((session.totalVolume - olderSession.totalVolume) / olderSession.totalVolume) * 100
-                        );
-                      }
-
-                      const relativeDate = session.daysAgo === 0 ? 'Today' : `${session.daysAgo}d ago`;
-
-                      return (
-                        <View
-                          key={sIdx}
-                          style={[
-                            styles.timelineCard,
-                            {
-                              backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7',
-                            },
-                          ]}
-                        >
-                          <View style={styles.timelineTopRow}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                              <Text style={styles.timelineDateText}>{session.date}</Text>
-                              <Text style={styles.timelineRelativeDate}>({relativeDate})</Text>
-                            </View>
-
-                            <Text style={styles.timelineVolumeText}>
-                              Vol: {session.totalVolume.toLocaleString()} kg • {session.totalReps} reps
-                            </Text>
-                          </View>
-
-                          <View style={styles.setChipsContainer}>
-                            {session.sets.map((s, idx) => (
-                              <View
-                                key={idx}
-                                style={[
-                                  styles.setChip,
-                                  { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' },
-                                ]}
-                              >
-                                <Text style={styles.setChipText}>
-                                  Set {s.setNumber}: <Text style={{ color: '#FFFFFF', fontFamily: FONT_FAMILY.bold }}>{s.weight > 0 ? `${s.weight}kg` : 'BW'} × {s.reps}</Text>
-                                </Text>
-                              </View>
-                            ))}
-                          </View>
-
-                          {volDeltaPct !== null && (
-                            <View style={styles.volDeltaRow}>
-                              <Ionicons
-                                name={volDeltaPct >= 0 ? 'arrow-up-circle' : 'arrow-down-circle'}
-                                size={14}
-                                color={volDeltaPct >= 0 ? '#30D158' : '#FF453A'}
-                              />
-                              <Text
-                                style={[
-                                  styles.volDeltaText,
-                                  { color: volDeltaPct >= 0 ? '#30D158' : '#FF453A' },
-                                ]}
-                              >
-                                {volDeltaPct >= 0 ? `+${volDeltaPct}% Volume Increase` : `${volDeltaPct}% Volume Drop`} vs previous session
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                      );
-                    })}
-                  </View>
-                </>
-              ) : (
-                /* Elegant Empty State Card for Exercises With No History */
-                <View style={[styles.emptyStateCard, { backgroundColor: isDark ? '#2C2C2E' : '#F2F2F7' }]}>
-                  <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' }}>
-                    <Ionicons name="barbell-outline" size={26} color="#FFFFFF" />
-                  </View>
-                  <Text style={styles.emptyStateTitle}>First Workout Pending</Text>
-                  <Text style={styles.emptyStateDesc}>
-                    Log your first set of this exercise during a workout to unlock lifetime personal records, 1RM trajectory curves, and volume history.
-                  </Text>
-                  <View style={styles.emptyStateTargetBox}>
-                    <Text style={styles.emptyStateTargetText}>
-                      Recommended: {exercise?.targetSets || 3} sets × {exercise?.targetReps || '8-12'} reps (~2 RIR)
-                    </Text>
-                  </View>
+              <View style={styles.emptyStateCard}>
+                <View style={styles.emptyIconCircle}>
+                  <Dumbbell size={ICON.lg + 2} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
                 </View>
-              )
-            )}
-          </ScrollView>
-        </View>
+                <Text style={styles.emptyStateTitle}>First Workout Pending</Text>
+                <Text style={styles.emptyStateDesc}>
+                  Log your first set of this exercise during a workout to unlock lifetime personal records, 1RM trajectory curves, and volume history.
+                </Text>
+                <View style={styles.emptyStateTargetBox}>
+                  <NumericText style={styles.emptyStateTargetText}>
+                    Recommended: {exercise?.targetSets || 3} sets × {exercise?.targetReps || '8–12'} reps
+                  </NumericText>
+                </View>
+              </View>
+            )
+          )}
+        </ScrollView>
       </View>
-    </Modal>
+    </BottomSheet>
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    justifyContent: 'flex-end',
-  },
-  sheetHandleWrap: {
-    alignItems: 'center',
-    paddingBottom: 8,
-  },
-  sheetHandle: {
-    width: 38,
-    height: 4.5,
-    borderRadius: 2.5,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-  },
+const makeStyles = (tokens: ThemeTokens, isDark: boolean) => {
+  const cardBg = isDark ? '#14161D' : '#FFFFFF';
+  const innerBg = isDark ? '#1B1E28' : tokens.bg.elevated;
+
+  return StyleSheet.create({
   modalCard: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '90%',
-    minHeight: 460,
-    borderWidth: 1,
-    borderColor: '#2C2C2E',
-    paddingHorizontal: 16,
-    paddingTop: 10,
+    height: '100%',
+    maxHeight: '100%',
+    backgroundColor: 'transparent',
+    paddingHorizontal: SPACE.lg,
+    paddingTop: SPACE.sm + 2,
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingBottom: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    paddingBottom: SPACE.md + 2,
+    borderBottomWidth: tokens.border.hairlineWidth,
+    borderBottomColor: tokens.border.subtle,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: tokens.fontSize.lg,
     fontFamily: FONT_FAMILY.bold,
+    color: tokens.text.primary,
     letterSpacing: -0.3,
   },
   modalSubtitle: {
-    fontSize: 12,
-    fontFamily: FONT_FAMILY.body,
-    color: '#8E8E93',
+    fontSize: tokens.fontSize.xs,
+    fontFamily: FONT_FAMILY.regular,
+    color: tokens.text.secondary,
     marginTop: 2,
   },
   closeBtn: {
-    padding: 4,
+    width: 32,
+    height: 32,
+    borderRadius: RADIUS.full,
+    backgroundColor: cardBg,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scrollContent: {
-    paddingTop: 12,
-    paddingBottom: 40,
-    gap: 12,
+    paddingTop: SPACE.md,
+    paddingBottom: SPACE.xxl + SPACE.sm,
+    gap: SPACE.md,
   },
 
-  // 1. Mission Card
   missionCard: {
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 0,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    gap: 6,
+    padding: SPACE.md + 2,
+    borderRadius: RADIUS.card,
+    backgroundColor: cardBg,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
+    gap: SPACE.xs + 2,
   },
   missionTopRow: {
     flexDirection: 'row',
@@ -794,173 +771,182 @@ const styles = StyleSheet.create({
   badgePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    gap: SPACE.xs + 1,
+    paddingHorizontal: SPACE.sm + 1,
+    paddingVertical: SPACE.xs,
+    borderRadius: RADIUS.sm,
+    backgroundColor: tokens.accent.primaryDim,
   },
   badgePillText: {
     fontSize: 10.5,
     fontFamily: FONT_FAMILY.bold,
     letterSpacing: 0.3,
     textTransform: 'uppercase',
-    color: '#FFFFFF',
+    color: tokens.accent.primary,
   },
   missionTierLabel: {
-    fontSize: 11,
-    fontFamily: FONT_FAMILY.body,
-    color: '#8E8E93',
+    fontSize: tokens.fontSize.xs,
+    fontFamily: FONT_FAMILY.regular,
+    color: tokens.text.secondary,
   },
   missionHeadline: {
-    fontSize: 15,
+    fontSize: tokens.fontSize.base,
     fontFamily: FONT_FAMILY.bold,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
     letterSpacing: -0.2,
   },
   missionSubheadline: {
-    fontSize: 12,
-    fontFamily: FONT_FAMILY.body,
-    color: '#D1D1D6',
+    fontSize: tokens.fontSize.sm,
+    fontFamily: FONT_FAMILY.regular,
+    color: tokens.text.secondary,
     lineHeight: 16,
   },
   progressBarWrapper: {
-    marginTop: 4,
-    gap: 4,
+    marginTop: SPACE.xs,
+    gap: SPACE.xs,
   },
   progressBarTrack: {
     height: 6,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: RADIUS.xs,
+    backgroundColor: innerBg,
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
-    borderRadius: 3,
+    borderRadius: RADIUS.xs,
+    backgroundColor: tokens.accent.primary,
   },
   progressPercentText: {
-    fontSize: 11,
-    fontFamily: FONT_FAMILY.body,
-    color: '#8E8E93',
+    fontSize: tokens.fontSize.xs,
+    fontFamily: FONT_FAMILY.regular,
+    color: tokens.text.secondary,
     textAlign: 'right',
   },
 
-  // 2. PR Grid
   sectionHeading: {
-    fontSize: 14,
+    fontSize: tokens.fontSize.md,
     fontFamily: FONT_FAMILY.bold,
+    color: tokens.text.primary,
     letterSpacing: -0.2,
-    marginTop: 6,
-    marginBottom: 4,
+    marginTop: SPACE.xs + 2,
+    marginBottom: SPACE.xs,
   },
   prGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: SPACE.sm,
   },
   prGridPill: {
     flex: 1,
     minWidth: '46%',
-    padding: 12,
-    borderRadius: 12,
+    backgroundColor: cardBg,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
+    padding: SPACE.md,
+    borderRadius: RADIUS.inner,
     gap: 2,
-    borderWidth: 0,
   },
   prGridLabel: {
-    fontSize: 10,
+    fontSize: tokens.fontSize.xs,
     fontFamily: FONT_FAMILY.bold,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
     letterSpacing: 0.3,
   },
   prGridValue: {
-    fontSize: 17,
+    fontSize: tokens.fontSize.lg,
     fontFamily: FONT_FAMILY.bold,
+    color: tokens.text.primary,
     letterSpacing: -0.3,
   },
   prGridSub: {
-    fontSize: 10,
-    fontFamily: FONT_FAMILY.body,
-    color: '#636366',
+    fontSize: tokens.fontSize.xs,
+    fontFamily: FONT_FAMILY.regular,
+    color: tokens.text.muted,
   },
 
-  // 3. Chart
   chartHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 6,
-    marginBottom: 4,
+    marginTop: SPACE.xs + 2,
+    marginBottom: SPACE.xs,
   },
   chartTabContainer: {
     flexDirection: 'row',
-    borderRadius: 999,
+    borderRadius: RADIUS.inner,
+    backgroundColor: cardBg,
     padding: 3,
   },
   chartTabBtn: {
-    paddingHorizontal: 11,
-    paddingVertical: 5,
-    borderRadius: 999,
+    paddingHorizontal: SPACE.md,
+    paddingVertical: SPACE.xs + 1,
+    borderRadius: RADIUS.sm,
   },
   chartTabBtnActive: {
-    backgroundColor: '#636366',
+    backgroundColor: tokens.accent.primary,
   },
   chartTabText: {
-    fontSize: 11,
+    fontSize: tokens.fontSize.xs,
     fontFamily: FONT_FAMILY.medium,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
   chartTabTextActive: {
-    color: '#FFFFFF',
+    color: tokens.accent.onPrimary,
     fontFamily: FONT_FAMILY.bold,
   },
   chartCard: {
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    backgroundColor: cardBg,
+    borderRadius: RADIUS.card,
+    paddingVertical: SPACE.md,
+    paddingHorizontal: SPACE.sm,
     alignItems: 'center',
-    borderWidth: 0,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
   },
   chartXLabels: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '92%',
-    marginTop: 6,
+    marginTop: SPACE.xs + 2,
   },
   chartDateText: {
-    fontSize: 10,
-    fontFamily: FONT_FAMILY.body,
-    color: '#8E8E93',
+    fontSize: tokens.fontSize.xs,
+    fontFamily: FONT_FAMILY.regular,
+    color: tokens.text.secondary,
   },
   baselineBenchmarkBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 0,
+    gap: SPACE.sm + 2,
+    padding: SPACE.md + 2,
+    borderRadius: RADIUS.card,
+    backgroundColor: cardBg,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
   },
   baselineTitle: {
-    fontSize: 13,
+    fontSize: tokens.fontSize.md,
     fontFamily: FONT_FAMILY.bold,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
   },
   baselineDesc: {
-    fontSize: 12,
-    fontFamily: FONT_FAMILY.body,
-    color: '#8E8E93',
+    fontSize: tokens.fontSize.sm,
+    fontFamily: FONT_FAMILY.regular,
+    color: tokens.text.secondary,
     lineHeight: 16,
     marginTop: 2,
   },
 
-  // 4. Timeline
   timelineList: {
-    gap: 8,
+    gap: SPACE.sm,
   },
   timelineCard: {
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 0,
-    gap: 6,
+    backgroundColor: cardBg,
+    padding: SPACE.md,
+    borderRadius: RADIUS.card,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
+    gap: SPACE.xs + 2,
   },
   timelineTopRow: {
     flexDirection: 'row',
@@ -968,110 +954,90 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   timelineDateText: {
-    fontSize: 12,
+    fontSize: tokens.fontSize.sm,
     fontFamily: FONT_FAMILY.bold,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
   },
   timelineRelativeDate: {
-    fontSize: 11,
-    fontFamily: FONT_FAMILY.body,
-    color: '#8E8E93',
+    fontSize: tokens.fontSize.xs,
+    fontFamily: FONT_FAMILY.regular,
+    color: tokens.text.secondary,
   },
   timelineVolumeText: {
-    fontSize: 11,
-    fontFamily: FONT_FAMILY.body,
-    color: '#8E8E93',
+    fontSize: tokens.fontSize.xs,
+    fontFamily: FONT_FAMILY.regular,
+    color: tokens.text.secondary,
   },
   setChipsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: SPACE.xs + 2,
   },
   setChip: {
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACE.sm,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: RADIUS.sm - 2,
+    backgroundColor: innerBg,
   },
   setChipText: {
-    fontSize: 11,
-    fontFamily: FONT_FAMILY.body,
-    color: '#A1A1A6',
+    fontSize: tokens.fontSize.xs,
+    fontFamily: FONT_FAMILY.regular,
+    color: tokens.text.secondary,
+  },
+  setChipHighlight: {
+    color: tokens.text.primary,
+    fontFamily: FONT_FAMILY.bold,
   },
   volDeltaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACE.xs,
     marginTop: 2,
   },
   volDeltaText: {
-    fontSize: 11,
+    fontSize: tokens.fontSize.xs,
     fontFamily: FONT_FAMILY.medium,
   },
 
-  // 5. Table
-  tableCard: {
-    borderRadius: 12,
-    padding: 10,
-    gap: 8,
-  },
-  tableHeaderRow: {
-    flexDirection: 'row',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
-    paddingBottom: 6,
-  },
-  tableCol: {
-    flex: 1,
-    fontSize: 10,
-    fontFamily: FONT_FAMILY.bold,
-    color: '#8E8E93',
-    letterSpacing: 0.3,
-  },
-  tableRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 3,
-  },
-  // New UI Styles for Top Segment Switcher, Meta Strip, & Empty State
   topSegmentedControl: {
     flexDirection: 'row',
-    borderRadius: 999,
+    borderRadius: RADIUS.full,
+    backgroundColor: cardBg,
     padding: 3,
-    marginBottom: 8,
+    marginTop: SPACE.sm,
+    marginBottom: SPACE.sm,
   },
   topSegmentBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 7,
-    borderRadius: 999,
+    gap: SPACE.xs + 2,
+    paddingVertical: SPACE.sm,
+    borderRadius: RADIUS.full,
   },
   topSegmentBtnActive: {
-    backgroundColor: '#3A3A3C',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
-    elevation: 2,
+    backgroundColor: tokens.accent.primary,
   },
   topSegmentText: {
-    fontSize: 12.5,
+    fontSize: tokens.fontSize.sm,
     fontFamily: FONT_FAMILY.medium,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
   topSegmentTextActive: {
     fontFamily: FONT_FAMILY.bold,
-    color: '#FFFFFF',
+    color: tokens.accent.onPrimary,
   },
   metaStripCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    backgroundColor: cardBg,
+    borderRadius: RADIUS.card,
+    paddingVertical: SPACE.md,
+    paddingHorizontal: SPACE.sm,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
   },
   metaStripItem: {
     alignItems: 'center',
@@ -1080,70 +1046,85 @@ const styles = StyleSheet.create({
   metaStripLabel: {
     fontSize: 9.5,
     fontFamily: FONT_FAMILY.bold,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
     letterSpacing: 0.3,
     textTransform: 'uppercase',
   },
   metaStripValue: {
-    fontSize: 13,
+    fontSize: tokens.fontSize.sm,
     fontFamily: FONT_FAMILY.bold,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
   },
   metaStripDivider: {
-    width: StyleSheet.hairlineWidth,
+    width: tokens.border.hairlineWidth,
     height: 22,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: tokens.border.subtle,
   },
   quickPrBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 12,
-    borderRadius: 12,
+    backgroundColor: cardBg,
+    padding: SPACE.md,
+    borderRadius: RADIUS.card,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
   },
   quickPrTitle: {
-    fontSize: 13,
+    fontSize: tokens.fontSize.sm,
     fontFamily: FONT_FAMILY.bold,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
   },
   quickPrSubtitle: {
-    fontSize: 11.5,
-    fontFamily: FONT_FAMILY.body,
-    color: '#8E8E93',
+    fontSize: tokens.fontSize.xs,
+    fontFamily: FONT_FAMILY.regular,
+    color: tokens.text.secondary,
   },
   emptyStateCard: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 16,
-    paddingVertical: 32,
-    paddingHorizontal: 20,
-    gap: 10,
-    marginVertical: 12,
+    backgroundColor: cardBg,
+    borderRadius: RADIUS.card,
+    paddingVertical: SPACE.xxl,
+    paddingHorizontal: SPACE.lg + 4,
+    gap: SPACE.sm + 2,
+    marginVertical: SPACE.md,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
+  },
+  emptyIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: RADIUS.full,
+    backgroundColor: tokens.accent.primaryDim,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyStateTitle: {
-    fontSize: 16,
+    fontSize: tokens.fontSize.base,
     fontFamily: FONT_FAMILY.bold,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
   },
   emptyStateDesc: {
-    fontSize: 13,
-    fontFamily: FONT_FAMILY.body,
-    color: '#8E8E93',
+    fontSize: tokens.fontSize.sm,
+    fontFamily: FONT_FAMILY.regular,
+    color: tokens.text.secondary,
     textAlign: 'center',
     lineHeight: 18,
   },
   emptyStateTargetBox: {
-    marginTop: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginTop: SPACE.xs,
+    paddingHorizontal: SPACE.md + 2,
+    paddingVertical: SPACE.sm,
+    borderRadius: RADIUS.full,
+    backgroundColor: innerBg,
   },
   emptyStateTargetText: {
-    fontSize: 12,
+    fontSize: tokens.fontSize.xs,
     fontFamily: FONT_FAMILY.medium,
-    color: '#D1D1D6',
+    color: tokens.text.primary,
   },
-});
+  });
+};
 
 export default ExerciseDeepDiveModal;

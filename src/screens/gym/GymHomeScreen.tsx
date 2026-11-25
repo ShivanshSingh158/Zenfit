@@ -1,45 +1,85 @@
-import React, { useEffect, useRef, useState, useMemo, memo, useCallback } from 'react';
+import React, { useState, useMemo, memo, useCallback, useEffect, useRef, Suspense } from 'react';
 import {
+  AppState,
   View,
   Text,
-  TouchableOpacity,
+  Pressable,
   ScrollView,
-  Animated,
-  InteractionManager,
-  Alert,
   DeviceEventEmitter,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import {
+  ArrowLeftRight,
+  Flame,
+  Zap,
+  Trophy,
+  Rocket,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Coffee,
+  Leaf,
+  Plus,
+  Dumbbell,
+  ArrowUpDown,
+  Check,
+  Activity,
+  MoreHorizontal,
+} from 'lucide-react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { useGymLogs, useGymPlan } from '../../contexts/domains/WellnessContext';
+import { useActiveWorkoutState, useGymLogs, useGymPlan } from '../../contexts/domains/WellnessContext';
 import {
   useGymLog,
   todayStr,
   dateStrOffset,
 } from '../../hooks/useGymLog';
-import { GymCardioLog } from '../../types/gym.types';
+import { parseLocalDate } from '../../utils/dateCore';
 import { getL1Sync } from '../../utils/bootManifest';
 import { useTheme } from '../../contexts/ThemeContext';
-import { IOS_DARK, FONT_FAMILY } from '../../theme/tokens';
+import { ICON, SPACE, TOUCH } from '../../theme/tokens';
+import { useResponsiveMetrics } from '../../theme/responsive';
+import {
+  ScreenWrapper,
+  TabScreenHeader,
+  TactileButton,
+  NumericText,
+} from '../../components/ui';
+import { RollingNumber } from '../../components/ui/RollingNumber';
+import { useScreenReplayTrigger } from '../../hooks/useScreenReplayTrigger';
 import { hapticLight, hapticMedium, hapticSuccess, hapticHeavy } from '../../utils/haptics';
 import {
-  calculateGymStreak,
   resolveExerciseTargetMuscle,
+  buildExerciseHistoryIndex,
   normalizeExerciseKey,
-  getPreviousExerciseSession,
   getExerciseSwapAlternatives,
+  calculateGymStreak,
 } from '../../utils/gymUtils';
+import type { GymCardioLog } from '../../types/gym.types';
 import { awardXP } from '../../services/xpSystem';
-import { GYM_PLAN, resolvePlanDay } from '../../data/gymPlan';
 import { getWorkoutDaysInRotation, getRotationLetterForDay } from '../../services/gymRotationService';
 import { makeStyles } from './gymHomeStyles';
 
 // ─── Core Frame-0 Components (Rendered directly on Today's active workout surface) ───
 import GymWorkoutBanner from '../../components/Gym/active/GymWorkoutBanner';
 import GymExerciseDraggableRow from '../../components/Gym/exercise/GymExerciseDraggableRow';
+import AddExerciseModal from '../../components/Gym/exercise/AddExerciseModal';
+import ExerciseDeepDiveModal from '../../components/Gym/exercise/ExerciseDeepDiveModal';
+import { GymExerciseOptionsSheet } from '../../components/Gym/exercise/GymExerciseOptionsSheet';
+import { EditExerciseSheet, EditExerciseUpdates } from '../../components/Gym/exercise/EditExerciseSheet';
+import { ActiveSwapModal } from '../../components/Gym/active/ActiveSwapModal';
+import PRHallOfFameSheet from '../../components/Gym/metrics/PRHallOfFameSheet';
+import { ExerciseHistoryDrawer } from '../../components/Gym/exercise/ExerciseHistoryDrawer';
+import { ExerciseDetailModal } from '../../components/Gym/exercise/ExerciseDetailModal';
+import { SwapRoutineModal } from '../../components/Gym/schedule/SwapRoutineModal';
+import BodyMetricsSheet from '../../components/Gym/metrics/BodyMetricsSheet';
+import { AddCardioModal } from '../../components/Gym/cardio/AddCardioModal';
+import { LogCardioModal } from '../../components/Gym/cardio/LogCardioModal';
+import WeeklyReportSkeleton from '../../components/Gym/metrics/WeeklyReportSkeleton';
+import { LazySheet } from '../../hooks/useLazySheetMount';
+
+const LazyWeeklyGymReport = React.lazy(() => import('../../components/Gym/metrics/WeeklyGymReport'));
 
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -57,16 +97,38 @@ function getMuscleWeight(m: string): number {
 }
 
 export const GymHomeScreen = memo(function GymHomeScreen() {
-  const { colors, isDark } = useTheme();
-  const s = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const { colors, isDark, tokens } = useTheme();
+  const { isTablet, maxContentWidth } = useResponsiveMetrics();
+  const s = useMemo(() => makeStyles(colors, isDark, tokens), [colors, isDark, tokens]);
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const activeWorkout = useActiveWorkoutState();
 
-  const today = useMemo(() => todayStr(), []);
+  const [today, setToday] = useState(() => todayStr());
   const [selectedDate, setSelectedDate] = useState(today);
   const [weekOffset, setWeekOffset] = useState(0);
+  const { replayKey } = useScreenReplayTrigger();
 
-  const { gymLogs } = useGymLogs();
+  const syncTodayDate = useCallback(() => {
+    const current = todayStr();
+    setToday((prev) => {
+      if (prev !== current) {
+        setSelectedDate((sel) => (sel === prev ? current : sel));
+        return current;
+      }
+      return prev;
+    });
+  }, []);
+
+  useFocusEffect(syncTodayDate);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') syncTodayDate();
+    });
+    return () => sub.remove();
+  }, [syncTodayDate]);
+
+  const { gymLogs, logsByDateMap } = useGymLogs();
   const { userGymPlan, updateMasterPlan } = useGymPlan();
 
   const {
@@ -91,23 +153,19 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
   const [showCardioModal, setShowCardioModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [deepDiveExercise, setDeepDiveExercise] = useState<string | null>(null);
+  const [deepDiveTab, setDeepDiveTab] = useState<'guide' | 'analytics'>('guide');
   const [exerciseMenuFor, setExerciseMenuFor] = useState<any | null>(null);
+  const [supersetPickerFor, setSupersetPickerFor] = useState<any | null>(null);
+  const [editExerciseFor, setEditExerciseFor] = useState<any | null>(null);
   const [cardioMenuFor, setCardioMenuFor] = useState<GymCardioLog | null>(null);
   const [logCardioFor, setLogCardioFor] = useState<GymCardioLog | null>(null);
   const [swapModalFor, setSwapModalFor] = useState<any | null>(null);
-  const [showBodyMetrics, setShowBodyMetrics] = useState(false);
-  const [showPRSheet, setShowPRSheet] = useState(false);
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [historyDrawerEx, setHistoryDrawerEx] = useState<{ name: string; id: string } | null>(null);
-  const [detailModalEx, setDetailModalEx] = useState<string | null>(null);
-
-  const animBanner = useRef(new Animated.Value(1)).current;
 
   // ─── Streak & Week Computations ────────────────────────────────────────────
-  const streak = useMemo(() => calculateGymStreak(gymLogs || []), [gymLogs]);
+  const streak = useMemo(() => calculateGymStreak(gymLogs || [], userGymPlan), [gymLogs, userGymPlan]);
 
   const weekDates = useMemo(() => {
-    const baseDate = new Date();
+    const baseDate = parseLocalDate(today);
     baseDate.setDate(baseDate.getDate() + weekOffset * 7);
     const dayOfWeek = baseDate.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
     // Offset to previous or current Monday (Mon=0, Tue=1, ..., Sun=6)
@@ -127,6 +185,21 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     return dates;
   }, [weekOffset, today]);
 
+  const weekDateMeta = useMemo(() => {
+    return weekDates.map((date) => {
+      const [yyyy, mm, dd] = date.split('-');
+      const dateObj = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+      const dayOfWeek = dateObj.getDay();
+      return {
+        date,
+        dateNum: dateObj.getDate(),
+        dayOfWeek,
+        dateDay: DAYS_SHORT[dayOfWeek],
+        planDayIdx: dayOfWeek === 0 ? 7 : dayOfWeek,
+      };
+    });
+  }, [weekDates]);
+
   const weekMonthYearText = useMemo(() => {
     if (weekDates.length === 0) return '';
     try {
@@ -139,6 +212,9 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       }
       const d2 = new Date(Number(y2), Number(m2) - 1, 1);
       const mName2 = MONTHS_SHORT[d2.getMonth()];
+      if (y1 !== y2) {
+        return `${mName1.toUpperCase()} – ${mName2.toUpperCase()} ${y1} - ${y2}`;
+      }
       return `${mName1.toUpperCase()} – ${mName2.toUpperCase()} ${y2}`;
     } catch {
       return '';
@@ -156,7 +232,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     if (plannedCount === 0) plannedCount = 4;
 
     const completedCount = weekDates.reduce((acc, d) => {
-      const logEntry = (gymLogs || []).find((l: any) => l.date === d);
+      const logEntry = logsByDateMap?.get(d);
       return logEntry?.completed ? acc + 1 : acc;
     }, 0);
 
@@ -165,36 +241,36 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
 
     let iconName: 'flame' | 'flash' | 'trophy' | 'rocket' | 'calendar' = 'flame';
     let label = '';
-    let color = '#30D158';
+    let color = tokens.status.success;
 
     if (!isCurrentWeek) {
       if (weekOffset < 0) {
         iconName = 'calendar';
         label = `Recap: ${completedCount} of ${plannedCount} completed`;
-        color = completedCount >= plannedCount ? '#30D158' : (isDark ? '#8E8E93' : '#636366');
+        color = completedCount >= plannedCount ? tokens.status.success : tokens.text.secondary;
       } else {
         iconName = 'calendar';
         label = `Upcoming: ${plannedCount} workouts planned`;
-        color = isDark ? '#8E8E93' : '#636366';
+        color = tokens.text.secondary;
       }
     } else if (completedCount >= plannedCount) {
       if (completedCount > plannedCount) {
         iconName = 'rocket';
         label = `Bonus workout! (${completedCount}/${plannedCount} completed)`;
-        color = '#A599FF';
+        color = tokens.accent.primary;
       } else {
         iconName = 'trophy';
         label = `Weekly goal crushed! (${completedCount}/${plannedCount} complete)`;
-        color = '#30D158';
+        color = tokens.status.success;
       }
     } else if (remainingCount === 1) {
       iconName = 'flash';
       label = `Last workout this week! (${completedCount}/${plannedCount} done)`;
-      color = '#FF9F0A';
+      color = tokens.status.warning;
     } else {
       iconName = 'flame';
       label = `${remainingCount} of ${plannedCount} workouts left this week`;
-      color = '#30D158';
+      color = tokens.status.success;
     }
 
     return {
@@ -206,7 +282,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       label,
       color,
     };
-  }, [userGymPlan?.customDays, weekDates, gymLogs, weekOffset, isDark]);
+  }, [userGymPlan?.customDays, weekDates, gymLogs, weekOffset, tokens]);
 
   // Formatted date strings for Compact Structural Header (0ms static lookup; zero ICU bridge overhead)
   const { headerTitleText, headerDateText } = useMemo(() => {
@@ -216,7 +292,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       const dayOfWeek = d.getDay();
       const monthIdx = d.getMonth();
       const dayNum = d.getDate();
-      const isToday = selectedDate === todayStr();
+      const isToday = selectedDate === today;
       if (isToday) {
         return {
           headerTitleText: 'Today',
@@ -230,7 +306,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     } catch {
       return { headerTitleText: 'Today', headerDateText: selectedDate };
     }
-  }, [selectedDate]);
+  }, [selectedDate, today]);
 
   const activePlanDay = useMemo(() => {
     return planDay;
@@ -274,7 +350,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     });
   }, [muscleCounts]);
 
-  const isWorkoutCompleted = Boolean(log?.completed);
+  const isWorkoutCompleted = Boolean(log?.completed && !log?.workoutStartTime);
 
   const isEffectiveRest = Boolean(
     (activePlanDay?.isRest || planDay?.isRest) &&
@@ -285,15 +361,12 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
   const handleStartWorkout = useCallback(() => {
-    hapticHeavy();
     if (activeExercises.length === 0) {
-      Alert.alert('No Exercises', 'Please add exercises to start the workout.');
+      setShowAddModal(true);
       return;
     }
+    startWorkout();
     navigation.navigate('ActiveLogging', { date: selectedDate });
-    InteractionManager.runAfterInteractions(() => {
-      startWorkout();
-    });
   }, [activeExercises.length, startWorkout, navigation, selectedDate]);
 
   // Navigate to ActiveLogging without starting the workout — used by exercise rows.
@@ -305,31 +378,41 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       date: selectedDate,
       initialIndex: targetIdx,
       exerciseIndex: targetIdx,
+      previewOnly: true,
     });
   }, [navigation, selectedDate]);
 
   // Explicitly resume an in-progress workout — used ONLY by the banner's Resume button.
   const handleResumeWorkout = useCallback(() => {
-    hapticLight();
     resumeWorkout();
     navigation.navigate('ActiveLogging', { date: selectedDate });
   }, [resumeWorkout, navigation, selectedDate]);
 
+  const handleEndWorkoutFromBanner = useCallback(async (completed = true) => {
+    const exercisesToPass = (log?.exercises && log.exercises.length > 0) ? log.exercises : undefined;
+    await endWorkout(completed, exercisesToPass);
+  }, [endWorkout, log?.exercises]);
+
   const handleShowHistory = useCallback((exItem: { id: string; name: string }) => {
+    setDeepDiveTab('analytics');
     setDeepDiveExercise(exItem.name);
   }, []);
 
-  // Pre-indexed O(1) map of previous exercise sessions (eliminates O(N) scan during checkmark tap)
+  // Pre-indexed O(1) map of previous exercise sessions (eliminates O(N) scan per exercise)
+  const historyIndex = useMemo(() => {
+    const targetDateStr = selectedDate || todayStr();
+    return buildExerciseHistoryIndex(gymLogs, targetDateStr);
+  }, [gymLogs, selectedDate]);
+
   const previousSessionMap = useMemo(() => {
     const map = new Map<string, any>();
-    const targetDateStr = selectedDate || todayStr();
     for (const ex of activeExercises) {
       if (ex?.name && !map.has(ex.name)) {
-        map.set(ex.name, getPreviousExerciseSession(ex.name, gymLogs, targetDateStr));
+        map.set(ex.name, historyIndex.get(normalizeExerciseKey(ex.name)) ?? null);
       }
     }
     return map;
-  }, [activeExercises, gymLogs, selectedDate]);
+  }, [activeExercises, historyIndex]);
 
   // Group adjacent exercises with matching supersetGroup into fused superset containers
   const exerciseCardGroups = useMemo(() => {
@@ -373,6 +456,40 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     return groups;
   }, [activeExercises]);
 
+  const exerciseRenderSections = useMemo(() => {
+    const sections: Array<
+      | { kind: 'standalone'; key: string; items: Array<{ exercise: any; index: number }> }
+      | { kind: 'superset'; key: string; superLetter: string; items: Array<{ exercise: any; index: number }> }
+    > = [];
+    let standaloneBatch: Array<{ exercise: any; index: number }> = [];
+
+    const flushStandalone = (key: string) => {
+      if (standaloneBatch.length === 0) return;
+      sections.push({ kind: 'standalone', key, items: standaloneBatch });
+      standaloneBatch = [];
+    };
+
+    exerciseCardGroups.forEach((group, gIdx) => {
+      if (group.isSuperset && group.items.length > 1) {
+        flushStandalone(`standalone_before_${gIdx}`);
+        const superLetter = group.supersetGroup
+          ? group.supersetGroup.replace(/^SUPER-?/i, '')
+          : 'A';
+        sections.push({
+          kind: 'superset',
+          key: group.id,
+          superLetter,
+          items: group.items,
+        });
+      } else {
+        standaloneBatch.push(...group.items);
+      }
+    });
+
+    flushStandalone('standalone_tail');
+    return sections;
+  }, [exerciseCardGroups]);
+
   // Direct toggle on GymHome list: allows user to mark an exercise done/undone without opening active logger
   const handleToggleExerciseComplete = useCallback((ex: any, idx: number) => {
     const setsLog = ex.setsLog || [];
@@ -415,50 +532,69 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       setsLog: updatedSets,
     };
 
+    const anyOtherCompleted = activeExercises.some(
+      (e: any, eIdx: number) => eIdx !== idx && (e.setsLog || []).some((s: any) => Boolean(s.completed))
+    );
+    const anyCompletedCardio = (log?.cardio || []).some((c: any) => Boolean(c.completed));
+
     updateExercise(idx, updatedEx);
     if (targetCompleted) {
-      awardXP('GYM_SET').catch(() => {});
+      const xpActionKey = `ex_complete_${selectedDate}_${ex.exerciseId || ex.name}`;
+      awardXP('GYM_SET', xpActionKey).catch(() => {});
+    } else if (!anyOtherCompleted && !anyCompletedCardio) {
+      revertWorkout();
     }
-  }, [previousSessionMap, updateExercise]);
+  }, [previousSessionMap, updateExercise, activeExercises, log?.cardio, selectedDate, revertWorkout]);
 
-  // Whenever returning to GymHomeScreen, reload any fresh active draft via fast direct key check.
-  // CRITICAL: Only re-hydrate if the draft has actual logged sets — never on a ghost workoutStartTime alone.
+  // Whenever returning to GymHomeScreen, hydrate only newer active L1 draft via fast ref lookup.
+  const focusDraftCheckRef = useRef({
+    isWorkoutCompleted,
+    logCompleted: Boolean(log?.completed),
+    logId: log?.id,
+    logUpdatedAt: log?.updatedAt || 0,
+    selectedDate,
+  });
+  focusDraftCheckRef.current = {
+    isWorkoutCompleted,
+    logCompleted: Boolean(log?.completed),
+    logId: log?.id,
+    logUpdatedAt: log?.updatedAt || 0,
+    selectedDate,
+  };
+
   useFocusEffect(
     useCallback(() => {
       const checkDraft = async () => {
         try {
-          if (isWorkoutCompleted || log?.completed) return;
-          const draftKey = log?.id ? `gym_active_draft_${log.id}` : null;
-          if (draftKey) {
-            let draft = getL1Sync<any>(draftKey, null);
-            if (!draft) {
-              const raw = await AsyncStorage.getItem(draftKey);
-              if (raw) {
-                try {
-                  draft = JSON.parse(raw);
-                } catch {}
-              }
+          const { isWorkoutCompleted: done, logCompleted, logId, logUpdatedAt, selectedDate: dateStrVal } = focusDraftCheckRef.current;
+          if (done || logCompleted) return;
+          const draftKey = logId ? `gym_active_draft_${logId}` : `gym_active_draft_${dateStrVal}`;
+          let draft = getL1Sync<any>(draftKey, null);
+          if (!draft && logId) {
+            const raw = await AsyncStorage.getItem(draftKey);
+            if (raw) {
+              try {
+                draft = JSON.parse(raw);
+              } catch {}
             }
-            if (draft) {
-              const hasLoggedSets = (draft?.exercises || []).some((ex: any) =>
-                (ex.setsLog || []).some((s: any) => s.completed)
-              );
-              // Only re-hydrate if: newer AND has real logged sets.
-              // A bare workoutStartTime with no sets is a ghost — ignore it.
-              if (
-                draft.date === selectedDate &&
-                !draft.completed &&
-                hasLoggedSets &&
-                (draft.updatedAt || 0) > (log?.updatedAt || 0)
-              ) {
-                DeviceEventEmitter.emit('gym_log_local_mutation', { date: selectedDate, log: draft });
-              }
+          }
+          if (draft) {
+            const hasLoggedSets = (draft?.exercises || []).some((ex: any) =>
+              (ex.setsLog || []).some((s: any) => s.completed)
+            );
+            if (
+              draft.date === dateStrVal &&
+              !draft.completed &&
+              hasLoggedSets &&
+              (draft.updatedAt || 0) > logUpdatedAt
+            ) {
+              DeviceEventEmitter.emit('gym_log_local_mutation', { date: dateStrVal, log: draft });
             }
           }
         } catch {}
       };
       checkDraft();
-    }, [isWorkoutCompleted, log?.completed, log?.id, log?.updatedAt, selectedDate])
+    }, [])
   );
 
   const isRotation = userGymPlan?.scheduleMode === 'rotation';
@@ -467,141 +603,207 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
   const routineTitle = isRotation && rotationLetter && !activePlanDay?.isRest
     ? `Workout ${rotationLetter}: ${activePlanDay.name}`
     : (activePlanDay?.name || 'Workout Day');
-  const routineFocus = activePlanDay?.focus || (activePlanDay?.isRest ? 'Muscle Repair & Rest' : 'Daily Workout');
+
+  // Derive the 2 major target muscles from today's exercises (clean & compact, no exercise names)
+  const routineFocus = useMemo(() => {
+    if (activePlanDay?.isRest) return 'Rest & Recovery';
+
+    // Count sets per canonical muscle group from the active exercises
+    const counts: Record<string, number> = {};
+    activeExercises.forEach((ex: any) => {
+      const { canonicalGroup } = resolveExerciseTargetMuscle(ex.name, ex.muscle);
+      if (canonicalGroup && canonicalGroup !== 'Mixed' && canonicalGroup !== 'Other') {
+        counts[canonicalGroup] = (counts[canonicalGroup] || 0) + (ex.setsLog?.length || 3);
+      }
+    });
+
+    const topMuscles = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([muscle]) => muscle);
+
+    if (topMuscles.length === 0) {
+      return activePlanDay?.name || 'Workout Day';
+    }
+    if (topMuscles.length === 1) {
+      return `${topMuscles[0]} Focus`;
+    }
+    return `${topMuscles[0]} & ${topMuscles[1]}`;
+  }, [activePlanDay?.isRest, activePlanDay?.name, activeExercises]);
+
+  const renderWeeklyIcon = (iconName: 'flame' | 'flash' | 'trophy' | 'rocket' | 'calendar', color: string) => {
+    const props = { size: 12, color, strokeWidth: ICON.strokeWidth };
+    switch (iconName) {
+      case 'calendar':
+        return <Calendar {...props} />;
+      case 'rocket':
+        return <Rocket {...props} />;
+      case 'trophy':
+        return <Trophy {...props} />;
+      case 'flash':
+        return <Zap {...props} />;
+      case 'flame':
+      default:
+        return <Flame {...props} />;
+    }
+  };
+
+  const auraColor = isWorkoutCompleted
+    ? '#30D158'
+    : tokens.accent.primary;
 
   return (
-    <View style={s.root}>
-      {/* ─── 1. COMPACT APPLE HIG HEADER ─────────────────────────────────────── */}
-      <View style={[s.headerContainer, { paddingTop: insets.top + 4 }]}>
-        <View style={s.headerRow}>
-          <View style={s.headerTitleGroup}>
-            <Text style={s.headerTitle}>{headerTitleText}</Text>
-            <Text style={s.headerSubtitle} numberOfLines={1}>
-              {headerDateText}
-            </Text>
-          </View>
+    <ScreenWrapper edges={['top']} compactTop topAura={auraColor} keyboardAvoiding={false} style={s.root}>
+      {/* ─── 1. UNIFIED COMPACT HEADER ───────────────────────────────────── */}
+      <TabScreenHeader
+        title={headerTitleText}
+        subtitle={headerDateText}
+        rightActions={
+          <TactileButton
+            variant="custom"
+            style={s.swapRoutineBtn}
+            onPress={() => setShowSwapModal(true)}
+            hitSlop={TOUCH.hitSlop}
+          >
+            <ArrowLeftRight
+              size={13.5}
+              color={tokens.text.primary}
+              strokeWidth={ICON.strokeWidth}
+            />
+            <Text style={s.swapRoutineBtnText} numberOfLines={1}>Swap Today</Text>
+          </TactileButton>
+        }
+      />
 
-          <View style={s.headerActions}>
-            <TouchableOpacity
-              style={s.swapRoutineBtn}
-              onPress={() => {
-                hapticLight();
-                setShowSwapModal(true);
-              }}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name="swap-horizontal-outline"
-                size={14}
-                color={isDark ? '#FFFFFF' : '#000000'}
-              />
-              <Text style={s.swapRoutineBtnText}>Swap</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-
-      {/* ─── 2. SCROLLABLE CONTENT (Universal 6px horizontal margin & 10px gap) ─── */}
+      {/* ─── 2. SCROLLABLE CONTENT ──────────────────────────────────────── */}
       <ScrollView
         contentContainerStyle={[
           s.scrollContent,
+          isTablet && { maxWidth: maxContentWidth, width: '100%', alignSelf: 'center' as const },
           {
-            paddingTop: 2,
-            paddingBottom: insets.bottom + 90,
+            paddingTop: 4,
+            paddingBottom: insets.bottom + (activeWorkout.active ? 156 : 116),
           },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* WEEK CALENDAR STRIP: Compact Apple Inset Grouped Card */}
+        {/* WEEK CALENDAR STRIP */}
         <View style={s.weekStripCard}>
           <View style={s.weekStripHeaderRow}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={s.weekStripMonthText}>{weekMonthYearText}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE[8], flex: 1, minWidth: 0 }}>
+              <Text
+                style={s.weekStripMonthText}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.78}
+              >
+                {weekMonthYearText}
+              </Text>
               <View style={s.weekProgressBadge}>
-                <Ionicons name={weeklyCountdown.iconName as any} size={11} color={weeklyCountdown.color} />
-                <Text style={[s.weekProgressBadgeText, { color: weeklyCountdown.color }]}>
-                  {weeklyCountdown.completedCount}/{weeklyCountdown.plannedCount} Done
-                </Text>
+                {renderWeeklyIcon(weeklyCountdown.iconName, weeklyCountdown.color)}
+                <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                  <RollingNumber
+                    value={weeklyCountdown.completedCount}
+                    replayKey={replayKey}
+                    cycles={0}
+                    durationMs={420}
+                    style={[s.weekProgressBadgeText, { color: weeklyCountdown.color }]}
+                  />
+                  <NumericText style={[s.weekProgressBadgeText, { color: weeklyCountdown.color }]}>
+                    /{weeklyCountdown.plannedCount} Done
+                  </NumericText>
+                </View>
               </View>
             </View>
 
             <View style={s.weekNavBtns}>
               {selectedDate !== today && (
-                <TouchableOpacity
+                <TactileButton
+                  variant="custom"
                   onPress={() => {
-                    hapticLight();
                     setWeekOffset(0);
                     setSelectedDate(today);
                   }}
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                   style={s.weekTodayBtn}
-                  activeOpacity={0.7}
                 >
-                  <Text style={s.weekTodayBtnText}>Today</Text>
-                </TouchableOpacity>
+                  <Text style={s.weekTodayBtnText} numberOfLines={1}>Today</Text>
+                </TactileButton>
               )}
-              <TouchableOpacity
+              <TactileButton
+                variant="custom"
                 onPress={() => {
-                  hapticLight();
                   setWeekOffset(prev => prev - 1);
                   setSelectedDate(prev => dateStrOffset(-7, prev));
                 }}
+                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                 style={s.weekNavBtn}
-                activeOpacity={0.7}
+                accessibilityLabel="Previous week"
               >
-                <Ionicons name="chevron-back" size={14} color={isDark ? '#FFFFFF' : '#000000'} />
-              </TouchableOpacity>
-              <TouchableOpacity
+                <ChevronLeft size={16} color={tokens.text.primary} strokeWidth={ICON.strokeWidth} />
+              </TactileButton>
+              <TactileButton
+                variant="custom"
                 onPress={() => {
-                  hapticLight();
                   setWeekOffset(prev => prev + 1);
                   setSelectedDate(prev => dateStrOffset(7, prev));
                 }}
+                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                 style={s.weekNavBtn}
-                activeOpacity={0.7}
+                accessibilityLabel="Next week"
               >
-                <Ionicons name="chevron-forward" size={14} color={isDark ? '#FFFFFF' : '#000000'} />
-              </TouchableOpacity>
+                <ChevronRight size={16} color={tokens.text.primary} strokeWidth={ICON.strokeWidth} />
+              </TactileButton>
             </View>
           </View>
 
           <View style={s.weekDaysContainer}>
-            {weekDates.map(date => {
+            {weekDateMeta.map(({ date, dateNum, dateDay, planDayIdx }) => {
               const isSelected = date === selectedDate;
               const isToday = date === today;
-              const [yyyy, mm, dd] = date.split('-');
-              const dateObj = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
-              const dateNum = dateObj.getDate();
-              const dayOfWeek = dateObj.getDay();
-              const dateDay = DAYS_SHORT[dayOfWeek];
 
-              // Determine workout status dot for this day
-              const logForDay = (gymLogs || []).find((l: any) => l.date === date);
+              // Determine workout status dot for this day (O(1) map lookup)
+              const logForDay = logsByDateMap?.get(date);
               const isDone = Boolean(logForDay?.completed);
-              const planDayIdx = dayOfWeek === 0 ? 7 : dayOfWeek;
               const customDay = userGymPlan?.customDays?.[planDayIdx];
               const isRest = customDay ? Boolean(customDay.isRest) : (planDayIdx === 7);
 
               const dotColor = isDone
-                ? '#30D158'
+                ? tokens.status.success
                 : isRest
-                ? '#48484A'
-                : (isToday ? '#FF9F0A' : '#636366');
+                ? tokens.text.muted
+                : (isToday ? tokens.status.warning : tokens.text.secondary);
 
               return (
-                <TouchableOpacity
+                <Pressable
                   key={date}
                   style={[s.dayCol, isSelected && s.dayColActive]}
+                  hitSlop={{ top: 6, bottom: 6, left: 2, right: 2 }}
                   onPress={() => {
                     hapticLight();
                     setSelectedDate(date);
                   }}
-                  activeOpacity={0.7}
                 >
-                  <Text style={[s.dayLetter, isSelected && s.dayLetterActive]}>{dateDay}</Text>
-                  <Text style={[s.dayNum, isSelected && s.dayNumActive]}>{dateNum}</Text>
-                  <View style={[s.dayDot, { backgroundColor: dotColor }]} />
-                  {isToday && <View style={s.dayTodayDot} />}
-                </TouchableOpacity>
+                  <Text
+                    style={[s.dayLetter, isSelected && s.dayLetterActive]}
+                    numberOfLines={1}
+                    maxFontSizeMultiplier={1.2}
+                  >
+                    {dateDay}
+                  </Text>
+                  <NumericText style={[s.dayNum, isSelected && s.dayNumActive]} numberOfLines={1}>
+                    {dateNum}
+                  </NumericText>
+                  {isRest && !isDone ? (
+                    <Coffee
+                      size={10}
+                      color={isSelected ? tokens.accent.primary : tokens.text.muted}
+                      strokeWidth={ICON.strokeWidth}
+                      style={{ marginTop: 1 }}
+                    />
+                  ) : (
+                    <View style={[s.dayDot, { backgroundColor: dotColor }]} />
+                  )}
+                </Pressable>
               );
             })}
           </View>
@@ -609,108 +811,84 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
 
         {/* Active Programme Mesocycle Banner (Horizon Strip) */}
         {userGymPlan?.activeProgramme && userGymPlan.activeProgramme.status === 'active' && (
-          <TouchableOpacity
+          <TactileButton
+            variant="custom"
             style={s.programmeHorizonStrip}
-            activeOpacity={0.7}
-            onPress={() => {
-              hapticLight();
-              navigation.navigate('Plan', { initialTab: 'mesocycles' });
-            }}
+            scaleTo={0.985}
+            onPress={() => navigation.navigate('Plan', { initialTab: 'programmes' })}
           >
             <View style={s.programmeHorizonLeft}>
               <View style={s.programmeHorizonDot} />
-              <Text style={s.programmeHorizonPhase} numberOfLines={1}>
+              <Text style={s.programmeHorizonPhase} numberOfLines={1} ellipsizeMode="tail">
                 W{userGymPlan.activeProgramme.currentWeek}/{userGymPlan.activeProgramme.totalWeeks} · {userGymPlan.activeProgramme.weeks[userGymPlan.activeProgramme.currentWeek]?.phaseName || 'Active Phase'}
               </Text>
             </View>
 
             <View style={s.programmeHorizonRight}>
-              <Text style={s.programmeHorizonMeta}>
-                {userGymPlan.activeProgramme.weeks[userGymPlan.activeProgramme.currentWeek]?.targetRir ?? 2} RIR
-                {userGymPlan.activeProgramme.weeks[userGymPlan.activeProgramme.currentWeek]?.intensityPercentage1RM
-                  ? ` · ${userGymPlan.activeProgramme.weeks[userGymPlan.activeProgramme.currentWeek]?.intensityPercentage1RM}%`
-                  : ''}
-              </Text>
-              <Text style={s.programmeHorizonLink}>Roadmap</Text>
-              <Ionicons name="chevron-forward" size={12} color="#A599FF" />
+              {(() => {
+                const wk = userGymPlan.activeProgramme.weeks[userGymPlan.activeProgramme.currentWeek];
+                const metaStr = wk?.intensityPercentage1RM
+                  ? `${wk.intensityPercentage1RM}% Load`
+                  : wk?.volumeModifierSets
+                  ? `${wk.volumeModifierSets > 0 ? `+${wk.volumeModifierSets}` : wk.volumeModifierSets} set/ex`
+                  : 'Baseline';
+                return <NumericText style={s.programmeHorizonMeta} numberOfLines={1}>{metaStr}</NumericText>;
+              })()}
+              <Text style={s.programmeHorizonLink} numberOfLines={1}>Plan</Text>
+              <ChevronRight size={13} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
             </View>
-          </TouchableOpacity>
+          </TactileButton>
         )}
 
         {isEffectiveRest ? (
-          <View style={{ width: '100%', gap: 14 }}>
+          <View style={{ width: '100%', gap: SPACE[12] }}>
             {/* ── Compact Rest & Recovery Banner ── */}
-            <View
-              style={{
-                backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface,
-                borderRadius: 16,
-                padding: 16,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, paddingRight: 8 }}>
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: 'rgba(48,209,88,0.12)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Ionicons name="leaf-outline" size={20} color={IOS_DARK.green} />
+            <View style={s.restDayBannerContainer}>
+              <View style={s.restDayLeftRow}>
+                <View style={s.restDayIconCircle}>
+                  <Leaf size={20} color={tokens.status.success} strokeWidth={ICON.strokeWidth} />
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 16, fontFamily: FONT_FAMILY.bold, color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary }}>
-                    Rest & Recovery Day
-                  </Text>
-                  <Text style={{ fontSize: 11.5, fontFamily: FONT_FAMILY.body, color: isDark ? IOS_DARK.labelSecondary : colors.textMuted, marginTop: 2 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={s.restDayTitle} numberOfLines={1}>Rest & Recovery Day</Text>
+                  <Text style={s.restDaySubtitle} numberOfLines={2}>
                     Muscles repair and grow during sleep & rest.
                   </Text>
                 </View>
               </View>
 
-              <TouchableOpacity
-                onPress={() => {
-                  hapticLight();
-                  setShowAddModal(true);
-                }}
+              <TactileButton
+                variant="primary"
+                size="sm"
+                onPress={() => setShowAddModal(true)}
                 style={s.primaryActionBtn}
-                activeOpacity={0.8}
               >
-                <Ionicons name="add" size={14} color={isDark ? '#000000' : '#FFFFFF'} />
-                <Text style={s.primaryActionText}>Log Workout</Text>
-              </TouchableOpacity>
+                <Plus size={14} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
+                <Text style={s.primaryActionText} numberOfLines={1}>Log Workout</Text>
+              </TactileButton>
             </View>
 
-            {/* ── In-Place Full Weekly Training Recap (Deferred dynamically on Sunday) ── */}
-            {(() => {
-              const WeeklyGymReportComponent = require('../../components/Gym/metrics/WeeklyGymReport').default;
-              return (
-                <WeeklyGymReportComponent
-                  gymLogs={gymLogs}
-                  weekAnchorDate={selectedDate}
-                  userGymPlan={userGymPlan}
-                />
-              );
-            })()}
+            {/* ── In-Place Full Weekly Training Recap (Async lazy-split with skeleton) ── */}
+            <Suspense fallback={<WeeklyReportSkeleton />}>
+              <LazyWeeklyGymReport
+                gymLogs={gymLogs}
+                weekAnchorDate={selectedDate}
+                userGymPlan={userGymPlan}
+                replayKey={`${replayKey}-${selectedDate}`}
+              />
+            </Suspense>
           </View>
         ) : (
           <>
-            {/* ─── 3. SINGLE HERO WORKOUT SURFACE (#1C1C1E, 0px border) ─────── */}
+            {/* ─── 3. SINGLE HERO WORKOUT SURFACE ─────────────────────────── */}
             <GymWorkoutBanner
               log={log}
               s={s}
               currentStreak={streak}
               selectedDate={selectedDate}
-              animBanner={animBanner}
               navigation={navigation}
               onStartWorkout={handleStartWorkout}
-              onResumeWorkout={() => handleResumeWorkout()}
-              onEndWorkout={endWorkout}
+              onResumeWorkout={handleResumeWorkout}
+              onEndWorkout={handleEndWorkoutFromBanner}
               resumeWorkout={resumeWorkout}
               onRevertWorkout={revertWorkout}
               routineTitle={routineTitle}
@@ -718,140 +896,121 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
               exerciseCount={activeExercises.length}
               setsCount={totalWorkingSets}
               estimatedMinutes={estimatedMinutes}
+              replayKey={`${replayKey}-${selectedDate}`}
             />
 
-            {/* ─── 4. INSET GROUPED EXERCISE LIST ───────────────────────────── */}
+            {/* ─── 4. INSET GROUPED EXERCISE LIST ─────────────────────────── */}
             <View style={s.section}>
               <View style={s.sectionHeaderRow}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={s.sectionLabel}>WORKOUT PLAN</Text>
-                  {activeExercises.length > 0 && (
-                    <View style={s.sectionCountBadge}>
-                      <Text style={s.sectionCountText}>{activeExercises.length}</Text>
-                    </View>
-                  )}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 }}>
+                  <Text style={s.sectionLabel} numberOfLines={1}>
+                    WORKOUT PLAN{activeExercises.length > 0 ? ` · ${activeExercises.length}` : ''}
+                  </Text>
                 </View>
-                <TouchableOpacity
+                <TactileButton
+                  variant="custom"
                   style={s.sectionActionBtn}
-                  onPress={() => {
-                    hapticLight();
-                    setShowAddModal(true);
-                  }}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  activeOpacity={0.7}
+                  onPress={() => setShowAddModal(true)}
+                  hitSlop={TOUCH.hitSlop}
                 >
-                  <Ionicons name="add" size={13} color={isDark ? '#000000' : '#FFFFFF'} />
-                  <Text style={s.sectionActionText}>Add Exercise</Text>
-                </TouchableOpacity>
+                  <Plus size={14} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                  <Text style={s.sectionActionText} numberOfLines={1}>Add Exercise</Text>
+                </TactileButton>
               </View>
 
               {activeExercises.length === 0 ? (
-                <View style={[s.insetGroupedCard, { padding: 24, alignItems: 'center' }]}>
-                  <Ionicons name="barbell-outline" size={28} color={isDark ? IOS_DARK.labelTertiary : colors.textTertiary} style={{ marginBottom: 8 }} />
-                  <Text style={{ fontSize: 15, fontFamily: FONT_FAMILY.bold, color: isDark ? IOS_DARK.labelPrimary : colors.textPrimary, marginBottom: 4 }}>
+                <View style={s.emptyPlanCard}>
+                  <Dumbbell
+                    size={28}
+                    color={tokens.text.muted}
+                    strokeWidth={ICON.strokeWidth}
+                    style={{ marginBottom: SPACE[8] }}
+                  />
+                  <Text style={s.emptyPlanTitle}>
                     {activePlanDay?.isRest ? 'Rest Day Scheduled' : 'No Exercises for Today'}
                   </Text>
-                  <Text style={{ fontSize: 13, fontFamily: FONT_FAMILY.body, color: isDark ? IOS_DARK.labelSecondary : colors.textMuted, textAlign: 'center', lineHeight: 18 }}>
+                  <Text style={s.emptyPlanSub}>
                     {activePlanDay?.isRest
                       ? 'Take time to recover, hydrate, and prepare for your next lifting session.'
-                      : 'Tap + Add to insert movements or swap your routine day.'}
+                      : 'Tap + Add Exercise to insert movements or swap your routine day.'}
                   </Text>
                 </View>
               ) : (
-                <View>
-                  {exerciseCardGroups.map((group) => {
-                    if (group.isSuperset && group.items.length > 1) {
-                      const superLetter = group.supersetGroup
-                        ? group.supersetGroup.replace(/^SUPER-?/i, '')
-                        : 'A';
-
-                      return (
-                        <View key={group.id} style={s.supersetCardContainer}>
-                          <View style={s.supersetHeaderBar}>
-                            <View style={s.supersetHeaderLeft}>
-                              <Ionicons name="flash" size={12} color="#FF9F0A" />
-                              <Text style={s.supersetHeaderTitle}>
-                                SUPERSET {superLetter}
-                              </Text>
-                            </View>
-                            <Text style={s.supersetHeaderSubtitle}>NO REST BETWEEN</Text>
-                          </View>
-
-                          {group.items.map((item, itemIdx) => (
-                            <React.Fragment key={item.exercise.exerciseId || item.exercise.name || item.index}>
-                              {itemIdx > 0 && (
-                                <View style={s.supersetConnectorRow}>
-                                  <View style={s.supersetConnectorLine} />
-                                  <View style={s.supersetConnectorBadge}>
-                                    <Ionicons name="swap-vertical" size={10} color="#FF9F0A" />
-                                    <Text style={s.supersetConnectorText}>BACK-TO-BACK</Text>
-                                  </View>
-                                  <View style={s.supersetConnectorLine} />
-                                </View>
-                              )}
-                              <GymExerciseDraggableRow
-                                exercise={item.exercise}
-                                index={item.index}
-                                isPartnerWithPrevious={itemIdx > 0}
-                                logCompleted={isWorkoutCompleted}
-                                logWorkoutStartTime={log?.workoutStartTime || null}
-                                s={s}
-                                selectedDate={selectedDate}
-                                navigation={navigation}
-                                onResumeWorkout={handleExercisePress}
-                                onShowHistory={handleShowHistory}
-                                onShowMenu={setExerciseMenuFor}
-                                onToggleComplete={handleToggleExerciseComplete}
-                              />
-                            </React.Fragment>
-                          ))}
-                        </View>
-                      );
-                    }
-
-                    // Standalone Hero Exercise Card
-                    return group.items.map((item) => (
-                      <View
-                        key={item.exercise.exerciseId || item.exercise.name || item.index}
-                        style={s.exerciseCardContainer}
-                      >
-                        <GymExerciseDraggableRow
-                          exercise={item.exercise}
-                          index={item.index}
-                          isPartnerWithPrevious={false}
-                          logCompleted={isWorkoutCompleted}
-                          logWorkoutStartTime={log?.workoutStartTime || null}
-                          s={s}
-                          selectedDate={selectedDate}
-                          navigation={navigation}
-                          onResumeWorkout={handleExercisePress}
-                          onShowHistory={handleShowHistory}
-                          onShowMenu={setExerciseMenuFor}
-                          onToggleComplete={handleToggleExerciseComplete}
-                        />
+                <View style={{ gap: SPACE[8] }}>
+                  {exerciseRenderSections.map((section) =>
+                    section.kind === 'standalone' ? (
+                      <View key={section.key} style={s.insetGroupedCard}>
+                        {section.items.map((item, bIdx) => (
+                          <React.Fragment key={item.exercise.exerciseId || item.exercise.name || item.index}>
+                            {bIdx > 0 && <View style={s.hairlineDivider} />}
+                            <GymExerciseDraggableRow
+                              exercise={item.exercise}
+                              index={item.index}
+                              isPartnerWithPrevious={false}
+                              logCompleted={isWorkoutCompleted}
+                              logWorkoutStartTime={log?.workoutStartTime || null}
+                              s={s}
+                              selectedDate={selectedDate}
+                              navigation={navigation}
+                              onResumeWorkout={handleExercisePress}
+                              onShowHistory={handleShowHistory}
+                              onShowMenu={setExerciseMenuFor}
+                              onToggleComplete={handleToggleExerciseComplete}
+                            />
+                          </React.Fragment>
+                        ))}
                       </View>
-                    ));
-                  })}
+                    ) : (
+                      <View key={section.key} style={s.supersetCardContainer}>
+                        <View style={s.supersetHeaderBar}>
+                          <View style={s.supersetHeaderLeft}>
+                            <Zap size={12} color={tokens.status.warning} strokeWidth={ICON.strokeWidth} />
+                            <Text style={s.supersetHeaderTitle}>
+                              SUPERSET {section.superLetter}
+                            </Text>
+                          </View>
+                          <Text style={s.supersetHeaderSubtitle}>BACK-TO-BACK</Text>
+                        </View>
+
+                        {section.items.map((item, itemIdx) => (
+                          <React.Fragment key={item.exercise.exerciseId || item.exercise.name || item.index}>
+                            {itemIdx > 0 && <View style={s.hairlineDivider} />}
+                            <GymExerciseDraggableRow
+                              exercise={item.exercise}
+                              index={item.index}
+                              isPartnerWithPrevious={itemIdx > 0}
+                              logCompleted={isWorkoutCompleted}
+                              logWorkoutStartTime={log?.workoutStartTime || null}
+                              s={s}
+                              selectedDate={selectedDate}
+                              navigation={navigation}
+                              onResumeWorkout={handleExercisePress}
+                              onShowHistory={handleShowHistory}
+                              onShowMenu={setExerciseMenuFor}
+                              onToggleComplete={handleToggleExerciseComplete}
+                            />
+                          </React.Fragment>
+                        ))}
+                      </View>
+                    )
+                  )}
                 </View>
               )}
             </View>
 
-            {/* ─── 5. CARDIO SECTION (Inset Grouped Container) ───────────────── */}
+            {/* ─── 5. CARDIO SECTION ──────────────────────────────────────── */}
             <View style={s.section}>
               <View style={s.sectionHeaderRow}>
-                <Text style={s.sectionLabel}>CARDIO</Text>
-                <TouchableOpacity
+                <Text style={s.sectionLabel} numberOfLines={1}>CARDIO</Text>
+                <TactileButton
+                  variant="custom"
                   style={s.sectionActionBtn}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    hapticLight();
-                    setShowCardioModal(true);
-                  }}
+                  hitSlop={TOUCH.hitSlop}
+                  onPress={() => setShowCardioModal(true)}
                 >
-                  <Ionicons name="add" size={14} color={isDark ? '#000000' : '#FFFFFF'} />
-                  <Text style={s.sectionActionText}>Add</Text>
-                </TouchableOpacity>
+                  <Plus size={14} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                  <Text style={s.sectionActionText} numberOfLines={1}>Add</Text>
+                </TactileButton>
               </View>
 
               {(log?.cardio || []).length > 0 && (
@@ -861,39 +1020,42 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
                     return (
                       <React.Fragment key={c.id}>
                         {idx > 0 && <View style={s.hairlineDivider} />}
-                        <TouchableOpacity
+                        <Pressable
                           style={s.row}
-                          activeOpacity={0.7}
-                          onPress={() => setLogCardioFor(c)}
+                          onPress={() => {
+                            hapticLight();
+                            setLogCardioFor(c);
+                          }}
                         >
                           <View style={[s.cardioIconWrap, isDone && s.cardioIconWrapDone]}>
-                            <Ionicons
-                              name={isDone ? 'checkmark' : 'fitness-outline'}
-                              size={14}
-                              color={isDone ? '#FFFFFF' : (isDark ? IOS_DARK.labelSecondary : colors.textMuted)}
-                            />
+                            {isDone ? (
+                              <Check size={14} color={tokens.status.onSuccess} strokeWidth={ICON.strokeWidth} />
+                            ) : (
+                              <Activity size={14} color={tokens.text.secondary} strokeWidth={ICON.strokeWidth} />
+                            )}
                           </View>
                           <View style={s.rowTextCol}>
                             <Text style={[s.rowTitle, isDone && s.textStrikethrough]}>
                               {c.type || 'Cardio'}
                             </Text>
-                            <Text style={s.rowSubtitle}>
+                            <NumericText style={s.rowSubtitle}>
                               {c.durationMinutes ? `${c.durationMinutes} min` : '0 min'}
                               {c.distanceKm ? ` · ${c.distanceKm} km` : ''}
                               {c.speedKmh ? ` · ${c.speedKmh} km/h` : ''}
                               {c.incline ? ` · ${c.incline}% incline` : ''}
-                            </Text>
+                            </NumericText>
                           </View>
-                          <TouchableOpacity
+                          <TactileButton
+                            variant="custom"
+                            haptic="medium"
                             style={s.actionBtn}
-                            onPress={() => {
-                              hapticMedium();
-                              setCardioMenuFor(c);
-                            }}
+                            hitSlop={TOUCH.hitSlop}
+                            onPress={() => setCardioMenuFor(c)}
+                            accessibilityLabel="Cardio options"
                           >
-                            <Ionicons name="ellipsis-horizontal" size={18} color={isDark ? IOS_DARK.labelSecondary : colors.textTertiary} />
-                          </TouchableOpacity>
-                        </TouchableOpacity>
+                            <MoreHorizontal size={16} color={tokens.text.secondary} strokeWidth={ICON.strokeWidth} />
+                          </TactileButton>
+                        </Pressable>
                       </React.Fragment>
                     );
                   })}
@@ -901,23 +1063,16 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
               )}
             </View>
 
-            {/* ─── 6. SESSION TARGET MUSCLES (Clean iOS Metadata) ───────────── */}
+            {/* ─── 6. SESSION TARGET MUSCLES (Borderless) ──────────────── */}
             {sortedMuscles.length > 0 && (
               <View style={s.section}>
                 <View style={s.sectionHeaderRow}>
-                  <Text style={s.sectionLabel}>TARGET MUSCLES</Text>
+                  <Text style={s.sectionLabel}>MUSCLES HIT</Text>
                 </View>
-                <View style={[s.insetGroupedCard, { paddingVertical: 12, paddingHorizontal: 16 }]}>
-                  <Text
-                    style={{
-                      fontSize: 13,
-                      fontFamily: FONT_FAMILY.body,
-                      color: isDark ? IOS_DARK.labelSecondary : colors.textMuted,
-                      lineHeight: 20,
-                    }}
-                  >
-                    {sortedMuscles.map(([muscle, count]) => `${muscle} (${count} sets)`).join('  ·  ')}
-                  </Text>
+                <View style={s.targetMusclesCard}>
+                  <NumericText style={s.targetMusclesText}>
+                    {sortedMuscles.map(([muscle, count]) => `${muscle} (${count})`).join('  ·  ')}
+                  </NumericText>
                 </View>
               </View>
             )}
@@ -925,10 +1080,10 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
         )}
       </ScrollView>
 
-      {/* ─── MODALS (Loaded strictly on-demand via dynamic require; 0ms Frame-0 impact) ─── */}
-      {showSwapModal && (() => {
-        const { SwapRoutineModal } = require('../../components/Gym/schedule/SwapRoutineModal');
-        return (
+      {/* ─── MODALS (Lazy-mounted shells keep closed modals zero-cost while preserving exit springs) ─── */}
+      <LazySheet
+        visible={showSwapModal}
+        render={() => (
           <SwapRoutineModal
             visible={showSwapModal}
             selectedDate={selectedDate}
@@ -939,22 +1094,12 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
               setShowSwapModal(false);
             }}
           />
-        );
-      })()}
+        )}
+      />
 
-      {showBodyMetrics && (() => {
-        const BodyMetricsSheet = require('../../components/Gym/metrics/BodyMetricsSheet').default;
-        return (
-          <BodyMetricsSheet
-            visible={showBodyMetrics}
-            onClose={() => setShowBodyMetrics(false)}
-          />
-        );
-      })()}
-
-      {showCardioModal && (() => {
-        const { AddCardioModal } = require('../../components/Gym/cardio/AddCardioModal');
-        return (
+      <LazySheet
+        visible={showCardioModal}
+        render={() => (
           <AddCardioModal
             visible={showCardioModal}
             onClose={() => setShowCardioModal(false)}
@@ -963,12 +1108,12 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
               setShowCardioModal(false);
             }}
           />
-        );
-      })()}
+        )}
+      />
 
-      {!!logCardioFor && (() => {
-        const { LogCardioModal } = require('../../components/Gym/cardio/LogCardioModal');
-        return (
+      <LazySheet
+        visible={Boolean(logCardioFor)}
+        render={() => (
           <LogCardioModal
             visible={Boolean(logCardioFor)}
             cardio={logCardioFor}
@@ -980,15 +1125,13 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
               setLogCardioFor(null);
             }}
           />
-        );
-      })()}
+        )}
+      />
 
-      {showAddModal && (() => {
-        const AddExMod = require('../../components/Gym/exercise/AddExerciseModal');
-        const AddExerciseModalComponent = AddExMod.AddExerciseModal || AddExMod.default || AddExMod;
-        if (!AddExerciseModalComponent) return null;
-        return (
-          <AddExerciseModalComponent
+      <LazySheet
+        visible={showAddModal}
+        render={() => (
+          <AddExerciseModal
             visible={showAddModal}
             onClose={() => setShowAddModal(false)}
             onAdd={(newEx: any) => {
@@ -997,29 +1140,30 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
             }}
             existingExerciseIds={existingExerciseIds}
           />
-        );
-      })()}
+        )}
+      />
 
-      {deepDiveExercise && (() => {
-        const ExerciseDeepDiveModal = require('../../components/Gym/exercise/ExerciseDeepDiveModal').default;
-        return (
+      <LazySheet
+        visible={Boolean(deepDiveExercise)}
+        render={() => (
           <ExerciseDeepDiveModal
             visible={Boolean(deepDiveExercise)}
             exerciseName={deepDiveExercise}
             gymLogs={gymLogs || []}
+            initialTab={deepDiveTab}
             onClose={() => setDeepDiveExercise(null)}
           />
-        );
-      })()}
+        )}
+      />
 
-      {Boolean(exerciseMenuFor || cardioMenuFor) && (() => {
-        const { GymExerciseOptionsSheet } = require('../../components/Gym/exercise/GymExerciseOptionsSheet');
-        return (
+      <LazySheet
+        visible={Boolean(exerciseMenuFor || supersetPickerFor || cardioMenuFor)}
+        render={() => (
           <GymExerciseOptionsSheet
             exerciseMenuFor={exerciseMenuFor}
             setExerciseMenuFor={setExerciseMenuFor}
-            supersetPickerFor={null}
-            setSupersetPickerFor={() => {}}
+            supersetPickerFor={supersetPickerFor}
+            setSupersetPickerFor={setSupersetPickerFor}
             cardioMenuFor={cardioMenuFor}
             setCardioMenuFor={setCardioMenuFor}
             setLogCardioFor={setLogCardioFor}
@@ -1034,87 +1178,151 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
             colors={colors}
             isDark={isDark}
             s={s}
-            onOpenDeepDive={(ex: any) => setDeepDiveExercise(ex.name)}
+            onOpenDeepDive={(ex: any, tab: 'guide' | 'analytics' = 'guide') => {
+              setDeepDiveTab(tab);
+              setDeepDiveExercise(ex.name);
+            }}
             onOpenSwapModal={(ex: any) => setSwapModalFor(ex)}
+            onOpenEditExercise={(ex: any) => setEditExerciseFor(ex)}
           />
-        );
-      })()}
+        )}
+      />
 
-      {!!swapModalFor && (() => {
-        const { ActiveSwapModal } = require('../../components/Gym/active/ActiveSwapModal');
-        return (
+      {/* ── Edit Exercise Targets Sheet ── */}
+      <LazySheet
+        visible={Boolean(editExerciseFor)}
+        render={() => (
+          <EditExerciseSheet
+            visible={!!editExerciseFor}
+            exercise={editExerciseFor}
+            subtitle={activePlanDay?.name ? `Today · ${activePlanDay.name}` : headerDateText}
+            showSaveToPlanToggle={Boolean(activePlanDay && !activePlanDay.isRest)}
+            defaultSaveToPlan={true}
+            onClose={() => setEditExerciseFor(null)}
+            onSave={(updates: EditExerciseUpdates) => {
+              if (!editExerciseFor) return;
+              const targetIdx =
+                typeof editExerciseFor._idx === 'number'
+                  ? editExerciseFor._idx
+                  : activeExercises.findIndex(
+                      (item: any) =>
+                        (item.exerciseId || item.id) === (editExerciseFor.exerciseId || editExerciseFor.id) &&
+                        item.name === editExerciseFor.name
+                    );
+
+              if (targetIdx >= 0) {
+                const currentEx = activeExercises[targetIdx] || editExerciseFor;
+                const existingSets = Array.isArray(currentEx.setsLog) ? currentEx.setsLog : [];
+                const nextSetsLog = existingSets.slice(0, updates.targetSets).map((s: any, idx: number) => ({
+                  ...s,
+                  setNumber: idx + 1,
+                }));
+                if (nextSetsLog.length < updates.targetSets) {
+                  const fallbackSet = nextSetsLog[nextSetsLog.length - 1] || currentEx.lastSessionSets?.[0];
+                  const defaultReps = parseInt(String(updates.targetReps).split(/[-–—]/)[0], 10) || 8;
+                  for (let i = nextSetsLog.length; i < updates.targetSets; i++) {
+                    nextSetsLog.push({
+                      setNumber: i + 1,
+                      reps: fallbackSet?.reps ?? defaultReps,
+                      weight: fallbackSet?.weight ?? null,
+                      completed: false,
+                    });
+                  }
+                }
+                updateExercise(targetIdx, {
+                  ...currentEx,
+                  exerciseId: currentEx.exerciseId || currentEx.id || `ex_${Date.now()}`,
+                  name: updates.name,
+                  muscle: updates.muscle,
+                  targetSets: updates.targetSets,
+                  targetReps: updates.targetReps,
+                  restTimeSecs: updates.restTimeSecs,
+                  setsLog: nextSetsLog,
+                });
+              }
+
+              if (updates.saveToPlan && activePlanDay && !activePlanDay.isRest && activePlanDay.dayIndex) {
+                const basePlanExs = Array.isArray(activePlanDay.exercises) ? activePlanDay.exercises : [];
+                let matchedInPlan = false;
+                const nextPlanExs = basePlanExs.map((pEx: any) => {
+                  const idMatch =
+                    Boolean(pEx.id) &&
+                    (pEx.id === editExerciseFor.exerciseId || pEx.id === editExerciseFor.id);
+                  const nameMatch = pEx.name === editExerciseFor.name;
+                  if (!matchedInPlan && (idMatch || nameMatch)) {
+                    matchedInPlan = true;
+                    return {
+                      ...pEx,
+                      name: updates.name,
+                      muscle: updates.muscle,
+                      targetSets: updates.targetSets,
+                      targetReps: updates.targetReps,
+                      restTimeSecs: updates.restTimeSecs,
+                    };
+                  }
+                  return pEx;
+                });
+                if (matchedInPlan) {
+                  updateMasterPlan(activePlanDay.dayIndex, {
+                    ...activePlanDay,
+                    exercises: nextPlanExs,
+                  });
+                }
+              }
+              setEditExerciseFor(null);
+            }}
+          />
+        )}
+      />
+
+      <LazySheet
+        visible={Boolean(swapModalFor)}
+        render={() => (
           <ActiveSwapModal
             visible={Boolean(swapModalFor)}
             exercise={swapModalFor}
-            aiSwapList={getExerciseSwapAlternatives(swapModalFor.name, swapModalFor.muscle)}
+            aiSwapList={swapModalFor ? getExerciseSwapAlternatives(swapModalFor.name, swapModalFor.muscle) : []}
             isAiSwapLoading={false}
             colors={colors}
             styles={s}
             onClose={() => setSwapModalFor(null)}
             onSelectSwap={(alt: any) => {
-              const updated = (log?.exercises || []).map((e: any) =>
-                e.exerciseId === swapModalFor.exerciseId
-                  ? {
-                      ...e,
-                      name: alt.name,
-                      muscle: alt.targetMuscle || alt.muscle || e.muscle,
-                      notes: `Swapped from ${swapModalFor.name}`,
-                    }
-                  : e
-              );
-              reorderExercisesFull(updated);
+              if (!swapModalFor) return;
+              const baseList = (log?.exercises && log.exercises.length > 0) ? log.exercises : activeExercises;
+              const targetIdx = typeof swapModalFor._idx === 'number'
+                ? swapModalFor._idx
+                : baseList.findIndex((e: any) =>
+                    (Boolean(e.exerciseId) && Boolean(swapModalFor.exerciseId) && e.exerciseId === swapModalFor.exerciseId) ||
+                    e.name === swapModalFor.name
+                  );
+              if (targetIdx < 0) {
+                setSwapModalFor(null);
+                return;
+              }
+              const targetEx: any = baseList[targetIdx];
+              const swappedEx: any = {
+                ...targetEx,
+                exerciseId: alt.id || alt.exerciseId || targetEx.exerciseId,
+                name: alt.name,
+                muscle: alt.targetMuscle || alt.muscle || targetEx.muscle,
+                notes: `Swapped from ${swapModalFor.name}`,
+              };
+              if (log?.exercises && log.exercises.length > 0) {
+                const updated = baseList.map((e: any, idx: number) =>
+                  idx === targetIdx ? swappedEx : e
+                );
+                reorderExercisesFull(updated as any);
+              } else {
+                updateExercise(targetIdx, swappedEx as any);
+              }
               setSwapModalFor(null);
               hapticSuccess();
             }}
           />
-        );
-      })()}
+        )}
+      />
 
-      {showPRSheet && (() => {
-        const PRHallOfFameSheet = require('../../components/Gym/metrics/PRHallOfFameSheet').default;
-        return (
-          <PRHallOfFameSheet
-            visible={showPRSheet}
-            onClose={() => setShowPRSheet(false)}
-          />
-        );
-      })()}
-
-      {showProfileModal && (() => {
-        const { GymProfileModal } = require('../../components/Gym/common/GymProfileModal');
-        return (
-          <GymProfileModal
-            visible={showProfileModal}
-            onClose={() => setShowProfileModal(false)}
-          />
-        );
-      })()}
-
-      {Boolean(historyDrawerEx) && (() => {
-        const { ExerciseHistoryDrawer } = require('../../components/Gym/exercise/ExerciseHistoryDrawer');
-        return (
-          <ExerciseHistoryDrawer
-            visible={Boolean(historyDrawerEx)}
-            exerciseName={historyDrawerEx?.name || null}
-            exerciseId={historyDrawerEx?.id || null}
-            onClose={() => setHistoryDrawerEx(null)}
-          />
-        );
-      })()}
-
-      {detailModalEx && (() => {
-        const { ExerciseDetailModal } = require('../../components/Gym/exercise/ExerciseDetailModal');
-        return (
-          <ExerciseDetailModal
-            visible={Boolean(detailModalEx)}
-            exerciseName={detailModalEx}
-            onClose={() => setDetailModalEx(null)}
-          />
-        );
-      })()}
-
-
-    </View>
+    </ScreenWrapper>
   );
 });
 

@@ -16,14 +16,20 @@ import {
   StyleSheet,
   ScrollView,
   useWindowDimensions,
-  TouchableOpacity,
   Platform,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { FONT_FAMILY, RADIUS, SPACE, IOS_DARK, COLORS } from '../../../theme/tokens';
+import {
+  Dumbbell,
+  TrendingDown,
+  TrendingUp,
+} from 'lucide-react-native';
+import { TactileButton } from '../../ui/TactileButton';
+import { NumericText } from '../../ui/NumericText';
+import { COLORS, DARK_TOKENS, FONT_FAMILY, ICON, LIGHT_TOKENS, RADIUS, SPACE, TOUCH } from '../../../theme/tokens';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { hapticLight, hapticSelection } from '../../../utils/haptics';
+import { hapticLight } from '../../../utils/haptics';
 import { resolveMuscleColor } from '../../../utils/gymUtils';
+import { useWeightUnit, kgToDisplay, unitLabel, formatVolumeParts } from '../../../utils/weightUnit';
 
 export interface WeeklyHighlightStats {
   thisWeekVolume: number;
@@ -59,17 +65,22 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
   stats,
   onSelectExercise,
 }) => {
-  const { isDark, colors } = useTheme();
+  const { isDark, colors, tokens } = useTheme();
+  const unitIsLbs = useWeightUnit();
+  const uLabel = unitLabel(unitIsLbs);
+  const volParts = formatVolumeParts(stats.thisWeekVolume, unitIsLbs);
+  const s = useMemo(() => makeStyles(tokens), [tokens]);
   const { width } = useWindowDimensions();
   const [activeIndex, setActiveIndex] = useState(0);
 
   // Card dimensions: Full width minus padding with generous margins
-  const cardWidth = Math.max(280, width - 28);
+  const CARD_GAP = SPACE.md;
+  const cardWidth = Math.max(240, Math.min(width - 28, 532));
 
   const handleScroll = (event: any) => {
     const x = event.nativeEvent.contentOffset.x;
-    const index = Math.round(x / (cardWidth + 12));
-    if (index !== activeIndex && index >= 0 && index <= 2) {
+    const index = Math.round(x / (cardWidth + CARD_GAP));
+    if (index !== activeIndex && index >= 0 && index <= 1) {
       setActiveIndex(index);
     }
   };
@@ -84,9 +95,9 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
       <View style={s.headerRow}>
         <Text style={s.sectionTitle}>WEEKLY HIGHLIGHTS</Text>
 
-        {/* 3 Story Dots */}
+        {/* 2 Story Dots */}
         <View style={s.dotsContainer}>
-          {[0, 1, 2].map(idx => (
+          {[0, 1].map(idx => (
             <View
               key={idx}
               style={[
@@ -104,82 +115,20 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
         pagingEnabled
         nestedScrollEnabled={true}
         showsHorizontalScrollIndicator={false}
-        snapToInterval={cardWidth + 12}
+        snapToInterval={cardWidth + CARD_GAP}
         snapToAlignment="center"
         decelerationRate="fast"
         onScroll={handleScroll}
         scrollEventThrottle={16}
-        contentContainerStyle={{ paddingHorizontal: 2, gap: 12 }}
+        contentContainerStyle={{ paddingHorizontal: 2, gap: CARD_GAP }}
       >
         {/* ══════════════════════════════════════════════════════════════════
-            CARD 1: Overall Volume & Overload Rate
+            CARD 1: Top 3 PRs (Clean Athletic Highlights)
            ══════════════════════════════════════════════════════════════════ */}
-        <View style={[s.storyCard, { width: cardWidth, backgroundColor: isDark ? '#18181B' : colors.surface }]}>
-          {/* Card Top Label */}
-          <View style={s.cardTopRow}>
-            <Text style={s.cardCategoryText}>OVERLOAD PROGRESS</Text>
-            <Text style={s.storyCardIndex}>1 OF 3</Text>
-          </View>
-
-          {/* Hero Numbers */}
-          <View style={s.heroMetricRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.heroVolumeNum}>
-                {stats.thisWeekVolume >= 1000
-                  ? `${(stats.thisWeekVolume / 1000).toFixed(1)}k`
-                  : stats.thisWeekVolume}
-                <Text style={s.heroUnit}> kg</Text>
-              </Text>
-              <View style={s.deltaRow}>
-                <Ionicons
-                  name={stats.volumeDeltaPct >= 0 ? 'arrow-up' : 'arrow-down'}
-                  size={12}
-                  color={stats.volumeDeltaPct >= 0 ? '#30D158' : '#8E8E93'}
-                />
-                <Text
-                  style={[
-                    s.deltaText,
-                    { color: stats.volumeDeltaPct >= 0 ? '#30D158' : '#8E8E93' },
-                  ]}
-                >
-                  {volumeDeltaText}
-                </Text>
-              </View>
-            </View>
-
-            {/* Overload Success Rate Clean Stat */}
-            <View style={s.overloadBadgeContainer}>
-              <Text style={s.overloadRateNum}>{stats.overloadRatePct}%</Text>
-              <Text style={s.overloadRateSub}>Overload Success</Text>
-            </View>
-          </View>
-
-          {/* Sub-KPI Pods */}
-          <View style={s.subKpiGrid}>
-            <View style={[s.subKpiPod, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F2F2F7' }]}>
-              <Text style={s.subKpiVal}>{stats.sessionCount}</Text>
-              <Text style={s.subKpiLabel}>Workouts</Text>
-            </View>
-
-            <View style={[s.subKpiPod, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F2F2F7' }]}>
-              <Text style={s.subKpiVal}>{stats.thisWeekSets}</Text>
-              <Text style={s.subKpiLabel}>Total Sets</Text>
-            </View>
-
-            <View style={[s.subKpiPod, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F2F2F7' }]}>
-              <Text style={s.subKpiVal}>{stats.weightUnlocksCount}</Text>
-              <Text style={s.subKpiLabel}>Weight PRs</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* ══════════════════════════════════════════════════════════════════
-            CARD 2: Top 3 PRs (Clean Apple Fitness Style)
-           ══════════════════════════════════════════════════════════════════ */}
-        <View style={[s.storyCard, { width: cardWidth, backgroundColor: isDark ? '#18181B' : colors.surface }]}>
+        <View style={[s.storyCard, { width: cardWidth, backgroundColor: tokens.bg.surface }]}>
           <View style={s.cardTopRow}>
             <Text style={s.cardCategoryText}>TOP PERSONAL RECORDS</Text>
-            <Text style={s.storyCardIndex}>2 OF 3</Text>
+            <NumericText style={s.storyCardIndex}>1 OF 2</NumericText>
           </View>
 
           {/* Top 3 PR Podium / Badges */}
@@ -187,16 +136,17 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
             {stats.topPRs && stats.topPRs.length > 0 ? (
               stats.topPRs.slice(0, 3).map((pr, index) => {
                 return (
-                  <TouchableOpacity
+                  <TactileButton
                     key={`${pr.exerciseName}-${index}`}
+                    variant="custom"
+                    haptic="none"
                     style={[
                       s.podiumRow,
                       {
-                        backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F2F2F7',
-                        borderColor: isDark ? 'rgba(255,255,255,0.05)' : colors.border,
+                        backgroundColor: tokens.bg.elevated,
+                        borderColor: tokens.border.subtle,
                       },
                     ]}
-                    activeOpacity={0.75}
                     onPress={() => {
                       hapticLight();
                       if (onSelectExercise) onSelectExercise(pr.exerciseName);
@@ -204,31 +154,31 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
                   >
                     {/* Minimal Rank Circle */}
                     <View style={s.podiumRankCircle}>
-                      <Text style={s.podiumRankText}>{index + 1}</Text>
+                      <NumericText style={s.podiumRankText}>{index + 1}</NumericText>
                     </View>
 
                     {/* Exercise Info */}
-                    <View style={{ flex: 1, marginHorizontal: 8 }}>
+                    <View style={{ flex: 1, marginHorizontal: SPACE.sm }}>
                       <Text style={[s.podiumExName, { color: colors.textPrimary }]} numberOfLines={1}>
                         {pr.exerciseName}
                       </Text>
-                      <Text style={s.podiumSetText}>
-                        {pr.weight > 0 ? `${pr.weight} kg` : 'Bodyweight'} × {pr.reps} reps
+                      <NumericText style={s.podiumSetText}>
+                        {pr.weight > 0 ? `${kgToDisplay(pr.weight, unitIsLbs)} ${uLabel}` : 'Bodyweight'} × {pr.reps} reps
                         {pr.diffText ? ` · ${pr.diffText}` : ''}
-                      </Text>
+                      </NumericText>
                     </View>
 
                     {/* E1RM Milestone Badge */}
                     <View style={s.podiumE1rmBox}>
-                      <Text style={s.podiumE1rmVal}>{pr.e1rm || pr.weight} kg</Text>
+                      <NumericText style={s.podiumE1rmVal}>{kgToDisplay(pr.e1rm || pr.weight, unitIsLbs)} {uLabel}</NumericText>
                       <Text style={s.podiumE1rmLabel}>est. 1RM</Text>
                     </View>
-                  </TouchableOpacity>
+                  </TactileButton>
                 );
               })
             ) : (
               <View style={s.emptyPrBox}>
-                <Ionicons name="barbell-outline" size={24} color={colors.textTertiary} />
+                <Dumbbell size={24} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />
                 <Text style={s.emptyPrText}>Log working sets to track personal records</Text>
               </View>
             )}
@@ -236,63 +186,62 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
         </View>
 
         {/* ══════════════════════════════════════════════════════════════════
-            CARD 3: Anatomical Muscle Heatmap & Balanced vs Lagging Indicators
+            CARD 2: Overall Volume & Overload Progress
            ══════════════════════════════════════════════════════════════════ */}
-        <View style={[s.storyCard, { width: cardWidth, backgroundColor: isDark ? '#18181B' : colors.surface }]}>
+        <View style={[s.storyCard, { width: cardWidth, backgroundColor: tokens.bg.surface }]}>
+          {/* Card Top Label */}
           <View style={s.cardTopRow}>
-            <Text style={s.cardCategoryText}>ANATOMICAL BALANCE</Text>
-            <Text style={s.adherenceText}>
-              {stats.overallAdherencePct >= 100 ? '100% Plan Hit' : `${stats.overallAdherencePct}% Plan Hit`}
-            </Text>
+            <Text style={s.cardCategoryText}>OVERLOAD HIGHLIGHTS</Text>
+            <NumericText style={s.storyCardIndex}>2 OF 2</NumericText>
           </View>
 
-          {/* Balanced vs Lagging Grid */}
-          <View style={s.muscleBalanceGrid}>
-            {stats.muscleAdherence.slice(0, 6).map((item) => {
-              const muscleColor = resolveMuscleColor(item.muscle);
-              const isBalanced = item.status === 'balanced';
-              const isFatigue = item.status === 'fatigue';
-
-              const statusColor = isBalanced ? '#30D158' : isFatigue ? '#FF453A' : colors.textTertiary;
-              const statusTag = isBalanced ? 'Optimal' : isFatigue ? 'Fatigue' : 'Lagging';
-
-              return (
-                <View
-                  key={item.muscle}
+          {/* Hero Numbers */}
+          <View style={s.heroMetricRow}>
+            <View style={{ flex: 1 }}>
+              <NumericText style={s.heroVolumeNum}>
+                {volParts.numStr}
+                <NumericText style={s.heroUnit}> {volParts.suffix}</NumericText>
+              </NumericText>
+              <View style={s.deltaRow}>
+                {stats.volumeDeltaPct >= 0 ? (
+                  <TrendingUp size={12} color={tokens.status.success} strokeWidth={ICON.strokeWidth} />
+                ) : (
+                  <TrendingDown size={12} color={tokens.text.secondary} strokeWidth={ICON.strokeWidth} />
+                )}
+                <NumericText
                   style={[
-                    s.muscleBalanceCard,
-                    { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F2F2F7' },
+                    s.deltaText,
+                    { color: stats.volumeDeltaPct >= 0 ? tokens.status.success : tokens.text.secondary },
                   ]}
                 >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1, paddingRight: 4 }}>
-                      <View style={[s.muscleDot, { backgroundColor: muscleColor }]} />
-                      <Text style={[s.muscleItemName, { color: colors.textPrimary }]} numberOfLines={1}>
-                        {item.muscle}
-                      </Text>
-                    </View>
-                    <Text style={[s.statusTextSmall, { color: statusColor }]}>{statusTag}</Text>
-                  </View>
+                  {volumeDeltaText}
+                </NumericText>
+              </View>
+            </View>
 
-                  <View style={s.muscleProgressRow}>
-                    <Text style={s.muscleSetCount}>
-                      {item.sets} <Text style={{ color: colors.textTertiary, fontSize: 10 }}>/ {item.target} sets</Text>
-                    </Text>
-                    <View style={s.progressBarTrack}>
-                      <View
-                        style={[
-                          s.progressBarFill,
-                          {
-                            width: `${Math.min(100, Math.round((item.sets / Math.max(1, item.target)) * 100))}%`,
-                            backgroundColor: isBalanced ? '#30D158' : 'rgba(255,255,255,0.3)',
-                          },
-                        ]}
-                      />
-                    </View>
-                  </View>
-                </View>
-              );
-            })}
+            {/* Overload Success Rate Clean Stat */}
+            <View style={s.overloadBadgeContainer}>
+              <NumericText style={s.overloadRateNum}>{stats.overloadRatePct}%</NumericText>
+              <Text style={s.overloadRateSub}>Overload Success</Text>
+            </View>
+          </View>
+
+          {/* Sub-KPI Pods */}
+          <View style={s.subKpiGrid}>
+            <View style={[s.subKpiPod, { backgroundColor: tokens.bg.elevated }]}>
+              <NumericText style={s.subKpiVal}>{stats.sessionCount}</NumericText>
+              <Text style={s.subKpiLabel}>Workouts</Text>
+            </View>
+
+            <View style={[s.subKpiPod, { backgroundColor: tokens.bg.elevated }]}>
+              <NumericText style={s.subKpiVal}>{stats.thisWeekSets}</NumericText>
+              <Text style={s.subKpiLabel}>Total Sets</Text>
+            </View>
+
+            <View style={[s.subKpiPod, { backgroundColor: tokens.bg.elevated }]}>
+              <NumericText style={s.subKpiVal}>{stats.weightUnlocksCount}</NumericText>
+              <Text style={s.subKpiLabel}>Weight PRs</Text>
+            </View>
           </View>
         </View>
       </ScrollView>
@@ -302,7 +251,7 @@ export const WeeklyHighlightsCarousel: React.FC<Props> = React.memo(({
 
 export default WeeklyHighlightsCarousel;
 
-const s = StyleSheet.create({
+const makeStyles = (tokens: typeof DARK_TOKENS) => StyleSheet.create({
   container: {
     marginBottom: SPACE.md,
   },
@@ -310,14 +259,14 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 4,
-    marginBottom: 8,
+    paddingHorizontal: SPACE.xs,
+    marginBottom: SPACE.sm,
   },
   sectionTitle: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 12,
     letterSpacing: 0.8,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
   dotsContainer: {
     flexDirection: 'row',
@@ -330,17 +279,17 @@ const s = StyleSheet.create({
   },
   dotActive: {
     width: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: tokens.accent.primary,
   },
   dotInactive: {
     width: 4,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: tokens.border.subtle,
   },
   storyCard: {
-    borderRadius: RADIUS.lg,
-    padding: 16,
+    borderRadius: RADIUS.card,
+    padding: SPACE.lg,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: tokens.border.subtle,
     minHeight: 180,
     justifyContent: 'space-between',
   },
@@ -353,13 +302,13 @@ const s = StyleSheet.create({
   cardCategoryText: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 10.5,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
     letterSpacing: 0.8,
   },
   storyCardIndex: {
     fontFamily: FONT_FAMILY.mono,
     fontSize: 10,
-    color: 'rgba(255,255,255,0.35)',
+    color: tokens.text.muted,
   },
 
   // Hero metric row
@@ -367,17 +316,17 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: SPACE.md,
   },
   heroVolumeNum: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 28,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
     letterSpacing: -0.8,
   },
   heroUnit: {
     fontSize: 16,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
   deltaRow: {
     flexDirection: 'row',
@@ -397,64 +346,65 @@ const s = StyleSheet.create({
   overloadRateNum: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 22,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
     letterSpacing: -0.5,
   },
   overloadRateSub: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 10.5,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
     marginTop: 1,
   },
 
   // Sub KPI Grid
   subKpiGrid: {
     flexDirection: 'row',
-    gap: 8,
+    gap: SPACE.sm,
   },
   subKpiPod: {
     flex: 1,
-    borderRadius: RADIUS.md,
+    borderRadius: RADIUS.inner,
     padding: 9,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.04)',
+    borderColor: tokens.border.subtle,
   },
   subKpiVal: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 13,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
   },
   subKpiLabel: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 10,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
     marginTop: 2,
   },
 
-  // Podium (Card 2)
+  // Podium (Card 1)
   podiumContainer: {
-    gap: 8,
+    gap: SPACE.sm,
   },
   podiumRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: TOUCH.minTarget,
     padding: 10,
-    borderRadius: RADIUS.md,
+    borderRadius: RADIUS.inner,
     borderWidth: 1,
   },
   podiumRankCircle: {
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: tokens.bg.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
   podiumRankText: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 10.5,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
   },
   podiumExName: {
     fontFamily: FONT_FAMILY.bold,
@@ -463,52 +413,52 @@ const s = StyleSheet.create({
   podiumSetText: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 11,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
     marginTop: 1,
   },
   podiumE1rmBox: {
     alignItems: 'flex-end',
   },
   podiumE1rmVal: {
-    fontFamily: FONT_FAMILY.mono,
+    fontFamily: FONT_FAMILY.bold,
     fontSize: 13,
-    color: '#FFFFFF',
-    fontWeight: '700',
+    color: tokens.text.primary,
   },
   podiumE1rmLabel: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 9,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
   emptyPrBox: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 24,
+    paddingVertical: SPACE.xl,
     gap: 6,
   },
   emptyPrText: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 12,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
 
-  // Muscle Balance (Card 3)
+  // Muscle Balance
   adherenceText: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 10.5,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
   muscleBalanceGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: SPACE.sm,
   },
   muscleBalanceCard: {
-    width: '48.5%',
-    borderRadius: RADIUS.md,
+    flexBasis: '47%',
+    flexGrow: 1,
+    borderRadius: RADIUS.inner,
     padding: 9,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.04)',
+    borderColor: tokens.border.subtle,
   },
   muscleDot: {
     width: 5,
@@ -525,17 +475,17 @@ const s = StyleSheet.create({
   },
   muscleProgressRow: {
     marginTop: 6,
-    gap: 4,
+    gap: SPACE.xs,
   },
   muscleSetCount: {
     fontFamily: FONT_FAMILY.mono,
     fontSize: 11,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
   },
   progressBarTrack: {
     height: 3,
     borderRadius: 1.5,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: tokens.border.subtle,
     overflow: 'hidden',
   },
   progressBarFill: {

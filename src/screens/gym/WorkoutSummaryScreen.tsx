@@ -1,12 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, useWindowDimensions, ScrollView, InteractionManager } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { View, Text, useWindowDimensions, ScrollView, InteractionManager, Share } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
+import { Trophy, Flame, X, Share2, ChevronDown } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import ConfettiCannon from 'react-native-confetti-cannon';
-import { StatusBar } from 'expo-status-bar';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -14,34 +13,43 @@ import Animated, {
   withSequence,
   withDelay,
 } from 'react-native-reanimated';
+import { ScreenWrapper, TactileButton, NumericText, AppIcon, RollingNumber } from '../../components/ui';
 
 import { GymNavigationParamList } from '../../types/gym.types';
 import { calculateExerciseMaxWeight, formatIndianDatePretty, normalizeExerciseKey, getVolumeMultiplier } from '../../utils/gymUtils';
+import { formatVolumeParts, formatWeight, unitLabel, useWeightUnit } from '../../utils/weightUnit';
 import { dateStrOffset, todayStr } from '../../hooks/useGymLog';
+import { LazySheet } from '../../hooks/useLazySheetMount';
 import { springs } from '../../theme/motion';
 import { feedback } from '../../utils/haptics';
 import { useGymLogs } from '../../contexts/domains/WellnessContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { awardXP } from '../../services/xpSystem';
+import { estimate1RM } from '../../services/oneRepMaxEngine';
 import { computeOrGetHotCache, generateDatasetFingerprint } from '../../utils/hotCacheStore';
+import { getL1Sync } from '../../utils/bootManifest';
 
 // Extracted Sub-Components & Styles
 import { makeWorkoutSummaryStyles } from './workoutSummaryStyles';
 import WorkoutSummaryProgressionChart from '../../components/Gym/metrics/WorkoutSummaryProgressionChart';
+import ExerciseDeepDiveModal from '../../components/Gym/exercise/ExerciseDeepDiveModal';
 
 export default function WorkoutSummaryScreen() {
   const insets = useSafeAreaInsets();
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, tokens } = useTheme();
+  const unitIsLbs = useWeightUnit();
   const styles = useMemo(() => makeWorkoutSummaryStyles(colors, isDark), [colors, isDark]);
   const navigation = useNavigation<NativeStackNavigationProp<GymNavigationParamList>>();
   const route = useRoute<RouteProp<GymNavigationParamList, 'WorkoutSummary'>>();
 
   const readOnly = route.params?.readOnly || false;
   const targetDate = route.params?.date;
+  const passedLog = (route.params as any)?.log;
   const { gymLogs } = useGymLogs();
 
-  const [showConfetti, setShowConfetti] = useState(true);
+  const [showConfetti, setShowConfetti] = useState(!readOnly);
   const [showAllExercises, setShowAllExercises] = useState(false);
+  const [deepDiveEx, setDeepDiveEx] = useState<string | null>(null);
   const [isTransitionComplete, setIsTransitionComplete] = useState(false);
   const hasAwardedPrRef = useRef(false);
 
@@ -54,47 +62,87 @@ export default function WorkoutSummaryScreen() {
 
   // Pre-find the target log once so gymLogs is only searched / sorted a single time
   const targetLog = useMemo(() => {
-    if (!gymLogs || gymLogs.length === 0) return null;
+    if (passedLog && (!targetDate || passedLog.date === targetDate)) {
+      return passedLog;
+    }
     let logDate = targetDate;
-    if (!logDate) {
+    if (!logDate && gymLogs && gymLogs.length > 0) {
       const sortedLogs = [...gymLogs].sort((a, b) => b.date.localeCompare(a.date));
       logDate = sortedLogs[0]?.date;
     }
     if (!logDate) return null;
-    return gymLogs.find(l => l.date === logDate) || null;
-  }, [gymLogs, targetDate]);
+    const found = (gymLogs || []).find(l => l.date === logDate);
+    if (found) return found;
+
+    // Fast fallback: Check L1 RAM cache
+    const l1Logs = getL1Sync<any[]>('gymLogs', []);
+    const l1Found = (l1Logs || []).find(l => l.date === logDate);
+    if (l1Found) return l1Found;
+
+    return null;
+  }, [passedLog, gymLogs, targetDate]);
 
   const detectedPR = useMemo(() => {
     if (readOnly || !targetLog?.exercises || !gymLogs || gymLogs.length === 0) return null;
     const logDate = targetLog.date;
     const pastLogs = gymLogs.filter(l => l.date < logDate);
 
-    // O(N×K) pre-indexed Map keyed strictly by normalized exercise name
-    const pastMaxByKey = new Map<string, number>();
+    // Pre-indexed Map of past max weight and e1RM keyed strictly by normalized exercise name
+    const pastMaxByKey = new Map<string, { weight: number; e1RM: number }>();
     for (const pl of pastLogs) {
       for (const ex of (pl.exercises || [])) {
         const key = normalizeExerciseKey(ex.name);
         if (!key) continue;
-        const m = calculateExerciseMaxWeight(ex as any);
-        if (m > (pastMaxByKey.get(key) || 0)) pastMaxByKey.set(key, m);
+        let maxW = 0;
+        let maxE1RM = 0;
+        for (const s of (ex.setsLog || [])) {
+          if (!s.completed) continue;
+          const w = Number(s.weight) || 0;
+          const r = Number(s.reps) || 0;
+          if (w > maxW) maxW = w;
+          if (w > 0 && r > 0) {
+            const e1rm = estimate1RM(w, r);
+            if (e1rm > maxE1RM) maxE1RM = e1rm;
+          }
+        }
+        const existing = pastMaxByKey.get(key) || { weight: 0, e1RM: 0 };
+        if (maxW > existing.weight || maxE1RM > existing.e1RM) {
+          pastMaxByKey.set(key, {
+            weight: Math.max(maxW, existing.weight),
+            e1RM: Math.max(maxE1RM, existing.e1RM),
+          });
+        }
       }
     }
 
-    let found: { name: string; weight: number } | null = null;
+    const prs: Array<{ name: string; weight: number; type: 'weight' | '1RM'; prev: number }> = [];
     for (const ex of targetLog.exercises) {
       if (!ex.setsLog) continue;
-      const todayMax = calculateExerciseMaxWeight(ex as any);
-      if (todayMax === 0) continue;
       const key = normalizeExerciseKey(ex.name);
       if (!key) continue;
-      const pastMax = pastMaxByKey.get(key) || 0;
-      // Require pastMax > 0 so first-time exercises never trigger false PR
-      if (pastMax > 0 && todayMax > pastMax) {
-        found = { name: ex.name, weight: todayMax };
-        break;
+      const past = pastMaxByKey.get(key);
+      if (!past) continue; // Require past record so first-time exercises never trigger false PR
+
+      let todayMaxW = 0;
+      let todayMaxE1RM = 0;
+      for (const s of ex.setsLog) {
+        if (!s.completed) continue;
+        const w = Number(s.weight) || 0;
+        const r = Number(s.reps) || 0;
+        if (w > todayMaxW) todayMaxW = w;
+        if (w > 0 && r > 0) {
+          const e1rm = estimate1RM(w, r);
+          if (e1rm > todayMaxE1RM) todayMaxE1RM = e1rm;
+        }
+      }
+
+      if (past.weight > 0 && todayMaxW > past.weight) {
+        prs.push({ name: ex.name, weight: todayMaxW, type: 'weight', prev: past.weight });
+      } else if (past.e1RM > 0 && todayMaxE1RM > past.e1RM && todayMaxW > 0) {
+        prs.push({ name: ex.name, weight: todayMaxE1RM, type: '1RM', prev: past.e1RM });
       }
     }
-    return found;
+    return prs.length > 0 ? prs : null;
   }, [gymLogs, targetLog, readOnly]);
 
   const detectedPRList = detectedPR;
@@ -102,11 +150,11 @@ export default function WorkoutSummaryScreen() {
   const isPR = !!newPR;
 
   useEffect(() => {
-    if (detectedPR && !hasAwardedPrRef.current) {
+    if (detectedPR && targetLog?.date && !hasAwardedPrRef.current) {
       hasAwardedPrRef.current = true;
-      awardXP('GYM_PR').catch(() => {});
+      awardXP('GYM_PR', `pr_${targetLog.date}`).catch(() => {});
     }
-  }, [detectedPR]);
+  }, [detectedPR, targetLog?.date]);
 
   const sessionData = useMemo(() => {
     const todayLog = targetLog;
@@ -114,9 +162,10 @@ export default function WorkoutSummaryScreen() {
     let totalSets = 0;
     let totalVolume = 0;
     let totalExercises = 0;
-    const exercises: Array<{ name: string; sets: number; maxWeight: number; reps: number }> = [];
+    const exercises: Array<{ name: string; sets: number; maxWeight: number; reps: number; plannedOnly?: boolean }> = [];
+    const plannedExercises: Array<{ name: string; sets: number; maxWeight: number; reps: number; plannedOnly?: boolean }> = [];
 
-    todayLog?.exercises?.forEach(ex => {
+    todayLog?.exercises?.forEach((ex: any) => {
       if (ex.skipped) return;
       let exSets = 0;
       let exMaxWeight = 0;
@@ -147,13 +196,32 @@ export default function WorkoutSummaryScreen() {
           maxWeight: exMaxWeight,
           reps: exTotalReps,
         });
+      } else if (ex.name) {
+        plannedExercises.push({
+          name: ex.name,
+          sets: ex.setsLog?.length || Number(ex.targetSets) || 3,
+          maxWeight: 0,
+          reps: 0,
+          plannedOnly: true,
+        });
       }
     });
 
     const duration = todayLog?.workoutDurationMinutes || 0;
     const notes = todayLog?.notes;
+    const listToDisplay = exercises.length > 0 ? exercises : plannedExercises;
+    const isQuickCheckIn = exercises.length === 0 && plannedExercises.length > 0;
 
-    return { totalSets, totalVolume, totalExercises, duration, exercises, notes };
+    return {
+      totalSets,
+      totalVolume,
+      totalExercises,
+      duration,
+      exercises: listToDisplay,
+      performedCount: exercises.length,
+      isQuickCheckIn,
+      notes,
+    };
   }, [targetLog]);
 
   const displayedExercises = showAllExercises
@@ -161,40 +229,23 @@ export default function WorkoutSummaryScreen() {
     : sessionData.exercises.slice(0, 3);
   const remainingCount = sessionData.exercises.length - 3;
 
-  const previousSessionVolume = useMemo(() => {
-    if (!gymLogs || gymLogs.length < 2 || !targetLog) return null;
-    const pastLogs = gymLogs.filter(l => l.date < targetLog.date && (l.exercises?.length || 0) > 0).sort((a, b) => b.date.localeCompare(a.date));
-    const prev = pastLogs[0];
-    if (!prev) return null;
-    let vol = 0;
-    (prev.exercises || []).forEach((e: any) => {
-      const mult = getVolumeMultiplier(e.name);
-      (e.setsLog || []).forEach((s: any) => {
-        if (s.completed && s.weight && s.reps) {
-          vol += Number(s.weight) * Number(s.reps) * mult;
-        }
-      });
-    });
-    return Math.round(vol);
-  }, [gymLogs, targetLog]);
-
-  const volumeDelta = previousSessionVolume != null ? sessionData.totalVolume - previousSessionVolume : null;
-
   const availableLifts = useMemo(() => {
-    const defaultLifts = ['Bench Press', 'Squat', 'Deadlift', 'Overhead Press', 'Pull Up', 'Barbell Row'];
-    const loggedNames = sessionData.exercises.map(e => e.name);
-    const combined = Array.from(new Set([...loggedNames, ...defaultLifts]));
-    return combined.slice(0, 6);
+    const sessionLiftNames = sessionData.exercises
+      .filter(e => !e.plannedOnly)
+      .map(e => e.name);
+    return Array.from(new Set(sessionLiftNames)).slice(0, 5);
   }, [sessionData.exercises]);
 
-  const [selectedLift, setSelectedLift] = useState<string>('Bench Press');
+  const [selectedLift, setSelectedLift] = useState<string>('');
   const [selectedMetric, setSelectedMetric] = useState<'1RM' | 'Volume'>('1RM');
 
   useEffect(() => {
-    if (sessionData.exercises.length > 0) {
-      setSelectedLift(sessionData.exercises[0].name);
+    if (availableLifts.length > 0) {
+      setSelectedLift(prev => (prev && availableLifts.includes(prev) ? prev : availableLifts[0]));
+    } else {
+      setSelectedLift('');
     }
-  }, [sessionData.exercises]);
+  }, [availableLifts]);
 
   const prScale = useSharedValue(0.6);
   const streakScale = useSharedValue(0.6);
@@ -257,17 +308,47 @@ export default function WorkoutSummaryScreen() {
       const step = Math.max(1, Math.floor(labels.length / 5));
       return {
         labels: labels.map((l, i) => i % step === 0 ? l : ''),
-        datasets: [{ data: dataPoints, color: (opacity = 1) => isDark ? `rgba(255, 255, 255, ${opacity * 0.95})` : `rgba(108, 92, 231, ${opacity * 0.95})`, strokeWidth: 2 }],
+        datasets: [{ data: dataPoints, color: (opacity = 1) => isDark ? `rgba(255, 255, 255, ${opacity * 0.95})` : `rgba(10, 132, 255, ${opacity * 0.95})`, strokeWidth: 2 }],
       };
     });
   }, [gymLogs, selectedLift, selectedMetric, isDark]);
 
+  const handleShareWorkout = useCallback(async () => {
+    try {
+      feedback.tap();
+      const dateFormatted = targetLog?.date ? formatIndianDatePretty(targetLog.date) : 'Today';
+      const volFull = formatVolumeParts(sessionData.totalVolume, unitIsLbs).full;
+      const prText = detectedPR && detectedPR.length > 0
+        ? `🏆 Personal Records: ${detectedPR.map(p => `${p.name} (${formatWeight(p.weight, unitIsLbs, 1)}${p.type === '1RM' ? ' e1RM' : ''})`).join(', ')}\n`
+        : '';
+      const topLifts = sessionData.exercises
+        .slice(0, 5)
+        .map(e => `• ${e.name}: ${e.sets} sets${e.maxWeight > 0 ? ` · ${formatWeight(e.maxWeight, unitIsLbs, 1)}` : ''}`)
+        .join('\n');
+
+      const message =
+        `⚡ ZenFit Workout Summary\n` +
+        `📅 ${dateFormatted}\n\n` +
+        `⏱️ Duration: ${sessionData.duration > 0 ? `${sessionData.duration} min` : '--'}\n` +
+        `📊 Volume: ${volFull} · ${sessionData.totalSets} sets · ${sessionData.totalExercises} exercises\n` +
+        (prText ? `\n${prText}` : '') +
+        (topLifts ? `\nTop Exercises:\n${topLifts}\n` : '') +
+        `\nCrushed with ZenFit 🔥`;
+
+      await Share.share({
+        message,
+        title: 'ZenFit Workout Summary',
+      });
+    } catch {
+      // User dismissed or cancelled
+    }
+  }, [targetLog, sessionData, isPR, newPR, unitIsLbs]);
+
   return (
-    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
-      <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.background} />
-      {!readOnly && isPR && showConfetti && isTransitionComplete && (
+    <ScreenWrapper edges={['top', 'left', 'right']} keyboardAvoiding={false}>
+      {!readOnly && showConfetti && isTransitionComplete && (
         <ConfettiCannon
-          count={45}
+          count={isPR ? 50 : 25}
           origin={{ x: screenWidth / 2, y: -10 }}
           autoStart={true}
           fallSpeed={2500}
@@ -276,37 +357,62 @@ export default function WorkoutSummaryScreen() {
         />
       )}
 
-      {readOnly && (
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
-            <Ionicons name="close" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-        </View>
-      )}
+      <View style={styles.header}>
+        {readOnly ? (
+          <TactileButton
+            variant="icon"
+            size="sm"
+            style={styles.backBtn}
+            onPress={() => navigation.goBack()}
+            accessibilityLabel="Close summary"
+          >
+            <AppIcon icon={X} size={16} color={tokens.text.primary} />
+          </TactileButton>
+        ) : (
+          <View style={{ flex: 1 }} />
+        )}
+        <TactileButton
+          variant="icon"
+          size="sm"
+          style={styles.shareHeaderBtn}
+          onPress={handleShareWorkout}
+          accessibilityLabel="Share workout summary"
+        >
+          <AppIcon icon={Share2} size={16} color={tokens.text.primary} />
+        </TactileButton>
+      </View>
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, readOnly && { paddingBottom: Math.max(tokens.space.xl, insets.bottom + 24) }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Hero Section */}
         <View style={styles.heroSection}>
           <View style={styles.badgeHalo}>
             <LinearGradient
-              colors={isDark ? ['rgba(165,153,255,0.22)', 'rgba(94,218,158,0.12)', 'transparent'] : ['rgba(108,92,231,0.15)', 'transparent']}
+              colors={tokens.gradients.canvasGlow}
               style={styles.haloGradient}
             >
-              <LinearGradient colors={isDark ? ['#282832', '#16161c'] : ['#ffffff', '#f4f4f6']} style={styles.badgeWrapper}>
-                <Ionicons name="trophy" size={26} color={colors.accentPrimary} />
+              <LinearGradient colors={tokens.gradients.surfaceSheen} style={styles.badgeWrapper}>
+                <AppIcon icon={Trophy} size={26} color={tokens.accent.primary} />
               </LinearGradient>
             </LinearGradient>
           </View>
           <View style={styles.sessionPill}>
             <View style={styles.pulseDot} />
-            <Text style={styles.sessionPillText}>SESSION LOGGED</Text>
+            <Text style={styles.sessionPillText}>
+              {sessionData.isQuickCheckIn ? 'QUICK CHECK-IN' : 'SESSION LOGGED'}
+            </Text>
           </View>
           <Text style={styles.heroTitle}>{readOnly ? (targetDate ? formatIndianDatePretty(targetDate) : 'Session Summary') : 'Workout Complete'}</Text>
-          <Text style={styles.heroSubtitle}>{readOnly ? 'Historical workout log details' : 'Great consistency. All sets & progress saved.'}</Text>
+          <Text style={styles.heroSubtitle}>
+            {sessionData.isQuickCheckIn
+              ? 'Session marked complete — no working weights recorded.'
+              : readOnly
+              ? 'Recorded workout overview'
+              : 'All completed sets and records saved.'}
+          </Text>
         </View>
 
         {/* PR Card */}
@@ -314,69 +420,122 @@ export default function WorkoutSummaryScreen() {
           <Animated.View style={prStyle}>
             <View style={styles.prCard}>
               <View style={styles.prIconBox}>
-                <Ionicons name="flame" size={20} color="#FF6B6B" />
+                <AppIcon icon={Flame} size={20} color={tokens.status.gold} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.prTag}>NEW PERSONAL RECORD</Text>
-                <Text style={styles.prText}>{newPR.name} — {newPR.weight} kg</Text>
+                <Text style={styles.prTag}>
+                  {detectedPR && detectedPR.length > 1 ? `NEW PERSONAL RECORDS (${detectedPR.length})` : 'NEW PERSONAL RECORD'}
+                </Text>
+                <Text style={styles.prText}>
+                  {detectedPR && detectedPR.length > 1
+                    ? detectedPR.map(p => `${p.name} — ${formatWeight(p.weight, unitIsLbs, 1)}${p.type === '1RM' ? ' e1RM' : ''}`).join(' · ')
+                    : `${newPR.name} — ${formatWeight(newPR.weight, unitIsLbs, 1)}`}
+                </Text>
               </View>
             </View>
           </Animated.View>
         )}
 
-        {/* Stats Grid */}
-        <View style={styles.statsGrid}>
-          <View style={styles.statBox}>
-            <Text style={styles.statNumber}>{sessionData.duration > 0 ? `${sessionData.duration}m` : '--'}</Text>
-            <Text style={styles.statLabel}>DURATION</Text>
+        {/* Unified 4-Column Hairline KPI Strip (Zero separate grey stat boxes) */}
+        <View style={styles.statsStripCard}>
+          <View style={styles.statCol}>
+            {sessionData.duration > 0 ? (
+              <RollingNumber
+                value={sessionData.duration}
+                suffix="m"
+                replayKey={isTransitionComplete ? 1 : 0}
+                cycles={1}
+                durationMs={520}
+                style={styles.statNumber}
+              />
+            ) : (
+              <NumericText style={styles.statNumber}>--</NumericText>
+            )}
+            <Text style={styles.statLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.15}>TIME</Text>
           </View>
-          <View style={styles.statBox}>
-            <Text style={styles.statNumber}>{sessionData.totalExercises}</Text>
-            <Text style={styles.statLabel}>EXERCISES</Text>
+          <View style={styles.statDivider} />
+          <View style={styles.statCol}>
+            <RollingNumber
+              value={sessionData.performedCount || sessionData.exercises.length}
+              replayKey={isTransitionComplete ? 1 : 0}
+              cycles={0}
+              durationMs={440}
+              style={styles.statNumber}
+            />
+            <Text style={styles.statLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.15}>{sessionData.isQuickCheckIn ? 'PLANNED' : 'LIFTS'}</Text>
           </View>
-          <View style={styles.statBox}>
-            <Text style={styles.statNumber}>{sessionData.totalSets}</Text>
-            <Text style={styles.statLabel}>SETS</Text>
+          <View style={styles.statDivider} />
+          <View style={styles.statCol}>
+            <RollingNumber
+              value={sessionData.totalSets}
+              replayKey={isTransitionComplete ? 1 : 0}
+              cycles={1}
+              durationMs={540}
+              style={styles.statNumber}
+            />
+            <Text style={styles.statLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.15}>SETS</Text>
           </View>
-          <View style={styles.statBox}>
-            <Text style={styles.statNumber}>{sessionData.totalVolume > 1000 ? `${(sessionData.totalVolume / 1000).toFixed(1)}k` : sessionData.totalVolume}</Text>
-            <Text style={styles.statLabel}>KG VOL</Text>
+          <View style={styles.statDivider} />
+          <View style={styles.statCol}>
+            <RollingNumber
+              value={formatVolumeParts(sessionData.totalVolume, unitIsLbs).numStr}
+              replayKey={isTransitionComplete ? 1 : 0}
+              cycles={1}
+              durationMs={620}
+              style={styles.statNumber}
+            />
+            <Text style={styles.statLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} maxFontSizeMultiplier={1.15}>{unitLabel(unitIsLbs).toUpperCase()} VOL</Text>
           </View>
         </View>
 
-        {/* Performed Exercises List */}
+        {/* Session Exercises Ledger */}
         {sessionData.exercises.length > 0 && (
           <View style={styles.sectionContainer}>
             <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>PERFORMED EXERCISES</Text>
-              <View style={styles.countBadge}>
-                <Text style={styles.countBadgeText}>{sessionData.exercises.length}</Text>
-              </View>
+              <Text style={styles.sectionTitle}>
+                {sessionData.isQuickCheckIn ? 'SESSION MOVEMENTS' : 'PERFORMED EXERCISES'} · {sessionData.exercises.length}
+              </Text>
             </View>
             <View style={styles.exercisesList}>
               {displayedExercises.map((ex, index) => (
-                <View key={index} style={styles.exerciseCard}>
-                  <View style={{ flex: 1 }}>
+                <TactileButton
+                  variant="custom"
+                  key={index}
+                  style={[
+                    styles.exerciseCard,
+                    index === displayedExercises.length - 1 && !(!showAllExercises && remainingCount > 0)
+                      ? { borderBottomWidth: 0 }
+                      : null,
+                  ]}
+                  onPress={() => {
+                    feedback.tap();
+                    setDeepDiveEx(ex.name);
+                  }}
+                >
+                  <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
                     <Text style={styles.exerciseName} numberOfLines={1}>{ex.name}</Text>
-                    <Text style={styles.exerciseMetaBadge}>{ex.sets} sets · {ex.maxWeight > 0 ? `Best: ${ex.maxWeight} kg` : `${ex.reps} reps`}</Text>
+                    <NumericText style={styles.exerciseMetaBadge}>
+                      {ex.plannedOnly
+                        ? `${ex.sets} planned sets`
+                        : `${ex.sets} sets${ex.maxWeight > 0 ? ` · Top ${formatWeight(ex.maxWeight, unitIsLbs, 1)}` : ` · ${ex.reps} reps`}`}
+                    </NumericText>
                   </View>
                   {ex.maxWeight > 0 && (
-                    <Text style={styles.exerciseMetaWeight}>{ex.maxWeight} kg</Text>
+                    <NumericText style={styles.exerciseMetaWeight}>{formatWeight(ex.maxWeight, unitIsLbs, 1)}</NumericText>
                   )}
-                </View>
+                </TactileButton>
               ))}
               {!showAllExercises && remainingCount > 0 && (
-                <TouchableOpacity style={styles.expandBtn} activeOpacity={0.7} onPress={() => setShowAllExercises(true)}>
+                <TactileButton variant="custom" style={styles.expandBtn} onPress={() => setShowAllExercises(true)}>
                   <Text style={styles.expandBtnText}>Show {remainingCount} more exercises</Text>
-                  <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
-                </TouchableOpacity>
+                  <AppIcon icon={ChevronDown} size={14} color={tokens.accent.primary} />
+                </TactileButton>
               )}
             </View>
           </View>
         )}
 
-        {/* 90-Day Progression Chart Component (Deferred until transition completes for 120fps entry) */}
-        {isTransitionComplete ? (
+        {isTransitionComplete && availableLifts.length > 0 && (chartData?.datasets?.[0]?.data?.length || 0) >= 2 && (
           <WorkoutSummaryProgressionChart
             availableLifts={availableLifts}
             selectedLift={selectedLift}
@@ -387,12 +546,10 @@ export default function WorkoutSummaryScreen() {
             streakStyle={streakStyle}
             styles={styles}
             isDark={isDark}
+            replayKey={isTransitionComplete ? 1 : 0}
           />
-        ) : (
-          <View style={[styles.progressionCard, { height: 160, opacity: 0.3 }]} />
         )}
 
-        {/* Session Notes */}
         {sessionData.notes ? (
           <View style={styles.notesContainer}>
             <View style={styles.sectionHeaderRow}><Text style={styles.sectionTitle}>NOTES</Text></View>
@@ -403,22 +560,48 @@ export default function WorkoutSummaryScreen() {
 
       {!readOnly && (
         <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom + 8, 16) }]}>
-          <TouchableOpacity
-            style={styles.doneBtn}
-            activeOpacity={0.85}
-            onPress={() => {
-              feedback.success();
-              if (navigation.canGoBack()) {
-                (navigation as any).popToTop();
-              } else {
-                (navigation as any).navigate('MainTabs', { screen: 'Today' });
-              }
-            }}
-          >
-            <Text style={styles.doneBtnText}>Done</Text>
-          </TouchableOpacity>
+          <View style={styles.footerRow}>
+            <TactileButton
+              variant="secondary"
+              size="lg"
+              style={styles.shareBtn}
+              onPress={handleShareWorkout}
+            >
+              <AppIcon icon={Share2} size={16} color={tokens.text.primary} />
+              <Text style={styles.shareBtnText}>Share</Text>
+            </TactileButton>
+
+            <TactileButton
+              variant="primary"
+              size="lg"
+              haptic="success"
+              style={styles.doneBtn}
+              onPress={() => {
+                feedback.success();
+                if (navigation.canGoBack()) {
+                  (navigation as any).popToTop();
+                } else {
+                  (navigation as any).navigate('MainTabs', { screen: 'Today' });
+                }
+              }}
+            >
+              <Text style={styles.doneBtnText}>Done</Text>
+            </TactileButton>
+          </View>
         </View>
       )}
-    </SafeAreaView>
+      <LazySheet
+        visible={Boolean(deepDiveEx)}
+        render={() => (
+          <ExerciseDeepDiveModal
+            visible={Boolean(deepDiveEx)}
+            exerciseName={deepDiveEx}
+            gymLogs={gymLogs || []}
+            initialTab="analytics"
+            onClose={() => setDeepDiveEx(null)}
+          />
+        )}
+      />
+    </ScreenWrapper>
   );
 }

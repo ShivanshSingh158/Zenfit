@@ -61,6 +61,7 @@ src/
 3. **Biomechanical Determinism:** Volume formulas (tonnage), 1RM equations, and recovery kinetics live in pure, testable functions in `src/services/` and `src/utils/`. Do not scatter random math across JSX components.
 4. **Offline-First:** All workout tracking must work without internet. Do not introduce mandatory cloud or network calls to the active logging path.
 5. **No File Monoliths:** Maintain the domain-driven subfolder structure (`active/`, `metrics/`, `schedule/`). Avoid sprawling monolithic files.
+6. **Unified Obsidian UI & UX Design System:** For all visual layers (`#050507` canvas, `topAura`, `#0F1015` cards, `#0B0C10`/`#14161D` BottomSheets), header spacing (`ScreenWrapper` `compactTop` + `TabScreenHeader`), unit formatting (`src/utils/weightUnit.ts`), modal transitions (`afterSheetDismiss`), and 60fps Reanimated rules, strictly follow **[docs/HOME_DESIGN_SYSTEM_PLAYBOOK.md](docs/HOME_DESIGN_SYSTEM_PLAYBOOK.md)**.
 
 ---
 

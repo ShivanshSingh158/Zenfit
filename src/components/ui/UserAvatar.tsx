@@ -1,18 +1,7 @@
-/**
- * UserAvatar.tsx — ZenTrack Mobile
- *
- * Self-healing, high-performance user profile avatar component:
- * - Prioritizes permanent local on-device disk cache (file://) for 0ms Frame 0 paint.
- * - Auto-caches remote Google/Gmail photoURL to disk via userAvatarService.
- * - Graceful letter fallback with theme styling if image is unavailable.
- * - Eliminates intermittent loading failure across app launches & offline states.
- */
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, StyleProp, ViewStyle, TextStyle, ImageStyle } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { useTheme } from '../../contexts/ThemeContext';
-import { FONT_FAMILY } from '../../theme/tokens';
 import {
   getLocalAvatarUriSync,
   getCachedAvatarUri,
@@ -43,27 +32,22 @@ export const UserAvatar: React.FC<UserAvatarProps> = React.memo(({
   showOnlineRing = false,
   accessibilityLabel = 'User Profile Avatar',
 }) => {
-  const { colors, isDark } = useTheme();
-
-  // 1. Synchronous disk cache lookup for 0ms Frame 0 paint
+  const { tokens } = useTheme();
   const [localUri, setLocalUri] = useState<string | null>(() => getLocalAvatarUriSync(uid));
   const [loadError, setLoadError] = useState(false);
 
-  // 2. Resolve cached file and ensure remote photo is saved to disk
   useEffect(() => {
     if (!uid) return;
-
+    if (localUri) return;
     let isMounted = true;
 
-    // Check disk storage for previously cached file
-    getCachedAvatarUri(uid).then(cached => {
+    getCachedAvatarUri(uid).then((cached) => {
       if (isMounted && cached) {
         setLocalUri(cached);
         setLoadError(false);
       }
     });
 
-    // Listen for cache updates (e.g. background download completion)
     const unsubscribe = subscribeAvatarChanges((updatedUid, newUri) => {
       if (isMounted && updatedUid === uid) {
         setLocalUri(newUri);
@@ -71,7 +55,6 @@ export const UserAvatar: React.FC<UserAvatarProps> = React.memo(({
       }
     });
 
-    // Proactively download & cache remote photo to disk in background
     if (photoURL) {
       cacheUserAvatar(uid, photoURL).catch(() => {});
     }
@@ -82,57 +65,53 @@ export const UserAvatar: React.FC<UserAvatarProps> = React.memo(({
     };
   }, [uid, photoURL]);
 
-  // Reset load error when photoURL or localUri changes
   useEffect(() => {
     setLoadError(false);
   }, [photoURL, localUri]);
 
-  // Determine active URI: local on-device disk file takes highest priority
   const activeUri = localUri || (photoURL && !loadError ? photoURL : null);
-
   const borderRadius = Math.round(size / 2);
-  const fontSize = Math.max(11, Math.round(size * 0.40));
+  const fontSize = Math.max(11, Math.round(size * 0.4));
   const onlineRingSize = Math.max(10, Math.round(size * 0.22));
   const onlineRingBorder = Math.max(1.5, Math.round(size * 0.035));
 
-  const containerStyle = useMemo(() => ([
-    styles.container,
-    {
-      width: size,
-      height: size,
-      borderRadius,
-      backgroundColor: isDark ? '#2c2c2e' : '#e5e5ea',
-    },
-    style,
-  ]), [size, borderRadius, isDark, style]);
+  const containerStyle = useMemo(
+    () => [
+      styles.container,
+      {
+        width: size,
+        height: size,
+        borderRadius,
+        backgroundColor: tokens.bg.elevated,
+      },
+      style,
+    ],
+    [size, borderRadius, tokens.bg.elevated, style]
+  );
 
-  const letterStyle = useMemo(() => ([
-    styles.letter,
-    {
-      fontSize,
-      color: colors.textPrimary,
-    },
-    textStyle,
-  ]), [fontSize, colors.textPrimary, textStyle]);
+  const letterStyle = useMemo(
+    () => [
+      styles.letter,
+      {
+        fontFamily: tokens.font.bold,
+        fontSize,
+        color: tokens.text.primary,
+      },
+      textStyle,
+    ],
+    [fontSize, tokens.font.bold, tokens.text.primary, textStyle]
+  );
 
   return (
     <View style={containerStyle} accessibilityLabel={accessibilityLabel} accessibilityRole="image">
       {activeUri && !loadError ? (
         <ExpoImage
           source={{ uri: activeUri }}
-          style={[
-            {
-              width: size,
-              height: size,
-              borderRadius,
-            },
-            imageStyle,
-          ]}
+          style={[{ width: size, height: size, borderRadius }, imageStyle]}
           contentFit="cover"
-          transition={120}
+          transition={localUri ? 0 : 120}
           cachePolicy="memory-disk"
           onError={() => {
-            // If localUri fails, fallback to photoURL; if both fail, show fallback letter
             if (localUri) {
               setLocalUri(null);
             } else {
@@ -141,7 +120,9 @@ export const UserAvatar: React.FC<UserAvatarProps> = React.memo(({
           }}
         />
       ) : (
-        <Text style={letterStyle}>{fallbackLetter || 'A'}</Text>
+        <Text maxFontSizeMultiplier={1.15} style={letterStyle}>
+          {fallbackLetter || 'A'}
+        </Text>
       )}
 
       {showOnlineRing && (
@@ -153,7 +134,8 @@ export const UserAvatar: React.FC<UserAvatarProps> = React.memo(({
               height: onlineRingSize,
               borderRadius: onlineRingSize / 2,
               borderWidth: onlineRingBorder,
-              borderColor: isDark ? '#1c1c1e' : '#ffffff',
+              borderColor: tokens.bg.surface,
+              backgroundColor: tokens.status.success,
             },
           ]}
         />
@@ -169,7 +151,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   letter: {
-    fontFamily: FONT_FAMILY.bold,
     includeFontPadding: false,
     textAlign: 'center',
   },
@@ -177,7 +158,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    backgroundColor: '#34c759',
   },
 });
 

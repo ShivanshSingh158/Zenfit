@@ -1,18 +1,44 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, Alert,
-  Platform, KeyboardAvoidingView, ScrollView, ActivityIndicator,
-  Keyboard, DeviceEventEmitter, InteractionManager, BackHandler, StyleSheet,
-  useWindowDimensions, Animated
+  View,
+  Text,
+  Platform,
+  KeyboardAvoidingView,
+  Keyboard,
+  InteractionManager,
+  BackHandler,
+  ScrollView,
+  DeviceEventEmitter,
+  StyleSheet,
+  useWindowDimensions,
+  LayoutChangeEvent,
 } from 'react-native';
+import Animated, {
+  Easing,
+  Extrapolation,
+  cancelAnimation,
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
-import { StatusBar } from 'expo-status-bar';
-import { useKeepAwake } from 'expo-keep-awake';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  ChevronDown,
+  ChevronLeft,
+  Trophy,
+  X,
+} from 'lucide-react-native';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { FONT_FAMILY, SPACE } from '../../theme/tokens';
+import { springs, durations } from '../../theme/motion';
 import { useGymLog, todayStr } from '../../hooks/useGymLog';
 import { useGymLogs, setWorkoutActiveGlobal } from '../../contexts/domains/WellnessContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -20,28 +46,29 @@ import { calculateExerciseMaxWeight, getPreviousExerciseSession, getExerciseSwap
 import { hapticLight, hapticMedium, hapticSuccess, hapticSelection, hapticError } from '../../utils/haptics';
 import { autoResolveExerciseVideoId } from '../../services/exerciseVideoResolver';
 import { getOverloadSuggestion, getRestDuration } from '../../services/progressiveOverload';
-import { playSetCompleteTone, isAudioCuesEnabledGlobal, setAudioCuesEnabledGlobal } from '../../services/gymSoundSynthesizer';
+import { playSetCompleteTone, isAudioCuesEnabledGlobal, setAudioCuesEnabledGlobal, warmUpGymAudioSynthesizer } from '../../services/gymSoundSynthesizer';
 import { GymNavigationParamList } from '../../types/gym.types';
 
 import { makeActiveLoggingStyles } from './activeLoggingStyles';
-import WorkoutTimer from '../../components/Gym/active/WorkoutTimer';
-import SetList from '../../components/Gym/active/SetList';
-import ActiveExerciseHeader from '../../components/Gym/active/ActiveExerciseHeader';
+import {
+  TactileButton,
+  NumericText,
+  AppIcon,
+} from '../../components/ui';
+import AddExerciseModal from '../../components/Gym/exercise/AddExerciseModal';
+import {
+  SetList,
+  ActiveExerciseHeader,
+  RestTimerBar as AnimatedRestTimer,
+  WorkoutKeypad,
+} from '../../components/workout';
 import SupersetPickerModal from '../../components/Gym/exercise/SupersetPickerModal';
 import ActiveSwapModal from '../../components/Gym/active/ActiveSwapModal';
-import AnimatedRestTimer from '../../components/Gym/active/AnimatedRestTimer';
-import SetRestPickerSheet from '../../components/Gym/active/SetRestPickerSheet';
-import {
-  WhatThisSessionHitsSheet,
-  FinishEarlySheet,
-  WorkoutMenuSheet,
-  ExerciseMenuSheet,
-  WorkoutNoteModal,
-  MiniMannequinButton,
-  WorkoutSettingsSheet,
-} from '../../components/Gym/active';
-import ExerciseDeepDiveModal from '../../components/Gym/exercise/ExerciseDeepDiveModal';
-import { WorkoutKeypad } from '../../components/Gym/active/WorkoutKeypad';
+import ActiveWorkoutModals from './active/ActiveWorkoutModals';
+import ActiveLoggingHeader from './active/ActiveLoggingHeader';
+import ExerciseSelectorStrip, { ExerciseFooterNav } from './active/ExerciseSelectorStrip';
+import ActiveConfirmSheets, { PendingSwapPermanent } from './active/ActiveConfirmSheets';
+import { afterSheetDismiss } from '../../utils/sheetCoordinator';
 import { resolveExerciseEquipment } from '../../utils/equipmentResolver';
 import { insertWarmupLadder } from '../../utils/warmupGenerator';
 import { dismissActiveWorkoutNotification } from '../../services/activeWorkoutNotificationService';
@@ -53,24 +80,21 @@ import {
   computeInitialSetInputs,
 } from '../../utils/activeLoggingMath';
 import { useActiveWidgetSync } from '../../hooks/useActiveWidgetSync';
-import { useGymProfile, setAutoTimerEnabledGlobal, isAutoTimerEnabledSync } from '../../hooks/useGymProfile';
+import {
+  useGymProfile,
+  setAutoTimerEnabledGlobal,
+  isAutoTimerEnabledSync,
+  isKeepAwakeEnabledSync,
+  setKeepAwakeEnabledGlobal,
+  setDefaultRestSecsGlobal,
+  getDefaultRestSecsSync,
+} from '../../hooks/useGymProfile';
+import { formatWeight, useWeightUnit, unitLabel } from '../../utils/weightUnit';
 
 export { parseUpperTargetReps };
 
-function cleanExercisePillName(name: string): string {
-  if (!name) return 'Exercise';
-  const words = name.trim().split(/\s+/);
-  if (words.length <= 1) return words[0];
-  const first = words[0].toLowerCase();
-  if (['incline', 'decline', 'flat', 'lat', 'leg', 'barbell', 'dumbbell', 'cable'].includes(first)) {
-    return `${words[0]} ${words[1] || ''}`.trim();
-  }
-  if (name.length <= 14) return name;
-  return `${words[0]} ${words[1] || ''}`.trim();
-}
-
 export default function ActiveLoggingScreen() {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, tokens } = useTheme();
   const styles = useMemo(() => makeActiveLoggingStyles(colors, isDark), [colors, isDark]);
   const navigation = useNavigation<NativeStackNavigationProp<GymNavigationParamList>>();
   const route = useRoute<RouteProp<GymNavigationParamList, 'ActiveLogging'>>();
@@ -86,13 +110,16 @@ export default function ActiveLoggingScreen() {
   const isFieldSelectedRef = useRef(true);
   const [showWorkoutSettingsSheet, setShowWorkoutSettingsSheet] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => isAudioCuesEnabledGlobal());
-  const [keepAwakeEnabled, setKeepAwakeEnabled] = useState(true);
+  const [keepAwakeEnabled, setKeepAwakeEnabled] = useState<boolean>(() => isKeepAwakeEnabledSync());
   const [restPickerSetIdx, setRestPickerSetIdx] = useState<number | null>(null);
-  const [sheetInitialSecs, setSheetInitialSecs] = useState<number>(90);
+  const [sheetInitialSecs, setSheetInitialSecs] = useState<number>(() => getDefaultRestSecsSync());
 
   const {
     log,
+    addExercise,
+    deleteExercise,
     updateExercise,
+    updateNotes,
     startRestTimer,
     clearRestTimer,
     setRestTimerDuration,
@@ -103,47 +130,70 @@ export default function ActiveLoggingScreen() {
     makeSwapPermanent,
     logSetAndStartTimer,
     endWorkout,
-    startWorkout,
+    historyIndex,
   } = useGymLog(date);
+  const historyIndexRef = useRef(historyIndex);
+  historyIndexRef.current = historyIndex;
 
   if (log?.date && lockedSessionDateRef.current !== log.date) {
     lockedSessionDateRef.current = log.date;
   }
 
+  const activeLogStateRef = useRef(log);
+  useEffect(() => {
+    activeLogStateRef.current = log;
+  }, [log]);
+
   const insets = useSafeAreaInsets();
   const { gymProfile, saveGymProfile } = useGymProfile();
+  const unitIsLbs = useWeightUnit();
   const [autoTimerEnabled, setAutoTimerEnabled] = useState<boolean>(() => isAutoTimerEnabledSync());
 
   useEffect(() => {
-    const sub = DeviceEventEmitter.addListener('auto_timer_setting_changed', (val: boolean) => {
+    const subAuto = DeviceEventEmitter.addListener('auto_timer_setting_changed', (val: boolean) => {
       setAutoTimerEnabled(val);
     });
-    return () => sub.remove();
+    const subAudio = DeviceEventEmitter.addListener('audio_cues_setting_changed', (val: boolean) => {
+      setSoundEnabled(val);
+      setAudioCuesEnabledGlobal(val);
+    });
+    const subAwake = DeviceEventEmitter.addListener('keep_awake_setting_changed', (val: boolean) => {
+      setKeepAwakeEnabled(val);
+    });
+    return () => {
+      subAuto.remove();
+      subAudio.remove();
+      subAwake.remove();
+    };
   }, []);
 
-  const handleToggleTimer = useCallback(() => {
-    const nextVal = !autoTimerEnabled;
-    setAutoTimerEnabled(nextVal);
-    setAutoTimerEnabledGlobal(nextVal);
-    saveGymProfile({ autoTimer: nextVal }).catch(() => {});
-  }, [autoTimerEnabled, saveGymProfile]);
-
-  // Prevent phone screen from locking or sleeping during active workout
-  useKeepAwake();
+  // Honor Keep Screen Awake preference while active workout screen is mounted
+  useEffect(() => {
+    if (keepAwakeEnabled) {
+      activateKeepAwakeAsync('zenfit_active_workout').catch(() => {});
+    } else {
+      deactivateKeepAwake('zenfit_active_workout').catch(() => {});
+    }
+    return () => {
+      deactivateKeepAwake('zenfit_active_workout').catch(() => {});
+    };
+  }, [keepAwakeEnabled]);
 
   const isLoggingSetRef = useRef(false);
   const supersetJumpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoAdvanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handlersRef = useRef<any>({});
 
-  // PERF: Freeze notification reschedules and shield WellnessContext snapshot cascades while active workout screen is mounted
+  // PERF: Shield unnecessary background broadcasts when only previewing sets
   useEffect(() => {
-    const { setActiveWorkoutFlag } = require('../../components/BackgroundNotificationWatcher');
-    setActiveWorkoutFlag(true);
-    setWorkoutActiveGlobal(true);
+    warmUpGymAudioSynthesizer().catch(() => {});
+    if (activeLogStateRef.current?.workoutStartTime && !activeLogStateRef.current?.completed && !route.params?.previewOnly) {
+      setWorkoutActiveGlobal(true, activeLogStateRef.current.workoutStartTime, date);
+    }
     return () => {
-      setActiveWorkoutFlag(false);
-      setWorkoutActiveGlobal(false);
+      if (!activeLogStateRef.current?.workoutStartTime || activeLogStateRef.current?.completed) {
+        setWorkoutActiveGlobal(false);
+      }
       if (supersetJumpTimerRef.current) {
         clearTimeout(supersetJumpTimerRef.current);
         supersetJumpTimerRef.current = null;
@@ -153,56 +203,112 @@ export default function ActiveLoggingScreen() {
         autoAdvanceTimerRef.current = null;
       }
     };
-  }, []);
+  }, [date, route.params?.previewOnly]);
 
-  // ── High-Contrast Screen Flash Rest Alert (OpenGym Pattern) ───────────────
-  const flashAnim = useRef(new Animated.Value(0)).current;
+  // ── High-Contrast Screen Flash Rest Alert (120fps Reanimated UI Thread) ──
+  const flashOpacity = useSharedValue(0);
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('gym_rest_timer_flash', () => {
-      Animated.sequence([
-        Animated.timing(flashAnim, { toValue: 0.28, duration: 90, useNativeDriver: true }),
-        Animated.timing(flashAnim, { toValue: 0, duration: 80, useNativeDriver: true }),
-        Animated.timing(flashAnim, { toValue: 0.28, duration: 90, useNativeDriver: true }),
-        Animated.timing(flashAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
-      ]).start();
+      flashOpacity.value = withSequence(
+        withTiming(0.28, { duration: 90 }),
+        withTiming(0, { duration: 80 }),
+        withTiming(0.28, { duration: 90 }),
+        withTiming(0, { duration: 250 })
+      );
     });
     return () => sub.remove();
-  }, [flashAnim]);
+  }, [flashOpacity]);
 
+  const flashAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: flashOpacity.value,
+  }));
 
   const [showSupersetPicker, setShowSupersetPicker] = useState(false);
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const targetParamIndex = route.params?.initialIndex ?? (route.params as any)?.exerciseIndex ?? 0;
   const [activeExIndex, setActiveExIndex] = useState(targetParamIndex);
+  const [visualExIndex, setVisualExIndex] = useState(targetParamIndex);
 
-  // ── Directional Card Transition Physics (OpenGym 60FPS Inertial Glide) ──
-  const prevExIndexRef = useRef(activeExIndex);
-  const cardSlideAnim = useRef(new Animated.Value(0)).current;
-  const cardOpacityAnim = useRef(new Animated.Value(1)).current;
+  // ── Native Stack Entrance + Pull-to-Dismiss Support ────────────────────────
+  const fullSlideHeight = screenHeight > 0 ? screenHeight : 860;
+  const sheetTranslateY = useSharedValue(0);
+  const sheetBackdrop = useSharedValue(1);
+  const isClosingRef = useRef(false);
+  const [secondaryModalsActivated, setSecondaryModalsActivated] = useState(false);
+  const [addModalEverShown, setAddModalEverShown] = useState(false);
+
+  const sheetModalAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: sheetTranslateY.value }],
+  }));
+
+  // ── Synchronized Directional Deck Roll + Staggered Sets Wave (120fps) ──
+  const headerSlideX = useSharedValue(0);
+  const headerOpacity = useSharedValue(1);
+  const setsSlideX = useSharedValue(0);
+  const setsOpacity = useSharedValue(1);
+  const setsScale = useSharedValue(1);
+  const switchSeqRef = useRef(0);
+  const pendingEnterDirRef = useRef<1 | -1 | null>(null);
+  const enterRafRef = useRef<number | null>(null);
+  const bodyScrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
-    const isForward = activeExIndex >= prevExIndexRef.current;
-    prevExIndexRef.current = activeExIndex;
+    const dir = pendingEnterDirRef.current;
+    if (!dir) return;
+    pendingEnterDirRef.current = null;
 
-    cardSlideAnim.setValue(isForward ? 22 : -22);
-    cardOpacityAnim.setValue(0.5);
+    headerSlideX.value = dir * screenWidth * 0.22;
+    headerOpacity.value = 0;
+    setsSlideX.value = dir * screenWidth * 0.28;
+    setsOpacity.value = 0;
+    setsScale.value = 0.985;
 
-    Animated.parallel([
-      Animated.spring(cardSlideAnim, {
-        toValue: 0,
-        friction: 8,
-        tension: 70,
-        useNativeDriver: true,
-      }),
-      Animated.timing(cardOpacityAnim, {
-        toValue: 1,
-        duration: 160,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [activeExIndex, cardSlideAnim, cardOpacityAnim]);
-  // ── Track initialIndex consumption via ref only — no navigation.setParams() on mount.
+    // Start GPU glide after React/Yoga finishes committing incoming exercise rows
+    enterRafRef.current = requestAnimationFrame(() => {
+      enterRafRef.current = null;
+      const slideCurve = Easing.bezier(0.16, 1, 0.3, 1);
+      headerSlideX.value = withTiming(0, {
+        duration: 165,
+        easing: slideCurve,
+      });
+      headerOpacity.value = withTiming(1, {
+        duration: 145,
+        easing: slideCurve,
+      });
+      setsSlideX.value = withDelay(
+        12,
+        withTiming(0, { duration: 180, easing: slideCurve })
+      );
+      setsOpacity.value = withDelay(
+        12,
+        withTiming(1, { duration: 155, easing: slideCurve })
+      );
+      setsScale.value = withDelay(
+        12,
+        withTiming(1, { duration: 175, easing: slideCurve })
+      );
+    });
+
+    return () => {
+      if (enterRafRef.current !== null) {
+        cancelAnimationFrame(enterRafRef.current);
+        enterRafRef.current = null;
+      }
+    };
+  }, [activeExIndex, screenWidth, headerSlideX, headerOpacity, setsSlideX, setsOpacity, setsScale]);
+
+  const headerRollStyle = useAnimatedStyle(() => ({
+    opacity: headerOpacity.value,
+    transform: [{ translateX: headerSlideX.value }],
+  }));
+
+  const setsRollStyle = useAnimatedStyle(() => ({
+    opacity: setsOpacity.value,
+    transform: [{ translateX: setsSlideX.value }, { scale: setsScale.value }] as const,
+  }));
+
+  // Track initialIndex consumption via ref only — no navigation.setParams() on mount.
   const consumedInitialIndexRef = useRef<number | null>(targetParamIndex);
 
   const restTimerInitialRef = useRef(restTimerInitial);
@@ -224,21 +330,22 @@ export default function ActiveLoggingScreen() {
   }, [screenWidth]);
 
   useEffect(() => {
-    if (pillLayoutsRef.current[activeExIndex]) {
-      scrollToActivePill(activeExIndex);
+    if (pillLayoutsRef.current[visualExIndex]) {
+      scrollToActivePill(visualExIndex);
     } else {
       const timer = setTimeout(() => {
-        scrollToActivePill(activeExIndex);
+        scrollToActivePill(visualExIndex);
       }, 60);
       return () => clearTimeout(timer);
     }
-  }, [activeExIndex, scrollToActivePill]);
+  }, [visualExIndex, scrollToActivePill]);
 
   useEffect(() => {
     const target = route.params?.initialIndex ?? (route.params as any)?.exerciseIndex;
     if (target !== undefined && consumedInitialIndexRef.current !== target) {
       consumedInitialIndexRef.current = target;
       setActiveExIndex(target);
+      setVisualExIndex(target);
     }
   }, [route.params?.initialIndex, (route.params as any)?.exerciseIndex]);
 
@@ -254,13 +361,25 @@ export default function ActiveLoggingScreen() {
   const [isRefreshingVideo, setIsRefreshingVideo] = useState(false);
   const [showCompletedWarmups, setShowCompletedWarmups] = useState(false);
   const [deepDiveVisible, setDeepDiveVisible] = useState(false);
+  const [deepDiveTab, setDeepDiveTab] = useState<'guide' | 'analytics'>('guide');
+  const [showAddExerciseModal, setShowAddExerciseModal] = useState(false);
+  const [showDiscardConfirmSheet, setShowDiscardConfirmSheet] = useState(false);
+  const [deleteSetConfirmIdx, setDeleteSetConfirmIdx] = useState<number | null>(null);
+  const [pendingSwapPermanent, setPendingSwapPermanent] = useState<PendingSwapPermanent | null>(null);
   const [showWhatHitsSheet, setShowWhatHitsSheet] = useState(false);
   const [showWorkoutMenuSheet, setShowWorkoutMenuSheet] = useState(false);
   const [showExerciseMenuSheet, setShowExerciseMenuSheet] = useState(false);
   const [showFinishEarlySheet, setShowFinishEarlySheet] = useState(false);
   const [uncheckedSetsCount, setUncheckedSetsCount] = useState(0);
   const [completedSetsCount, setCompletedSetsCount] = useState(0);
-  const [sessionNote, setSessionNote] = useState('');
+  const [sessionNote, setSessionNote] = useState(() => log?.notes || '');
+
+  useEffect(() => {
+    if (log?.notes !== undefined && log.notes !== sessionNote) {
+      setSessionNote(log.notes);
+    }
+  }, [log?.notes]);
+
   const [noteModalConfig, setNoteModalConfig] = useState<{
     visible: boolean;
     title: string;
@@ -309,6 +428,8 @@ export default function ActiveLoggingScreen() {
     if (Array.isArray(exercise.lastSessionSets) && exercise.lastSessionSets.length > 0) {
       return exercise.lastSessionSets;
     }
+    const indexed = historyIndexRef.current?.get(normalizeExerciseKey(exercise.name));
+    if (indexed?.sets?.length) return indexed.sets;
     const prev = getPreviousExerciseSession(exercise.name, gymLogs, date || todayStr());
     return prev?.sets || [];
   }, [exercise?.lastSessionSets, exercise?.name, gymLogs, date]);
@@ -326,15 +447,11 @@ export default function ActiveLoggingScreen() {
   // flags changed — the count hasn't changed and the data is already correct.
   const prevSetsLengthRef = useRef<number>(-1);
   const [setInputs, setSetInputs] = useState<SetInputState[]>(() =>
-    computeInitialSetInputs(exercise, gymLogs, date)
+    computeInitialSetInputs(exercise, gymLogs, date, historyIndexRef.current)
   );
 
-  // ── FIX 2: Defer heavy historical computation after the slide animation completes.
-  // overloadSuggestion and lastTimeData both walk the entire gymLogs history.
-  // Running them synchronously on mount blocks the JS thread during the push animation.
-  // With InteractionManager they execute only after all pending animations finish.
-  const [overloadSuggestion, setOverloadSuggestion] = useState<any | null>(null);
-  const [lastTimeData, setLastTimeData] = useState<string | null>(null);
+  // Synchronous Frame-0 overload & history baseline (eliminates 225ms + 80ms pop-in jump)
+  const [liveOverloadOverride, setLiveOverloadOverride] = useState<{ exKey: string; suggestion: any } | null>(null);
   const [prToast, setPrToast] = useState<{ message: string } | null>(null);
   const prToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -347,7 +464,6 @@ export default function ActiveLoggingScreen() {
     setPrToast(null);
   }, []);
 
-  const interactionsSettledRef = useRef(false);
   const lastBannerExKeyRef = useRef<string>('');
 
   // ── Sync Live Workout State with Android Home Screen Widget ───────────────
@@ -378,6 +494,33 @@ export default function ActiveLoggingScreen() {
       0
     );
   }, [exercises]);
+
+  const [progressTrackWidth, setProgressTrackWidth] = useState(0);
+  const sessionProgress = useSharedValue(0);
+
+  useEffect(() => {
+    const ratio =
+      totalSessionSets > 0
+        ? Math.min(1, Math.max(0, totalCompletedSets / totalSessionSets))
+        : 0;
+    sessionProgress.value = withTiming(ratio, { duration: durations.crossFade });
+  }, [totalCompletedSets, totalSessionSets, sessionProgress]);
+
+  const sessionProgressStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateX:
+          progressTrackWidth > 0
+            ? -(1 - sessionProgress.value) * progressTrackWidth
+            : -progressTrackWidth,
+      },
+    ],
+  }));
+
+  const handleSessionTrackLayout = useCallback((e: LayoutChangeEvent) => {
+    const w = e.nativeEvent.layout.width;
+    if (w > 0) setProgressTrackWidth(w);
+  }, []);
 
   const realExerciseIndex = useMemo(() => {
     if (!log?.exercises || !exercise) return safeIdx;
@@ -450,53 +593,45 @@ export default function ActiveLoggingScreen() {
     return { maxWeight, max1RM };
   }, [exercise?.name, pastGymLogs]);
 
-  // ── Compute overloadSuggestion + lastTimeData without layout collapse flickers.
-  // 1. Only wipe banner to null if user genuinely switched to a DIFFERENT exercise.
-  // 2. Evaluates against past completed sessions (before today) so logging sets today never triggers recalculations.
-  // 3. Fallback baseline weight uses previous session weight so suggestion displays on set 1 without popping in late.
-  useEffect(() => {
-    if (!exercise) return;
-    const currentExId = exercise.exerciseId || exercise.name || '';
-    const currentExKey = `${currentExId}-${activeExIndex}`;
-    const isDifferentExercise = currentExKey !== lastBannerExKeyRef.current;
+  const currentExKey = exercise ? `${exercise.exerciseId || exercise.name || ''}-${activeExIndex}` : '';
 
-    if (isDifferentExercise) {
-      lastBannerExKeyRef.current = currentExKey;
-      interactionsSettledRef.current = false;
-      setOverloadSuggestion(null);
-      setLastTimeData(null);
+  // Frame-0 synchronous overload & last-session readout (0ms layout flicker on open/swipe)
+  const computedBannerMeta = useMemo(() => {
+    if (!exercise) {
+      return { suggestion: null as any, lastTimeData: null as string | null };
     }
+    lastBannerExKeyRef.current = currentExKey;
+    const prevSession = getPreviousExerciseSession(exercise.name, pastGymLogs, targetDateStr);
+    const curWeight =
+      calculateExerciseMaxWeight(exercise as any) ||
+      prevSession?.lastWeight ||
+      Number(exercise.lastSessionSets?.[0]?.weight) ||
+      0;
 
-    const task = InteractionManager.runAfterInteractions(() => {
-      interactionsSettledRef.current = true;
-      // Overload suggestion: evaluate against past completed sessions before today
-      const prevSession = getPreviousExerciseSession(exercise.name, pastGymLogs, targetDateStr);
-      const curWeight = calculateExerciseMaxWeight(exercise as any) ||
-        prevSession?.lastWeight ||
-        Number(exercise.lastSessionSets?.[0]?.weight) ||
-        0;
+    const suggestion = getOverloadSuggestion(
+      exercise,
+      curWeight,
+      exercise.targetSets || 3,
+      String(exercise.targetReps || '8'),
+      pastGymLogs
+    );
 
-      const suggestion = getOverloadSuggestion(
-        exercise,
-        curWeight,
-        exercise.targetSets || 3,
-        String(exercise.targetReps || '8'),
-        pastGymLogs
-      );
-      setOverloadSuggestion(suggestion);
+    let lastTimeStr: string | null = null;
+    if (prevSession && prevSession.sets.length > 0) {
+      const weightPart = prevSession.lastWeight
+        ? `@ ${formatWeight(Number(prevSession.lastWeight), unitIsLbs, 1)}`
+        : '';
+      const repsPart = prevSession.avgReps ? `${prevSession.avgReps} reps` : '';
+      lastTimeStr = `Last: ${prevSession.sets.length} sets ${repsPart ? `× ${repsPart}` : ''} ${weightPart}`.trim();
+    }
+    return { suggestion, lastTimeData: lastTimeStr };
+  }, [exercise?.exerciseId, exercise?.name, exercise?.targetSets, exercise?.targetReps, exercise?.progressionPolicy, currentExKey, pastGymLogs, targetDateStr, unitIsLbs]);
 
-      // Last-session stats banner
-      if (prevSession && prevSession.sets.length > 0) {
-        const weightPart = prevSession.lastWeight ? `@ ${prevSession.lastWeight}kg` : '';
-        const repsPart = prevSession.avgReps ? `${prevSession.avgReps} reps` : '';
-        setLastTimeData(`Last: ${prevSession.sets.length} sets ${repsPart ? `× ${repsPart}` : ''} ${weightPart}`.trim());
-      } else {
-        setLastTimeData(null);
-      }
-    });
-
-    return () => task.cancel();
-  }, [exercise?.exerciseId, exercise?.name, activeExIndex, pastGymLogs, targetDateStr]);
+  const overloadSuggestion =
+    liveOverloadOverride && liveOverloadOverride.exKey === currentExKey
+      ? liveOverloadOverride.suggestion
+      : computedBannerMeta.suggestion;
+  const lastTimeData = computedBannerMeta.lastTimeData;
 
   // ── FIX 1 (continued): Sync setInputs when exercise changes or setsLog mutates.
   // This replaces the old 'initialize from scratch' useEffect with a lightweight
@@ -514,7 +649,7 @@ export default function ActiveLoggingScreen() {
       prevSetsLengthRef.current = currentLen;
       userEditedFieldsRef.current = {};
       liveInputsRef.current = {};
-      setSetInputs(computeInitialSetInputs(exercise, gymLogs, date));
+      setSetInputs(computeInitialSetInputs(exercise, gymLogs, date, historyIndexRef.current));
       return;
     }
 
@@ -589,6 +724,9 @@ export default function ActiveLoggingScreen() {
   }, [exercise?.name]);
 
   const smartWeightStep = useMemo(() => {
+    if (unitIsLbs) {
+      return equipmentCategory === 'Machine' ? 10 : 5;
+    }
     switch (equipmentCategory) {
       case 'Dumbbell': return 2.0;
       case 'Cable': return 2.5;
@@ -596,36 +734,20 @@ export default function ActiveLoggingScreen() {
       case 'Kettlebell': return 4.0;
       default: return 2.5; // Barbell & default
     }
-  }, [equipmentCategory]);
+  }, [equipmentCategory, unitIsLbs]);
 
-  // Active uncompleted set index and metadata for Bottom Dock
-  const dockActiveSetIdx = activeSetIndex;
-  const dockActiveSet = dockActiveSetIdx !== -1 ? exercise?.setsLog?.[dockActiveSetIdx] : null;
-  const dockInput = dockActiveSetIdx !== -1 ? setInputs[dockActiveSetIdx] : null;
-  const dockPrescription = overloadSuggestion?.prescribedSets?.[dockActiveSetIdx];
-
-  const dockActiveWeight = (() => {
-    if (dockInput?.weight) return parseFloat(dockInput.weight) || 0;
-    if (dockActiveSet?.weight != null && Number(dockActiveSet.weight) > 0) return Number(dockActiveSet.weight);
-    if (dockPrescription?.targetWeight) return Number(dockPrescription.targetWeight);
-    if (overloadSuggestion?.recommended) return Number(overloadSuggestion.recommended);
-    return 0;
-  })();
-
-  const dockActiveReps = (() => {
-    if (dockInput?.reps) return parseUpperTargetReps(dockInput.reps);
-    if (dockActiveSet?.reps != null && Number(dockActiveSet.reps) > 0) return parseUpperTargetReps(dockActiveSet.reps);
-    if (dockPrescription?.targetReps) return Number(dockPrescription.targetReps);
-    if (exercise?.targetReps) return parseUpperTargetReps(exercise.targetReps);
-    return 10;
-  })();
-
-  const dockSelectedRir = dockActiveSet?.rir ?? 1;
   const isKeypadOpen = !!activeKeypad && !isAllComplete && !exercise?.setsLog?.[activeKeypad.setIndex]?.completed;
+  const [keypadHeight, setKeypadHeight] = useState(0);
+  const handleKeypadLayout = useCallback((e: LayoutChangeEvent) => {
+    const h = Math.round(e.nativeEvent.layout.height);
+    if (h > 40) {
+      setKeypadHeight(prev => (Math.abs(prev - h) > 2 ? h : prev));
+    }
+  }, []);
 
-  // OpenGym standard: rest timer floats right above the bottom edge, or above keypad when open
+  // Dynamically docks rest timer flush above measured WorkoutKeypad on every phone/safe-area/RIR height
   const timerBottomOffset = isKeypadOpen
-    ? (Platform.OS === 'android' ? 225 : 235)
+    ? (keypadHeight > 0 ? keypadHeight + 10 : Math.max(insets.bottom, 12) + 216)
     : (Math.max(insets.bottom, 16) + 12);
 
 
@@ -660,6 +782,7 @@ export default function ActiveLoggingScreen() {
     exercises,
     activeExIndex,
     currentExerciseBaselinePR,
+    gymLogs,
   });
   stateRef.current = {
     setInputs,
@@ -670,6 +793,7 @@ export default function ActiveLoggingScreen() {
     exercises,
     activeExIndex,
     currentExerciseBaselinePR,
+    gymLogs,
   };
 
   const handleTextChange = useCallback((setIdx: number, field: 'reps' | 'weight', text: string) => {
@@ -685,8 +809,8 @@ export default function ActiveLoggingScreen() {
         sanitized = String(parseUpperTargetReps(sanitized));
       } else {
         const num = parseInt(sanitized, 10);
-        if (!isNaN(num) && num > 50) {
-          sanitized = '50';
+        if (!isNaN(num) && num > 999) {
+          sanitized = '999';
         }
       }
     }
@@ -696,7 +820,7 @@ export default function ActiveLoggingScreen() {
     if (!liveInputsRef.current[setIdx]) liveInputsRef.current[setIdx] = {};
     liveInputsRef.current[setIdx][field] = sanitized;
 
-    // Micro-Interaction #4: Propagate Down Cascade for uncompleted ghost weights
+    // High-performance single-set input update (zero cascading overhead on keystroke)
     const curSets = stateRef.current.exercise?.setsLog || [];
     setSetInputs(prev => {
       const next = [...prev];
@@ -706,23 +830,6 @@ export default function ActiveLoggingScreen() {
         reps: curSet?.reps != null ? String(curSet.reps) : ''
       };
       next[setIdx] = { ...current, [field]: sanitized };
-
-      // If weight was updated on set k, cascade to any following unlogged & unedited sets
-      if (field === 'weight' && sanitized !== '') {
-        for (let j = setIdx + 1; j < next.length; j++) {
-          const subsequentSet = curSets[j];
-          const isSubsequentEdited = userEditedFieldsRef.current[j]?.weight;
-          if (subsequentSet && !subsequentSet.completed && !isSubsequentEdited) {
-            next[j] = {
-              ...(next[j] || { weight: '', reps: '' }),
-              weight: sanitized,
-            };
-            if (!liveInputsRef.current[j]) liveInputsRef.current[j] = {};
-            liveInputsRef.current[j].weight = sanitized;
-          }
-        }
-      }
-
       return next;
     });
   }, []);
@@ -746,7 +853,8 @@ export default function ActiveLoggingScreen() {
       exercise.targetReps,
       isWeightEdited,
       isRepsEdited,
-      lastSessionSet
+      lastSessionSet,
+      setIdx
     );
 
     // If neither weight nor reps changed, bail out immediately with zero re-renders or updates
@@ -782,7 +890,8 @@ export default function ActiveLoggingScreen() {
         exercise.targetReps,
         isWeightEdited,
         isRepsEdited,
-        lastSessionSet
+        lastSessionSet,
+        idx
       );
       if (curSet.weight !== resolved.weight || curSet.reps !== resolved.reps) {
         hasChanges = true;
@@ -798,12 +907,22 @@ export default function ActiveLoggingScreen() {
   const activeKeypadRef = useRef(activeKeypad);
   activeKeypadRef.current = activeKeypad;
 
+  const finishCloseScreen = useCallback(() => {
+    flushPendingInputs();
+    navigation.goBack();
+  }, [flushPendingInputs, navigation]);
+
   const handleBack = useCallback(() => {
     if (activeKeypadRef.current) {
+      sheetTranslateY.value = withSpring(0, springs.snappy);
+      sheetBackdrop.value = withTiming(0.64, { duration: 180 });
       hapticLight();
       setActiveKeypad(null);
       return;
     }
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+
     if (autoAdvanceTimerRef.current) {
       clearTimeout(autoAdvanceTimerRef.current);
       autoAdvanceTimerRef.current = null;
@@ -812,11 +931,137 @@ export default function ActiveLoggingScreen() {
       clearTimeout(supersetJumpTimerRef.current);
       supersetJumpTimerRef.current = null;
     }
-    flushPendingInputs();
     Keyboard.dismiss();
     hapticLight();
-    navigation.goBack();
-  }, [flushPendingInputs, navigation]);
+    finishCloseScreen();
+  }, [finishCloseScreen, sheetTranslateY, sheetBackdrop]);
+
+  const commitExerciseSwitch = useCallback((nextIdx: number, dir: 1 | -1, seq: number) => {
+    if (seq !== switchSeqRef.current) return;
+    pendingEnterDirRef.current = dir;
+    bodyScrollRef.current?.scrollTo({ y: 0, animated: false });
+
+    const nextEx = stateRef.current.exercises?.[nextIdx];
+    if (nextEx) {
+      const nextExId = nextEx.exerciseId || nextEx.name || '';
+      lastExerciseKeyRef.current = `${nextExId}-${nextIdx}`;
+      lastBannerExKeyRef.current = `${nextExId}-${nextIdx}`;
+      prevSetsLengthRef.current = nextEx.setsLog?.length || 0;
+      userEditedFieldsRef.current = {};
+      liveInputsRef.current = {};
+      setSetInputs(computeInitialSetInputs(nextEx, stateRef.current.gymLogs, date, historyIndexRef.current));
+    }
+    setShowCompletedWarmups(false);
+    setActiveKeypad(null);
+    setActiveExIndex(nextIdx);
+  }, [date]);
+
+  const switchToExercise = useCallback(
+    (rawTargetIdx: number) => {
+      const maxIdx = Math.max(0, (stateRef.current.exercises?.length || 1) - 1);
+      const nextIdx = Math.max(0, Math.min(maxIdx, rawTargetIdx));
+      if (nextIdx === visualExIndex && nextIdx === stateRef.current.activeExIndex) {
+        headerSlideX.value = withSpring(0, springs.snappy);
+        setsSlideX.value = withSpring(0, springs.snappy);
+        return;
+      }
+      if (supersetJumpTimerRef.current) {
+        clearTimeout(supersetJumpTimerRef.current);
+        supersetJumpTimerRef.current = null;
+      }
+      if (autoAdvanceTimerRef.current) {
+        clearTimeout(autoAdvanceTimerRef.current);
+        autoAdvanceTimerRef.current = null;
+      }
+      flushPendingInputs();
+
+      const dir: 1 | -1 = nextIdx >= visualExIndex ? 1 : -1;
+      setVisualExIndex(nextIdx);
+      switchSeqRef.current += 1;
+      const seq = switchSeqRef.current;
+
+      cancelAnimation(headerSlideX);
+      cancelAnimation(headerOpacity);
+      cancelAnimation(setsSlideX);
+      cancelAnimation(setsOpacity);
+      cancelAnimation(setsScale);
+
+      headerOpacity.value = withTiming(0, { duration: 65, easing: Easing.in(Easing.quad) });
+      setsOpacity.value = withTiming(0, { duration: 65, easing: Easing.in(Easing.quad) });
+      setsScale.value = withTiming(0.985, { duration: 70 });
+      setsSlideX.value = withTiming(-dir * screenWidth * 0.24, {
+        duration: 70,
+        easing: Easing.in(Easing.cubic),
+      });
+      headerSlideX.value = withTiming(
+        -dir * screenWidth * 0.20,
+        { duration: 70, easing: Easing.in(Easing.cubic) },
+        (finished) => {
+          if (finished) {
+            runOnJS(commitExerciseSwitch)(nextIdx, dir, seq);
+          }
+        }
+      );
+    },
+    [
+      visualExIndex,
+      screenWidth,
+      flushPendingInputs,
+      commitExerciseSwitch,
+      headerSlideX,
+      headerOpacity,
+      setsSlideX,
+      setsOpacity,
+      setsScale,
+    ]
+  );
+
+  const headerPullGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY([10, 999])
+        .failOffsetX([-20, 20])
+        .onUpdate((e) => {
+          if (e.translationY > 0) {
+            sheetTranslateY.value = e.translationY;
+          }
+        })
+        .onEnd((e) => {
+          if (e.translationY > 95 || e.velocityY > 560) {
+            runOnJS(handleBack)();
+          } else {
+            sheetTranslateY.value = withSpring(0, springs.snappy);
+          }
+        }),
+    [handleBack, sheetTranslateY]
+  );
+
+  const headerSwipeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-18, 18])
+        .failOffsetY([-10, 10])
+        .onUpdate((e) => {
+          const total = exercises.length;
+          const atStart = visualExIndex === 0 && e.translationX > 0;
+          const atEnd = visualExIndex >= total - 1 && e.translationX < 0;
+          const factor = atStart || atEnd ? 0.28 : 1;
+          headerSlideX.value = e.translationX * factor;
+          setsSlideX.value = e.translationX * factor * 0.78;
+        })
+        .onEnd((e) => {
+          const total = exercises.length;
+          if ((e.translationX < -52 || e.velocityX < -460) && visualExIndex < total - 1) {
+            runOnJS(switchToExercise)(visualExIndex + 1);
+          } else if ((e.translationX > 52 || e.velocityX > 460) && visualExIndex > 0) {
+            runOnJS(switchToExercise)(visualExIndex - 1);
+          } else {
+            headerSlideX.value = withSpring(0, springs.snappy);
+            setsSlideX.value = withSpring(0, springs.snappy);
+          }
+        }),
+    [exercises.length, visualExIndex, switchToExercise, headerSlideX, setsSlideX]
+  );
 
   useEffect(() => {
     const onBackPress = () => {
@@ -839,34 +1084,46 @@ export default function ActiveLoggingScreen() {
     };
   }, [flushPendingInputs]);
 
+  // Auto-finish watchdog: if workout reaches the 120-minute limit and autocompletes, transition to summary
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('gym_workout_completed', (event: any) => {
+      const sessionDate = date || lockedSessionDateRef.current;
+      if (event?.date && event.date === sessionDate) {
+        clearRestTimer();
+        navigation.replace('WorkoutSummary', { date: sessionDate, log: event?.log });
+      }
+    });
+    return () => sub.remove();
+  }, [date, clearRestTimer, navigation]);
+
+  const isFinishingRef = useRef(false);
   const handleFinishAndSave = useCallback(async () => {
+    if (isFinishingRef.current) return;
+    isFinishingRef.current = true;
     setShowFinishEarlySheet(false);
     clearRestTimer();
-    await endWorkout(true);
+    flushPendingInputs();
+    const { exercises: allExs } = stateRef.current;
     const sessionDate = date || lockedSessionDateRef.current;
-    navigation.replace('WorkoutSummary', { date: sessionDate });
-  }, [clearRestTimer, endWorkout, date, navigation]);
+    const completedLog = await endWorkout(true, allExs);
+    navigation.replace('WorkoutSummary', { date: sessionDate, log: completedLog });
+  }, [clearRestTimer, flushPendingInputs, endWorkout, date, navigation]);
 
   const handleDiscardWorkout = useCallback(() => {
     setShowFinishEarlySheet(false);
     setShowWorkoutMenuSheet(false);
+    afterSheetDismiss(() => {
+      setShowDiscardConfirmSheet(true);
+    });
+  }, []);
+
+  const handleConfirmDiscardWorkout = useCallback(async () => {
+    setShowDiscardConfirmSheet(false);
     clearRestTimer();
-    Alert.alert(
-      'Discard Workout?',
-      'Are you sure you want to discard this workout? No sets will be saved.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Discard',
-          style: 'destructive',
-          onPress: async () => {
-            await endWorkout(false);
-            navigation.goBack();
-          },
-        },
-      ]
-    );
-  }, [clearRestTimer, endWorkout, navigation]);
+    setActiveKeypad(null);
+    await endWorkout(false);
+    afterSheetDismiss(() => handleBack());
+  }, [clearRestTimer, endWorkout, handleBack]);
 
   const promptFinishWorkout = useCallback(() => {
     flushPendingInputs();
@@ -882,6 +1139,7 @@ export default function ActiveLoggingScreen() {
   const handleSaveNote = useCallback((noteText: string) => {
     if (noteModalConfig.target === 'session') {
       setSessionNote(noteText);
+      updateNotes(noteText);
     } else if (noteModalConfig.target === 'exercise') {
       const curRealIdx = stateRef.current.realExerciseIndex;
       const curEx = stateRef.current.exercise;
@@ -889,9 +1147,23 @@ export default function ActiveLoggingScreen() {
         updateExercise(curRealIdx, { ...curEx, notes: noteText });
       }
     }
-  }, [noteModalConfig.target, updateExercise]);
+  }, [noteModalConfig.target, updateNotes, updateExercise]);
 
-  const handleSelectRest = useCallback((secs: number) => {
+  const handleRemoveExercise = useCallback(() => {
+    const {
+      realExerciseIndex: curRealIdx,
+      exercise: curEx,
+      activeExIndex: curActiveIdx,
+    } = stateRef.current;
+    if (!curEx || curRealIdx === undefined || curRealIdx < 0) return;
+    deleteExercise(curEx.exerciseId || curRealIdx);
+    setActiveKeypad(null);
+    const nextAfterRemove = Math.max(0, curActiveIdx - 1);
+    setVisualExIndex(nextAfterRemove);
+    setActiveExIndex(nextAfterRemove);
+  }, [deleteExercise]);
+
+  const handleSelectRest = useCallback((secs: number, saveAsDefault?: boolean) => {
     const chosen = secs;
     if (chosen <= 0) {
       clearRestTimer();
@@ -899,95 +1171,16 @@ export default function ActiveLoggingScreen() {
       if (restTimerStartTime) {
         startRestTimer(chosen, stateRef.current.exercise?.name);
       }
-      const curRealIdx = stateRef.current.realExerciseIndex;
-      const curEx = stateRef.current.exercise;
-      if (curEx && curRealIdx !== undefined) {
-        updateExercise(curRealIdx, { ...curEx, restTimeSecs: chosen });
+      if (saveAsDefault !== false) {
+        const curRealIdx = stateRef.current.realExerciseIndex;
+        const curEx = stateRef.current.exercise;
+        if (curEx && curRealIdx !== undefined) {
+          updateExercise(curRealIdx, { ...curEx, restTimeSecs: chosen });
+        }
       }
     }
     setRestPickerSetIdx(null);
   }, [clearRestTimer, startRestTimer, restTimerStartTime, updateExercise]);
-
-  const _oldPromptFinishWorkout = useCallback(() => {
-    flushPendingInputs();
-    const { exercises: allExs } = stateRef.current;
-
-    // Detect incomplete exercises (exercises where some or all sets are uncompleted)
-    const incompleteExercises = allExs
-      .map((ex, idx) => {
-        const totalSets = ex.setsLog?.length || 0;
-        const completedSets = (ex.setsLog || []).filter((s: any) => s.completed).length;
-        return {
-          index: idx,
-          name: ex.name,
-          totalSets,
-          completedSets,
-        };
-      })
-      .filter(item => item.completedSets < item.totalSets || item.totalSets === 0);
-
-    if (incompleteExercises.length > 0) {
-      hapticMedium();
-      const firstUnfinished = incompleteExercises[0];
-      const count = incompleteExercises.length;
-      
-      const summaryList = incompleteExercises
-        .slice(0, 4)
-        .map(e => `• ${e.name} (${e.completedSets}/${e.totalSets} sets done)`)
-        .join('\n');
-      const extraCount = count > 4 ? `\n...and ${count - 4} more` : '';
-
-      Alert.alert(
-        count === 1 ? '1 Exercise Still Incomplete ⚠️' : `${count} Exercises Still Incomplete ⚠️`,
-        `You still have ${count} ${count === 1 ? 'exercise' : 'exercises'} left in today's workout:\n\n${summaryList}${extraCount}\n\nWould you like to jump to ${firstUnfinished.name} to complete it, or finish your workout anyway?`,
-        [
-          {
-            text: `Go to ${firstUnfinished.name.split(' (')[0]}`,
-            style: 'default',
-            onPress: () => {
-              hapticSelection();
-              setActiveExIndex(firstUnfinished.index);
-              scrollToActivePill(firstUnfinished.index);
-            },
-          },
-          {
-            text: 'Finish Workout Anyway',
-            style: 'destructive',
-            onPress: async () => {
-              clearRestTimer();
-              await endWorkout(true);
-              const sessionDate = date || targetDateStr;
-              navigation.replace('WorkoutSummary', { date: sessionDate });
-            },
-          },
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
-        ]
-      );
-      return;
-    }
-
-    hapticSuccess();
-    Alert.alert(
-      'Finish Workout? 🏁',
-      "You've completed all exercises for today's session! Would you like to finish and view your workout summary?",
-      [
-        { text: 'Keep Editing', style: 'cancel' },
-        {
-          text: 'Finish Workout',
-          style: 'default',
-          onPress: async () => {
-            clearRestTimer();
-            await endWorkout(true);
-            const sessionDate = date || targetDateStr;
-            navigation.replace('WorkoutSummary', { date: sessionDate });
-          },
-        },
-      ]
-    );
-  }, [clearRestTimer, endWorkout, flushPendingInputs, navigation, date, targetDateStr, scrollToActivePill]);
 
   const handleLogSet = useCallback(() => {
     if (isLoggingSetRef.current) return;
@@ -1015,7 +1208,8 @@ export default function ActiveLoggingScreen() {
       exercise.targetReps,
       isWeightEdited,
       isRepsEdited,
-      lastSessionSet
+      lastSessionSet,
+      curActiveSetIndex
     );
 
     const newEx = {
@@ -1032,9 +1226,6 @@ export default function ActiveLoggingScreen() {
     const nextJumpIdx = findNextSupersetExerciseIndex(allExs, curActiveIdx, exercise.supersetGroup);
     const restSecs = nextJumpIdx !== -1 ? 30 : getRestDuration(exercise);
 
-    if (!log?.workoutStartTime) {
-      startWorkout();
-    }
     logSetAndStartTimer(curRealIdx, newEx, restSecs, exercise.name);
 
     if (resolved.weight && resolved.reps && resolved.weight > 0 && resolved.reps > 0) {
@@ -1048,8 +1239,9 @@ export default function ActiveLoggingScreen() {
         if (isPR) {
           hapticSuccess();
           if (prToastTimerRef.current) clearTimeout(prToastTimerRef.current);
+          const uLbs = stateRef.current ? unitIsLbs : false;
           setPrToast({
-            message: `${exercise.name}: ${w} kg × ${r} (Est. 1RM: ${est1RM} kg)`,
+            message: `${exercise.name}: ${formatWeight(w, uLbs, 1)} × ${r} (Est. 1RM: ${formatWeight(est1RM, uLbs, 1)})`,
           });
           prToastTimerRef.current = setTimeout(() => {
             setPrToast(null);
@@ -1061,14 +1253,14 @@ export default function ActiveLoggingScreen() {
 
     if (nextJumpIdx !== -1) {
       if (supersetJumpTimerRef.current) clearTimeout(supersetJumpTimerRef.current);
-      supersetJumpTimerRef.current = setTimeout(() => setActiveExIndex(nextJumpIdx), 400);
+      supersetJumpTimerRef.current = setTimeout(() => switchToExercise(nextJumpIdx), 400);
     } else {
       const isExComplete = newEx.setsLog.length > 0 && newEx.setsLog.every(s => s.completed);
       if (isExComplete) {
         if (curActiveIdx < allExs.length - 1) {
           if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
           autoAdvanceTimerRef.current = setTimeout(() => {
-            setActiveExIndex(curActiveIdx + 1);
+            switchToExercise(curActiveIdx + 1);
           }, 550);
         } else {
           if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
@@ -1078,7 +1270,7 @@ export default function ActiveLoggingScreen() {
         }
       }
     }
-  }, [logSetAndStartTimer, promptFinishWorkout]);
+  }, [logSetAndStartTimer, promptFinishWorkout, switchToExercise]);
 
   const handleAdjustWeight = useCallback((delta: number) => {
     const { exercise, setInputs: curInputs, overloadSuggestion: curOverload } = stateRef.current;
@@ -1130,7 +1322,7 @@ export default function ActiveLoggingScreen() {
       baseReps = parseUpperTargetReps(exercise.targetReps);
     }
 
-    const newReps = Math.min(50, Math.max(1, baseReps + delta));
+    const newReps = Math.min(999, Math.max(1, baseReps + delta));
     handleTextChange(targetIdx, 'reps', String(newReps));
   }, [handleTextChange]);
 
@@ -1173,12 +1365,11 @@ export default function ActiveLoggingScreen() {
     const { activeExIndex: curIdx, exercises: curExs } = stateRef.current;
     if (curIdx < curExs.length - 1) {
       hapticMedium();
-      if (supersetJumpTimerRef.current) clearTimeout(supersetJumpTimerRef.current);
-      setActiveExIndex(curIdx + 1);
+      switchToExercise(curIdx + 1);
     } else {
       promptFinishWorkout();
     }
-  }, [flushPendingInputs, promptFinishWorkout]);
+  }, [flushPendingInputs, promptFinishWorkout, switchToExercise]);
 
   const handleDeleteSet = useCallback((idx: number) => {
     const { exercise, realExerciseIndex: curRealIdx } = stateRef.current;
@@ -1443,7 +1634,7 @@ export default function ActiveLoggingScreen() {
       completedSetsToday
     );
     if (liveSuggestion) {
-      setOverloadSuggestion(liveSuggestion);
+      setLiveOverloadOverride({ exKey: currentExKey, suggestion: liveSuggestion });
     }
 
     if (targetCompleted) {
@@ -1468,9 +1659,6 @@ export default function ActiveLoggingScreen() {
       const nextJumpIdx = findNextSupersetExerciseIndex(allExs, curActiveIdx, exercise.supersetGroup);
       const restSecs = curSet.setType === 'drop' ? 15 : (nextJumpIdx !== -1 ? 30 : getRestDuration(exercise));
 
-      if (!log?.workoutStartTime) {
-        startWorkout();
-      }
       logSetAndStartTimer(curRealIdx, newEx, restSecs, exercise.name);
 
       if (resolved.weight && resolved.reps && resolved.weight > 0 && resolved.reps > 0) {
@@ -1485,7 +1673,7 @@ export default function ActiveLoggingScreen() {
             hapticSuccess();
             if (prToastTimerRef.current) clearTimeout(prToastTimerRef.current);
             setPrToast({
-              message: `${exercise.name}: ${w} kg × ${r} (Est. 1RM: ${est1RM} kg)`,
+              message: `${exercise.name}: ${formatWeight(w, unitIsLbs, 1)} × ${r} (Est. 1RM: ${formatWeight(est1RM, unitIsLbs, 1)})`,
             });
             prToastTimerRef.current = setTimeout(() => {
               setPrToast(null);
@@ -1497,14 +1685,14 @@ export default function ActiveLoggingScreen() {
 
       if (nextJumpIdx !== -1) {
         if (supersetJumpTimerRef.current) clearTimeout(supersetJumpTimerRef.current);
-        supersetJumpTimerRef.current = setTimeout(() => setActiveExIndex(nextJumpIdx), 400);
+        supersetJumpTimerRef.current = setTimeout(() => switchToExercise(nextJumpIdx), 400);
       } else {
         const isExComplete = targetCompleted && newEx.setsLog.length > 0 && newEx.setsLog.every(s => s.completed);
         if (isExComplete) {
           if (curActiveIdx < allExs.length - 1) {
             if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
             autoAdvanceTimerRef.current = setTimeout(() => {
-              setActiveExIndex(curActiveIdx + 1);
+              switchToExercise(curActiveIdx + 1);
             }, 550);
           } else {
             if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
@@ -1522,7 +1710,7 @@ export default function ActiveLoggingScreen() {
       hapticLight();
       updateExercise(curRealIdx, newEx);
     }
-  }, [logSetAndStartTimer, updateExercise, promptFinishWorkout]);
+  }, [logSetAndStartTimer, updateExercise, promptFinishWorkout, switchToExercise, currentExKey]);
 
   const handleSelectProgressionPolicy = useCallback((policy: 'linear' | 'double' | 'triple' | 'top_backoff') => {
     const { exercise, realExerciseIndex: curRealIdx } = stateRef.current;
@@ -1545,9 +1733,9 @@ export default function ActiveLoggingScreen() {
       pastGymLogs
     );
     if (newSuggestion) {
-      setOverloadSuggestion(newSuggestion);
+      setLiveOverloadOverride({ exKey: currentExKey, suggestion: newSuggestion });
     }
-  }, [updateExercise, pastGymLogs]);
+  }, [updateExercise, pastGymLogs, currentExKey]);
 
   const handleCycleSetType = useCallback((setIdx: number) => {
     const { exercise, realExerciseIndex: curRealIdx } = stateRef.current;
@@ -1644,15 +1832,16 @@ export default function ActiveLoggingScreen() {
   // Stable unified set action dispatcher — passed to SwipeableSetRow instead of 5 inline
   // arrow functions, so React.memo can bail out on unrelated re-renders (timer ticks, etc.).
   // With zero reactive dependencies, it never changes reference across keystrokes!
-  const handleSetAction = useCallback((idx: number, action: 'textChange' | 'blur' | 'toggle' | 'delete' | 'swipe' | 'cycleType' | 'copyPrev' | 'focusField', payload?: any) => {
+  const handleSetAction = useCallback((idx: number, action: 'textChange' | 'blur' | 'toggle' | 'delete' | 'requestDelete' | 'swipe' | 'cycleType' | 'copyPrev' | 'focusField' | 'setRest', payload?: any) => {
     switch (action) {
-      case 'textChange': handleTextChange(idx, payload.field, payload.text); break;
-      case 'blur':       handleBlur(idx); break;
-      case 'toggle':     handleToggleSetComplete(idx); break;
-      case 'delete':     handleDeleteSet(idx); break;
-      case 'swipe':      handleToggleSetComplete(idx); break;
-      case 'cycleType':  handleCycleSetType(idx); break;
-      case 'copyPrev':   handleCopyPrev(idx, payload); break;
+      case 'textChange':    handleTextChange(idx, payload.field, payload.text); break;
+      case 'blur':          handleBlur(idx); break;
+      case 'toggle':        handleToggleSetComplete(idx); break;
+      case 'delete':        handleDeleteSet(idx); break;
+      case 'requestDelete': setDeleteSetConfirmIdx(idx); break;
+      case 'swipe':         handleToggleSetComplete(idx); break;
+      case 'cycleType':     handleCycleSetType(idx); break;
+      case 'copyPrev':      handleCopyPrev(idx, payload); break;
       case 'focusField': {
         const curSet = stateRef.current.exercise?.setsLog?.[idx];
         if (curSet?.completed) return;
@@ -1684,8 +1873,10 @@ export default function ActiveLoggingScreen() {
 
     const curVal = liveInputsRef.current[setIndex]?.[field] ?? stateRef.current.setInputs[setIndex]?.[field] ?? '';
     if (key === '.') {
-      if (curVal.includes('.')) return;
-      if (field === 'reps') return;
+      if (curVal.includes('.') || field === 'reps') {
+        hapticError();
+        return;
+      }
       const nextVal = curVal === '' || curVal === '0' ? '0.' : curVal + '.';
       handleTextChange(setIndex, field, nextVal);
       return;
@@ -1700,7 +1891,15 @@ export default function ActiveLoggingScreen() {
     const { setIndex, field } = activeKeypad;
 
     const curVal = liveInputsRef.current[setIndex]?.[field] ?? stateRef.current.setInputs[setIndex]?.[field] ?? '';
-    if (!curVal) return;
+    if (!curVal) {
+      // Auto-shift back to weight if backspacing on an empty reps cell
+      if (field === 'reps') {
+        isFieldSelectedRef.current = false;
+        setIsFieldSelected(false);
+        setActiveKeypad({ setIndex, field: 'weight' });
+      }
+      return;
+    }
     const nextVal = curVal.slice(0, -1);
     handleTextChange(setIndex, field, nextVal);
   }, [activeKeypad, handleTextChange]);
@@ -1717,6 +1916,8 @@ export default function ActiveLoggingScreen() {
     const { exercise, setInputs: curInputs, overloadSuggestion: curOverload } = stateRef.current;
     if (!exercise) return;
     hapticSelection();
+    isFieldSelectedRef.current = false;
+    setIsFieldSelected(false);
 
     const curSet = exercise.setsLog[setIndex];
     const curInput = curInputs[setIndex];
@@ -1746,7 +1947,7 @@ export default function ActiveLoggingScreen() {
       } else {
         baseReps = parseUpperTargetReps(exercise.targetReps);
       }
-      const newReps = Math.min(50, Math.max(1, baseReps + delta));
+      const newReps = Math.min(999, Math.max(1, baseReps + delta));
       handleTextChange(setIndex, 'reps', String(newReps));
     }
   }, [activeKeypad, handleTextChange]);
@@ -1758,46 +1959,39 @@ export default function ActiveLoggingScreen() {
     if (!curEx) return;
 
     if (field === 'weight') {
+      // Cascade entered weight once to any unedited subsequent sets
+      const enteredWeight = liveInputsRef.current[setIndex]?.weight ?? '';
+      if (enteredWeight !== '') {
+        const curSets = curEx.setsLog || [];
+        setSetInputs(prev => {
+          let hasCascade = false;
+          const next = [...prev];
+          for (let j = setIndex + 1; j < next.length; j++) {
+            const subsequentSet = curSets[j];
+            const isSubsequentEdited = userEditedFieldsRef.current[j]?.weight;
+            if (subsequentSet && !subsequentSet.completed && !isSubsequentEdited) {
+              next[j] = {
+                ...(next[j] || { weight: '', reps: '' }),
+                weight: enteredWeight,
+              };
+              if (!liveInputsRef.current[j]) liveInputsRef.current[j] = {};
+              liveInputsRef.current[j].weight = enteredWeight;
+              hasCascade = true;
+            }
+          }
+          return hasCascade ? next : prev;
+        });
+      }
+
       // Instantly switch to reps of the current set
       hapticSelection();
       setActiveKeypad({ setIndex, field: 'reps' });
     } else {
-      // Currently on reps: complete this set, and advance to next uncompleted set weight
+      // Currently on reps: delegate completion, keypad focus advancement & auto-finish timer to handleToggleSetComplete
       hapticSuccess();
       handleToggleSetComplete(setIndex);
-
-      const sets = curEx.setsLog || [];
-      // Look for the next uncompleted set after current setIndex
-      let nextUnloggedIdx = -1;
-      for (let i = setIndex + 1; i < sets.length; i++) {
-        if (!sets[i].completed) {
-          nextUnloggedIdx = i;
-          break;
-        }
-      }
-      // If none found after setIndex, check any earlier uncompleted set
-      if (nextUnloggedIdx === -1) {
-        for (let i = 0; i < sets.length; i++) {
-          if (i !== setIndex && !sets[i].completed) {
-            nextUnloggedIdx = i;
-            break;
-          }
-        }
-      }
-
-      if (nextUnloggedIdx !== -1) {
-        setActiveKeypad({ setIndex: nextUnloggedIdx, field: 'weight' });
-      } else {
-        // All sets completed!
-        setActiveKeypad(null);
-        if (stateRef.current.activeExIndex === stateRef.current.exercises.length - 1) {
-          setTimeout(() => {
-            promptFinishWorkout();
-          }, 450);
-        }
-      }
     }
-  }, [activeKeypad, handleToggleSetComplete, promptFinishWorkout]);
+  }, [activeKeypad, handleToggleSetComplete]);
 
   // Reset custom workout keypad when switching exercises so Mode 1 (Sticky Dock) is shown by default
   useEffect(() => {
@@ -1857,10 +2051,9 @@ export default function ActiveLoggingScreen() {
       (e.exerciseId && partner.exerciseId && e.exerciseId === partner.exerciseId) || e.name === partner.name
     );
     if (partnerIdx !== -1) {
-      if (supersetJumpTimerRef.current) clearTimeout(supersetJumpTimerRef.current);
-      setActiveExIndex(partnerIdx);
+      switchToExercise(partnerIdx);
     }
-  }, [partnerExercise, activeExercises]);
+  }, [partnerExercise, activeExercises, switchToExercise]);
 
   const handleTimerAdd = useCallback(() => {
     setRestTimerDuration(restTimerInitialRef.current + 15);
@@ -1874,364 +2067,213 @@ export default function ActiveLoggingScreen() {
     clearRestTimer();
   }, [clearRestTimer]);
 
-  // Loading skeleton
-  if (!log || !log.exercises) {
-    return (
-      <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <View style={{ width: 120, height: 14, borderRadius: 7, backgroundColor: '#2C2C2E' }} />
-          <View style={{ width: 32 }} />
-        </View>
-        <View style={{ alignItems: 'center', marginTop: 32, gap: 12 }}>
-          <View style={{ width: 80, height: 24, borderRadius: 12, backgroundColor: '#2C2C2E' }} />
-          <View style={{ width: 200, height: 28, borderRadius: 8, backgroundColor: '#2C2C2E' }} />
-          <View style={{ width: 150, height: 14, borderRadius: 7, backgroundColor: '#1C1C1E' }} />
-        </View>
-        <View style={{ paddingHorizontal: SPACE.xl, marginTop: 32, gap: 8 }}>
-          {[1, 2, 3].map(i => (
-            <View key={i} style={[styles.setRow, { opacity: 1 - i * 0.2 }]}>
-              <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#2C2C2E' }} />
-              <View style={{ flex: 1, height: 36, borderRadius: 6, backgroundColor: '#2C2C2E', marginHorizontal: 8 }} />
-              <View style={{ flex: 1, height: 36, borderRadius: 6, backgroundColor: '#2C2C2E', marginHorizontal: 8 }} />
-              <View style={{ width: 32 }} />
-            </View>
-          ))}
-        </View>
-        <View style={{ alignItems: 'center', marginTop: 24 }}>
-          <ActivityIndicator size="small" color={colors.accentPrimary} />
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const handlePillLayout = useCallback(
+    (idx: number, e: LayoutChangeEvent) => {
+      const { x, width } = e.nativeEvent.layout;
+      pillLayoutsRef.current[idx] = { x, width };
+      if (idx === visualExIndex) {
+        scrollToActivePill(idx);
+      }
+    },
+    [visualExIndex, scrollToActivePill]
+  );
 
-  if (!exercise) {
-    return (
-      <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
-            <Ionicons name="chevron-down" size={24} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Active Workout</Text>
-          <View style={{ width: 32 }} />
-        </View>
-        <View style={[styles.root, { justifyContent: 'center', alignItems: 'center' }]}>
-          <Text style={{ color: colors.textMuted }}>No exercises found for this session.</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const openAddExerciseModal = useCallback(() => {
+    setAddModalEverShown(true);
+    setShowAddExerciseModal(true);
+  }, []);
+
+  const anySecondaryModalVisible = Boolean(
+    deepDiveVisible ||
+      showWhatHitsSheet ||
+      showWorkoutMenuSheet ||
+      showWorkoutSettingsSheet ||
+      showExerciseMenuSheet ||
+      showFinishEarlySheet ||
+      noteModalConfig.visible ||
+      restPickerSetIdx !== null
+  );
+
+  useEffect(() => {
+    if (anySecondaryModalVisible && !secondaryModalsActivated) {
+      setSecondaryModalsActivated(true);
+    }
+  }, [anySecondaryModalVisible, secondaryModalsActivated]);
+
+  const hasAnyConfirmSheetOpen = Boolean(
+    showDiscardConfirmSheet || deleteSetConfirmIdx !== null || pendingSwapPermanent
+  );
+  const [confirmSheetsEverShown, setConfirmSheetsEverShown] = useState(hasAnyConfirmSheetOpen);
+  useEffect(() => {
+    if (hasAnyConfirmSheetOpen && !confirmSheetsEverShown) {
+      setConfirmSheetsEverShown(true);
+    }
+  }, [hasAnyConfirmSheetOpen, confirmSheetsEverShown]);
 
   return (
-    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
-      <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.background} />
-
-      {/* ── Mid-Workout PR Celebration Toast ── */}
-      {prToast && (
-        <View style={[styles.prToastContainer, { top: Math.max(insets.top, 24) + 12 }]}>
-          <Ionicons name="trophy" size={26} color="#FFD700" />
-          <View style={{ flex: 1, paddingRight: 4 }}>
-            <Text style={styles.prToastTitle}>New Personal Record!</Text>
-            <Text style={styles.prToastSubtitle}>{prToast.message}</Text>
-          </View>
-          <TouchableOpacity
-            onPress={handleDismissPrToast}
-            style={styles.prToastCloseBtn}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="close" size={18} color="rgba(255, 255, 255, 0.7)" />
-          </TouchableOpacity>
-        </View>
-      )}
-
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-
-        {/* Apple iOS HIG Header: OpenGym Pattern (Back, Workout Name + Live Timer & Set Count, ... Menu, Finish) */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleBack} style={styles.backBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Ionicons name="chevron-down" size={24} color={colors.textPrimary} />
-          </TouchableOpacity>
-
-          <View style={{ alignItems: 'center' }}>
-            <Text style={{ fontFamily: FONT_FAMILY.bold, fontSize: 17, color: '#FFFFFF' }} numberOfLines={1}>
-              {(log as any)?.name || (log as any)?.routineName || 'Active Workout'}
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-              {log?.workoutStartTime ? (
-                <WorkoutTimer startTime={log.workoutStartTime} />
-              ) : null}
-              <Text style={{ fontFamily: FONT_FAMILY.regular, fontSize: 13, color: '#8E8E93' }}>
-                · {totalCompletedSets}/{totalSessionSets} sets
-              </Text>
-            </View>
-          </View>
-
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <TouchableOpacity
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-              onPress={() => {
-                hapticSelection();
-                setShowWorkoutMenuSheet(true);
-              }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons name="ellipsis-horizontal" size={18} color="#FFFFFF" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={promptFinishWorkout}
-              style={{
-                backgroundColor: '#30D158',
-                borderRadius: 18,
-                paddingHorizontal: 16,
-                paddingVertical: 7,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-              activeOpacity={0.7}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Text style={{ fontFamily: FONT_FAMILY.bold, fontSize: 14, color: '#000000' }}>Finish</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Thin Volume & Session Progress Bar */}
-        <View style={{ paddingHorizontal: 16, paddingTop: 2, paddingBottom: 8 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <View style={{ flex: 1, height: 3, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 2, overflow: 'hidden', marginRight: 12 }}>
-              <View
-                style={{
-                  height: '100%',
-                  width: `${totalSessionSets > 0 ? Math.min(100, (totalCompletedSets / totalSessionSets) * 100) : 0}%`,
-                  backgroundColor: '#30D158',
-                  borderRadius: 2,
-                }}
-              />
-            </View>
-            <Text style={{ fontFamily: FONT_FAMILY.medium, fontSize: 13, color: '#8E8E93' }}>
-              {Math.round(liveTotalVolume)} kg
-            </Text>
-          </View>
-        </View>
-
-        {/* OpenGym Exercise Dots Strip with Mini Mannequin Pill Button */}
-        <View style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          paddingHorizontal: 16,
-          paddingVertical: 6,
-          borderBottomWidth: StyleSheet.hairlineWidth,
-          borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-        }}>
-          <ScrollView
-            ref={carouselScrollRef}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ alignItems: 'center', gap: 6 }}
-            style={{ flex: 1, marginRight: 10 }}
-          >
-            {exercises.map((ex, idx) => {
-              const isCurrent = idx === activeExIndex;
-              const completedCount = ex.setsLog?.filter((s: any) => s.completed).length || 0;
-              const totalCount = ex.setsLog?.length || 0;
-              const isExDone = totalCount > 0 && completedCount === totalCount;
-              const isExPartial = completedCount > 0 && !isExDone;
-
-              return (
-                <TouchableOpacity
-                  key={ex.exerciseId || ex.name || idx}
-                  onLayout={(e) => {
-                    const { x, width } = e.nativeEvent.layout;
-                    pillLayoutsRef.current[idx] = { x, width };
-                    if (idx === activeExIndex) {
-                      scrollToActivePill(idx);
-                    }
-                  }}
-                  onPress={() => {
-                    if (supersetJumpTimerRef.current) {
-                      clearTimeout(supersetJumpTimerRef.current);
-                      supersetJumpTimerRef.current = null;
-                    }
-                    if (autoAdvanceTimerRef.current) {
-                      clearTimeout(autoAdvanceTimerRef.current);
-                      autoAdvanceTimerRef.current = null;
-                    }
-                    hapticSelection();
-                    setActiveExIndex(idx);
-                  }}
-                  style={{
-                    width: isCurrent ? 32 : 28,
-                    height: isCurrent ? 32 : 28,
-                    borderRadius: isCurrent ? 16 : 14,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderWidth: isCurrent ? 2 : 1,
-                    borderColor: isCurrent ? '#30D158' : 'rgba(255, 255, 255, 0.08)',
-                    padding: isCurrent ? 2 : 0,
-                    backgroundColor: !isCurrent
-                      ? (isExDone ? '#30D158' : isExPartial ? '#D97706' : '#1C1C1E')
-                      : 'transparent',
-                  }}
-                  activeOpacity={0.7}
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <Animated.View style={[{ flex: 1 }, sheetModalAnimStyle]}>
+        <View style={[styles.root, { paddingTop: insets.top }]}>
+          {!log || !log.exercises ? (
+            <>
+              <View style={styles.header}>
+                <TactileButton
+                  variant="icon"
+                  size="sm"
+                  onPress={handleBack}
+                  accessibilityLabel="Go back"
+                  style={{ backgroundColor: 'transparent', borderWidth: 0 }}
                 >
-                  <View style={{
-                    width: isCurrent ? 24 : 26,
-                    height: isCurrent ? 24 : 26,
-                    borderRadius: isCurrent ? 12 : 13,
-                    backgroundColor: isCurrent
-                      ? (isExDone ? '#30D158' : isExPartial ? '#D97706' : '#1C1C1E')
-                      : 'transparent',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                    <Text style={{
-                      fontFamily: FONT_FAMILY.bold,
-                      fontSize: 12,
-                      color: isExDone ? '#000000' : (isExPartial || isCurrent ? '#FFFFFF' : '#8E8E93'),
-                    }}>
-                      {idx + 1}
-                    </Text>
+                  <AppIcon icon={ChevronLeft} size={24} color={tokens.text.primary} />
+                </TactileButton>
+                <Text style={styles.headerTitle}>Active Workout</Text>
+                <View style={{ width: tokens.touch.minTarget }} />
+              </View>
+              <View style={styles.root} />
+            </>
+          ) : !exercise ? (
+            <>
+              <View style={styles.header}>
+                <TactileButton
+                  variant="icon"
+                  size="sm"
+                  onPress={handleBack}
+                  accessibilityLabel="Close workout"
+                  style={{ backgroundColor: 'transparent', borderWidth: 0 }}
+                >
+                  <AppIcon icon={ChevronDown} size={24} color={tokens.text.primary} />
+                </TactileButton>
+                <Text style={styles.headerTitle}>Active Workout</Text>
+                <View style={{ width: tokens.touch.minTarget }} />
+              </View>
+              <View style={[styles.root, { justifyContent: 'center', alignItems: 'center' }]}>
+                <Text style={[tokens.typography.body, { color: tokens.text.secondary }]}>
+                  No exercises found for this session.
+                </Text>
+              </View>
+            </>
+          ) : (
+            <>
+              {/* Mid-Workout PR Celebration Toast */}
+              {prToast && (
+                <View style={[styles.prToastContainer, { top: Math.max(insets.top, 24) + tokens.space.md }]}>
+                  <AppIcon icon={Trophy} size={26} color={tokens.status.gold} />
+                  <View style={{ flex: 1, paddingRight: tokens.space.xs }}>
+                    <Text style={styles.prToastTitle}>New Personal Record!</Text>
+                    <Text style={styles.prToastSubtitle}>{prToast.message}</Text>
                   </View>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+                  <TactileButton
+                    variant="icon"
+                    onPress={handleDismissPrToast}
+                    style={styles.prToastCloseBtn}
+                    accessibilityLabel="Dismiss personal record alert"
+                  >
+                    <AppIcon icon={X} size={18} color={tokens.text.secondary} />
+                  </TactileButton>
+                </View>
+              )}
 
-          {/* Mini Front & Back Mannequin Pill (What this session hits) */}
-          <MiniMannequinButton
-            onPress={() => setShowWhatHitsSheet(true)}
-            hasWorkedMuscles={totalCompletedSets > 0}
-            exercises={exercises}
-          />
-        </View>
+              <View style={{ flex: 1 }}>
+                <ActiveLoggingHeader
+                  routineTitle={(log as any)?.name || (log as any)?.routineName || 'Active Workout'}
+                  workoutStartTime={log?.workoutStartTime}
+                  totalCompletedSets={totalCompletedSets}
+                  totalSessionSets={totalSessionSets}
+                  liveTotalVolume={liveTotalVolume}
+                  unitIsLbs={unitIsLbs}
+                  panGesture={headerPullGesture}
+                  sessionProgressStyle={sessionProgressStyle}
+                  onTrackLayout={handleSessionTrackLayout}
+                  onBack={handleBack}
+                  onOpenMenu={() => setShowWorkoutMenuSheet(true)}
+                  onPromptFinish={promptFinishWorkout}
+                  styles={styles}
+                />
 
-        {/* Scrollable Content */}
-        <View style={styles.content}>
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-          >
+                <ExerciseSelectorStrip
+                  exercises={exercises}
+                  visualExIndex={visualExIndex}
+                  totalCompletedSets={totalCompletedSets}
+                  carouselScrollRef={carouselScrollRef}
+                  onPillLayout={handlePillLayout}
+                  onSelectIndex={switchToExercise}
+                  onOpenWhatHits={() => setShowWhatHitsSheet(true)}
+                />
 
-            {/* ── OpenGym Focused Exercise & Sets View with Directional Physics ── */}
-            <Animated.View style={{
-              transform: [{ translateX: cardSlideAnim }],
-              opacity: cardOpacityAnim,
-              width: '100%',
-            }}>
-              {/* Exercise Header: Freely on the dark background */}
-              <ActiveExerciseHeader
-                exercise={exercise}
-                partnerExercise={partnerExercise}
-                overloadSuggestion={overloadSuggestion}
-                lastTimeData={lastTimeData}
-                showVideo={showVideo}
-                activeSetIndex={activeSetIndex}
-                isAllComplete={isAllComplete}
-                onRepeatPrevious={handleRepeatPreviousSet}
-                colors={colors}
-                styles={styles}
-                gymLogs={gymLogs}
-                onSwapPress={handleSwapPress}
-                onSupersetPress={handleSupersetPress}
-                onVideoToggle={handleVideoToggle}
-                onSwitchToPartner={handleSwitchToPartner}
-                onNoteChange={handleNoteChange}
-                onOpenExerciseMenu={() => setShowExerciseMenuSheet(true)}
-              />
+                {/* Scrollable Content with Dual-Layer Synchronized Rolling Transitions */}
+                <View style={styles.content}>
+                  <ScrollView
+                    ref={bodyScrollRef}
+                    contentContainerStyle={[
+                      styles.scrollContent,
+                      { paddingBottom: isKeypadOpen ? 250 : restTimerStartTime ? 190 : 120 },
+                    ]}
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="on-drag"
+                  >
+                    <GestureDetector gesture={headerSwipeGesture}>
+                      <Animated.View style={[{ width: '100%' }, headerRollStyle]}>
+                        <ActiveExerciseHeader
+                          exercise={exercise}
+                          partnerExercise={partnerExercise}
+                          overloadSuggestion={overloadSuggestion}
+                          lastTimeData={lastTimeData}
+                          showVideo={showVideo}
+                          activeSetIndex={activeSetIndex}
+                          isAllComplete={isAllComplete}
+                          onRepeatPrevious={handleRepeatPreviousSet}
+                          colors={colors}
+                          styles={styles}
+                          gymLogs={gymLogs}
+                          onSwapPress={handleSwapPress}
+                          onSupersetPress={handleSupersetPress}
+                          onVideoToggle={handleVideoToggle}
+                          onSwitchToPartner={handleSwitchToPartner}
+                          onNoteChange={handleNoteChange}
+                          onOpenExerciseMenu={() => setShowExerciseMenuSheet(true)}
+                        />
+                      </Animated.View>
+                    </GestureDetector>
 
-              {/* Set Rows with Stepper Pills & Checkmark Circles: Separate Rounded Card Container */}
-              <SetList
-                setsLog={exercise.setsLog}
-                activeSetIndex={activeSetIndex}
-                setInputs={setInputs}
-                lastSessionSets={resolvedLastSessionSets}
-                colors={colors}
-                isDark={isDark}
-                styles={styles}
-                hasWarmups={hasWarmups}
-                allWarmupsCompleted={allWarmupsCompleted}
-                showCompletedWarmups={showCompletedWarmups}
-                overloadSuggestion={overloadSuggestion}
-                onToggleShowWarmups={() => setShowCompletedWarmups(prev => !prev)}
-                onSetAction={handleSetAction}
-                activeKeypadField={activeKeypad}
-                isFieldSelected={isFieldSelected}
-                onAddSet={handleAddSet}
-                isAllComplete={isAllComplete}
-                isLastExercise={activeExIndex === exercises.length - 1}
-                onFinishWorkout={promptFinishWorkout}
-              />
-            </Animated.View>
+                    <Animated.View style={[{ width: '100%' }, setsRollStyle]}>
+                      <SetList
+                        setsLog={exercise.setsLog}
+                        activeSetIndex={activeSetIndex}
+                        setInputs={setInputs}
+                        lastSessionSets={resolvedLastSessionSets}
+                        colors={colors}
+                        isDark={isDark}
+                        styles={styles}
+                        hasWarmups={hasWarmups}
+                        allWarmupsCompleted={allWarmupsCompleted}
+                        showCompletedWarmups={showCompletedWarmups}
+                        overloadSuggestion={overloadSuggestion}
+                        onToggleShowWarmups={() => setShowCompletedWarmups((prev) => !prev)}
+                        onSetAction={handleSetAction}
+                        activeKeypadField={activeKeypad}
+                        isFieldSelected={isFieldSelected}
+                        onAddSet={handleAddSet}
+                        isAllComplete={isAllComplete}
+                        isLastExercise={activeExIndex === exercises.length - 1}
+                        onFinishWorkout={promptFinishWorkout}
+                      />
 
-            {/* Exercise Card Footer: Prev & Next Navigation */}
-            <View style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingHorizontal: 20,
-              paddingVertical: 18,
-              marginBottom: 48,
-            }}>
-              <TouchableOpacity
-                disabled={activeExIndex === 0}
-                onPress={() => {
-                  hapticSelection();
-                  setActiveExIndex(prev => Math.max(0, prev - 1));
-                }}
-                style={{ flexDirection: 'row', alignItems: 'center', opacity: activeExIndex === 0 ? 0.25 : 1 }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="chevron-back" size={18} color={activeExIndex === 0 ? '#48484A' : '#30D158'} />
-                <Text style={{
-                  fontFamily: FONT_FAMILY.bold,
-                  fontSize: 16,
-                  color: activeExIndex === 0 ? '#48484A' : '#30D158',
-                  marginLeft: 4,
-                }}>
-                  Prev
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => {
-                  hapticSelection();
-                  if (activeExIndex < exercises.length - 1) {
-                    setActiveExIndex(prev => prev + 1);
-                  } else {
-                    promptFinishWorkout();
-                  }
-                }}
-                style={{ flexDirection: 'row', alignItems: 'center' }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Text style={{
-                  fontFamily: FONT_FAMILY.bold,
-                  fontSize: 16,
-                  color: '#30D158',
-                  marginRight: 4,
-                }}>
-                  {activeExIndex < exercises.length - 1 ? 'Next' : 'Finish'}
-                </Text>
-                <Ionicons name="chevron-forward" size={18} color="#30D158" />
-              </TouchableOpacity>
-            </View>
-
-          </ScrollView>
-        </View>
+                      <ExerciseFooterNav
+                        visualExIndex={visualExIndex}
+                        exercises={exercises}
+                        onPrev={() => switchToExercise(Math.max(0, visualExIndex - 1))}
+                        onNextOrFinish={() => {
+                          if (visualExIndex < exercises.length - 1) {
+                            switchToExercise(visualExIndex + 1);
+                          } else {
+                            promptFinishWorkout();
+                          }
+                        }}
+                      />
+                    </Animated.View>
+                  </ScrollView>
+                </View>
 
 
         {/* ── FIX 4: Lazy-mount Superset Modal — only inserted into the tree on first open.
@@ -2269,8 +2311,6 @@ export default function ActiveLoggingScreen() {
             exercise={exercise}
             aiSwapList={aiSwapList}
             isAiSwapLoading={isAiSwapLoading}
-            colors={colors}
-            styles={styles}
             onClose={() => setShowSwapModal(false)}
             onSelectSwap={(alt) => {
               const oldName = exercise.name;
@@ -2329,274 +2369,229 @@ export default function ActiveLoggingScreen() {
               liveInputsRef.current = {};
 
               setShowSwapModal(false);
-              Alert.alert(
-                'Keep Swap Permanent?',
-                `Do you want to use ${alt.name} for future workouts?`,
-                [
-                  { text: 'No, just for today', style: 'cancel' },
-                  {
-                    text: 'Yes, update plan',
-                    onPress: () => makeSwapPermanent(
-                      oldName,
-                      alt.name,
-                      resolvedVideoId || alt.videoId,
-                      alt.muscle || exercise.muscle,
-                      alt.targetSets,
-                      alt.targetReps,
-                      alt.restTimeSecs
-                    )
-                  }
-                ]
-              );
+              afterSheetDismiss(() => {
+                setPendingSwapPermanent({
+                  oldName,
+                  newName: alt.name,
+                  videoId: resolvedVideoId || alt.videoId,
+                  muscle: alt.muscle || exercise.muscle,
+                  targetSets: alt.targetSets,
+                  targetReps: alt.targetReps,
+                  restTimeSecs: alt.restTimeSecs,
+                });
+              });
             }}
           />
         )}
 
-      </KeyboardAvoidingView>
+      </View>
 
       {/* ── ZONE 2: FIXED BOTTOM ACTION DOCK (Morphs between Mode 1 and Mode 2) ── */}
       {isKeypadOpen ? (
-        <WorkoutKeypad
-          visible={true}
-          field={activeKeypad?.field ?? 'weight'}
-          currentWeight={
-            activeKeypad
-              ? (setInputs[activeKeypad.setIndex]?.weight ?? '')
-              : ''
-          }
-          currentReps={
-            activeKeypad
-              ? (setInputs[activeKeypad.setIndex]?.reps ?? '')
-              : ''
-          }
-          setNumber={activeKeypad ? (exercise?.setsLog?.[activeKeypad.setIndex]?.setNumber || activeKeypad.setIndex + 1) : 1}
-          stepSize={smartWeightStep}
-          selectedRir={
-            activeKeypad
-              ? (exercise?.setsLog?.[activeKeypad.setIndex]?.rir ?? 1)
-              : 1
-          }
-          onKeyPress={handleKeypadPress}
-          onBackspace={handleKeypadBackspace}
-          onClear={handleKeypadClear}
-          onStepAdjust={handleKeypadStepAdjust}
-          onSelectField={(f) => {
-            if (activeKeypad && !exercise?.setsLog?.[activeKeypad.setIndex]?.completed) {
-              isFieldSelectedRef.current = true;
-              setIsFieldSelected(true);
-              setActiveKeypad({ setIndex: activeKeypad.setIndex, field: f });
+        <View onLayout={handleKeypadLayout}>
+          <WorkoutKeypad
+            visible={true}
+            field={activeKeypad?.field ?? 'weight'}
+            currentWeight={
+              activeKeypad
+                ? (setInputs[activeKeypad.setIndex]?.weight ?? '')
+                : ''
             }
-          }}
-          onSelectRir={handleSetRIR}
-          onNextOrComplete={handleKeypadNextOrComplete}
-          onDismiss={() => setActiveKeypad(null)}
-        />
-      ) : null}
-
-      {/* Sticky Rest Timer Overlay (Rendered outside KeyboardAvoidingView so it never jumps with keyboard) */}
-      {(restTimerStartTime && restTimerDurationSecs) ? (
-        <View
-          style={{
-            position: 'absolute',
-            bottom: timerBottomOffset,
-            left: 0,
-            right: 0,
-            alignItems: 'center',
-            zIndex: 9999,
-          }}
-          pointerEvents="box-none"
-        >
-          <AnimatedRestTimer
-            startTime={restTimerStartTime}
-            durationSecs={restTimerDurationSecs}
-            onAdd={handleTimerAdd}
-            onSubtract={handleTimerSubtract}
-            onSkip={handleTimerSkip}
-            onEditDuration={(currentRemainingSecs) => {
-              const rem = currentRemainingSecs != null && currentRemainingSecs > 0
-                ? currentRemainingSecs
-                : (exercise?.restTimeSecs || 90);
-              setSheetInitialSecs(rem);
-              setRestPickerSetIdx(activeSetIndex !== -1 ? activeSetIndex : 0);
+            currentReps={
+              activeKeypad
+                ? (setInputs[activeKeypad.setIndex]?.reps ?? '')
+                : ''
+            }
+            setNumber={activeKeypad ? (exercise?.setsLog?.[activeKeypad.setIndex]?.setNumber || activeKeypad.setIndex + 1) : 1}
+            stepSize={smartWeightStep}
+            unit={unitLabel(unitIsLbs)}
+            selectedRir={
+              activeKeypad
+                ? (exercise?.setsLog?.[activeKeypad.setIndex]?.rir ?? 1)
+                : 1
+            }
+            lastSessionWeight={
+              activeKeypad
+                ? (resolvedLastSessionSets?.[activeKeypad.setIndex]?.weight ??
+                   resolvedLastSessionSets?.[resolvedLastSessionSets.length - 1]?.weight ??
+                   null)
+                : null
+            }
+            onQuickFillWeight={(w) => {
+              if (activeKeypad) {
+                isFieldSelectedRef.current = false;
+                setIsFieldSelected(false);
+                handleTextChange(activeKeypad.setIndex, 'weight', String(w));
+              }
             }}
+            onKeyPress={handleKeypadPress}
+            onBackspace={handleKeypadBackspace}
+            onClear={handleKeypadClear}
+            onStepAdjust={handleKeypadStepAdjust}
+            onSelectField={(f) => {
+              if (activeKeypad && !exercise?.setsLog?.[activeKeypad.setIndex]?.completed) {
+                isFieldSelectedRef.current = true;
+                setIsFieldSelected(true);
+                setActiveKeypad({ setIndex: activeKeypad.setIndex, field: f });
+              }
+            }}
+            onSelectRir={handleSetRIR}
+            onNextOrComplete={handleKeypadNextOrComplete}
+            onDismiss={() => setActiveKeypad(null)}
           />
         </View>
       ) : null}
 
-      {/* Deep-Dive Inspector Modal */}
-      {deepDiveVisible && exercise && (
-        <ExerciseDeepDiveModal
-          visible={deepDiveVisible}
-          exerciseName={exercise.name}
-          exercise={exercise}
-          overloadSuggestion={overloadSuggestion}
-          gymLogs={gymLogs || []}
-          onClose={() => setDeepDiveVisible(false)}
+      {/* Sticky Rest Timer Overlay */}
+      {(restTimerStartTime && restTimerDurationSecs) ? (
+        <AnimatedRestTimer
+          startTime={restTimerStartTime}
+          durationSecs={restTimerDurationSecs}
+          bottomOffset={timerBottomOffset}
+          onAdd={handleTimerAdd}
+          onSubtract={handleTimerSubtract}
+          onSkip={handleTimerSkip}
+          onEditDuration={(currentRemainingSecs) => {
+            const rem = currentRemainingSecs != null && currentRemainingSecs > 0
+              ? currentRemainingSecs
+              : (exercise?.restTimeSecs || 90);
+            setSheetInitialSecs(rem);
+            setRestPickerSetIdx(activeSetIndex !== -1 ? activeSetIndex : 0);
+          }}
         />
-      )}
+      ) : null}
 
-      {/* What This Session Hits Sheet */}
-      <WhatThisSessionHitsSheet
-        visible={showWhatHitsSheet}
-        exercises={exercises}
-        onClose={() => setShowWhatHitsSheet(false)}
-      />
+              {(secondaryModalsActivated || anySecondaryModalVisible) && (
+                <ActiveWorkoutModals
+                  deepDiveVisible={deepDiveVisible}
+                  setDeepDiveVisible={setDeepDiveVisible}
+                  deepDiveInitialTab={deepDiveTab}
+                  setDeepDiveInitialTab={setDeepDiveTab}
+                  showWhatHitsSheet={showWhatHitsSheet}
+                  setShowWhatHitsSheet={setShowWhatHitsSheet}
+                  showWorkoutMenuSheet={showWorkoutMenuSheet}
+                  setShowWorkoutMenuSheet={setShowWorkoutMenuSheet}
+                  showWorkoutSettingsSheet={showWorkoutSettingsSheet}
+                  setShowWorkoutSettingsSheet={setShowWorkoutSettingsSheet}
+                  showExerciseMenuSheet={showExerciseMenuSheet}
+                  setShowExerciseMenuSheet={setShowExerciseMenuSheet}
+                  showFinishEarlySheet={showFinishEarlySheet}
+                  setShowFinishEarlySheet={setShowFinishEarlySheet}
+                  noteModalConfig={noteModalConfig}
+                  setNoteModalConfig={setNoteModalConfig}
+                  restPickerSetIdx={restPickerSetIdx}
+                  setRestPickerSetIdx={setRestPickerSetIdx}
+                  sheetInitialSecs={sheetInitialSecs}
+                  exercise={exercise}
+                  exercises={exercises}
+                  activeExIndex={activeExIndex}
+                  setActiveExIndex={switchToExercise}
+                  activeSetIndex={activeSetIndex}
+                  overloadSuggestion={overloadSuggestion}
+                  gymLogs={gymLogs || []}
+                  sessionNote={sessionNote}
+                  soundEnabled={soundEnabled}
+                  setSoundEnabled={setSoundEnabled}
+                  autoTimerEnabled={autoTimerEnabled}
+                  setAutoTimerEnabled={setAutoTimerEnabled}
+                  keepAwakeEnabled={keepAwakeEnabled}
+                  setKeepAwakeEnabled={(val: boolean) => {
+                    setKeepAwakeEnabled(val);
+                    setKeepAwakeEnabledGlobal(val);
+                    saveGymProfile({ keepAwake: val }).catch(() => {});
+                  }}
+                  uncheckedSetsCount={uncheckedSetsCount}
+                  completedSetsCount={completedSetsCount}
+                  hasWarmups={hasWarmups}
+                  onSupersetPress={handleSupersetPress}
+                  onAddExercise={openAddExerciseModal}
+                  onSelectDefaultRest={(secs) => {
+                    setDefaultRestSecsGlobal(secs);
+                    saveGymProfile({ defaultRestSecs: secs }).catch(() => {});
+                    const curRealIdx = stateRef.current.realExerciseIndex;
+                    const curEx = stateRef.current.exercise;
+                    if (curEx && curRealIdx !== undefined) {
+                      updateExercise(curRealIdx, { ...curEx, restTimeSecs: secs });
+                    }
+                  }}
+                  onToggleAutoTimerGlobal={(val) => {
+                    setAutoTimerEnabledGlobal(val);
+                    saveGymProfile({ autoTimer: val }).catch(() => {});
+                  }}
+                  onToggleAudioGlobal={(val) => {
+                    setAudioCuesEnabledGlobal(val);
+                    saveGymProfile({ audioCues: val }).catch(() => {});
+                  }}
+                  onSwapPress={handleSwapPress}
+                  onAutoWarmup={handleAutoWarmup}
+                  onShowVideo={() => setShowVideo(true)}
+                  onRemoveExercise={handleRemoveExercise}
+                  onFinishAndSave={handleFinishAndSave}
+                  onDiscardWorkout={handleDiscardWorkout}
+                  onSaveNote={handleSaveNote}
+                  onSelectRest={handleSelectRest}
+                  onTimerSkip={handleTimerSkip}
+                />
+              )}
 
-      {/* Workout Menu Sheet */}
-      <WorkoutMenuSheet
-        visible={showWorkoutMenuSheet}
-        restDurationText={`${Math.floor((exercise?.restTimeSecs || 90) / 60)}:${String((exercise?.restTimeSecs || 90) % 60).padStart(2, '0')} rest · ${soundEnabled ? 'Sound' : 'Mute'}`}
-        sessionNote={sessionNote}
-        onOpenWorkoutSettings={() => {
-          setShowWorkoutMenuSheet(false);
-          setShowWorkoutSettingsSheet(true);
-        }}
-        onAddExercise={() => {
-          setShowWorkoutMenuSheet(false);
-          (navigation as any).navigate('ExerciseLibrary', { date, mode: 'add' });
-        }}
-        onAddSessionNote={() => {
-          setShowWorkoutMenuSheet(false);
-          setNoteModalConfig({
-            visible: true,
-            title: 'Session Note',
-            initialNote: sessionNote,
-            target: 'session',
-          });
-        }}
-        onDiscardWorkout={handleDiscardWorkout}
-        onClose={() => setShowWorkoutMenuSheet(false)}
-      />
+              {(addModalEverShown || showAddExerciseModal) && (
+                <AddExerciseModal
+                  visible={showAddExerciseModal}
+                  onClose={() => setShowAddExerciseModal(false)}
+                  onAdd={(newEx: any) => {
+                    addExercise(newEx);
+                    setShowAddExerciseModal(false);
+                  }}
+                  existingExerciseIds={activeExercises.map((e: any) => e.exerciseId || e.id || e.name)}
+                />
+              )}
 
-      {/* Workout Settings Bottom Sheet (OpenGym Standard) */}
-      <WorkoutSettingsSheet
-        visible={showWorkoutSettingsSheet}
-        defaultRestSecs={exercise?.restTimeSecs || 90}
-        autoTimerEnabled={autoTimerEnabled}
-        soundEnabled={soundEnabled}
-        keepAwakeEnabled={keepAwakeEnabled}
-        onSelectDefaultRest={(secs) => {
-          const curRealIdx = stateRef.current.realExerciseIndex;
-          const curEx = stateRef.current.exercise;
-          if (curEx && curRealIdx !== undefined) {
-            updateExercise(curRealIdx, { ...curEx, restTimeSecs: secs });
-          }
-        }}
-        onToggleAutoTimer={(val) => {
-          setAutoTimerEnabled(val);
-          setAutoTimerEnabledGlobal(val);
-          saveGymProfile({ autoTimer: val }).catch(() => {});
-        }}
-        onToggleSound={(val) => {
-          setSoundEnabled(val);
-          setAudioCuesEnabledGlobal(val);
-        }}
-        onToggleKeepAwake={(val) => {
-          setKeepAwakeEnabled(val);
-        }}
-        onClose={() => setShowWorkoutSettingsSheet(false)}
-      />
-
-      {/* Exercise Menu Sheet */}
-      <ExerciseMenuSheet
-        visible={showExerciseMenuSheet}
-        exerciseName={exercise?.name || ''}
-        currentRestText={exercise?.restTimeSecs ? `${Math.floor(exercise.restTimeSecs / 60)}:${String(exercise.restTimeSecs % 60).padStart(2, '0')}` : '1:30'}
-        exerciseNote={exercise?.notes || ''}
-        onAddNote={() => {
-          setShowExerciseMenuSheet(false);
-          setNoteModalConfig({
-            visible: true,
-            title: `Note for ${exercise?.name}`,
-            initialNote: exercise?.notes || '',
-            target: 'exercise',
-          });
-        }}
-        onSwapExercise={() => {
-          setShowExerciseMenuSheet(false);
-          handleSwapPress();
-        }}
-        onAddWarmupSet={() => {
-          setShowExerciseMenuSheet(false);
-          handleAutoWarmup();
-        }}
-        onConfigureRestTimer={() => {
-          setShowExerciseMenuSheet(false);
-          setRestPickerSetIdx(activeSetIndex);
-        }}
-        onViewHistory={() => {
-          setShowExerciseMenuSheet(false);
-          setDeepDiveVisible(true);
-        }}
-        onHowToDoIt={() => {
-          setShowExerciseMenuSheet(false);
-          setShowVideo(true);
-        }}
-        onRemoveExercise={() => {
-          setShowExerciseMenuSheet(false);
-          Alert.alert(
-            'Remove Exercise',
-            `Are you sure you want to remove ${exercise?.name}?`,
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Remove',
-                style: 'destructive',
-                onPress: () => {
-                  const nextExercises = exercises.filter((_: any, idx: number) => idx !== activeExIndex);
-                  if (nextExercises.length > 0) {
-                    setActiveExIndex(Math.max(0, activeExIndex - 1));
+              {(confirmSheetsEverShown || hasAnyConfirmSheetOpen) && (
+                <ActiveConfirmSheets
+                  showDiscardConfirmSheet={showDiscardConfirmSheet}
+                  onCloseDiscard={() => setShowDiscardConfirmSheet(false)}
+                  onConfirmDiscard={handleConfirmDiscardWorkout}
+                  deleteSetConfirmIdx={deleteSetConfirmIdx}
+                  exerciseName={exercise?.name}
+                  deleteSetNumber={
+                    deleteSetConfirmIdx !== null
+                      ? exercise?.setsLog?.[deleteSetConfirmIdx]?.setNumber || deleteSetConfirmIdx + 1
+                      : undefined
                   }
-                }
-              }
-            ]
-          );
-        }}
-        onClose={() => setShowExerciseMenuSheet(false)}
-      />
+                  onCloseDeleteSet={() => setDeleteSetConfirmIdx(null)}
+                  onConfirmDeleteSet={handleDeleteSet}
+                  pendingSwapPermanent={pendingSwapPermanent}
+                  onCloseSwapPermanent={() => setPendingSwapPermanent(null)}
+                  onConfirmSwapPermanent={(p) =>
+                    makeSwapPermanent(
+                      p.oldName,
+                      p.newName,
+                      p.videoId,
+                      p.muscle,
+                      p.targetSets,
+                      p.targetReps,
+                      p.restTimeSecs
+                    )
+                  }
+                />
+              )}
 
-      {/* Finish Early Sheet */}
-      <FinishEarlySheet
-        visible={showFinishEarlySheet}
-        uncheckedSetsCount={uncheckedSetsCount}
-        completedSetsCount={completedSetsCount}
-        onFinishAndSave={handleFinishAndSave}
-        onDiscard={handleDiscardWorkout}
-        onClose={() => setShowFinishEarlySheet(false)}
-      />
-
-      {/* Workout / Exercise Note Modal */}
-      <WorkoutNoteModal
-        visible={noteModalConfig.visible}
-        title={noteModalConfig.title}
-        initialNote={noteModalConfig.initialNote}
-        onSave={handleSaveNote}
-        onClose={() => setNoteModalConfig(prev => ({ ...prev, visible: false }))}
-      />
-
-      {/* OpenGym Standard "Time left" Rest Timer Bottom Sheet */}
-      <SetRestPickerSheet
-        visible={restPickerSetIdx !== null}
-        initialRestSecs={sheetInitialSecs}
-        defaultRestSecs={exercise?.restTimeSecs || 90}
-        onSelectRestSecs={handleSelectRest}
-        onSkip={handleTimerSkip}
-        onClose={() => setRestPickerSetIdx(null)}
-      />
-
-
-{/* ── High-Contrast Screen Flash Rest Alert Overlay (pointerEvents none) ── */}
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          StyleSheet.absoluteFillObject,
-          {
-            backgroundColor: '#30D158',
-            opacity: flashAnim,
-            zIndex: 999999,
-          },
-        ]}
-      />
-    </SafeAreaView>
+              {/* High-Contrast Screen Flash Rest Alert Overlay */}
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  StyleSheet.absoluteFillObject,
+                  {
+                    backgroundColor: tokens.accent.primary,
+                    zIndex: 999999,
+                  },
+                  flashAnimatedStyle,
+                ]}
+              />
+            </>
+          )}
+        </View>
+      </Animated.View>
+    </View>
   );
 }

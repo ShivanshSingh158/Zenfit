@@ -1,27 +1,38 @@
-import { EXERCISE_DATABASE } from '../data/exerciseDatabase';
+import { estimate1RM } from '../services/oneRepMaxEngine';
+import { resolveExerciseBiometrics } from './exerciseClassifier';
 import { getCanonicalExerciseKey } from '../data/exerciseAliasMap';
 import { GymExerciseLog, GymDayLog, GymSet } from '../types/gym.types';
 import { computeOrGetHotCache, generateDatasetFingerprint } from './hotCacheStore';
 export { computeOrGetHotCache, generateDatasetFingerprint };
 
+let _cachedDb: any[] | null = null;
+export function getExerciseDatabase(): any[] {
+  if (!_cachedDb) {
+    const db = require('../data/exerciseDatabase')?.EXERCISE_DATABASE;
+    if (Array.isArray(db) && db.length > 0) _cachedDb = db;
+    else return [];
+  }
+  return _cachedDb;
+}
+
 export const MUSCLE_COLORS: Record<string, string> = {
-  'Chest': '#FF6B6B', 'Back': '#4DABF7', 'Shoulders': '#9775FA',
-  'Side Delts': '#B197FC', 'Rear Delts': '#845EF7', 'Triceps': '#38D9A9',
-  'Biceps': '#3BC9DB', 'Brachialis': '#22B8CF', 'Forearms': '#15AABF',
-  'Quads': '#FF922B', 'Hamstrings': '#FF7849', 'Glutes/Hams': '#FF8787',
-  'Quads/Glutes': '#FFA94D', 'Calves': '#A9E34B', 'Soleus': '#8CE99A',
-  'Abs': '#FF8787', 'Core': '#FA5252', 'Obliques': '#E64980',
-  'Upper Back / Rear Delts': '#AE3EC9', 'Serratus / Pec Minor': '#F08C00',
+  'Chest': '#FF6B6B', 'Back': '#0A84FF', 'Shoulders': '#38BDF8',
+  'Side Delts': '#60A5FA', 'Rear Delts': '#2563EB', 'Triceps': '#30D158',
+  'Biceps': '#32ADE6', 'Brachialis': '#0EA5E9', 'Forearms': '#0284C7',
+  'Quads': '#FF9F0A', 'Hamstrings': '#FF7849', 'Glutes/Hams': '#FF8787',
+  'Quads/Glutes': '#FFA94D', 'Calves': '#64D2FF', 'Soleus': '#5AC8FA',
+  'Abs': '#FF6482', 'Core': '#FF453A', 'Obliques': '#FF375F',
+  'Upper Back / Rear Delts': '#007AFF', 'Serratus / Pec Minor': '#FF9F0A',
   'Upper Chest': '#FF6B6B', 'Mid Chest': '#FF6B6B', 'Lower Chest': '#FF6B6B',
-  'Lat Width': '#4DABF7', 'Mid-Back': '#4DABF7',
-  'Front Delts': '#9775FA', 'Upper Traps': '#AE3EC9',
-  'Long Tricep': '#38D9A9', 'Lat/Med Tricep': '#38D9A9',
-  'Short Bicep': '#3BC9DB', 'Long Bicep': '#3BC9DB',
-  'Quad Teardrop': '#FF922B', 'Glutes/Abductors': '#FF8787',
-  'Gastrocnemius': '#A9E34B',
-  'Upper Abs': '#FF8787', 'Lower Abs': '#FF8787', 'Transverse Abs': '#FF8787',
-  'Forearm Flexors': '#15AABF', 'Forearm Extensors': '#15AABF', 'Brachioradialis': '#15AABF',
-  'Lats': '#4DABF7', 'Glutes': '#FF8787', 'Traps': '#AE3EC9', 'Full Body': '#a599ff'
+  'Lat Width': '#0A84FF', 'Mid-Back': '#0A84FF',
+  'Front Delts': '#38BDF8', 'Upper Traps': '#007AFF',
+  'Long Tricep': '#30D158', 'Lat/Med Tricep': '#30D158',
+  'Short Bicep': '#32ADE6', 'Long Bicep': '#32ADE6',
+  'Quad Teardrop': '#FF9F0A', 'Glutes/Abductors': '#FF8787',
+  'Gastrocnemius': '#64D2FF',
+  'Upper Abs': '#FF6482', 'Lower Abs': '#FF6482', 'Transverse Abs': '#FF6482',
+  'Forearm Flexors': '#0284C7', 'Forearm Extensors': '#0284C7', 'Brachioradialis': '#0284C7',
+  'Lats': '#0A84FF', 'Glutes': '#FF8787', 'Traps': '#007AFF', 'Full Body': '#0A84FF'
 };
 
 const MUSCLE_COLORS_LOWER = new Map<string, string>(
@@ -66,6 +77,7 @@ export const MUSCLE_CANONICAL: Record<string, string> = {
   'long bicep': 'Biceps',
   'quad teardrop': 'Quads',
   'glutes/quads': 'Quads',
+  'quads/glutes': 'Quads',
   'gastrocnemius': 'Calves',
   'soleus': 'Calves',
   'upper abs': 'Abs',
@@ -131,13 +143,16 @@ export function canonicalizeMuscle(muscle?: string): string {
     return 'Traps';
   }
 
-  // Capitalize first letter as fallback
-  return clean.charAt(0).toUpperCase() + clean.slice(1);
+  // Capitalize each word properly as fallback
+  return clean
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 }
 
 export const resolveMuscleColor = (m: string | undefined | null) => {
-  if (!m) return '#a855f7';
-  return MUSCLE_COLORS_LOWER.get(m.trim().toLowerCase()) ?? '#a855f7';
+  if (!m) return '#0A84FF';
+  return MUSCLE_COLORS_LOWER.get(m.trim().toLowerCase()) ?? '#0A84FF';
 };
 
 export type ExerciseEquipmentType = 'barbell' | 'dumbbell' | 'cable' | 'machine' | 'bodyweight' | 'smith' | 'ez_bar' | 'other';
@@ -153,26 +168,27 @@ export function resolveExerciseEquipment(exerciseName?: string | null): Exercise
     return { type: 'other', label: 'Weight', iconName: 'barbell-outline' };
   }
   const n = exerciseName.toLowerCase();
+  // Issue #63 & #145: Check specific equipment keywords before generic movement names like 'extension'
   if (n.includes('smith')) {
     return { type: 'smith', label: 'Smith Machine', iconName: 'git-compare-outline' };
   }
   if (n.includes('dumbbell') || n.includes('db ') || n.includes('db-') || n.includes('(db)')) {
     return { type: 'dumbbell', label: 'Dumbbell', iconName: 'fitness-outline' };
   }
-  if (n.includes('barbell') || n.includes('bb ') || n.includes('deadlift') || (n.includes('squat') && !n.includes('hack') && !n.includes('goblet')) || (n.includes('bench press') && !n.includes('dumbbell') && !n.includes('machine') && !n.includes('smith'))) {
+  if (n.includes('ez bar') || n.includes('ez-bar') || n.includes('ez curl') || n.includes('skull crusher') || n.includes('skullcrusher') || n.includes('preacher curl')) {
+    return { type: 'ez_bar', label: 'EZ Bar', iconName: 'barbell-outline' };
+  }
+  if (n.includes('barbell') || n.includes('bb ') || n.includes('deadlift') || (n.includes('squat') && !n.includes('goblet')) || n.includes('bench press')) {
     return { type: 'barbell', label: 'Barbell', iconName: 'barbell-outline' };
   }
   if (n.includes('cable') || n.includes('pulley') || n.includes('pushdown') || n.includes('pulldown') || n.includes('face pull') || n.includes('crossover')) {
     return { type: 'cable', label: 'Cable', iconName: 'swap-vertical-outline' };
   }
-  if (n.includes('machine') || n.includes('leg press') || n.includes('hack') || n.includes('pec deck') || n.includes('chest press') || n.includes('extension') || n.includes('curl machine') || n.includes('seated row')) {
+  if (n.includes('machine') || n.includes('leg press') || n.includes('hack') || n.includes('pec deck') || n.includes('chest press') || n.includes('leg extension') || n.includes('curl machine') || n.includes('seated row')) {
     return { type: 'machine', label: 'Machine', iconName: 'hardware-chip-outline' };
   }
   if (n.includes('pull-up') || n.includes('pullup') || n.includes('chin-up') || n.includes('chinup') || n.includes('dip') || n.includes('push-up') || n.includes('pushup') || n.includes('crunch') || n.includes('plank') || n.includes('hanging leg') || n.includes('bodyweight') || n.includes('calisthenic')) {
     return { type: 'bodyweight', label: 'Bodyweight', iconName: 'body-outline' };
-  }
-  if (n.includes('ez bar') || n.includes('ez-bar') || n.includes('ez curl')) {
-    return { type: 'ez_bar', label: 'EZ Bar', iconName: 'barbell-outline' };
   }
   return { type: 'other', label: 'Exercise', iconName: 'barbell-outline' };
 }
@@ -184,13 +200,13 @@ export function resolveExerciseEquipment(exerciseName?: string | null): Exercise
 export function formatIndianDate(dateInput?: string | number | Date | null): string {
   if (!dateInput) return '';
   if (typeof dateInput === 'string') {
-    const parts = dateInput.split('-');
-    if (parts.length === 3 && parts[0].length === 4) {
-      const [y, m, d] = parts;
-      return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+    const clean = dateInput.trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
+      const parts = clean.slice(0, 10).split('-');
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
     }
   }
-  const dateObj = new Date(dateInput);
+  const dateObj = typeof dateInput === 'number' ? new Date(dateInput) : (dateInput instanceof Date ? dateInput : new Date(dateInput));
   if (isNaN(dateObj.getTime())) return String(dateInput);
   const d = String(dateObj.getDate()).padStart(2, '0');
   const m = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -204,9 +220,10 @@ export function formatIndianDate(dateInput?: string | number | Date | null): str
 export function formatIndianDatePretty(dateInput?: string | number | Date | null, fullMonth: boolean = false): string {
   if (!dateInput) return '';
   let y: number, m: number, d: number;
-  if (typeof dateInput === 'string' && dateInput.includes('-')) {
-    const parts = dateInput.split('-').map(Number);
-    if (parts.length === 3 && parts[0] > 1000) {
+  if (typeof dateInput === 'string') {
+    const clean = dateInput.trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
+      const parts = clean.slice(0, 10).split('-').map(Number);
       [y, m, d] = parts;
     } else {
       const dateObj = new Date(dateInput);
@@ -214,7 +231,7 @@ export function formatIndianDatePretty(dateInput?: string | number | Date | null
       y = dateObj.getFullYear(); m = dateObj.getMonth() + 1; d = dateObj.getDate();
     }
   } else {
-    const dateObj = new Date(dateInput);
+    const dateObj = typeof dateInput === 'number' ? new Date(dateInput) : (dateInput instanceof Date ? dateInput : new Date(dateInput));
     if (isNaN(dateObj.getTime())) return String(dateInput);
     y = dateObj.getFullYear(); m = dateObj.getMonth() + 1; d = dateObj.getDate();
   }
@@ -226,35 +243,54 @@ export function formatIndianDatePretty(dateInput?: string | number | Date | null
 }
 
 export const hexToRgba = (hex: string, alpha: number = 1): string => {
+  if (!hex || typeof hex !== 'string') return `rgba(0, 0, 0, ${alpha})`;
+  if (hex === 'transparent') return `rgba(0, 0, 0, 0)`;
+  if (hex.startsWith('rgb')) {
+    const nums = hex.match(/\d+(\.\d+)?/g);
+    if (nums && nums.length >= 3) {
+      return `rgba(${nums[0]}, ${nums[1]}, ${nums[2]}, ${alpha})`;
+    }
+    return hex;
+  }
+  const clean = hex.startsWith('#') ? hex.slice(1) : hex;
   let r = 0, g = 0, b = 0;
-  if (hex.length === 4) {
-    r = parseInt(hex[1] + hex[1], 16);
-    g = parseInt(hex[2] + hex[2], 16);
-    b = parseInt(hex[3] + hex[3], 16);
-  } else if (hex.length === 7) {
-    r = parseInt(hex[1] + hex[2], 16);
-    g = parseInt(hex[3] + hex[4], 16);
-    b = parseInt(hex[5] + hex[6], 16);
+  if (clean.length === 3) {
+    r = parseInt(clean[0] + clean[0], 16) || 0;
+    g = parseInt(clean[1] + clean[1], 16) || 0;
+    b = parseInt(clean[2] + clean[2], 16) || 0;
+  } else if (clean.length === 6 || clean.length === 8) {
+    r = parseInt(clean.slice(0, 2), 16) || 0;
+    g = parseInt(clean.slice(2, 4), 16) || 0;
+    b = parseInt(clean.slice(4, 6), 16) || 0;
   }
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
 /**
  * Qualifies a gym log as a legitimate workout session:
- * Requires logging at least 3 completed exercises from the routine (or a completed cardio session >= 15m),
- * preventing accidental timer openings or single-exercise touches from falsely incrementing sessions.
+ * Requires logging at least 1 completed exercise (or set) from the routine, or a completed cardio session,
+ * or an explicitly finished workout log with recorded sets/exercises.
  */
 export function isValidWorkoutSession(log: any): boolean {
   if (!log) return false;
   const completedExercises = (log.exercises ?? []).filter(
-    (e: any) => !e.skipped && (e.setsLog ?? []).some((s: any) => s.completed),
+    (e: any) => !e.skipped && (e.setsLog ?? []).some((s: any) => s.completed && !s.isWarmup),
   ).length;
 
-  const hasCompletedCardio = (log.cardio ?? []).some(
-    (c: any) => c.completed && (Number(c.durationMinutes) || 0) >= 15,
+  const hasCompletedSets = (log.exercises ?? []).some(
+    (e: any) => !e.skipped && (e.setsLog ?? []).some((s: any) => s.completed && !s.isWarmup),
   );
 
-  return completedExercises >= 3 || hasCompletedCardio;
+  const hasCompletedCardio = (log.cardio ?? []).some(
+    (c: any) => c.completed && (Number(c.durationMinutes) || 0) >= 5,
+  );
+
+  return (
+    completedExercises >= 1 ||
+    hasCompletedSets ||
+    hasCompletedCardio ||
+    Boolean(log.completed && ((log.exercises?.length ?? 0) > 0 || (log.cardio?.length ?? 0) > 0))
+  );
 }
 
 // NOTE: gymPlan is required lazily inside functions to break the circular dependency:
@@ -267,37 +303,48 @@ export const calculateGymStreak = (logs: any[] | null | undefined, userGymPlan?:
   const toDateStr = (date: Date): string =>
     `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
+  const normalizeLocalDateStr = (val: any): string => {
+    if (!val) return '';
+    const s = String(val).trim();
+    const match = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (match) {
+      return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+    }
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      return toDateStr(d);
+    }
+    return '';
+  };
+
   const todayStr = toDateStr(new Date());
-  const cacheKey = `gym_streak_${todayStr}_${generateDatasetFingerprint(logs)}_${userGymPlan ? 'custom' : 'def'}`;
+  const planSig = userGymPlan ? `${userGymPlan.templateId || 'c'}_${userGymPlan.scheduleMode || 'fixed'}_${userGymPlan.updatedAt || 0}` : 'def';
+  const cacheKey = `gym_streak_${todayStr}_${generateDatasetFingerprint(logs)}_${planSig}`;
 
   return computeOrGetHotCache(cacheKey, () => {
     const validDates = logs
       .filter(isValidWorkoutSession)
-      .map(l => String(l?.date || '').slice(0, 10))
+      .map(l => normalizeLocalDateStr(l?.date))
       .filter(Boolean);
 
     if (validDates.length === 0) return 0;
 
     const loggedDates = new Set<string>(validDates);
 
-    const isRestDayForDate = (date: Date): boolean => {
-      const { WEEKDAY_TO_PLAN: WTP, GYM_PLAN: GP } = require('../data/gymPlan');
-      const dayOfWeek = date.getDay();
-      const planIdx = WTP[dayOfWeek] ?? 7;
-      const plan = userGymPlan?.customDays?.[planIdx] || GP.find((p: any) => p.dayIndex === planIdx);
+    // Hoist require outside loop & precompute 7-element lookup (Issue #29)
+    const { WEEKDAY_TO_PLAN: WTP, resolvePlanDay } = require('../data/gymPlan');
+    const restByDow = [0, 1, 2, 3, 4, 5, 6].map(dow => {
+      const planIdx = WTP[dow] ?? 7;
+      const plan = resolvePlanDay(userGymPlan, planIdx);
       return plan?.isRest === true;
-    };
-
-    // Guard against all-rest-day plans causing unbounded backward traversal
-    const hasAtLeastOneWorkoutDay = [0, 1, 2, 3, 4, 5, 6].some(dow => {
-      const { WEEKDAY_TO_PLAN: WTP2, GYM_PLAN: GP2 } = require('../data/gymPlan');
-      const planIdx = WTP2[dow] ?? 7;
-      const plan = userGymPlan?.customDays?.[planIdx] || GP2.find((p: any) => p.dayIndex === planIdx);
-      return plan?.isRest !== true;
     });
+
+    const isRotation = userGymPlan?.scheduleMode === 'rotation';
+    const hasAtLeastOneWorkoutDay = isRotation || restByDow.some(isRest => !isRest);
 
     let streak = 0;
     const curDate = new Date();
+    curDate.setHours(0, 0, 0, 0);
 
     if (loggedDates.has(todayStr)) {
       streak++;
@@ -308,13 +355,38 @@ export const calculateGymStreak = (logs: any[] | null | undefined, userGymPlan?:
     }
 
     const MAX_LOOKBACK_DAYS = 1095; // 3-year hard safety ceiling
+    let graceDaysUsedInWindow = 0;
+    let daysSinceLastGrace = 0;
+    let consecutiveRestDays = 0;
+
     for (let i = 0; i < MAX_LOOKBACK_DAYS; i++) {
       curDate.setDate(curDate.getDate() - 1);
       const dStr = toDateStr(curDate);
+      daysSinceLastGrace++;
+      if (daysSinceLastGrace >= 7) {
+        graceDaysUsedInWindow = 0;
+      }
+
       if (loggedDates.has(dStr)) {
         streak++;
-      } else if (!isRestDayForDate(curDate)) {
-        break;
+        consecutiveRestDays = 0;
+      } else if (isRotation) {
+        // In rotation mode, allow up to 2 rest days between workouts
+        consecutiveRestDays++;
+        if (consecutiveRestDays > 2) {
+          break;
+        }
+      } else if (restByDow[curDate.getDay()]) {
+        // Scheduled rest day
+        consecutiveRestDays = 0;
+      } else {
+        // Unscheduled rest day: allow 1 flexible rest day per 7-day window (Issue #69)
+        if (graceDaysUsedInWindow < 1) {
+          graceDaysUsedInWindow++;
+          daysSinceLastGrace = 0;
+        } else {
+          break;
+        }
       }
     }
 
@@ -328,13 +400,28 @@ export const calculateHighestGymStreak = (logs: any[] | null | undefined, userGy
   const toDateStr = (date: Date): string =>
     `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
+  const normalizeLocalDateStr = (val: any): string => {
+    if (!val) return '';
+    const s = String(val).trim();
+    const match = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (match) {
+      return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+    }
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      return toDateStr(d);
+    }
+    return '';
+  };
+
   const todayStr = toDateStr(new Date());
-  const cacheKey = `gym_highest_streak_${todayStr}_${generateDatasetFingerprint(logs)}_${userGymPlan ? 'custom' : 'def'}`;
+  const planSig = userGymPlan ? `${userGymPlan.templateId || 'c'}_${userGymPlan.scheduleMode || 'fixed'}_${userGymPlan.updatedAt || 0}` : 'def';
+  const cacheKey = `gym_highest_streak_${todayStr}_${generateDatasetFingerprint(logs)}_${planSig}`;
 
   return computeOrGetHotCache(cacheKey, () => {
     const validDates = logs
       .filter(isValidWorkoutSession)
-      .map(l => String(l?.date || '').slice(0, 10))
+      .map(l => normalizeLocalDateStr(l?.date))
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b));
 
@@ -342,75 +429,121 @@ export const calculateHighestGymStreak = (logs: any[] | null | undefined, userGy
 
     const loggedDates = new Set<string>(validDates);
 
-    const isRestDayForDate = (date: Date): boolean => {
-      const { WEEKDAY_TO_PLAN: WTP, GYM_PLAN: GP } = require('../data/gymPlan');
-      const dayOfWeek = date.getDay();
-      const planIdx = WTP[dayOfWeek] ?? 7;
-      const plan = userGymPlan?.customDays?.[planIdx] || GP.find((p: any) => p.dayIndex === planIdx);
+    // Hoist require outside loop & precompute 7-element lookup (Issue #29)
+    const { WEEKDAY_TO_PLAN: WTP, resolvePlanDay } = require('../data/gymPlan');
+    const restByDow = [0, 1, 2, 3, 4, 5, 6].map(dow => {
+      const planIdx = WTP[dow] ?? 7;
+      const plan = resolvePlanDay(userGymPlan, planIdx);
       return plan?.isRest === true;
-    };
+    });
 
+    const isRotation = userGymPlan?.scheduleMode === 'rotation';
     let maxStreak = 0;
     let currentRun = 0;
+    let consecutiveRestDays = 0;
 
-    const startDate = new Date(validDates[0] + 'T00:00:00');
+    const [startY, startM, startD] = validDates[0].split('-').map(Number);
+    const cur = new Date(startY, startM - 1, startD, 0, 0, 0, 0);
     const endDate = new Date();
     endDate.setHours(0, 0, 0, 0);
 
-    const cur = new Date(startDate);
     const MAX_DAYS = 1095; // 3-year safety
     let daysIterated = 0;
+    let graceDaysUsedInWindow = 0;
+    let daysSinceLastGrace = 0;
 
     while (cur <= endDate && daysIterated < MAX_DAYS) {
       daysIterated++;
+      daysSinceLastGrace++;
+      if (daysSinceLastGrace >= 7) { graceDaysUsedInWindow = 0; }
       const dStr = toDateStr(cur);
       if (loggedDates.has(dStr)) {
         currentRun++;
+        consecutiveRestDays = 0;
         if (currentRun > maxStreak) {
           maxStreak = currentRun;
         }
-      } else if (!isRestDayForDate(cur)) {
-        if (currentRun > maxStreak) {
-          maxStreak = currentRun;
+      } else if (isRotation) {
+        consecutiveRestDays++;
+        if (consecutiveRestDays > 2) {
+          if (currentRun > maxStreak) {
+            maxStreak = currentRun;
+          }
+          currentRun = 0;
         }
-        currentRun = 0;
+      } else if (restByDow[cur.getDay()]) {
+        // Scheduled rest day preserves streak run
+        consecutiveRestDays = 0;
+      } else {
+        // Unscheduled rest day: allow 1 flexible grace day per 7-day window
+        if (graceDaysUsedInWindow < 1) {
+          graceDaysUsedInWindow++;
+          daysSinceLastGrace = 0;
+        } else {
+          if (currentRun > maxStreak) {
+            maxStreak = currentRun;
+          }
+          currentRun = 0;
+        }
       }
       cur.setDate(cur.getDate() + 1);
     }
 
-    const currentStreak = calculateGymStreak(logs, userGymPlan);
-    return Math.max(maxStreak, currentRun, currentStreak, validDates.length > 0 ? 1 : 0);
+    // Eliminate recursive calculation (Issue #30)
+    return Math.max(maxStreak, currentRun, validDates.length > 0 ? 1 : 0);
   });
 };
 
 export const calculateExerciseMaxWeight = (exercise: GymExerciseLog | undefined | null): number => {
   if (!exercise || !exercise.setsLog || exercise.setsLog.length === 0) return 0;
   const validSets = exercise.setsLog.filter(s => {
-    const w = s?.weight !== undefined && s?.weight !== null ? s.weight : (s as any)?.weightKg;
-    return s.completed === true && w != null && Number(w) > 0;
+    if (!s || s.completed !== true || s.isWarmup || s.setType === 'warmup') return false;
+    const w = s.weight !== undefined && s.weight !== null ? s.weight : (s as any)?.weightKg;
+    return w != null && Number(w) >= 0;
   });
   if (validSets.length === 0) return 0;
   return Math.max(...validSets.map(s => {
-    const w = s?.weight !== undefined && s?.weight !== null ? s.weight : (s as any)?.weightKg;
+    const w = s.weight !== undefined && s.weight !== null ? s.weight : (s as any)?.weightKg;
     return Number(w);
   }));
 };
 
-/**
- * Unilateral & Dumbbell Volume Multiplier
- * Biomechanically, lifters log the weight of ONE dumbbell or limb
- * (e.g., Dumbbell Curl: 14kg x 10 = 140kg per arm = 280kg total tonnage).
- * Matches Hevy and Strong standard tonnage calculations.
- */
 export function getVolumeMultiplier(exerciseName?: string | null): number {
   if (!exerciseName) return 1;
   const name = exerciseName.toLowerCase();
+
+  // Single-implement two-handed dumbbell movements are 1x (#68)
+  if (name.includes('goblet') || name.includes('pullover') || name.includes('around the world')) {
+    return 1;
+  }
+
+  // Bilateral equipment explicitly excluded from 2x multiplier (#68, #150)
+  const isExplicitBilateral = (
+    name.includes('machine') ||
+    name.includes('rope') ||
+    name.includes('barbell') ||
+    name.includes('ez bar') ||
+    name.includes('ez-bar') ||
+    name.includes('both arms') ||
+    name.includes('smith') ||
+    name.includes('trap bar') ||
+    name.includes('hex bar')
+  ) && !(
+    name.includes('single') ||
+    name.includes('one') ||
+    name.includes('unilateral') ||
+    name.includes('iso-lateral') ||
+    name.includes('dumbbell') ||
+    name.includes('db ')
+  );
+  if (isExplicitBilateral) return 1;
+
   const unilateralKeywords = [
-    'dumbbell', 'db ', 'single arm', 'single-arm', 'one arm', 'one-arm',
+    'dumbbell', 'db ', '(db)', 'single arm', 'single-arm', 'one arm', 'one-arm',
     'single leg', 'single-leg', 'one leg', 'one-leg', 'unilateral',
     'bulgarian split', 'split squat', 'lunges', 'lunge',
     'step up', 'step-up', 'pistol squat', 'concentration curl',
-    'hammer curl', 'kickback', 'lateral raise'
+    'hammer curl', 'kickback'
   ];
   return unilateralKeywords.some(kw => name.includes(kw)) ? 2 : 1;
 }
@@ -418,41 +551,55 @@ export function getVolumeMultiplier(exerciseName?: string | null): number {
 export const calculateEstimated1RM = (exercise: GymExerciseLog | undefined | null): number => {
   if (!exercise || !exercise.setsLog || exercise.setsLog.length === 0) return 0;
   const validSets = exercise.setsLog.filter(s => {
-    const w = s?.weight !== undefined && s?.weight !== null ? s.weight : (s as any)?.weightKg;
-    return s.completed === true && w != null && Number(w) > 0 && s.reps != null && Number(s.reps) > 0;
+    if (!s || s.completed !== true || s.isWarmup || s.setType === 'warmup') return false;
+    const w = s.weight !== undefined && s.weight !== null ? s.weight : (s as any)?.weightKg;
+    return w != null && Number(w) > 0 && s.reps != null && Number(s.reps) > 0;
   });
   if (validSets.length === 0) return 0;
-  
-  // Epley Formula: 1RM = Weight * (1 + (Reps / 30))
+
+  const category = resolveExerciseBiometrics(exercise.name).category;
   const oneRepMaxes = validSets.map(s => {
-    const w = Number(s?.weight !== undefined && s?.weight !== null ? s.weight : (s as any)?.weightKg);
+    const w = Number(s.weight !== undefined && s.weight !== null ? s.weight : (s as any)?.weightKg);
     const r = Number(s.reps);
-    return w * (1 + (r / 30));
+    const rir = s.rir != null && Number.isFinite(Number(s.rir)) ? Math.max(0, Math.min(5, Number(s.rir))) : 0;
+    return estimate1RM(w, r, 'hybrid', rir, category);
   });
-  
+
   return Math.round(Math.max(...oneRepMaxes));
 };
 
 export const calculateHistorical1RM = (gymLogs: any[], exerciseIdOrName: string): number => {
   if (!gymLogs || gymLogs.length === 0 || !exerciseIdOrName) return 0;
   const targetKey = normalizeExerciseKey(exerciseIdOrName);
-  const cacheKey = `hist_1rm_${targetKey}_${generateDatasetFingerprint(gymLogs)}`;
-  return computeOrGetHotCache(cacheKey, () => {
-    let max1RM = 0;
-    gymLogs.forEach(log => {
-      const ex = log.exercises?.find((e: any) => e?.name && normalizeExerciseKey(e.name) === targetKey);
-      if (ex) {
+  if (!targetKey) return 0;
+
+  // Fix #182: Single O(N) map for all exercises occupying only 1 slot in _HOT_CACHE
+  const mapCacheKey = `hist_1rm_map_all_${generateDatasetFingerprint(gymLogs)}`;
+  const allMaxMap = computeOrGetHotCache<Map<string, number>>(mapCacheKey, () => {
+    const map = new Map<string, number>();
+    for (const log of gymLogs) {
+      if (!Array.isArray(log?.exercises)) continue;
+      for (const ex of log.exercises) {
+        if (!ex?.name || ex.skipped) continue;
+        const k = normalizeExerciseKey(ex.name);
+        if (!k) continue;
         const ex1RM = calculateEstimated1RM(ex);
-        if (ex1RM > max1RM) max1RM = ex1RM;
+        if (ex1RM > (map.get(k) || 0)) {
+          map.set(k, ex1RM);
+        }
       }
-    });
-    return max1RM;
+    }
+    return map;
   });
+
+  return allMaxMap.get(targetKey) || 0;
 };
 
 export const calculateExerciseAvgReps = (exercise: GymExerciseLog | undefined | null): number => {
   if (!exercise || !exercise.setsLog || exercise.setsLog.length === 0) return 0;
-  const validSets = exercise.setsLog.filter(s => s.completed === true && s.reps != null && Number(s.reps) > 0);
+  const validSets = exercise.setsLog.filter(
+    s => s && s.completed === true && !s.isWarmup && s.setType !== 'warmup' && s.reps != null && Number(s.reps) > 0
+  );
   if (validSets.length === 0) return 0;
   const totalReps = validSets.reduce((sum, s) => sum + Number(s.reps), 0);
   return Math.round(totalReps / validSets.length);
@@ -499,13 +646,12 @@ export function buildExerciseHistoryIndex(
   const emptyIndex = new Map<string, PreviousExerciseSession>();
   if (!gymLogs || gymLogs.length === 0) return emptyIndex;
 
-  // Issue 3: Filter past logs before fingerprint so mutating today's active session doesn't miss the cache!
-  const pastLogs = beforeDate
-    ? gymLogs.filter(l => l.date < beforeDate && Array.isArray(l.exercises) && l.exercises.length > 0)
-    : gymLogs.filter(l => Array.isArray(l.exercises) && l.exercises.length > 0);
-
-  const cacheKey = `ex_hist_idx_${beforeDate || 'all'}_${generateDatasetFingerprint(pastLogs)}`;
+  const cacheKey = `ex_hist_idx_${beforeDate || 'all'}_${generateDatasetFingerprint(gymLogs)}`;
   return computeOrGetHotCache(cacheKey, () => {
+    const pastLogs = beforeDate
+      ? gymLogs.filter(l => l && l.date < beforeDate && Array.isArray(l.exercises) && l.exercises.length > 0)
+      : gymLogs.filter(l => l && Array.isArray(l.exercises) && l.exercises.length > 0);
+
     const index = new Map<string, PreviousExerciseSession>();
     const sorted = pastLogs
       .slice()
@@ -513,31 +659,34 @@ export function buildExerciseHistoryIndex(
 
     for (const log of sorted) {
       for (const ex of log.exercises) {
-        if (!ex || !ex.name) continue;
+        if (!ex || !ex.name || ex.skipped) continue;
         const key = normalizeExerciseKey(ex.name);
-        if (!key || index.has(key)) continue; // Already mapped the latest session for this exercise
+        if (!key || index.has(key)) continue;
 
         if (Array.isArray(ex.setsLog) && ex.setsLog.length > 0) {
+          // Fix #124: Strictly exclude warmup sets so working sets never pre-fill with warmup weights!
           const completedSets = ex.setsLog.filter((s: any) => {
-            const w = s?.weight !== undefined && s?.weight !== null ? Number(s.weight) : (s?.weightKg !== undefined ? Number(s.weightKg) : null);
-            const r = s?.reps !== undefined && s?.reps !== null ? Number(s.reps) : null;
-            const hasValidNum = (w !== null && !isNaN(w) && w > 0) || (r !== null && !isNaN(r) && r > 0);
-            return s.completed === true && hasValidNum;
+            if (!s || s.completed !== true || s.isWarmup || s.setType === 'warmup') return false;
+            const rawW = s.weight !== undefined && s.weight !== null ? s.weight : s.weightKg;
+            const w = rawW !== undefined && rawW !== null ? Number(rawW) : null;
+            const r = s.reps !== undefined && s.reps !== null ? Number(s.reps) : null;
+            return w !== null && !isNaN(w) && w >= 0 && r !== null && !isNaN(r) && r > 0;
           });
 
           if (completedSets.length > 0) {
             const mappedSets = completedSets.map((s: any, idx: number) => {
-              const w = s?.weight !== undefined && s?.weight !== null ? Number(s.weight) : (s?.weightKg !== undefined ? Number(s.weightKg) : null);
-              const r = s?.reps !== undefined && s?.reps !== null ? Number(s.reps) : null;
+              const rawW = s.weight !== undefined && s.weight !== null ? s.weight : s.weightKg;
+              const w = rawW !== undefined && rawW !== null ? Number(rawW) : null;
+              const r = s.reps !== undefined && s.reps !== null ? Number(s.reps) : null;
               return {
                 setNumber: idx + 1,
-                weight: w !== null && !isNaN(w) && w > 0 ? w : null,
+                weight: w !== null && !isNaN(w) && w >= 0 ? w : null,
                 reps: r !== null && !isNaN(r) && r > 0 ? r : null,
                 completed: true,
               };
             });
 
-            const weights = mappedSets.map((s: { weight: number | null }) => s.weight).filter((w: number | null): w is number => w !== null && w > 0);
+            const weights = mappedSets.map((s: { weight: number | null }) => s.weight).filter((w: number | null): w is number => w !== null && w >= 0);
             const reps = mappedSets.map((s: { reps: number | null }) => s.reps).filter((r: number | null): r is number => r !== null && r > 0);
 
             const lastWeight = weights.length > 0 ? weights[weights.length - 1] : null;
@@ -560,6 +709,59 @@ export function buildExerciseHistoryIndex(
   });
 }
 
+// Tier-1 Upgrade #71: Persistent In-Memory History Cache for O(K) Delta Updates
+let _liveHistoryIndexCache: Map<string, PreviousExerciseSession> | null = null;
+
+export function updateExerciseHistoryIndexDelta(completedLog: any): void {
+  if (!completedLog || !Array.isArray(completedLog.exercises)) return;
+  if (!_liveHistoryIndexCache) {
+    _liveHistoryIndexCache = new Map<string, PreviousExerciseSession>();
+  }
+  for (const ex of completedLog.exercises) {
+    if (!ex || !ex.name) continue;
+    const key = normalizeExerciseKey(ex.name);
+    if (!key) continue;
+
+    const completedSets = (ex.setsLog || []).filter((s: any) => {
+      const isWarmup = s?.isWarmup === true || s?.setType === 'warmup';
+      if (isWarmup) return false;
+      const rawW = s?.weight !== undefined && s?.weight !== null ? s.weight : (s as any)?.weightKg;
+      const w = rawW !== undefined && rawW !== null ? Number(rawW) : null;
+      const r = s?.reps !== undefined && s?.reps !== null ? Number(s.reps) : null;
+      return s.completed === true && ((w !== null && !isNaN(w) && w >= 0) || (r !== null && !isNaN(r) && r > 0));
+    });
+
+    if (completedSets.length > 0) {
+      const mappedSets = completedSets.map((s: any, idx: number) => {
+        const rawW = s?.weight !== undefined && s?.weight !== null ? s.weight : (s as any)?.weightKg;
+        const w = rawW !== undefined && rawW !== null ? Number(rawW) : null;
+        const r = s?.reps !== undefined && s?.reps !== null ? Number(s.reps) : null;
+        return {
+          setNumber: idx + 1,
+          weight: w !== null && !isNaN(w) && w >= 0 ? w : null,
+          reps: r !== null && !isNaN(r) && r > 0 ? r : null,
+          completed: true,
+        };
+      });
+
+      const weights = mappedSets.map((s: { weight: number | null }) => s.weight).filter((w: number | null): w is number => w !== null && w >= 0);
+      const reps = mappedSets.map((s: { reps: number | null }) => s.reps).filter((r: number | null): r is number => r !== null && r > 0);
+
+      const lastWeight = weights.length > 0 ? weights[weights.length - 1] : null;
+      const maxWeight = weights.length > 0 ? Math.max(...weights) : null;
+      const avgReps = reps.length > 0 ? Math.round(reps.reduce((a: number, b: number) => a + b, 0) / reps.length) : null;
+
+      _liveHistoryIndexCache.set(key, {
+        sets: mappedSets,
+        lastWeight,
+        avgReps,
+        maxWeight,
+        sessionDate: completedLog.date,
+      });
+    }
+  }
+}
+
 /**
  * Finds the most recent legitimately completed workout session for a given exercise.
  * Guarantees:
@@ -572,12 +774,18 @@ export function getPreviousExerciseSession(
   gymLogs: any[] | null | undefined,
   beforeDate?: string
 ): PreviousExerciseSession | null {
-  if (!exerciseName || !gymLogs || gymLogs.length === 0) return null;
+  if (!exerciseName) return null;
   const key = normalizeExerciseKey(exerciseName);
   if (!key) return null;
 
-  const index = buildExerciseHistoryIndex(gymLogs, beforeDate);
-  return index.get(key) || null;
+  if (gymLogs && gymLogs.length > 0) {
+    const index = buildExerciseHistoryIndex(gymLogs, beforeDate);
+    const match = index.get(key);
+    if (match) return match;
+  }
+  const liveMatch = _liveHistoryIndexCache?.get(key);
+  if (liveMatch && (!beforeDate || liveMatch.sessionDate < beforeDate)) return liveMatch;
+  return null;
 }
 
 export interface MuscleTargetResolution {
@@ -595,7 +803,8 @@ let exerciseDbByKey: Map<string, any> | null = null;
 function getExerciseDbByKey(): Map<string, any> {
   if (!exerciseDbByKey) {
     exerciseDbByKey = new Map<string, any>();
-    for (const e of EXERCISE_DATABASE) {
+    const db = getExerciseDatabase();
+    for (const e of db) {
       exerciseDbByKey.set(normalizeExerciseKey(e.name), e);
       if (Array.isArray(e.aliases)) {
         for (const a of e.aliases) {
@@ -620,11 +829,37 @@ export function getCanonicalExerciseName(exerciseName?: string | null): string {
   return match?.name || exerciseName;
 }
 
+const _muscleResolutionCache = new Map<string, MuscleTargetResolution>();
+
 export function resolveExerciseTargetMuscle(
   exerciseName: string,
   explicitMuscle?: string | null
 ): MuscleTargetResolution {
-  // 1. Try to find the exercise in EXERCISE_DATABASE (Issue 50: O(1) Map lookup)
+  const cacheKey = `${exerciseName || ''}__${explicitMuscle || ''}`;
+  const cached = _muscleResolutionCache.get(cacheKey);
+  if (cached) return cached;
+
+  const commitCache = (res: MuscleTargetResolution): MuscleTargetResolution => {
+    if (_muscleResolutionCache.size >= 1000) {
+      const oldestKey = _muscleResolutionCache.keys().next().value;
+      if (oldestKey) _muscleResolutionCache.delete(oldestKey);
+    }
+    _muscleResolutionCache.set(cacheKey, res);
+    return res;
+  };
+
+  // 0. Fast-path: if explicitMuscle is a specific known muscle (excluding generic 'Full Body' / 'Mixed')
+  if (explicitMuscle) {
+    const trimmed = explicitMuscle.trim();
+    if (MUSCLE_COLORS[trimmed] && trimmed !== 'Full Body' && trimmed !== 'Mixed') {
+      return commitCache({
+        targetMuscle: trimmed,
+        canonicalGroup: canonicalizeMuscle(trimmed),
+      });
+    }
+  }
+
+  // 1. Check EXERCISE_DATABASE (O(1) Map lookup)
   if (exerciseName) {
     const key = normalizeExerciseKey(exerciseName);
     const dbMatch = getExerciseDbByKey().get(key);
@@ -634,10 +869,10 @@ export function resolveExerciseTargetMuscle(
       dbMatch.muscle.trim().length > 0 &&
       !['none', 'general', 'unknown', 'mixed', 'null', 'undefined'].includes(dbMatch.muscle.trim().toLowerCase())
     ) {
-      return {
+      return commitCache({
         targetMuscle: dbMatch.muscle,
         canonicalGroup: canonicalizeMuscle(dbMatch.muscle),
-      };
+      });
     }
   }
 
@@ -645,72 +880,84 @@ export function resolveExerciseTargetMuscle(
   if (
     explicitMuscle &&
     explicitMuscle.trim().length > 0 &&
-    !['none', 'general', 'unknown', 'mixed', 'null', 'undefined'].includes(explicitMuscle.trim().toLowerCase())
+    !['none', 'general', 'unknown', 'mixed', 'null', 'undefined', 'full body'].includes(explicitMuscle.trim().toLowerCase())
   ) {
-    return {
+    return commitCache({
       targetMuscle: explicitMuscle.trim(),
       canonicalGroup: canonicalizeMuscle(explicitMuscle),
-    };
+    });
   }
 
-  // 3. Keyword Biomechanical Classifier
+  // 3. Keyword Biomechanical Classifier (Ordered from most specific to general — Fixes #184 & #237)
   const lower = (exerciseName || '').toLowerCase();
 
-  // Upper Chest
+  // Hamstrings MUST precede 'curl' so "Seated Leg Curl" / "Nordic Curl" never match Biceps!
   if (
-    lower.includes('incline') ||
-    lower.includes('low-to-high') ||
-    lower.includes('low to high') ||
-    lower.includes('clavicular') ||
-    lower.includes('reverse grip bench')
+    lower.includes('leg curl') ||
+    lower.includes('hamstring') ||
+    lower.includes('romanian') ||
+    lower.includes('rdl') ||
+    lower.includes('stiff leg') ||
+    lower.includes('stiff-leg') ||
+    lower.includes('good morning') ||
+    lower.includes('glute ham') ||
+    lower.includes('ghr') ||
+    lower.includes('nordic')
   ) {
-    return { targetMuscle: 'Upper Chest', canonicalGroup: 'Chest' };
+    return commitCache({ targetMuscle: 'Hamstrings', canonicalGroup: 'Hamstrings' });
   }
 
-  // Lower / Mid Chest
+  // Forearms MUST precede 'curl' so "Wrist Curl" / "Reverse Curl" never match Biceps!
   if (
-    lower.includes('high-to-low') ||
-    lower.includes('high to low') ||
-    lower.includes('decline') ||
-    lower.includes('pec deck') ||
-    lower.includes('chest fly') ||
-    lower.includes('bench press') ||
-    lower.includes('chest press') ||
-    lower.includes('cable crossover') ||
-    lower.includes('dips') ||
-    lower.includes('pushup') ||
-    lower.includes('push-up')
+    lower.includes('wrist') ||
+    lower.includes('forearm') ||
+    lower.includes('farmers') ||
+    lower.includes('brachioradialis') ||
+    lower.includes('reverse curl') ||
+    lower.includes('reverse barbell curl')
   ) {
-    return { targetMuscle: 'Chest', canonicalGroup: 'Chest' };
+    return commitCache({ targetMuscle: 'Forearms', canonicalGroup: 'Forearms' });
   }
 
-  // Biceps
+  // Biceps MUST precede 'incline' so "Incline Dumbbell Curl" never matches Upper Chest!
   if (
     lower.includes('bicep') ||
     lower.includes('curl') ||
     lower.includes('preacher') ||
     lower.includes('hammer') ||
     lower.includes('spider') ||
+    lower.includes('bayesian') ||
     lower.includes('chin-up') ||
     lower.includes('chin up')
   ) {
-    return { targetMuscle: 'Biceps', canonicalGroup: 'Biceps' };
+    return commitCache({ targetMuscle: 'Biceps', canonicalGroup: 'Biceps' });
   }
 
-  // Triceps
+  // Triceps MUST precede 'incline' so "Incline Skullcrusher" never matches Upper Chest!
   if (
     lower.includes('tricep') ||
     lower.includes('pushdown') ||
     lower.includes('skull crusher') ||
     lower.includes('skullcrusher') ||
     lower.includes('overhead extension') ||
+    lower.includes('katana') ||
     lower.includes('french press') ||
-    lower.includes('kickback') ||
+    (lower.includes('kickback') && !lower.includes('glute') && !lower.includes('cable standing')) ||
     lower.includes('close-grip bench') ||
     lower.includes('close grip bench') ||
     lower.includes('jm press')
   ) {
-    return { targetMuscle: 'Triceps', canonicalGroup: 'Triceps' };
+    return commitCache({ targetMuscle: 'Triceps', canonicalGroup: 'Triceps' });
+  }
+
+  // Rear Delts MUST precede 'incline' and 'fly'
+  if (
+    lower.includes('rear delt') ||
+    lower.includes('reverse fly') ||
+    lower.includes('reverse pec') ||
+    lower.includes('face pull')
+  ) {
+    return commitCache({ targetMuscle: 'Rear Delts', canonicalGroup: 'Shoulders' });
   }
 
   // Side Delts
@@ -721,17 +968,65 @@ export function resolveExerciseTargetMuscle(
     lower.includes('upright row') ||
     lower.includes('egyptian')
   ) {
-    return { targetMuscle: 'Side Delts', canonicalGroup: 'Shoulders' };
+    return commitCache({ targetMuscle: 'Side Delts', canonicalGroup: 'Shoulders' });
   }
 
-  // Rear Delts
+  // Lats / Vertical Back
   if (
-    lower.includes('rear delt') ||
-    lower.includes('reverse fly') ||
-    lower.includes('reverse pec') ||
-    lower.includes('face pull')
+    lower.includes('lat pulldown') ||
+    lower.includes('pull down') ||
+    lower.includes('pulldown') ||
+    lower.includes('pullup') ||
+    lower.includes('pull up') ||
+    lower.includes('pull-up') ||
+    lower.includes('straight arm') ||
+    lower.includes('lat row')
   ) {
-    return { targetMuscle: 'Rear Delts', canonicalGroup: 'Shoulders' };
+    return commitCache({ targetMuscle: 'Lats', canonicalGroup: 'Back' });
+  }
+
+  // Mid-Back / Rows MUST precede 'incline' so "Chest Supported Incline Row" never matches Upper Chest!
+  if (
+    lower.includes('row') ||
+    lower.includes('t-bar') ||
+    lower.includes('t bar') ||
+    lower.includes('shrug') ||
+    lower.includes('trap') ||
+    lower.includes('deadlift') ||
+    lower.includes('back extension') ||
+    lower.includes('hyperextension')
+  ) {
+    return commitCache({ targetMuscle: 'Back', canonicalGroup: 'Back' });
+  }
+
+  // Upper Chest
+  if (
+    lower.includes('incline') ||
+    lower.includes('low-to-high') ||
+    lower.includes('low to high') ||
+    lower.includes('clavicular') ||
+    lower.includes('reverse grip bench')
+  ) {
+    return commitCache({ targetMuscle: 'Upper Chest', canonicalGroup: 'Chest' });
+  }
+
+  // Lower / Mid Chest
+  if (
+    lower.includes('high-to-low') ||
+    lower.includes('high to low') ||
+    lower.includes('decline') ||
+    lower.includes('pec deck') ||
+    lower.includes('butterfly') ||
+    lower.includes('chest fly') ||
+    lower.includes('cable fly') ||
+    lower.includes('bench press') ||
+    lower.includes('chest press') ||
+    lower.includes('cable crossover') ||
+    lower.includes('dips') ||
+    lower.includes('pushup') ||
+    lower.includes('push-up')
+  ) {
+    return commitCache({ targetMuscle: 'Chest', canonicalGroup: 'Chest' });
   }
 
   // Front Delts / Shoulders
@@ -743,31 +1038,32 @@ export function resolveExerciseTargetMuscle(
     lower.includes('arnold press') ||
     lower.includes('delt')
   ) {
-    return { targetMuscle: 'Shoulders', canonicalGroup: 'Shoulders' };
+    return commitCache({ targetMuscle: 'Shoulders', canonicalGroup: 'Shoulders' });
   }
 
-  // Lats / Back
+  // Glute Abductors MUST precede Abs
   if (
-    lower.includes('lat pulldown') ||
-    lower.includes('pull down') ||
-    lower.includes('pulldown') ||
-    lower.includes('pullup') ||
-    lower.includes('pull up') ||
-    lower.includes('straight arm')
+    lower.includes('abduct') ||
+    lower.includes('adduct') ||
+    lower.includes('outer glute') ||
+    lower.includes('clamshell') ||
+    lower.includes('fire hydrant') ||
+    lower.includes('curtsy') ||
+    lower.includes('lateral band walk')
   ) {
-    return { targetMuscle: 'Lats', canonicalGroup: 'Back' };
+    return commitCache({ targetMuscle: 'Glutes/Abductors', canonicalGroup: 'Glutes/Abductors' });
   }
 
-  // Mid-Back / Rows
+  // Glutes
   if (
-    lower.includes('row') ||
-    lower.includes('t-bar') ||
-    lower.includes('shrug') ||
-    lower.includes('trap') ||
-    lower.includes('deadlift') ||
-    lower.includes('back')
+    lower.includes('hip thrust') ||
+    lower.includes('glute bridge') ||
+    lower.includes('kas bridge') ||
+    lower.includes('glute kickback') ||
+    lower.includes('pull-through') ||
+    (lower.includes('glute') && !lower.includes('ham') && !lower.includes('ghr'))
   ) {
-    return { targetMuscle: 'Back', canonicalGroup: 'Back' };
+    return commitCache({ targetMuscle: 'Glutes', canonicalGroup: 'Glutes' });
   }
 
   // Quads
@@ -781,72 +1077,33 @@ export function resolveExerciseTargetMuscle(
     lower.includes('sissy') ||
     lower.includes('quad')
   ) {
-    return { targetMuscle: 'Quads', canonicalGroup: 'Quads' };
-  }
-
-  // Hamstrings (Issue 52: merged complete keyword list)
-  if (
-    lower.includes('leg curl') ||
-    lower.includes('hamstring') ||
-    lower.includes('romanian') ||
-    lower.includes('rdl') ||
-    lower.includes('stiff leg') ||
-    lower.includes('stiff-leg') ||
-    lower.includes('good morning') ||
-    lower.includes('glute ham') ||
-    lower.includes('ghr')
-  ) {
-    return { targetMuscle: 'Hamstrings', canonicalGroup: 'Hamstrings' };
+    return commitCache({ targetMuscle: 'Quads', canonicalGroup: 'Quads' });
   }
 
   // Calves
   if (lower.includes('calf') || lower.includes('calves') || lower.includes('soleus') || lower.includes('tibialis')) {
-    return { targetMuscle: 'Calves', canonicalGroup: 'Calves' };
+    return commitCache({ targetMuscle: 'Calves', canonicalGroup: 'Calves' });
   }
 
-  // Abs
+  // Abs — Fix #237: Use word boundary \b(abs|abdominals?|core|obliques?)\b instead of .includes('ab')!
   if (
-    lower.includes('ab') ||
+    /\b(abs|abdominals?|core|obliques?)\b/i.test(lower) ||
     lower.includes('crunch') ||
     lower.includes('plank') ||
     lower.includes('leg raise') ||
     lower.includes('knee raise') ||
     lower.includes('rollout') ||
     lower.includes('woodchopper') ||
-    lower.includes('pallof')
+    lower.includes('pallof') ||
+    lower.includes('vacuum')
   ) {
-    return { targetMuscle: 'Abs', canonicalGroup: 'Abs' };
+    return commitCache({ targetMuscle: 'Abs', canonicalGroup: 'Abs' });
   }
 
-  // Glute Abductors (Outer glutes / Hip Abduction)
-  if (
-    lower.includes('abduct') ||
-    lower.includes('outer glute') ||
-    lower.includes('clamshell') ||
-    lower.includes('fire hydrant') ||
-    lower.includes('curtsy') ||
-    lower.includes('lateral band walk')
-  ) {
-    return { targetMuscle: 'Glutes/Abductors', canonicalGroup: 'Glutes/Abductors' };
-  }
-
-  // Glutes (Maximus / Hip Extension)
-  if (
-    lower.includes('hip thrust') ||
-    lower.includes('glute bridge') ||
-    lower.includes('kas bridge') ||
-    lower.includes('glute kickback') ||
-    (lower.includes('glute') && !lower.includes('ham') && !lower.includes('ghr'))
-  ) {
-    return { targetMuscle: 'Glutes', canonicalGroup: 'Glutes' };
-  }
-
-  // Forearms
-  if (lower.includes('wrist') || lower.includes('forearm') || lower.includes('farmers')) {
-    return { targetMuscle: 'Forearms', canonicalGroup: 'Forearms' };
-  }
-
-  return { targetMuscle: explicitMuscle || 'Full Body', canonicalGroup: explicitMuscle ? canonicalizeMuscle(explicitMuscle) : 'Mixed' };
+  return commitCache({
+    targetMuscle: explicitMuscle || 'Full Body',
+    canonicalGroup: explicitMuscle ? canonicalizeMuscle(explicitMuscle) : 'Mixed',
+  });
 }
 
 /**
@@ -881,21 +1138,14 @@ export function getBiomechanicalPrescription(
     return { targetSets: 3, targetReps: '12–15', restTimeSecs: 60 };
   }
 
-  // 2. Heavy Primary Free-Weight Compounds (4 sets, 6–8 reps, 150–180s rest)
-  if (
-    n === 'barbell back squat' ||
-    n === 'barbell squat' ||
-    n === 'barbell back squats' ||
-    n === 'barbell bench press' ||
-    n === 'flat barbell bench press' ||
-    n.includes('barbell deadlift') ||
-    n === 'deadlift' ||
-    n.includes('barbell bent-over row') ||
-    n.includes('standing barbell military') ||
-    n.includes('barbell military press') ||
-    n.includes('romanian deadlifts (rdl - barbell)') ||
-    n.includes('romanian deadlift (rdl')
-  ) {
+  // 2. Heavy Primary Free-Weight Compounds (4 sets, 6–8 reps, 150–180s rest) (Issue #64)
+  const isHeavySquat = n.includes('squat') && (n.includes('barbell') || n.includes('back squat')) && !n.includes('split') && !n.includes('hack') && !n.includes('goblet');
+  const isHeavyBench = n.includes('bench press') && (n.includes('barbell') || n.includes('flat')) && !n.includes('incline') && !n.includes('close') && !n.includes('dumbbell');
+  const isHeavyDeadlift = (n.includes('deadlift') && (n.includes('barbell') || n === 'deadlift' || n.includes('conventional') || n.includes('sumo') || n.includes('romanian'))) && !n.includes('dumbbell') && !n.includes('cable');
+  const isHeavyRow = n.includes('bent-over row') || n.includes('bent over row') || (n.includes('barbell') && n.includes('row') && !n.includes('upright'));
+  const isHeavyMilitary = (n.includes('military press') || n.includes('overhead press')) && (n.includes('barbell') || n.includes('standing')) && !n.includes('dumbbell');
+
+  if (isHeavySquat || isHeavyBench || isHeavyDeadlift || isHeavyRow || isHeavyMilitary) {
     return { targetSets: 4, targetReps: '6–8', restTimeSecs: 150 };
   }
 
@@ -961,6 +1211,10 @@ export interface ExerciseSwapOption {
   tier?: 'S Tier' | 'A+ Tier' | 'A Tier' | 'B Tier';
   isFromTemplate?: boolean;
   dayName?: string;
+  matchPercentage?: number;
+  muscleDivision?: string;
+  equipment?: string;
+  isEquipmentVariant?: boolean;
 }
 
 /**
@@ -980,31 +1234,67 @@ export function getExerciseSwapAlternatives(
 
   const results: ExerciseSwapOption[] = [];
 
-  // 1. Primary Source: High-Yield Biomechanical Curated Alternatives (S Tier -> A+ Tier -> A Tier -> B Tier)
-  const { EXERCISE_ALTERNATIVES: EA } = require('../data/gymPlan');
-  const curatedList = EA[targetMuscle] || EA[canonicalGroup] || [];
-  for (const alt of curatedList) {
-    if (!alt?.name) continue;
-    const key = normalizeExerciseKey(alt.name);
-    if (seenKeys.has(key)) continue;
-    seenKeys.add(key);
+  // 1. Primary Source: Biomechanical Matching Engine (Top 3 Direct + Equipment Variants)
+  try {
+    const { getBiomechanicalSwaps } = require('../services/biomechanicalMatchingEngine');
+    const bioResult = getBiomechanicalSwaps(currentExerciseName, explicitMuscle);
 
-    const rx = getBiomechanicalPrescription(alt.name, targetMuscle);
+    for (const alt of bioResult.allSubstitutes) {
+      const key = normalizeExerciseKey(alt.name);
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
 
-    results.push({
-      id: `curated_swap_${results.length}`,
-      name: alt.name,
-      muscle: targetMuscle,
-      canonicalGroup,
-      targetSets: alt.targetSets || rx.targetSets,
-      targetReps: alt.targetReps || rx.targetReps,
-      restTimeSecs: alt.restTimeSecs || rx.restTimeSecs,
-      videoId: alt.videoId,
-      tier: alt.tier,
-      reason: alt.reason || `Direct alternative for ${targetMuscle}`,
-      isFromTemplate: false,
-    });
-    if (results.length >= 8) break;
+      results.push({
+        id: alt.id,
+        name: alt.name,
+        muscle: alt.targetMuscle || targetMuscle,
+        canonicalGroup,
+        targetSets: alt.targetSets,
+        targetReps: alt.targetReps,
+        restTimeSecs: alt.restTimeSecs,
+        videoId: alt.videoId,
+        reason: alt.reason,
+        tier: alt.matchPercentage >= 95 ? 'S Tier' : 'A+ Tier',
+        isFromTemplate: false,
+        matchPercentage: alt.matchPercentage,
+        muscleDivision: alt.muscleDivision,
+        equipment: alt.equipment,
+        isEquipmentVariant: alt.isEquipmentVariant,
+      });
+      if (results.length >= 8) break;
+    }
+  } catch {
+    // fallback if engine cannot load
+  }
+
+  // Fallback / Supplementary: Curated Alternatives
+  if (results.length < 8) {
+    const { EXERCISE_ALTERNATIVES: EA } = require('../data/gymPlan');
+    const curatedList = EA[targetMuscle] || EA[canonicalGroup] || [];
+    for (const alt of curatedList) {
+      if (!alt?.name) continue;
+      const key = normalizeExerciseKey(alt.name);
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+
+      const rx = getBiomechanicalPrescription(alt.name, targetMuscle);
+
+      const dbEntry = getExerciseDbByKey().get(key);
+      results.push({
+        id: `curated_swap_${results.length}`,
+        name: alt.name,
+        muscle: targetMuscle,
+        canonicalGroup,
+        targetSets: alt.targetSets || rx.targetSets,
+        targetReps: alt.targetReps || rx.targetReps,
+        restTimeSecs: alt.restTimeSecs || rx.restTimeSecs,
+        videoId: dbEntry?.videoId || alt.videoId,
+        tier: alt.tier,
+        reason: alt.reason || `Direct alternative for ${targetMuscle}`,
+        isFromTemplate: false,
+      });
+      if (results.length >= 8) break;
+    }
   }
 
   // 2. Secondary: If user has other workout days in active plan, surface relevant exercises from their routine
@@ -1027,7 +1317,7 @@ export function getExerciseSwapAlternatives(
             targetSets: Number(ex.targetSets) || 3,
             targetReps: ex.targetReps || '8–12',
             restTimeSecs: Number(ex.restTimeSecs) || 90,
-            videoId: ex.videoId,
+            videoId: ex.videoId || getExerciseDbByKey().get(key)?.videoId,
             reason: `From your ${day.name || 'Routine'}`,
             isFromTemplate: true,
             dayName: day.name,
@@ -1040,7 +1330,7 @@ export function getExerciseSwapAlternatives(
 
   // 3. Fallback: Broad database only if still fewer than 6
   if (results.length < 6) {
-    const dbMatches = EXERCISE_DATABASE.filter(db => {
+    const dbMatches = getExerciseDatabase().filter(db => {
       if (!db.name || seenKeys.has(normalizeExerciseKey(db.name))) return false;
       const dbMuscleLower = (db.muscle || '').toLowerCase();
       const targetLower = targetMuscle.toLowerCase();
@@ -1081,34 +1371,54 @@ export function mergeGymLogMonotonic(local: GymDayLog | null, remote: GymDayLog)
   const localTs = Number(local.updatedAt) || 0;
   const remoteTs = Number(remote.updatedAt) || 0;
 
-  // If local state has a newer timestamp, keep local state as primary and only backfill missing exercises
+  // Fix #67: If one state has a strictly newer non-zero timestamp (> 0), respect its explicit set/exercise structure!
   const primary = localTs >= remoteTs ? local : remote;
   const secondary = localTs >= remoteTs ? remote : local;
+  const isStrictlyNewer = (localTs > 0 && remoteTs > 0 && localTs !== remoteTs);
 
-  const mergedExercises = (primary.exercises || []).map((pEx, exIdx) => {
-    const sEx = (secondary.exercises || []).find(
-      e => (e.exerciseId && e.exerciseId === pEx.exerciseId) || e.name === pEx.name
-    ) || secondary.exercises?.[exIdx];
+  // Fix #186: Track matched secondary exercises by index so duplicate-named exercises never collide!
+  const matchedSecondaryIndices = new Set<number>();
+  const mergedExercises = (primary.exercises || []).map((pEx) => {
+    const pKey = normalizeExerciseKey(pEx.name);
+    const sIdx = (secondary.exercises || []).findIndex((e, idx) => {
+      if (matchedSecondaryIndices.has(idx)) return false;
+      if (e.exerciseId && pEx.exerciseId && e.exerciseId === pEx.exerciseId) return true;
+      const eKey = normalizeExerciseKey(e.name);
+      return Boolean(eKey && eKey === pKey);
+    });
 
-    if (!sEx) return pEx;
+    if (sIdx === -1) return pEx;
+    matchedSecondaryIndices.add(sIdx);
+    const sEx = secondary.exercises[sIdx];
 
-    const maxSets = Math.max(pEx.setsLog?.length || 0, sEx.setsLog?.length || 0);
+    // If primary is strictly newer, respect its set count so removed sets don't resurrect (#67)
+    const targetSetLen = isStrictlyNewer
+      ? (pEx.setsLog?.length || 0)
+      : Math.max(pEx.setsLog?.length || 0, sEx.setsLog?.length || 0);
     const mergedSets: GymSet[] = [];
 
-    for (let i = 0; i < maxSets; i++) {
+    for (let i = 0; i < targetSetLen; i++) {
       const pSet = pEx.setsLog?.[i];
       const sSet = sEx.setsLog?.[i];
       if (pSet && !sSet) { mergedSets.push(pSet); continue; }
       if (!pSet && sSet) { mergedSets.push(sSet); continue; }
 
-      // If primary is newer, use primary's values, but never lose a non-null weight/rep if primary has null
+      const weightVal = localTs >= remoteTs
+        ? pSet.weight
+        : ((pSet.weight !== null && pSet.weight !== undefined) ? pSet.weight : sSet.weight);
+      const repsVal = localTs >= remoteTs
+        ? pSet.reps
+        : ((pSet.reps !== null && pSet.reps !== undefined) ? pSet.reps : sSet.reps);
+
       mergedSets.push({
         ...sSet,
         ...pSet,
-        weight: (pSet.weight !== null && pSet.weight !== undefined) ? pSet.weight : sSet.weight,
-        reps: (pSet.reps !== null && pSet.reps !== undefined) ? pSet.reps : sSet.reps,
-        completed: localTs >= remoteTs ? pSet.completed : (pSet.completed || sSet.completed),
+        weight: weightVal,
+        reps: repsVal,
+        completed: isStrictlyNewer ? Boolean(pSet.completed) : Boolean(pSet.completed || sSet.completed),
         rir: pSet.rir !== undefined ? pSet.rir : sSet.rir,
+        rpe: (pSet as any)?.rpe !== undefined ? (pSet as any).rpe : (sSet as any)?.rpe,
+        isWarmup: pSet.isWarmup ?? sSet.isWarmup,
         setType: pSet.setType || sSet.setType,
       });
     }
@@ -1121,13 +1431,50 @@ export function mergeGymLogMonotonic(local: GymDayLog | null, remote: GymDayLog)
     };
   });
 
-  // When local is newer, trust local completed state so user can un-complete / resume
-  const isCompleted = localTs >= remoteTs ? Boolean(primary.completed) : Boolean(local.completed || remote.completed);
+  // Only backfill secondary exercises if timestamps were equal or 0 (template hydration) (#67)
+  if (!isStrictlyNewer) {
+    (secondary.exercises || []).forEach((sEx, idx) => {
+      if (!matchedSecondaryIndices.has(idx)) {
+        mergedExercises.push(sEx);
+      }
+    });
+  }
+
+  const mergedCardio: any[] = [];
+  const primaryCardio = Array.isArray(primary.cardio) ? primary.cardio : [];
+  const secondaryCardio = Array.isArray(secondary.cardio) ? secondary.cardio : [];
+  const matchedCardioIndices = new Set<number>();
+
+  for (const pC of primaryCardio) {
+    const sIdx = secondaryCardio.findIndex((c, idx) =>
+      !matchedCardioIndices.has(idx) && ((c.id && pC.id && c.id === pC.id) || (c.type && pC.type && c.type === pC.type))
+    );
+    if (sIdx !== -1) {
+      matchedCardioIndices.add(sIdx);
+      const sC = secondaryCardio[sIdx];
+      mergedCardio.push({
+        ...sC,
+        ...pC,
+        completed: isStrictlyNewer ? Boolean(pC.completed) : Boolean(pC.completed || sC.completed),
+      });
+    } else {
+      mergedCardio.push(pC);
+    }
+  }
+
+  if (!isStrictlyNewer) {
+    secondaryCardio.forEach((sC, idx) => {
+      if (!matchedCardioIndices.has(idx)) mergedCardio.push(sC);
+    });
+  }
+
+  const isCompleted = isStrictlyNewer ? Boolean(primary.completed) : Boolean(local.completed || remote.completed);
   const result: GymDayLog = {
     ...secondary,
     ...primary,
     completed: isCompleted,
     exercises: mergedExercises,
+    cardio: mergedCardio,
     updatedAt: Math.max(localTs, remoteTs),
   };
 

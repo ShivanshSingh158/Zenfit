@@ -1,35 +1,54 @@
 import React, { memo, useMemo } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Pressable, View, Text, StyleSheet } from 'react-native';
+import {
+  Activity,
+  Check,
+  Cpu,
+  Disc,
+  Dumbbell,
+  GitFork,
+  Plus,
+  Repeat,
+  User,
+  type LucideIcon,
+} from 'lucide-react-native';
 import { Image as ExpoImage } from 'expo-image';
-import { resolveMuscleColor, getPreviousExerciseSession } from '../../../utils/gymUtils';
-import { FONT_FAMILY } from '../../../theme/tokens';
-import { ExerciseCatalogEntry } from './ExerciseSearchDropdown';
-import { hapticLight, hapticSuccess } from '../../../utils/haptics';
-import { resolveExercise, getExerciseStillPosterUrl } from '../../../services/exerciseMediaService';
+import { resolveMuscleColor, getPreviousExerciseSession, normalizeExerciseKey } from '../../../utils/gymUtils';
+import { formatWeight, useWeightUnit } from '../../../utils/weightUnit';
+import { hapticSelection, hapticSuccess } from '../../../utils/haptics';
+import { DARK_TOKENS, ICON, RADIUS, SPACE, ThemeTokens } from '../../../theme/tokens';
+import { useTheme } from '../../../contexts/ThemeContext';
+import { NumericText } from '../../ui';
+import type { ExerciseCatalogEntry } from '../../../types/gym.types';
+import { resolveExercise, getExerciseStillPosterUrl, getExerciseThumbnailUrl } from '../../../services/exerciseMediaService';
 
 export interface ExerciseCardItemProps {
   item: ExerciseCatalogEntry;
   onSelect: (item: ExerciseCatalogEntry) => void;
   onQuickAdd: (item: ExerciseCatalogEntry) => void;
   gymLogs?: any[];
+  historyMap?: Map<string, any> | null;
   colors: any;
   styles: any;
   isDark?: boolean;
   isSelected?: boolean;
-  searchQuery?: string;
+  multiSelectMode?: boolean;
+  isMultiSelected?: boolean;
 }
 
-// ── Equipment Glyph & Icon Resolver ─────────────────────────────────────────
-export function getEquipmentGlyph(name: string, aliases: string[] = []): {
+export function getEquipmentGlyph(
+  name: string,
+  aliases: string[] = [],
+  t: ThemeTokens = DARK_TOKENS
+): {
   type: string;
   glyph: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  Icon: LucideIcon;
   color: string;
 } {
   const n = (name + ' ' + (aliases || []).join(' ')).toLowerCase();
   if (n.includes('dumbbell') || n.includes('db ') || n.includes('(db)')) {
-    return { type: 'Dumbbell', glyph: 'DB', icon: 'fitness-outline', color: '#60a5fa' };
+    return { type: 'Dumbbell', glyph: 'DB', Icon: Activity, color: t.status.info };
   }
   if (
     n.includes('barbell') ||
@@ -40,7 +59,7 @@ export function getEquipmentGlyph(name: string, aliases: string[] = []): {
     n.includes('squat') ||
     n.includes('overhead press')
   ) {
-    return { type: 'Barbell', glyph: 'BB', icon: 'barbell-outline', color: '#f59e0b' };
+    return { type: 'Barbell', glyph: 'BB', Icon: Dumbbell, color: t.status.warning };
   }
   if (
     n.includes('cable') ||
@@ -50,7 +69,7 @@ export function getEquipmentGlyph(name: string, aliases: string[] = []): {
     n.includes('crossover') ||
     n.includes('face pull')
   ) {
-    return { type: 'Cable', glyph: 'CB', icon: 'git-commit-outline', color: '#a78bfa' };
+    return { type: 'Cable', glyph: 'CB', Icon: GitFork, color: t.accent.secondary };
   }
   if (
     n.includes('machine') ||
@@ -61,21 +80,20 @@ export function getEquipmentGlyph(name: string, aliases: string[] = []): {
     n.includes('extension') ||
     n.includes('seated row')
   ) {
-    return { type: 'Machine', glyph: 'MC', icon: 'hardware-chip-outline', color: '#34d399' };
+    return { type: 'Machine', glyph: 'MC', Icon: Cpu, color: t.status.success };
   }
   if (n.includes('kettlebell') || n.includes('kb ')) {
-    return { type: 'Kettlebell', glyph: 'KB', icon: 'fitness-outline', color: '#fb923c' };
+    return { type: 'Kettlebell', glyph: 'KB', Icon: Activity, color: t.status.warning };
   }
   if (n.includes('band')) {
-    return { type: 'Band', glyph: 'RB', icon: 'infinite-outline', color: '#f472b6' };
+    return { type: 'Band', glyph: 'RB', Icon: Repeat, color: t.accent.secondary };
   }
   if (n.includes('plate')) {
-    return { type: 'Plate', glyph: 'PL', icon: 'disc-outline', color: '#94a3b8' };
+    return { type: 'Plate', glyph: 'PL', Icon: Disc, color: t.text.secondary };
   }
-  return { type: 'Bodyweight', glyph: 'BW', icon: 'body-outline', color: '#38bdf8' };
+  return { type: 'Bodyweight', glyph: 'BW', Icon: User, color: t.status.info };
 }
 
-// ── Secondary Muscle Biomechanical Resolver ─────────────────────────────────
 export function getSecondaryMuscles(exerciseName: string, primaryMuscle: string): string {
   const n = (exerciseName || '').toLowerCase();
   const m = (primaryMuscle || '').toLowerCase();
@@ -124,16 +142,27 @@ export function getSecondaryMuscles(exerciseName: string, primaryMuscle: string)
   return '· Stabilizers';
 }
 
-// ── Past Performance Snippet Generator ──────────────────────────────────────
-export function getPastPerformanceSnippet(exerciseName: string, gymLogs?: any[]): {
+export function getPastPerformanceSnippet(
+  exerciseName: string,
+  gymLogs?: any[],
+  historyMap?: Map<string, any> | null,
+  unitIsLbs = false
+): {
   snippet: string;
   hasHistory: boolean;
 } {
-  if (!gymLogs || gymLogs.length === 0 || !exerciseName) {
+  if (!exerciseName) {
     return { snippet: '3 sets × 8–12 reps', hasHistory: false };
   }
 
-  const session = getPreviousExerciseSession(exerciseName, gymLogs);
+  let session: any = null;
+  if (historyMap) {
+    const key = normalizeExerciseKey(exerciseName);
+    session = key ? historyMap.get(key) : null;
+  } else if (gymLogs && gymLogs.length > 0) {
+    session = getPreviousExerciseSession(exerciseName, gymLogs);
+  }
+
   if (!session || !session.sets || session.sets.length === 0) {
     return { snippet: '3 sets × 8–12 reps', hasHistory: false };
   }
@@ -143,9 +172,11 @@ export function getPastPerformanceSnippet(exerciseName: string, gymLogs?: any[])
     return { snippet: '3 sets × 8–12 reps', hasHistory: false };
   }
 
-  // Find set with highest weight, or latest set
   const bestSet = [...validSets].sort((a: any, b: any) => (b.weight || 0) - (a.weight || 0))[0];
-  const w = bestSet?.weight != null && bestSet.weight > 0 ? `${bestSet.weight}kg` : null;
+  const w =
+    bestSet?.weight != null && bestSet.weight > 0
+      ? formatWeight(Number(bestSet.weight), unitIsLbs, 1)
+      : null;
   const r = bestSet?.reps != null && bestSet.reps > 0 ? `${bestSet.reps}` : null;
 
   let dateStr = '';
@@ -172,141 +203,144 @@ export function getPastPerformanceSnippet(exerciseName: string, gymLogs?: any[])
   return { snippet: '3 sets × 8–12 reps', hasHistory: false };
 }
 
-// ── Tier Badges Theme ───────────────────────────────────────────────────────
-export const TIER_CONFIG: Record<string, { bg: string; text: string; border: string }> = {
-  'S Tier': { bg: 'rgba(255, 215, 0, 0.14)', text: '#FFD700', border: 'rgba(255, 215, 0, 0.45)' },
-  'A+ Tier': { bg: 'rgba(0, 229, 255, 0.14)', text: '#00E5FF', border: 'rgba(0, 229, 255, 0.40)' },
-  'A Tier': { bg: 'rgba(0, 229, 255, 0.12)', text: '#00E5FF', border: 'rgba(0, 229, 255, 0.35)' },
-  'B Tier': { bg: 'rgba(137, 220, 235, 0.12)', text: '#89dceb', border: 'rgba(137, 220, 235, 0.30)' },
-  'C Tier': { bg: 'rgba(142, 142, 147, 0.10)', text: '#8e8e93', border: 'rgba(142, 142, 147, 0.25)' },
-};
+export function getTierConfig(t: ThemeTokens = DARK_TOKENS): Record<string, { bg: string; text: string; border: string }> {
+  return {
+    'S Tier': { bg: t.status.goldDim, text: t.status.gold, border: t.status.gold },
+    'A+ Tier': { bg: t.accent.primaryDim, text: t.accent.primary, border: t.accent.primary },
+    'A Tier': { bg: t.status.infoDim, text: t.status.info, border: t.status.info },
+    'B Tier': { bg: t.accent.secondaryDim, text: t.accent.secondary, border: t.accent.secondary },
+    'C Tier': { bg: t.bg.surface, text: t.text.secondary, border: t.border.subtle },
+  };
+}
+
+export const TIER_CONFIG: Record<string, { bg: string; text: string; border: string }> = getTierConfig(DARK_TOKENS);
 
 export const ExerciseCardItem: React.FC<ExerciseCardItemProps> = memo(({
   item,
   onSelect,
   onQuickAdd,
   gymLogs,
-  colors,
+  historyMap,
   styles,
-  isDark = true,
   isSelected,
-  searchQuery,
+  multiSelectMode = false,
+  isMultiSelected = false,
 }) => {
+  const { tokens } = useTheme();
+  const unitIsLbs = useWeightUnit();
+  const cardStyles = useMemo(() => makeCardStyles(tokens), [tokens]);
+
   const primaryMuscle = item.muscle || 'Mixed';
   const muscleColor = resolveMuscleColor(primaryMuscle);
-  const { snippet } = getPastPerformanceSnippet(item.name, gymLogs);
+  const { snippet } = getPastPerformanceSnippet(item.name, gymLogs, historyMap, unitIsLbs);
 
-  const def = useMemo(() => resolveExercise(item.name), [item.name]);
+  const def = useMemo(() => resolveExercise(item.id || item.name), [item.id, item.name]);
   const stillUrl = useMemo(() => (def ? getExerciseStillPosterUrl(def) : ''), [def]);
+  const fallbackThumbUrl = useMemo(() => (def ? getExerciseThumbnailUrl(def) : ''), [def]);
 
-  // Resolve "Also known as" aliases
-  const aliasDisplay = useMemo(() => {
-    if (!item.aliases || item.aliases.length === 0) return null;
-    const cleanItemName = item.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-    // Filter out duplicates that match the main title
-    const distinct = item.aliases.filter(a => {
-      const cleanA = a.toLowerCase().replace(/[^a-z0-9]/g, '');
-      return cleanA !== cleanItemName;
-    });
-    if (distinct.length === 0) return null;
-
-    // If searching, prioritize the alias matching the query
-    if (searchQuery && searchQuery.trim().length > 1) {
-      const q = searchQuery.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-      const matched = distinct.find(a => {
-        const cleanA = a.toLowerCase().replace(/[^a-z0-9]/g, '');
-        return cleanA.includes(q) || q.includes(cleanA);
-      });
-      if (matched) {
-        const others = distinct.filter(a => a !== matched).slice(0, 1);
-        return [matched, ...others].join(' • ');
-      }
-    }
-
-    return distinct.slice(0, 2).join(' • ');
-  }, [item.name, item.aliases, searchQuery]);
+  const activeHighlight = multiSelectMode ? isMultiSelected : isSelected;
 
   return (
-    <TouchableOpacity
-      style={[styles.exerciseCard, isSelected && styles.exerciseCardSelected]}
-      activeOpacity={0.7}
-      onPress={() => {
-        hapticLight();
-        onSelect(item);
-      }}
+    <Pressable
+      style={({ pressed }) => [
+        styles.exerciseCard,
+        activeHighlight && styles.exerciseCardSelected,
+        pressed && { opacity: 0.78 },
+      ]}
+      onPress={() => onSelect(item)}
     >
       <View style={styles.exerciseCardInner}>
-        {/* Square Still Thumbnail */}
         <View style={cardStyles.thumbBox}>
-          {stillUrl ? (
+          {stillUrl || fallbackThumbUrl ? (
             <ExpoImage
-              source={{ uri: stillUrl }}
+              source={{ uri: stillUrl || fallbackThumbUrl }}
+              placeholder={fallbackThumbUrl ? { uri: fallbackThumbUrl } : undefined}
               style={cardStyles.thumbImg}
               contentFit="contain"
-              recyclingKey={item.name}
+              recyclingKey={item.id || item.name}
               cachePolicy="memory-disk"
+              priority="high"
             />
           ) : (
-            <Ionicons name="barbell-outline" size={20} color="#8E8E93" />
+            <Dumbbell size={ICON.md} strokeWidth={ICON.strokeWidth} color={tokens.text.secondary} />
           )}
         </View>
 
-        <View style={{ flex: 1, paddingHorizontal: 12 }}>
+        <View style={{ flex: 1, minWidth: 0, paddingHorizontal: SPACE.sm + 2 }}>
           <Text style={styles.cardTitle} numberOfLines={1}>
             {item.name}
           </Text>
 
-          {aliasDisplay ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 1, marginBottom: 2 }}>
-              <Text style={{ fontSize: 11, color: isDark ? '#A599FF' : '#6C5CE7', marginRight: 4, fontFamily: FONT_FAMILY.bold }}>↳</Text>
-              <Text style={{ fontSize: 11, color: isDark ? 'rgba(255, 255, 255, 0.50)' : 'rgba(0, 0, 0, 0.55)', fontFamily: FONT_FAMILY.medium }} numberOfLines={1}>
-                Also known as: <Text style={{ color: isDark ? '#DDD6FE' : '#4C1D95', fontFamily: FONT_FAMILY.bold }}>{aliasDisplay}</Text>
-              </Text>
-            </View>
-          ) : null}
-
           <View style={styles.cardMuscleRow}>
+            <View style={[styles.muscleDot, { backgroundColor: muscleColor }]} />
             <Text style={styles.cardMuscleText} numberOfLines={1}>
               {primaryMuscle}
-              {snippet ? <Text style={styles.cardSnippetInline}> · {snippet}</Text> : null}
+              {snippet ? <NumericText style={styles.cardSnippetInline}> · {snippet}</NumericText> : null}
             </Text>
           </View>
         </View>
 
-        {/* Quick Add Button (Matching Screenshot 1's crisp white pill style) */}
-        <TouchableOpacity
-          style={styles.quickAddBtn}
-          activeOpacity={0.75}
+        <Pressable
+          style={({ pressed }) => [
+            styles.quickAddBtn,
+            multiSelectMode && !isMultiSelected && {
+              backgroundColor: tokens.bg.elevated,
+              borderWidth: tokens.border.hairlineWidth,
+              borderColor: tokens.border.subtle,
+            },
+            pressed && { opacity: 0.72 },
+          ]}
           onPress={() => {
-            hapticSuccess();
+            if (multiSelectMode) {
+              hapticSelection();
+            } else {
+              hapticSuccess();
+            }
             onQuickAdd(item);
           }}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          hitSlop={tokens.touch.hitSlop}
         >
-          <Ionicons name="add" size={14} color={isDark ? '#000000' : '#FFFFFF'} />
-          <Text style={styles.quickAddBtnText}>Add</Text>
-        </TouchableOpacity>
+          {multiSelectMode ? (
+            isMultiSelected ? (
+              <>
+                <Check size={11} strokeWidth={ICON.strokeWidth} color={tokens.accent.onPrimary} />
+                <Text style={styles.quickAddBtnText}>Added</Text>
+              </>
+            ) : (
+              <>
+                <Plus size={11} strokeWidth={ICON.strokeWidth} color={tokens.text.primary} />
+                <Text style={[styles.quickAddBtnText, { color: tokens.text.primary }]}>Select</Text>
+              </>
+            )
+          ) : (
+            <>
+              <Plus size={11} strokeWidth={ICON.strokeWidth} color={tokens.accent.onPrimary} />
+              <Text style={styles.quickAddBtnText}>Add</Text>
+            </>
+          )}
+        </Pressable>
       </View>
-    </TouchableOpacity>
+    </Pressable>
   );
 });
 
 export default ExerciseCardItem;
 
-const cardStyles = StyleSheet.create({
+const makeCardStyles = (tokens: ThemeTokens) => StyleSheet.create({
   thumbBox: {
-    width: 48,
-    height: 48,
+    width: 42,
+    height: 42,
     borderRadius: 10,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: tokens.bg.mediaLight,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.border.subtle,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
     flexShrink: 0,
   },
   thumbImg: {
-    width: 44,
-    height: 44,
+    width: 38,
+    height: 38,
   },
 });

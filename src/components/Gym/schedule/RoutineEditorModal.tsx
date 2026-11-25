@@ -1,2038 +1,1247 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
 import {
-  Modal,
   View,
   Text,
-  StyleSheet,
-  TouchableOpacity,
   TextInput,
   ScrollView,
-  FlatList,
+  StyleSheet,
   Pressable,
-  Alert,
-  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { GymPlanExercise, GymRoutine } from '../../../types/gym.types';
-import { EXERCISE_DATABASE } from '../../../data/exerciseDatabase';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import {
-  normalizeExerciseKey,
-  getExerciseSwapAlternatives,
-  resolveMuscleColor,
-  resolveExerciseTargetMuscle,
-  canonicalizeMuscle,
-} from '../../../utils/gymUtils';
-import { hapticLight, hapticMedium, hapticSuccess, hapticSelection } from '../../../utils/haptics';
-import { FONT_FAMILY, IOS_DARK, SPACE } from '../../../theme/tokens';
+  ArrowLeftRight,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Dumbbell,
+  Minus,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react-native';
+import BottomSheet from '../../ui/BottomSheet';
+import { TactileButton } from '../../ui/TactileButton';
+import { NumericText } from '../../ui/NumericText';
+import { AddExerciseModal } from '../exercise/AddExerciseModal';
+
+import { DARK_TOKENS, FONT_FAMILY, ICON, RADIUS, SPACE, TOUCH } from '../../../theme/tokens';
 import { useTheme } from '../../../contexts/ThemeContext';
-import PreSessionMuscleHitMap from './PreSessionMuscleHitMap';
-
-const COMMON_REPS = ['6–8', '8–10', '8–12', '10–12', '12–15', '15–20'];
-const COMMON_REST = [45, 60, 90, 120, 180];
-const MUSCLE_FILTERS = ['All', 'Chest', 'Back', 'Shoulders', 'Triceps', 'Biceps', 'Quads', 'Hamstrings', 'Calves', 'Abs'];
-
-const DAY_OPTIONS = [
-  { label: 'Mon', index: 1 },
-  { label: 'Tue', index: 2 },
-  { label: 'Wed', index: 3 },
-  { label: 'Thu', index: 4 },
-  { label: 'Fri', index: 5 },
-  { label: 'Sat', index: 6 },
-  { label: 'Sun', index: 7 },
-  { label: 'Library Only', index: null },
-];
-
-/**
- * Intelligent Permutation & Combination Generator
- * Analyzes selected muscles, volume proportion, and biomechanical pairs
- * to automatically generate professional workout names and focus subtitles.
- */
-export function generateSmartRoutineMeta(exercises: GymPlanExercise[]): {
-  suggestedName: string;
-  suggestedFocus: string;
-  nameOptions: string[];
-} {
-  if (!exercises || exercises.length === 0) {
-    return {
-      suggestedName: 'Custom Routine',
-      suggestedFocus: 'Targeted strength & hypertrophy',
-      nameOptions: ['Custom Routine', 'Full Body Power', 'Hypertrophy Day'],
-    };
-  }
-
-  const muscleScores: Record<string, number> = {};
-  for (const ex of exercises) {
-    const rawMuscle = ex.muscle || '';
-    const m = rawMuscle.toLowerCase();
-    const sets = Number(ex.targetSets) || 3;
-
-    if (m.includes('chest')) muscleScores['Chest'] = (muscleScores['Chest'] || 0) + sets;
-    else if (m.includes('back') || m.includes('lat')) muscleScores['Back'] = (muscleScores['Back'] || 0) + sets;
-    else if (m.includes('shoulder') || m.includes('delt')) muscleScores['Shoulders'] = (muscleScores['Shoulders'] || 0) + sets;
-    else if (m.includes('bicep')) muscleScores['Biceps'] = (muscleScores['Biceps'] || 0) + sets;
-    else if (m.includes('tricep')) muscleScores['Triceps'] = (muscleScores['Triceps'] || 0) + sets;
-    else if (m.includes('quad')) muscleScores['Quads'] = (muscleScores['Quads'] || 0) + sets;
-    else if (m.includes('hamstring') || m.includes('hams') || m.includes('glute')) muscleScores['Hamstrings'] = (muscleScores['Hamstrings'] || 0) + sets;
-    else if (m.includes('calf') || m.includes('calves')) muscleScores['Calves'] = (muscleScores['Calves'] || 0) + sets;
-    else if (m.includes('ab') || m.includes('core')) muscleScores['Abs'] = (muscleScores['Abs'] || 0) + sets;
-    else muscleScores['Other'] = (muscleScores['Other'] || 0) + sets;
-  }
-
-  const sortedMuscles = Object.entries(muscleScores)
-    .filter(([_, score]) => score > 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([m]) => m);
-
-  const has = (name: string) => sortedMuscles.includes(name);
-
-  // 1. Chest & Back
-  if (has('Chest') && has('Back') && !has('Quads') && !has('Hamstrings')) {
-    if (has('Biceps') || has('Triceps')) {
-      return {
-        suggestedName: 'Chest & Back',
-        suggestedFocus: 'Antagonist push/pull supersets with arms finisher',
-        nameOptions: ['Chest & Back', 'Torso & Arms'],
-      };
-    }
-    return {
-      suggestedName: 'Chest & Back',
-      suggestedFocus: 'Antagonist supersets focusing on chest thickness and lat width',
-      nameOptions: ['Chest & Back', 'Upper Push/Pull'],
-    };
-  }
-
-  // 2. Push: Chest + Shoulders + Triceps
-  if (has('Chest') && (has('Shoulders') || has('Triceps')) && !has('Back') && !has('Quads')) {
-    const hasDelt = has('Shoulders');
-    const hasTri = has('Triceps');
-    return {
-      suggestedName: hasDelt && hasTri ? 'Push Day' : hasDelt ? 'Chest & Delts' : 'Chest & Triceps',
-      suggestedFocus: 'Horizontal and overhead pressing with triceps lockout overload',
-      nameOptions: ['Push (Chest & Delts)', 'Chest & Triceps'],
-    };
-  }
-
-  // 3. Pull: Back + Biceps (+ Delts/Traps)
-  if (has('Back') && (has('Biceps') || has('Shoulders')) && !has('Chest') && !has('Quads')) {
-    return {
-      suggestedName: 'Pull Day',
-      suggestedFocus: 'Vertical & horizontal pulling with elbow flexion overload',
-      nameOptions: ['Pull (Back & Biceps)', 'Back & Lats Power'],
-    };
-  }
-
-  // 4. Legs: Quads + Hamstrings (+ Calves)
-  if (has('Quads') || has('Hamstrings')) {
-    if (has('Quads') && has('Hamstrings')) {
-      return {
-        suggestedName: 'Leg Day',
-        suggestedFocus: 'Compound knee extension and hip hinge mechanics',
-        nameOptions: ['Leg Day (Quads & Hams)', 'Lower Body Power'],
-      };
-    }
-    if (has('Quads')) {
-      return {
-        suggestedName: 'Quad Hypertrophy',
-        suggestedFocus: 'Knee extension overload and VMO quad development',
-        nameOptions: ['Quad Hypertrophy', 'Quad Power'],
-      };
-    }
-    return {
-      suggestedName: 'Hamstrings & Glutes',
-      suggestedFocus: 'Hip hinge mechanics and hamstring stretch stimulus',
-      nameOptions: ['Hamstrings & Glutes', 'Posterior Chain'],
-    };
-  }
-
-  // 5. Arms & Shoulders (The Gunsmith)
-  if ((has('Biceps') || has('Triceps')) && has('Shoulders') && !has('Chest') && !has('Back')) {
-    return {
-      suggestedName: 'Shoulders & Arms',
-      suggestedFocus: '3D deltoid capping and bicep/tricep antagonistic pump',
-      nameOptions: ['Shoulders & Arms', 'Delts & Arms Pump'],
-    };
-  }
-
-  // 6. Chest + Biceps
-  if (has('Chest') && has('Biceps') && !has('Back')) {
-    return {
-      suggestedName: 'Chest & Biceps',
-      suggestedFocus: 'Pressing volume with elbow flexion supersets',
-      nameOptions: ['Chest & Biceps', 'Chest & Arm Pump'],
-    };
-  }
-
-  // 7. Back + Triceps
-  if (has('Back') && has('Triceps') && !has('Chest')) {
-    return {
-      suggestedName: 'Back & Triceps',
-      suggestedFocus: 'Lat width compound movements with tricep isolation',
-      nameOptions: ['Back & Triceps', 'Back & Arm Power'],
-    };
-  }
-
-  // 8. General permutation of top muscles
-  if (sortedMuscles.length >= 2) {
-    const m1 = sortedMuscles[0];
-    const m2 = sortedMuscles[1];
-    return {
-      suggestedName: `${m1} & ${m2}`,
-      suggestedFocus: `Targeting ${m1} and ${m2} with progressive overload`,
-      nameOptions: [`${m1} & ${m2}`, `${m1} & ${m2} Power`],
-    };
-  }
-
-  if (sortedMuscles.length === 1) {
-    const m = sortedMuscles[0];
-    return {
-      suggestedName: `${m} Focus`,
-      suggestedFocus: `High volume targeted stimulus for ${m}`,
-      nameOptions: [`${m} Hypertrophy`, `${m} Power`],
-    };
-  }
-
-  return {
-    suggestedName: 'Custom Routine',
-    suggestedFocus: 'Targeted strength & hypertrophy',
-    nameOptions: ['Custom Routine', 'Full Body Power'],
-  };
-}
+import { GymExerciseLog, GymPlanExercise, GymRoutine } from '../../../types/gym.types';
+import { resolveMuscleColor } from '../../../utils/gymUtils';
+import { hapticLight, hapticMedium, hapticSuccess, hapticSelection } from '../../../utils/haptics';
 
 export interface RoutineEditorModalProps {
   visible: boolean;
   routineToEdit?: GymRoutine | null;
   initialDayIndex?: number | null;
   onClose: () => void;
-  onSave: (routine: GymRoutine, assignedDayIndex?: number | null) => void;
+  onSave: (routine: GymRoutine, assignedDayIndex?: number | null) => void | Promise<void>;
 }
 
-export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
+const DAY_CHIPS: Array<{ label: string; index: number | null }> = [
+  { label: 'Mo', index: 1 },
+  { label: 'Tu', index: 2 },
+  { label: 'We', index: 3 },
+  { label: 'Th', index: 4 },
+  { label: 'Fr', index: 5 },
+  { label: 'Sa', index: 6 },
+  { label: 'Su', index: 7 },
+  { label: 'None', index: null },
+];
+
+const REP_LADDER = ['4-6', '6-8', '8-10', '8-12', '10-12', '12-15', '15-20'];
+const REST_PRESETS = [60, 90, 120, 180];
+
+function normalizeRepString(val?: string): string {
+  return (val || '8-10').trim().replace(/[–—]/g, '-');
+}
+
+/**
+ * Returns exactly 3 standard rep options (one less, current/default, one more) + Custom
+ */
+function getTargetRepOptions(currentRepStr?: string): {
+  options: string[];
+  activeValue: string;
+  isCustom: boolean;
+} {
+  const normalized = normalizeRepString(currentRepStr);
+  const idx = REP_LADDER.indexOf(normalized);
+
+  if (idx !== -1) {
+    const oneLess = idx > 0 ? REP_LADDER[idx - 1] : REP_LADDER[0];
+    const defaultVal = REP_LADDER[idx];
+    const oneMore =
+      idx < REP_LADDER.length - 1 ? REP_LADDER[idx + 1] : REP_LADDER[REP_LADDER.length - 1];
+
+    const standard3 = Array.from(new Set([oneLess, defaultVal, oneMore]));
+    if (standard3.length < 3) {
+      if (idx === 0 && REP_LADDER.length > 2) standard3.push(REP_LADDER[2]);
+      else if (idx === REP_LADDER.length - 1 && REP_LADDER.length > 2)
+        standard3.unshift(REP_LADDER[REP_LADDER.length - 3]);
+    }
+
+    return {
+      options: [...standard3, 'Custom'],
+      activeValue: defaultVal,
+      isCustom: false,
+    };
+  }
+
+  // Current is already custom
+  return {
+    options: ['6-8', '8-12', '10-12', 'Custom'],
+    activeValue: normalized,
+    isCustom: true,
+  };
+}
+
+export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = memo(function RoutineEditorModal({
   visible,
   routineToEdit,
   initialDayIndex,
   onClose,
   onSave,
-}) => {
-  const { colors, isDark } = useTheme();
+}) {
+  const { tokens, isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(tokens, isDark), [tokens, isDark]);
 
-  // Internal view switcher: 'builder' | 'vault_picker'
-  const [currentView, setCurrentView] = useState<'builder' | 'vault_picker'>('vault_picker');
-  const [isNewRoutine, setIsNewRoutine] = useState(true);
-
-  // Routine Form Fields
+  // ─── Routine Form State ────────────────────────────────────────────────────
   const [routineName, setRoutineName] = useState('');
-  const [routineSubtitle, setRoutineSubtitle] = useState('');
+  const [routineFocus, setRoutineFocus] = useState('');
   const [exercises, setExercises] = useState<GymPlanExercise[]>([]);
-  const [nameOptions, setNameOptions] = useState<string[]>([]);
   const [assignedDay, setAssignedDay] = useState<number | null>(initialDayIndex ?? null);
 
-  // Vault Picker Search & Filters
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedMuscleFilter, setSelectedMuscleFilter] = useState('All');
-  const [selectedVaultExerciseIds, setSelectedVaultExerciseIds] = useState<Set<string>>(new Set());
+  // ─── Single-Sheet Subview State (Editor / Multi-Add / Single-Swap) ────────
+  const [sheetView, setSheetView] = useState<'editor' | 'add' | 'swap'>('editor');
+  const [swapTargetIdx, setSwapTargetIdx] = useState<number | null>(null);
+  const [editorError, setEditorError] = useState<string | null>(null);
 
-  // Quick Swap Modal State
-  const [swapTargetIndex, setSwapTargetIndex] = useState<number | null>(null);
+  // ─── Inline Custom Reps State ──────────────────────────────────────────────
+  const [customRepTargetExId, setCustomRepTargetExId] = useState<string | null>(null);
+  const [customRepInput, setCustomRepInput] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
 
-  // Day Picker Sheet State
-  const [showDayPicker, setShowDayPicker] = useState(false);
-
-  // Exercise Options Sheet State
-  const [activeExOptionsIdx, setActiveExOptionsIdx] = useState<number | null>(null);
-
-  // Value Picker Sheet State (Reps or Rest)
-  const [pickerTarget, setPickerTarget] = useState<{ exIdx: number; type: 'reps' | 'rest' } | null>(null);
-
-  // Initialize form on open
+  // Initialize on open
   useEffect(() => {
     if (visible) {
-      if (routineToEdit && routineToEdit.exercises && routineToEdit.exercises.length > 0) {
+      if (routineToEdit) {
         setRoutineName(routineToEdit.name || '');
-        setRoutineSubtitle(routineToEdit.subtitle || routineToEdit.focus || '');
-        setExercises([...routineToEdit.exercises]);
-        const smart = generateSmartRoutineMeta(routineToEdit.exercises);
-        setNameOptions(smart.nameOptions);
-        setCurrentView('builder');
-        setIsNewRoutine(false);
+        setRoutineFocus(routineToEdit.focus || routineToEdit.subtitle || '');
+        const list = Array.isArray(routineToEdit.exercises) ? routineToEdit.exercises : [];
+        setExercises(
+          list.map((ex, idx) =>
+            ex.id
+              ? { ...ex }
+              : { ...ex, id: `ex_init_${idx}_${Math.random().toString(36).slice(2, 6)}` }
+          )
+        );
       } else {
         setRoutineName('');
-        setRoutineSubtitle('');
+        setRoutineFocus('');
         setExercises([]);
-        setNameOptions([]);
-        // Flow: Land DIRECTLY on exercise selector so user doesn't face empty screens!
-        setCurrentView('vault_picker');
-        setIsNewRoutine(true);
       }
       setAssignedDay(initialDayIndex ?? null);
-      setSelectedVaultExerciseIds(new Set());
-      setSearchQuery('');
-      setSelectedMuscleFilter('All');
+      setSheetView('editor');
+      setSwapTargetIdx(null);
+      setEditorError(null);
+      setCustomRepTargetExId(null);
     }
   }, [visible, routineToEdit, initialDayIndex]);
 
-  // Session Volume Summary Calculations
+  // ─── Volume & Time HUD ─────────────────────────────────────────────────────
   const sessionSummary = useMemo(() => {
     let totalSets = 0;
-    const muscleVolume: Record<string, number> = {};
+    const muscleMap: Record<string, number> = {};
 
     for (const ex of exercises) {
       const sets = Number(ex.targetSets) || 3;
       totalSets += sets;
-      const m = ex.muscle || 'Other';
-      muscleVolume[m] = (muscleVolume[m] || 0) + sets;
+      const m = ex.muscle?.split('/')[0]?.trim() || 'Other';
+      muscleMap[m] = (muscleMap[m] || 0) + sets;
     }
 
     const estimatedMins = Math.round(totalSets * 2.5);
-    return { totalSets, estimatedMins, muscleVolume };
+    const topMuscles = Object.keys(muscleMap).slice(0, 3).join(' · ');
+
+    return { totalSets, estimatedMins, topMuscles };
   }, [exercises]);
 
-  // Handle Save Routine
-  const handleSave = () => {
-    const finalName = routineName.trim() || 'Custom Routine';
+  // ─── Exercise Handlers (100% Inline) ───────────────────────────────────────
+  const handleSetChange = useCallback((index: number, delta: number) => {
+    hapticLight();
+    setExercises((prev) => {
+      const updated = [...prev];
+      const curSets = Number(updated[index].targetSets) || 3;
+      const nextSets = Math.max(1, Math.min(10, curSets + delta));
+      updated[index] = { ...updated[index], targetSets: nextSets };
+      return updated;
+    });
+  }, []);
+
+  const handleRepChange = useCallback((index: number, repOption: string) => {
+    hapticLight();
+    if (repOption === 'Custom') {
+      const targetEx = exercises[index];
+      if (!targetEx?.id) return;
+      const targetKey = targetEx.id;
+      if (customRepTargetExId === targetKey) {
+        setCustomRepTargetExId(null);
+        return;
+      }
+      const cur = targetEx.targetReps || '8-10';
+      setCustomRepInput(cur);
+      setCustomRepTargetExId(targetKey);
+      return;
+    }
+    setCustomRepTargetExId(null);
+    setExercises((prev) => {
+      const updated = [...prev];
+      if (!updated[index]) return prev;
+      updated[index] = { ...updated[index], targetReps: repOption };
+      return updated;
+    });
+  }, [exercises, customRepTargetExId]);
+
+  const handleSaveCustomRep = useCallback(() => {
+    if (!customRepTargetExId) return;
+    hapticSuccess();
+    const val = customRepInput.trim() || '8-10';
+    setExercises((prev) =>
+      prev.map((ex) =>
+        ex.id === customRepTargetExId
+          ? { ...ex, targetReps: val }
+          : ex
+      )
+    );
+    setCustomRepTargetExId(null);
+  }, [customRepTargetExId, customRepInput]);
+
+  const handleRestChange = useCallback((index: number, restSeconds: number) => {
+    hapticLight();
+    setExercises((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], restTimeSecs: restSeconds };
+      return updated;
+    });
+  }, []);
+
+  const handleDeleteExercise = useCallback((index: number) => {
+    hapticMedium();
+    const removedId = exercises[index]?.id;
+    if (removedId && removedId === customRepTargetExId) {
+      setCustomRepTargetExId(null);
+    }
+    setExercises((prev) => prev.filter((_, idx) => idx !== index));
+  }, [exercises, customRepTargetExId]);
+
+  const handleMoveExercise = useCallback((fromIdx: number, direction: 'up' | 'down') => {
+    hapticSelection();
+    setExercises((prev) => {
+      const toIdx = direction === 'up' ? fromIdx - 1 : fromIdx + 1;
+      if (toIdx < 0 || toIdx >= prev.length) return prev;
+      const updated = [...prev];
+      const temp = updated[fromIdx];
+      updated[fromIdx] = updated[toIdx];
+      updated[toIdx] = temp;
+      return updated;
+    });
+  }, []);
+
+  // ─── Batch Add from Unified 525+ Exercise Catalogue ────────────────────────
+  const handleMultiExercisesAdded = useCallback((addedLogs: GymExerciseLog[]) => {
+    if (!addedLogs || addedLogs.length === 0) return;
+    hapticSuccess();
+    const newItems: GymPlanExercise[] = addedLogs.map((ex, idx) => ({
+      id: `ex_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
+      name: ex.name,
+      muscle: ex.muscle,
+      targetSets: ex.targetSets || 3,
+      targetReps: (ex.targetReps || '8-10').replace('–', '-'),
+      videoId: ex.videoId || '',
+      restTimeSecs: ex.restTimeSecs || 90,
+    }));
+    setExercises((prev) => [...prev, ...newItems]);
+    setEditorError(null);
+    setSheetView('editor');
+  }, []);
+
+  const handleSwapExercisePicked = useCallback(
+    (alt: GymExerciseLog) => {
+      if (swapTargetIdx === null) return;
+      hapticSuccess();
+      setExercises((prev) => {
+        const next = [...prev];
+        const current = next[swapTargetIdx];
+        if (!current) return prev;
+        next[swapTargetIdx] = {
+          ...current,
+          id: alt.exerciseId || `ex_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          name: alt.name,
+          muscle: alt.muscle || current.muscle,
+          videoId: alt.videoId || '',
+          targetSets: current.targetSets || alt.targetSets || 3,
+          targetReps: current.targetReps || (alt.targetReps || '8-10').replace('–', '-'),
+          restTimeSecs: current.restTimeSecs || alt.restTimeSecs || 90,
+        };
+        return next;
+      });
+      setEditorError(null);
+      setSwapTargetIdx(null);
+      setSheetView('editor');
+    },
+    [swapTargetIdx]
+  );
+
+  // ─── Save Whole Routine ────────────────────────────────────────────────────
+  const handleSaveRoutine = useCallback(async () => {
+    if (savingRef.current) return;
+    const finalName = routineName.trim() || 'Custom Workout';
     if (exercises.length === 0) {
-      Alert.alert('Add Exercises', 'Please add at least 1 exercise to this workout routine.');
+      setEditorError('Add at least 1 exercise before saving this routine.');
       return;
     }
 
+    savingRef.current = true;
+    setIsSaving(true);
     hapticSuccess();
     const finalRoutine: GymRoutine = {
       id: routineToEdit?.id || `rt_${Date.now()}`,
       folderId: routineToEdit?.folderId,
       name: finalName,
-      subtitle: routineSubtitle.trim() || undefined,
-      focus: routineSubtitle.trim() || undefined,
+      subtitle: routineFocus.trim() || sessionSummary.topMuscles || undefined,
+      focus: routineFocus.trim() || sessionSummary.topMuscles || undefined,
       exercises,
       estimatedDurationMins: sessionSummary.estimatedMins,
       updatedAt: Date.now(),
     };
 
-    onSave(finalRoutine, assignedDay);
-    onClose();
-  };
-
-  // Reorder exercises
-  const handleMoveExercise = (fromIdx: number, direction: 'up' | 'down') => {
-    const toIdx = direction === 'up' ? fromIdx - 1 : fromIdx + 1;
-    if (toIdx < 0 || toIdx >= exercises.length) return;
-    hapticSelection();
-    const updated = [...exercises];
-    const temp = updated[fromIdx];
-    updated[fromIdx] = updated[toIdx];
-    updated[toIdx] = temp;
-    setExercises(updated);
-  };
-
-  // Delete exercise
-  const handleDeleteExercise = (idx: number) => {
-    hapticLight();
-    const updated = exercises.filter((_, i) => i !== idx);
-    setExercises(updated);
-    if (updated.length > 0 && isNewRoutine) {
-      const smart = generateSmartRoutineMeta(updated);
-      setRoutineName(smart.suggestedName);
-      setRoutineSubtitle(smart.suggestedFocus);
-      setNameOptions(smart.nameOptions);
+    try {
+      await onSave(finalRoutine, assignedDay);
+      onClose();
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
     }
-  };
-
-  // Update target sets inline
-  const handleAdjustSets = (idx: number, delta: number) => {
-    hapticMedium();
-    setExercises(prev =>
-      prev.map((ex, i) => {
-        if (i !== idx) return ex;
-        const current = Number(ex.targetSets) || 3;
-        const nextSets = Math.min(10, Math.max(1, current + delta));
-        return { ...ex, targetSets: nextSets };
-      })
-    );
-  };
-
-  // Update target reps inline
-  const handleSelectReps = (idx: number, reps: string) => {
-    hapticLight();
-    setExercises(prev =>
-      prev.map((ex, i) => (i === idx ? { ...ex, targetReps: reps } : ex))
-    );
-  };
-
-  // Update rest time inline
-  const handleSelectRest = (idx: number, restSecs: number) => {
-    hapticLight();
-    setExercises(prev =>
-      prev.map((ex, i) => (i === idx ? { ...ex, restTimeSecs: restSecs } : ex))
-    );
-  };
-
-  const handleCycleReps = (idx: number, currentReps: string) => {
-    hapticLight();
-    const currentIndex = COMMON_REPS.indexOf(currentReps);
-    const nextIndex = (currentIndex + 1) % COMMON_REPS.length;
-    handleSelectReps(idx, COMMON_REPS[nextIndex]);
-  };
-
-  const handleCycleRest = (idx: number, currentRest: number) => {
-    hapticLight();
-    const currentIndex = COMMON_REST.indexOf(currentRest);
-    const nextIndex = (currentIndex + 1) % COMMON_REST.length;
-    handleSelectRest(idx, COMMON_REST[nextIndex]);
-  };
-
-  // ── Exercise Vault Filtering ─────────────────────────────────────────────────
-  const filteredVaultExercises = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    const filter = selectedMuscleFilter.toLowerCase();
-
-    return EXERCISE_DATABASE.filter(ex => {
-      if (selectedMuscleFilter !== 'All') {
-        const rawMuscle = (ex.muscle || '').toLowerCase();
-        const canonical = canonicalizeMuscle(ex.muscle).toLowerCase();
-        const targetCanonical = resolveExerciseTargetMuscle(ex.name, ex.muscle).canonicalGroup.toLowerCase();
-
-        let matchesMuscle = (
-          canonical === filter ||
-          targetCanonical === filter ||
-          rawMuscle.includes(filter)
-        );
-
-        // Comprehensive group coverage for sub-muscles (e.g. Delts -> Shoulders, Lats -> Back)
-        if (!matchesMuscle) {
-          if (filter === 'shoulders') {
-            matchesMuscle = rawMuscle.includes('delt') || rawMuscle.includes('shoulder') || rawMuscle.includes('overhead');
-          } else if (filter === 'back') {
-            matchesMuscle = rawMuscle.includes('lat') || rawMuscle.includes('back') || rawMuscle.includes('trap') || rawMuscle.includes('rhomboid') || rawMuscle.includes('row');
-          } else if (filter === 'chest') {
-            matchesMuscle = rawMuscle.includes('chest') || rawMuscle.includes('pec');
-          } else if (filter === 'biceps') {
-            matchesMuscle = rawMuscle.includes('bicep') || rawMuscle.includes('brachio') || rawMuscle.includes('curl');
-          } else if (filter === 'triceps') {
-            matchesMuscle = rawMuscle.includes('tricep') || rawMuscle.includes('pushdown') || rawMuscle.includes('dip');
-          } else if (filter === 'quads') {
-            matchesMuscle = rawMuscle.includes('quad') || rawMuscle.includes('squat') || rawMuscle.includes('leg ext');
-          } else if (filter === 'hamstrings') {
-            matchesMuscle = rawMuscle.includes('ham') || rawMuscle.includes('hinge') || rawMuscle.includes('ghr') || rawMuscle.includes('rdl') || rawMuscle.includes('deadlift');
-          } else if (filter === 'calves') {
-            matchesMuscle = rawMuscle.includes('calv') || rawMuscle.includes('soleus') || rawMuscle.includes('gastro');
-          } else if (filter === 'abs') {
-            matchesMuscle = rawMuscle.includes('ab') || rawMuscle.includes('core') || rawMuscle.includes('oblique') || rawMuscle.includes('crunch') || rawMuscle.includes('plank');
-          }
-        }
-
-        if (!matchesMuscle) return false;
-      }
-
-      if (query) {
-        const nameMatch = ex.name.toLowerCase().includes(query);
-        const aliasMatch = ex.aliases?.some(a => a.toLowerCase().includes(query));
-        const muscleMatch = ex.muscle.toLowerCase().includes(query);
-        if (!nameMatch && !aliasMatch && !muscleMatch) return false;
-      }
-      return true;
-    });
-  }, [searchQuery, selectedMuscleFilter]);
-
-  // Toggle selection in Vault Picker
-  const handleToggleVaultExercise = (id: string) => {
-    hapticLight();
-    setSelectedVaultExerciseIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  // Add selected exercises from Vault to Routine
-  const handleConfirmVaultExercises = () => {
-    if (selectedVaultExerciseIds.size === 0) return;
-    hapticSuccess();
-
-    const newAdditions: GymPlanExercise[] = [];
-    for (const exId of selectedVaultExerciseIds) {
-      const dbEx = EXERCISE_DATABASE.find(e => e.id === exId);
-      if (dbEx) {
-        newAdditions.push({
-          id: `ex_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-          name: dbEx.name,
-          targetSets: 3,
-          targetReps: '8–12',
-          muscle: dbEx.muscle || 'Full Body',
-          restTimeSecs: 90,
-        });
-      }
-    }
-
-    const merged = [...exercises, ...newAdditions];
-    setExercises(merged);
-
-    // Auto-generate smart permutation name & focus
-    const smart = generateSmartRoutineMeta(merged);
-    setNameOptions(smart.nameOptions);
-    if (!routineName || isNewRoutine) {
-      setRoutineName(smart.suggestedName);
-      setRoutineSubtitle(smart.suggestedFocus);
-    }
-
-    setSelectedVaultExerciseIds(new Set());
-    setCurrentView('builder');
-  };
-
-  // Swap exercise alternatives
-  const swapAlternatives = useMemo(() => {
-    if (swapTargetIndex === null || !exercises[swapTargetIndex]) return [];
-    const currentEx = exercises[swapTargetIndex];
-    return getExerciseSwapAlternatives(currentEx.name, currentEx.muscle);
-  }, [swapTargetIndex, exercises]);
-
-  const handleApplySwap = (newExName: string, newMuscle?: string) => {
-    if (swapTargetIndex === null) return;
-    hapticSuccess();
-    setExercises(prev =>
-      prev.map((ex, i) =>
-        i === swapTargetIndex
-          ? {
-              ...ex,
-              name: newExName,
-              muscle: newMuscle || ex.muscle,
-            }
-          : ex
-      )
-    );
-    setSwapTargetIndex(null);
-  };
+  }, [routineName, exercises, routineFocus, sessionSummary, routineToEdit, assignedDay, onSave, onClose]);
 
   return (
-    <Modal
+    <BottomSheet
       visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onClose={onClose}
+      fullHeight={true}
+      noPadding={true}
+      avoidKeyboard={true}
+      sheetBackgroundColor={isDark ? '#0B0C10' : '#F8F8FA'}
     >
-      <SafeAreaView
-        style={[styles.modalContainer, { backgroundColor: isDark ? IOS_DARK.bgCanvas : colors.background }]}
-        edges={['top']}
-      >
-        {currentView === 'builder' ? (
-          // ── BUILDER VIEW ───────────────────────────────────────────────────
-          <View style={{ flex: 1 }}>
-            {/* Top Navigation Bar */}
-            <View style={styles.navBar}>
-              <TouchableOpacity onPress={onClose} style={styles.navCancelBtn}>
-                <Text style={styles.navCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <Text style={[styles.navTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-                {routineToEdit ? 'Customize Routine' : 'New Routine'}
-              </Text>
-              <TouchableOpacity onPress={handleSave} style={styles.navSaveBtn}>
-                <Text style={styles.navSaveText}>Save</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={styles.builderContent}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              {/* 1. Zone 1: Unified Routine Header (Name, Subtitle & Day Pill) */}
-              <View
-                style={[
-                  styles.unifiedHeaderCard,
-                  { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
-                ]}
-              >
-                <TextInput
-                  style={[styles.titleInput, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
-                  placeholder="Routine Name (e.g. Chest & Back Power)"
-                  placeholderTextColor="#636366"
-                  value={routineName}
-                  onChangeText={setRoutineName}
-                  returnKeyType="next"
-                />
-
-                <TextInput
-                  style={[styles.subtitleInput, { color: isDark ? '#A599FF' : colors.textPrimary }]}
-                  placeholder="Focus / Subtitle"
-                  placeholderTextColor="#636366"
-                  value={routineSubtitle}
-                  onChangeText={setRoutineSubtitle}
-                  returnKeyType="done"
-                />
-
-                <View style={styles.headerTagRow}>
-                  {/* Day Selector Pill */}
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      hapticLight();
-                      setShowDayPicker(true);
-                    }}
-                    style={styles.headerSelectorPill}
-                  >
-                    <Ionicons name="calendar-outline" size={13} color="#FFFFFF" />
-                    <Text style={styles.headerSelectorPillText}>
-                      {assignedDay != null
-                        ? `${DAY_OPTIONS.find(o => o.index === assignedDay)?.label || `Day ${assignedDay}`}`
-                        : 'Library Only'}
-                    </Text>
-                    <Ionicons name="chevron-down" size={11} color="#8E8E93" />
-                  </TouchableOpacity>
-
-                  {/* Auto-suggested quick names */}
-                  {nameOptions.slice(0, 2).map(optName => (
-                    <TouchableOpacity
-                      key={`name-opt-${optName}`}
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        hapticLight();
-                        setRoutineName(optName);
-                      }}
-                      style={[
-                        styles.nameOptionChipMini,
-                        routineName === optName && styles.nameOptionChipMiniActive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.nameOptionChipMiniText,
-                          routineName === optName && styles.nameOptionChipMiniTextActive,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {optName}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {/* 2. Zone 2: Pre-Session Muscle Hit Map Preview & Volume Sync */}
-              {exercises.length > 0 && (
-                <View style={{ marginBottom: 12 }}>
-                  <PreSessionMuscleHitMap
-                    exercises={exercises}
-                    isRest={false}
-                    compact={false}
-                    showMiniAvatar={true}
-                    title={routineName || 'Target Muscle Load'}
-                  />
-                </View>
-              )}
-
-              {/* 3. Action Button: + Add Exercises */}
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => {
-                  hapticLight();
-                  setCurrentView('vault_picker');
-                }}
-                style={styles.addMoreExercisesBtn}
-              >
-                <Ionicons name="add-circle" size={17} color="#FFFFFF" />
-                <Text style={styles.addMoreExercisesBtnText}>Add Exercises</Text>
-              </TouchableOpacity>
-
-              {/* 4. Zone 3: Exercises List (Clean, Touch-Friendly, Zero Clutter) */}
-              {exercises.map((ex, exIdx) => {
-                const currentSets = Number(ex.targetSets) || 3;
-                const currentReps = ex.targetReps || '8–12';
-                const currentRest = ex.restTimeSecs || 90;
-                const { targetMuscle } = resolveExerciseTargetMuscle(ex.name, ex.muscle);
-                const muscleColor = resolveMuscleColor(targetMuscle);
-
-                return (
-                  <View
-                    key={`builder-ex-${ex.id || exIdx}`}
-                    style={[
-                      styles.cleanExerciseCard,
-                      { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
-                    ]}
-                  >
-                    {/* Header: Index Badge, Full Name, Target Muscle, and Single ··· Options Button */}
-                    <View style={styles.cleanExHeaderRow}>
-                      <View style={styles.exIndexBadge}>
-                        <Text style={styles.exIndexText}>#{exIdx + 1}</Text>
-                      </View>
-
-                      <View style={{ flex: 1, paddingRight: 8 }}>
-                        <Text
-                          style={[styles.cleanExName, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
-                          numberOfLines={1}
-                        >
-                          {ex.name}
-                        </Text>
-                        <View style={styles.cleanExMetaRow}>
-                          <View style={[styles.muscleDot, { backgroundColor: muscleColor }]} />
-                          <Text style={styles.cleanExMuscle}>{targetMuscle}</Text>
-                        </View>
-                      </View>
-
-                      {/* Options (···) Trigger */}
-                      <TouchableOpacity
-                        onPress={() => {
-                          hapticLight();
-                          setActiveExOptionsIdx(exIdx);
-                        }}
-                        style={styles.exMoreOptionsBtn}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Ionicons name="ellipsis-horizontal" size={16} color="#8E8E93" />
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* Quick Values Selector: Exactly 3 Aligned Symmetrical Cards on 1 Row */}
-                    <View style={styles.cleanExControlsRow}>
-                      {/* 1. Sets Stepper Card */}
-                      <View style={styles.cleanValueChip}>
-                        <Text style={styles.cleanValueChipLabel}>SETS</Text>
-                        <View style={styles.setsStepperRow}>
-                          <TouchableOpacity
-                            activeOpacity={0.6}
-                            onPress={() => handleAdjustSets(exIdx, -1)}
-                            style={styles.stepperSubtleBtn}
-                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                          >
-                            <Ionicons name="remove" size={14} color="#8E8E93" />
-                          </TouchableOpacity>
-                          <Text style={styles.cleanValueChipValue}>{currentSets}</Text>
-                          <TouchableOpacity
-                            activeOpacity={0.6}
-                            onPress={() => handleAdjustSets(exIdx, 1)}
-                            style={styles.stepperSubtleBtn}
-                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                          >
-                            <Ionicons name="add" size={14} color="#8E8E93" />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-
-                      {/* 2. Reps Chip (Tap to choose rep range) */}
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        onPress={() => {
-                          hapticLight();
-                          setPickerTarget({ exIdx, type: 'reps' });
-                        }}
-                        style={styles.cleanValueChip}
-                      >
-                        <Text style={styles.cleanValueChipLabel}>REPS</Text>
-                        <View style={styles.chipValueWrapper}>
-                          <Text style={styles.cleanValueChipValue}>{currentReps}</Text>
-                        </View>
-                      </TouchableOpacity>
-
-                      {/* 3. Rest Timer Chip (Tap to choose rest duration) */}
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        onPress={() => {
-                          hapticLight();
-                          setPickerTarget({ exIdx, type: 'rest' });
-                        }}
-                        style={styles.cleanValueChip}
-                      >
-                        <Text style={styles.cleanValueChipLabel}>REST</Text>
-                        <View style={styles.chipValueWrapper}>
-                          <Text style={styles.cleanValueChipValue}>{currentRest}s</Text>
-                        </View>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                );
-              })}
-            </ScrollView>
-          </View>
+      <View style={[styles.root, { flex: 1 }]}>
+        {sheetView !== 'editor' ? (
+          <Animated.View entering={FadeIn.duration(170)} style={{ flex: 1 }}>
+            <AddExerciseModal
+              embedded
+              visible={visible}
+              selectionMode={sheetView === 'swap' ? 'single' : 'multi'}
+              headerTitle={
+                sheetView === 'swap' && swapTargetIdx !== null
+                  ? `Swap ${exercises[swapTargetIdx]?.name || 'Exercise'}`
+                  : 'Select Exercises'
+              }
+              onClose={() => {
+                setSheetView('editor');
+                setSwapTargetIdx(null);
+              }}
+              onAdd={(single) => {
+                if (sheetView === 'swap') {
+                  handleSwapExercisePicked(single);
+                } else {
+                  handleMultiExercisesAdded([single]);
+                }
+              }}
+              onMultiAdd={handleMultiExercisesAdded}
+            />
+          </Animated.View>
         ) : (
-          // ── VAULT MULTI-SELECT PICKER VIEW (Instant First Screen) ───────────
-          <View style={{ flex: 1 }}>
-            {/* Vault Picker Nav */}
-            <View style={styles.navBar}>
-              {exercises.length > 0 ? (
-                <TouchableOpacity
-                  onPress={() => setCurrentView('builder')}
-                  style={styles.navCancelBtn}
-                >
-                  <Ionicons name="chevron-back" size={18} color="#A599FF" />
-                  <Text style={styles.navCancelText}>Builder</Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity onPress={onClose} style={styles.navCancelBtn}>
-                  <Text style={styles.navCancelText}>Cancel</Text>
-                </TouchableOpacity>
-              )}
-              <Text style={[styles.navTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-                Select Exercises
+        <>
+        {/* ── Top Navigation Bar ── */}
+        <View style={styles.navBar}>
+          <TactileButton variant="custom" haptic="light" onPress={onClose} style={styles.navCancelBtn} hitSlop={TOUCH.hitSlop}>
+            <Text style={styles.navCancelText}>Cancel</Text>
+          </TactileButton>
+
+          <View style={styles.navTitleBox}>
+            <Text style={styles.navTitle} numberOfLines={1}>
+              {routineToEdit ? 'Edit Workout' : 'New Workout'}
+            </Text>
+            {assignedDay ? (
+              <Text style={styles.navSubtitle}>
+                {DAY_CHIPS.find((d) => d.index === assignedDay)?.label} Schedule Day
               </Text>
-              <View style={{ width: 60 }} />
-            </View>
+            ) : null}
+          </View>
 
-            {/* Search Bar */}
-            <View style={styles.searchBarContainer}>
-              <Ionicons name="search" size={16} color="#8E8E93" style={{ marginRight: 8 }} />
+          <TactileButton
+            variant="custom"
+            haptic="none"
+            onPress={handleSaveRoutine}
+            disabled={isSaving}
+            hitSlop={TOUCH.hitSlop}
+            style={[styles.navSaveBtn, isSaving && { opacity: 0.6 }]}
+          >
+            <Text style={styles.navSaveText}>Save</Text>
+          </TactileButton>
+        </View>
+
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+            {/* ── Routine Details Card ── */}
+            <View style={styles.detailsCard}>
+              <Text style={styles.fieldLabel}>WORKOUT NAME</Text>
               <TextInput
-                style={[styles.searchInput, { color: isDark ? '#FFFFFF' : '#000000' }]}
-                placeholder="Search 361 exercises..."
-                placeholderTextColor="#8E8E93"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                clearButtonMode="while-editing"
+                style={styles.nameInput}
+                value={routineName}
+                onChangeText={setRoutineName}
+                placeholder="e.g. Push Hypertrophy A"
+                placeholderTextColor={tokens.text.muted}
+                autoCapitalize="words"
               />
-            </View>
 
-            {/* Muscle Filter Strip */}
-            <View style={styles.filterStripContainer}>
+              <Text style={[styles.fieldLabel, { marginTop: SPACE.md }]}>FOCUS (OPTIONAL)</Text>
+              <TextInput
+                style={styles.nameInput}
+                value={routineFocus}
+                onChangeText={setRoutineFocus}
+                placeholder="Auto-filled from exercises"
+                placeholderTextColor={tokens.text.muted}
+                autoCapitalize="words"
+              />
+
+              <Text style={[styles.fieldLabel, { marginTop: SPACE.md }]}>ASSIGN TO SCHEDULE DAY</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.filterStrip}
+                contentContainerStyle={styles.dayStripScroll}
               >
-                {MUSCLE_FILTERS.map(m => {
-                  const isSelected = selectedMuscleFilter === m;
+                {DAY_CHIPS.map((chip) => {
+                  const isSelected = assignedDay === chip.index;
                   return (
-                    <TouchableOpacity
-                      key={`m-filter-${m}`}
+                    <Pressable
+                      key={chip.label}
                       onPress={() => {
                         hapticLight();
-                        setSelectedMuscleFilter(m);
+                        setAssignedDay(chip.index);
                       }}
-                      style={[
-                        styles.filterChip,
-                        isSelected && styles.filterChipSelected,
+                      style={({ pressed }) => [
+                        styles.dayChip,
+                        isSelected && styles.dayChipActive,
+                        pressed && { opacity: 0.78 },
                       ]}
-                      activeOpacity={0.7}
                     >
-                      <Text
-                        style={[
-                          styles.filterChipText,
-                          isSelected && styles.filterChipTextSelected,
-                        ]}
-                      >
-                        {m}
+                      {isSelected ? (
+                        <Check size={11} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} style={{ marginRight: 3 }} />
+                      ) : null}
+                      <Text style={[styles.dayChipText, isSelected && styles.dayChipTextActive]}>
+                        {chip.label}
                       </Text>
-                    </TouchableOpacity>
+                    </Pressable>
                   );
                 })}
               </ScrollView>
             </View>
 
-            {/* Exercises List with Multi-Select Checkboxes */}
-            <FlatList
-              data={filteredVaultExercises}
-              keyExtractor={item => item.id}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 110 }}
-              renderItem={({ item }) => {
-                const isSelected = selectedVaultExerciseIds.has(item.id);
-                const muscleColor = resolveMuscleColor(item.muscle);
-
-                return (
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => handleToggleVaultExercise(item.id)}
-                    style={[
-                      styles.vaultExerciseRow,
-                      {
-                        backgroundColor: isSelected
-                          ? (isDark ? 'rgba(108, 92, 231, 0.12)' : 'rgba(108, 92, 231, 0.08)')
-                          : (isDark ? IOS_DARK.bgGroupedCard : colors.surface),
-                        borderColor: isSelected
-                          ? '#6C5CE7'
-                          : (isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)'),
-                      },
-                    ]}
-                  >
-                    {/* Checkbox */}
-                    <View
-                      style={[
-                        styles.checkboxCircle,
-                        isSelected && styles.checkboxCircleSelected,
-                      ]}
-                    >
-                      {isSelected && <Ionicons name="checkmark" size={12} color="#FFFFFF" />}
-                    </View>
-
-                    {/* Exercise Details */}
-                    <View style={styles.vaultExDetailsCol}>
-                      <Text
-                        style={[styles.vaultExName, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}
-                        numberOfLines={1}
-                      >
-                        {item.name}
-                      </Text>
-                      <View style={styles.vaultExMetaRow}>
-                        <View style={[styles.muscleDot, { backgroundColor: muscleColor }]} />
-                        <Text style={styles.vaultExSub}>{item.muscle}</Text>
-                      </View>
-                    </View>
-
-                    {item.tier && (
-                      <View
-                        style={[
-                          styles.vaultTierBadge,
-                          item.tier === 'S Tier'
-                            ? styles.sTierBadge
-                            : item.tier === 'A+ Tier'
-                            ? styles.aPlusTierBadge
-                            : styles.aTierBadge,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.vaultTierText,
-                            item.tier === 'S Tier'
-                              ? styles.sTierText
-                              : item.tier === 'A+ Tier'
-                              ? styles.aPlusTierText
-                              : styles.aTierText,
-                          ]}
-                        >
-                          {item.tier}
-                        </Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              }}
-            />
-
-            {/* Sticky Bottom Multi-Select Confirm Bar */}
-            <View style={[styles.stickyBottomBar, { backgroundColor: isDark ? '#141418' : '#FFFFFF' }]}>
-              <TouchableOpacity
-                activeOpacity={selectedVaultExerciseIds.size > 0 ? 0.85 : 1}
-                disabled={selectedVaultExerciseIds.size === 0}
-                onPress={handleConfirmVaultExercises}
-                style={[
-                  styles.confirmAddBtnFull,
-                  selectedVaultExerciseIds.size > 0 ? styles.confirmAddBtnActive : styles.confirmAddBtnDisabled,
-                ]}
-              >
-                {selectedVaultExerciseIds.size > 0 ? (
-                  <>
-                    <View style={styles.confirmBadgeBubble}>
-                      <Text style={styles.confirmBadgeBubbleText}>
-                        {selectedVaultExerciseIds.size}
-                      </Text>
-                    </View>
-                    <Text style={styles.confirmAddBtnText}>
-                      Add {selectedVaultExerciseIds.size === 1 ? 'Movement' : 'Movements'} to Routine
-                    </Text>
-                    <Ionicons name="arrow-forward" size={16} color="#FFFFFF" style={{ marginLeft: 4 }} />
-                  </>
-                ) : (
-                  <>
-                    <Ionicons name="add-circle-outline" size={18} color="#8E8E93" style={{ marginRight: 6 }} />
-                    <Text style={styles.confirmAddBtnDisabledText}>
-                      Select Exercises to Add
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {/* ── QUICK SWAP ALTERNATIVES MODAL ─────────────────────────────────── */}
-        <Modal
-          visible={swapTargetIndex !== null}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setSwapTargetIndex(null)}
-        >
-          <Pressable
-            style={styles.modalBackdrop}
-            onPress={() => setSwapTargetIndex(null)}
-          >
-            <Pressable
-              style={[
-                styles.swapSheetContainer,
-                { backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF' },
-              ]}
-              onPress={e => e.stopPropagation()}
-            >
-              <Text style={[styles.swapSheetTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-                Swap Alternative Movement
-              </Text>
-              <Text style={styles.swapSheetSub}>
-                Science-backed biomechanical alternatives
-              </Text>
-
-              <ScrollView style={{ maxHeight: 300 }}>
-                {swapAlternatives.map((alt, i) => (
-                  <TouchableOpacity
-                    key={`alt-${i}`}
-                    style={styles.swapAltRow}
-                    onPress={() => handleApplySwap(alt.name, alt.muscle)}
-                  >
-                    <View style={styles.swapAltCol}>
-                      <Text style={[styles.swapAltName, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-                        {alt.name}
-                      </Text>
-                      <Text style={styles.swapAltMuscle}>{alt.muscle}</Text>
-                    </View>
-                    <View style={styles.swapPickBadge}>
-                      <Text style={styles.swapPickBadgeText}>Swap</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </Pressable>
-          </Pressable>
-        </Modal>
-
-        {/* ── DAY PICKER SHEET MODAL ─────────────────────────────────────── */}
-        <Modal
-          visible={showDayPicker}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowDayPicker(false)}
-        >
-          <Pressable
-            style={styles.modalBackdrop}
-            onPress={() => setShowDayPicker(false)}
-          >
-            <Pressable
-              style={[
-                styles.swapSheetContainer,
-                { backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF' },
-              ]}
-              onPress={e => e.stopPropagation()}
-            >
-              <Text style={[styles.swapSheetTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-                Schedule Routine to Day
-              </Text>
-              <Text style={styles.swapSheetSub}>
-                Assign this workout to a weekly schedule slot
-              </Text>
-
-              <ScrollView style={{ maxHeight: 340 }}>
-                {DAY_OPTIONS.map(opt => {
-                  const isSelected = assignedDay === opt.index;
-                  return (
-                    <TouchableOpacity
-                      key={`sheet-day-${opt.label}`}
-                      style={[
-                        styles.daySheetOptionRow,
-                        isSelected && styles.daySheetOptionRowActive,
-                      ]}
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        hapticLight();
-                        setAssignedDay(opt.index);
-                        setShowDayPicker(false);
-                      }}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                        <Ionicons
-                          name={opt.index === null ? "library-outline" : "calendar-outline"}
-                          size={18}
-                          color={isSelected ? "#30D158" : "#8E8E93"}
-                        />
-                        <Text style={[
-                          styles.daySheetOptionText,
-                          { color: isSelected ? "#30D158" : (isDark ? '#FFFFFF' : '#000000') },
-                        ]}>
-                          {opt.label === 'Library Only' ? 'Library Only (No Day Scheduled)' : opt.label}
-                        </Text>
-                      </View>
-                      {isSelected && (
-                        <Ionicons name="checkmark-circle" size={18} color="#30D158" />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </Pressable>
-          </Pressable>
-        </Modal>
-
-        {/* ── EXERCISE OPTIONS SHEET (···) ─────────────────────────────────── */}
-        <Modal
-          visible={activeExOptionsIdx !== null}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setActiveExOptionsIdx(null)}
-        >
-          <Pressable
-            style={styles.modalBackdrop}
-            onPress={() => setActiveExOptionsIdx(null)}
-          >
-            <Pressable
-              style={[
-                styles.swapSheetContainer,
-                { backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF' },
-              ]}
-              onPress={e => e.stopPropagation()}
-            >
-              <Text style={[styles.swapSheetTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-                {activeExOptionsIdx !== null ? exercises[activeExOptionsIdx]?.name : 'Exercise Options'}
-              </Text>
-              <Text style={styles.swapSheetSub}>
-                Manage exercise position, alternatives or delete
-              </Text>
-
-              <View style={{ gap: 4, marginTop: 8 }}>
-                {/* Swap */}
-                <TouchableOpacity
-                  style={styles.exSheetActionRow}
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    const idx = activeExOptionsIdx;
-                    setActiveExOptionsIdx(null);
-                    if (idx !== null) setSwapTargetIndex(idx);
-                  }}
-                >
-                  <View style={styles.exSheetActionIconWrap}>
-                    <Ionicons name="swap-horizontal" size={17} color="#FFFFFF" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.exSheetActionLabel}>Swap Alternative Exercise</Text>
-                    <Text style={styles.exSheetActionSublabel}>Find biomechanical substitutes</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color="#636366" />
-                </TouchableOpacity>
-
-                {/* Move Up */}
-                {activeExOptionsIdx !== null && activeExOptionsIdx > 0 && (
-                  <TouchableOpacity
-                    style={styles.exSheetActionRow}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      const idx = activeExOptionsIdx;
-                      setActiveExOptionsIdx(null);
-                      if (idx !== null) handleMoveExercise(idx, 'up');
-                    }}
-                  >
-                    <View style={styles.exSheetActionIconWrap}>
-                      <Ionicons name="arrow-up-outline" size={17} color="#FFFFFF" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.exSheetActionLabel}>Move Up</Text>
-                      <Text style={styles.exSheetActionSublabel}>Perform this movement earlier in workout</Text>
-                    </View>
-                  </TouchableOpacity>
-                )}
-
-                {/* Move Down */}
-                {activeExOptionsIdx !== null && activeExOptionsIdx < exercises.length - 1 && (
-                  <TouchableOpacity
-                    style={styles.exSheetActionRow}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      const idx = activeExOptionsIdx;
-                      setActiveExOptionsIdx(null);
-                      if (idx !== null) handleMoveExercise(idx, 'down');
-                    }}
-                  >
-                    <View style={styles.exSheetActionIconWrap}>
-                      <Ionicons name="arrow-down-outline" size={17} color="#FFFFFF" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.exSheetActionLabel}>Move Down</Text>
-                      <Text style={styles.exSheetActionSublabel}>Perform this movement later in workout</Text>
-                    </View>
-                  </TouchableOpacity>
-                )}
-
-                {/* Delete */}
-                <TouchableOpacity
-                  style={styles.exSheetActionRow}
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    const idx = activeExOptionsIdx;
-                    setActiveExOptionsIdx(null);
-                    if (idx !== null) handleDeleteExercise(idx);
-                  }}
-                >
-                  <View style={[styles.exSheetActionIconWrap, { backgroundColor: 'rgba(255, 69, 58, 0.15)' }]}>
-                    <Ionicons name="trash-outline" size={17} color="#FF453A" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.exSheetActionLabel, { color: '#FF453A' }]}>Remove from Routine</Text>
-                    <Text style={styles.exSheetActionSublabel}>Delete this movement</Text>
-                  </View>
-                </TouchableOpacity>
+            {/* ── Session Volume & Time HUD (shown once exercises exist) ── */}
+            {exercises.length > 0 && (
+              <View style={styles.hudCard}>
+                <View style={styles.hudItem}>
+                  <NumericText style={styles.hudVal}>{exercises.length}</NumericText>
+                  <Text style={styles.hudLabel}>Exercises</Text>
+                </View>
+                <View style={styles.hudDivider} />
+                <View style={styles.hudItem}>
+                  <NumericText style={[styles.hudVal, { color: tokens.status.success }]}>{sessionSummary.totalSets}</NumericText>
+                  <Text style={styles.hudLabel}>Working Sets</Text>
+                </View>
+                <View style={styles.hudDivider} />
+                <View style={styles.hudItem}>
+                  <NumericText style={styles.hudVal}>~{sessionSummary.estimatedMins}m</NumericText>
+                  <Text style={styles.hudLabel}>Est. Time</Text>
+                </View>
               </View>
-            </Pressable>
-          </Pressable>
-        </Modal>
+            )}
 
-        {/* ── REPS / REST QUICK PICKER SHEET MODAL ───────────────────────── */}
-        <Modal
-          visible={pickerTarget !== null}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setPickerTarget(null)}
-        >
-          <Pressable
-            style={styles.modalBackdrop}
-            onPress={() => setPickerTarget(null)}
-          >
-            <Pressable
-              style={[
-                styles.swapSheetContainer,
-                { backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF' },
-              ]}
-              onPress={e => e.stopPropagation()}
-            >
-              <Text style={[styles.swapSheetTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-                {pickerTarget?.type === 'reps' ? 'Target Rep Range' : 'Inter-Set Rest Timer'}
-              </Text>
-              <Text style={styles.swapSheetSub}>
-                {pickerTarget?.type === 'reps'
-                  ? 'Select hyper-specific repetition target'
-                  : 'Program recovery interval between sets'}
-              </Text>
+            {/* ── Exercises Section ── */}
+            <View style={styles.sectionHeaderRow}>
+              <NumericText style={styles.sectionHeaderLabel}>EXERCISES ({exercises.length})</NumericText>
+              {exercises.length > 0 && (
+                <Text style={styles.sectionHeaderHint}>Adjust sets & reps inline</Text>
+              )}
+            </View>
 
-              <ScrollView style={{ maxHeight: 340 }}>
-                {pickerTarget?.type === 'reps' ? (
-                  COMMON_REPS.map(repOpt => {
-                    const isSelected = exercises[pickerTarget.exIdx]?.targetReps === repOpt;
-                    return (
-                      <TouchableOpacity
-                        key={`pick-rep-${repOpt}`}
-                        style={[
-                          styles.daySheetOptionRow,
-                          isSelected && styles.daySheetOptionRowActive,
-                        ]}
-                        activeOpacity={0.7}
-                        onPress={() => {
-                          hapticLight();
-                          handleSelectReps(pickerTarget.exIdx, repOpt);
-                          setPickerTarget(null);
-                        }}
-                      >
-                        <View style={{ flex: 1 }}>
-                          <Text style={[
-                            styles.daySheetOptionText,
-                            { color: isSelected ? "#30D158" : (isDark ? '#FFFFFF' : '#000000') },
-                          ]}>
-                            {repOpt} Reps
+            {exercises.map((ex, idx) => {
+              const repInfo = getTargetRepOptions(ex.targetReps);
+              const curRest = Number(ex.restTimeSecs) || 90;
+
+              return (
+                <View
+                  key={ex.id || `${ex.name}-${idx}`}
+                  style={styles.exerciseCard}
+                >
+                  {/* Top Bar: Index + Name + Muscle + Reorder + Delete */}
+                  <View style={styles.exCardTopRow}>
+                    <View style={styles.exIndexBadge}>
+                      <NumericText style={styles.exIndexText}>{idx + 1}</NumericText>
+                    </View>
+
+                    <View style={{ flex: 1, paddingRight: 6 }}>
+                      <Text style={styles.exNameTitle} numberOfLines={1}>
+                        {ex.name}
+                      </Text>
+                      {ex.muscle ? (
+                        <View style={styles.exMuscleRow}>
+                          <View
+                            style={[
+                              styles.exMuscleDot,
+                              { backgroundColor: resolveMuscleColor(ex.muscle) },
+                            ]}
+                          />
+                          <Text style={styles.exMuscleText} numberOfLines={1}>
+                            {ex.muscle.split('/')[0]}
                           </Text>
                         </View>
-                        {isSelected && (
-                          <Ionicons name="checkmark-circle" size={18} color="#30D158" />
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })
-                ) : (
-                  COMMON_REST.map(restOpt => {
-                    const isSelected = (exercises[pickerTarget?.exIdx ?? 0]?.restTimeSecs || 90) === restOpt;
-                    return (
-                      <TouchableOpacity
-                        key={`pick-rest-${restOpt}`}
-                        style={[
-                          styles.daySheetOptionRow,
-                          isSelected && styles.daySheetOptionRowActive,
-                        ]}
-                        activeOpacity={0.7}
-                        onPress={() => {
-                          if (pickerTarget) {
-                            hapticLight();
-                            handleSelectRest(pickerTarget.exIdx, restOpt);
-                            setPickerTarget(null);
-                          }
-                        }}
+                      ) : null}
+                    </View>
+
+                    {/* Reorder Arrows */}
+                    <View style={styles.reorderGroup}>
+                      {idx > 0 && (
+                        <TactileButton
+                          variant="icon"
+                          haptic="none"
+                          onPress={() => handleMoveExercise(idx, 'up')}
+                          style={styles.reorderBtn}
+                          hitSlop={TOUCH.hitSlop}
+                          accessibilityLabel="Move exercise up"
+                        >
+                          <ChevronUp size={16} color={tokens.text.secondary} strokeWidth={ICON.strokeWidth} />
+                        </TactileButton>
+                      )}
+                      {idx < exercises.length - 1 && (
+                        <TactileButton
+                          variant="icon"
+                          haptic="none"
+                          onPress={() => handleMoveExercise(idx, 'down')}
+                          style={styles.reorderBtn}
+                          hitSlop={TOUCH.hitSlop}
+                          accessibilityLabel="Move exercise down"
+                        >
+                          <ChevronDown size={16} color={tokens.text.secondary} strokeWidth={ICON.strokeWidth} />
+                        </TactileButton>
+                      )}
+                    </View>
+
+                    {/* Swap & Delete Icon Buttons */}
+                    <TactileButton
+                      variant="icon"
+                      haptic="light"
+                      onPress={() => {
+                        setSwapTargetIdx(idx);
+                        setSheetView('swap');
+                      }}
+                      style={styles.reorderBtn}
+                      hitSlop={TOUCH.hitSlop}
+                      accessibilityLabel={`Swap ${ex.name}`}
+                    >
+                      <ArrowLeftRight size={15} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                    </TactileButton>
+                    <TactileButton
+                      variant="icon"
+                      haptic="none"
+                      onPress={() => handleDeleteExercise(idx)}
+                      style={styles.deleteExBtn}
+                      hitSlop={TOUCH.hitSlop}
+                      accessibilityLabel="Remove exercise"
+                    >
+                      <Trash2 size={16} color={tokens.accent.crimson} strokeWidth={ICON.strokeWidth} />
+                    </TactileButton>
+                  </View>
+
+                  <View style={styles.cardInnerDivider} />
+
+                  {/* Middle Row: Sets Stepper */}
+                  <View style={styles.setsStepperRow}>
+                    <Text style={styles.controlRowLabel}>Sets:</Text>
+                    <View style={styles.stepperControl}>
+                      <TactileButton
+                        variant="icon"
+                        haptic="none"
+                        onPress={() => handleSetChange(idx, -1)}
+                        style={styles.stepperStepBtn}
+                        hitSlop={TOUCH.hitSlop}
+                        accessibilityLabel="Decrease sets"
                       >
-                        <View style={{ flex: 1 }}>
-                          <Text style={[
-                            styles.daySheetOptionText,
-                            { color: isSelected ? "#30D158" : (isDark ? '#FFFFFF' : '#000000') },
-                          ]}>
-                            {restOpt} Seconds ({Math.floor(restOpt / 60) > 0 ? `${Math.floor(restOpt / 60)}m ` : ''}{restOpt % 60 ? `${restOpt % 60}s` : ''})
-                          </Text>
-                        </View>
-                        {isSelected && (
-                          <Ionicons name="checkmark-circle" size={18} color="#30D158" />
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })
-                )}
-              </ScrollView>
-            </Pressable>
-          </Pressable>
-        </Modal>
-      </SafeAreaView>
-    </Modal>
+                        <Minus size={14} color={tokens.text.primary} strokeWidth={ICON.strokeWidth} />
+                      </TactileButton>
+                      <NumericText style={styles.stepperValText}>
+                        {ex.targetSets || 3} <Text style={styles.stepperUnitText}>Sets</Text>
+                      </NumericText>
+                      <TactileButton
+                        variant="icon"
+                        haptic="none"
+                        onPress={() => handleSetChange(idx, 1)}
+                        style={styles.stepperStepBtn}
+                        hitSlop={TOUCH.hitSlop}
+                        accessibilityLabel="Increase sets"
+                      >
+                        <Plus size={14} color={tokens.text.primary} strokeWidth={ICON.strokeWidth} />
+                      </TactileButton>
+                    </View>
+                  </View>
+
+                  {/* Reps Row */}
+                  <View style={styles.repsRow}>
+                    <Text style={styles.controlRowLabel}>Target:</Text>
+                    <View style={styles.chipsWrap}>
+                      {repInfo.options.map((option) => {
+                        const isSelected =
+                          option === 'Custom'
+                            ? repInfo.isCustom
+                            : !repInfo.isCustom && repInfo.activeValue === option;
+
+                        return (
+                          <Pressable
+                            key={option}
+                            onPress={() => handleRepChange(idx, option)}
+                            style={({ pressed }) => [
+                              styles.repChip,
+                              isSelected && styles.repChipActive,
+                              pressed && { opacity: 0.78 },
+                            ]}
+                          >
+                            {isSelected ? (
+                              <Check size={11} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} style={{ marginRight: 3 }} />
+                            ) : null}
+                            <NumericText style={[styles.repChipText, isSelected && styles.repChipTextActive]}>
+                              {option === 'Custom' && repInfo.isCustom
+                                ? `Custom (${ex.targetReps})`
+                                : option}
+                            </NumericText>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  {customRepTargetExId === ex.id ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                      <TextInput
+                        style={[styles.promptInput, { flex: 1, paddingVertical: 8, fontSize: 13.5 }]}
+                        value={customRepInput}
+                        onChangeText={setCustomRepInput}
+                        placeholder="e.g. 5x5 or 12-15"
+                        placeholderTextColor={tokens.text.muted}
+                        maxFontSizeMultiplier={1.25}
+                        autoFocus
+                        returnKeyType="done"
+                        onSubmitEditing={handleSaveCustomRep}
+                      />
+                      <TactileButton
+                        variant="custom"
+                        haptic="light"
+                        onPress={() => setCustomRepTargetExId(null)}
+                        style={styles.promptCancelBtn}
+                      >
+                        <Text style={styles.promptCancelText}>Cancel</Text>
+                      </TactileButton>
+                      <TactileButton
+                        variant="custom"
+                        haptic="none"
+                        onPress={handleSaveCustomRep}
+                        style={styles.promptSaveBtn}
+                      >
+                        <Text style={styles.promptSaveText}>Apply</Text>
+                      </TactileButton>
+                    </View>
+                  ) : null}
+
+                  {/* Rest Row */}
+                  <View style={styles.restRow}>
+                    <Text style={styles.controlRowLabel}>Rest:</Text>
+                    <View style={styles.chipsWrap}>
+                      {REST_PRESETS.map((seconds) => {
+                        const isSelected = curRest === seconds;
+                        return (
+                          <Pressable
+                            key={seconds}
+                            onPress={() => handleRestChange(idx, seconds)}
+                            style={({ pressed }) => [
+                              styles.restChip,
+                              isSelected && styles.restChipActive,
+                              pressed && { opacity: 0.78 },
+                            ]}
+                          >
+                            {isSelected ? (
+                              <Check size={11} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} style={{ marginRight: 3 }} />
+                            ) : null}
+                            <NumericText style={[styles.restChipText, isSelected && styles.restChipTextActive]}>
+                              {seconds}s
+                            </NumericText>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+
+            {editorError ? (
+              <View
+                style={{
+                  backgroundColor: isDark ? 'rgba(239,68,68,0.14)' : 'rgba(239,68,68,0.08)',
+                  borderRadius: RADIUS.inner,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: 'rgba(239,68,68,0.38)',
+                  paddingVertical: 10,
+                  paddingHorizontal: 14,
+                }}
+              >
+                <Text style={{ fontSize: 12.5, fontFamily: FONT_FAMILY.medium, color: tokens.status.danger }}>
+                  {editorError}
+                </Text>
+              </View>
+            ) : null}
+
+            {exercises.length === 0 ? (
+              <TactileButton
+                variant="custom"
+                haptic="none"
+                onPress={() => {
+                  hapticLight();
+                  setSwapTargetIdx(null);
+                  setSheetView('add');
+                }}
+                style={styles.emptyAddCard}
+              >
+                <View style={styles.emptyAddIconWrap}>
+                  <Dumbbell size={18} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                </View>
+                <View style={styles.emptyAddTextCol}>
+                  <Text style={styles.emptyTitle}>Add Exercises</Text>
+                  <Text style={styles.emptySub}>Tap to select movements from the catalogue</Text>
+                </View>
+                <View style={styles.emptyAddPlusPill}>
+                  <Plus size={14} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
+                </View>
+              </TactileButton>
+            ) : (
+              <TactileButton
+                variant="custom"
+                haptic="none"
+                onPress={() => {
+                  hapticLight();
+                  setSwapTargetIdx(null);
+                  setSheetView('add');
+                }}
+                style={styles.addExerciseMainBtn}
+              >
+                <Plus size={16} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
+                <Text style={styles.addExerciseMainBtnText}>Add More Exercises</Text>
+              </TactileButton>
+            )}
+          </ScrollView>
+        </>
+        )}
+      </View>
+    </BottomSheet>
   );
-};
+});
 
-const styles = StyleSheet.create({
-  modalContainer: {
+// ─── STYLES (MATCHING HOME, PLAN, PROGRESS & BODY TABS) ────────────────────────
+const makeStyles = (tokens: typeof DARK_TOKENS, isDark: boolean) => {
+  const sheetBg = isDark ? '#0B0C10' : '#F8F8FA';
+  const surfaceBg = isDark ? '#14161D' : '#FFFFFF';
+  const controlBg = isDark ? '#0B0C10' : '#F1F2F6';
+  return StyleSheet.create({
+  root: {
     flex: 1,
+    backgroundColor: sheetBg,
   },
   navBar: {
-    height: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(84, 84, 88, 0.2)',
+    paddingHorizontal: 14,
+    paddingVertical: SPACE.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: tokens.border.subtle,
   },
   navCancelBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    minHeight: TOUCH.minTarget,
+    justifyContent: 'center',
+    paddingHorizontal: SPACE.xs,
   },
   navCancelText: {
-    fontFamily: FONT_FAMILY.medium,
     fontSize: 15,
-    color: '#A599FF',
+    fontFamily: FONT_FAMILY.medium,
+    color: tokens.text.secondary,
+  },
+  navTitleBox: {
+    alignItems: 'center',
+    flex: 1,
+    paddingHorizontal: SPACE.sm,
   },
   navTitle: {
-    fontFamily: FONT_FAMILY.bold,
     fontSize: 16,
+    fontFamily: FONT_FAMILY.bold,
+    color: tokens.text.primary,
+  },
+  navSubtitle: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.medium,
+    color: tokens.accent.primary,
+    marginTop: 1,
   },
   navSaveBtn: {
-    backgroundColor: '#6C5CE7',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 8,
+    backgroundColor: tokens.accent.primary,
+    minHeight: 32,
+    paddingHorizontal: 14,
+    justifyContent: 'center',
+    borderRadius: RADIUS.inner,
   },
   navSaveText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
-  builderContent: {
-    padding: 16,
-    paddingBottom: 40,
-    gap: 12,
-  },
-  dayScheduleCard: {
-    borderRadius: 14,
-    padding: 12,
-  },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  cardSectionLabel: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#8E8E93',
-    letterSpacing: 0.8,
-  },
-  dayAssignedTag: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10.5,
-    color: '#30D158',
-  },
-  dayLibraryTag: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 10.5,
-    color: '#8E8E93',
-  },
-  dayPillsScroll: {
-    flexDirection: 'row',
-    gap: 6,
-    paddingVertical: 2,
-  },
-  dayPillBtn: {
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  dayPillBtnActive: {
-    backgroundColor: '#FFFFFF',
-  },
-  dayPillBtnText: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 12,
-    color: '#8E8E93',
-  },
-  dayPillBtnTextActive: {
-    fontFamily: FONT_FAMILY.bold,
-    color: '#000000',
-  },
-  inputCard: {
-    borderRadius: 14,
-    padding: 14,
-  },
-  autoGeneratedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: 'rgba(165, 153, 255, 0.12)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  autoGeneratedBadgeText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 9.5,
-    color: '#A599FF',
-  },
-  titleInput: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 17,
-    paddingVertical: 4,
-  },
-  subtitleInput: {
-    fontFamily: FONT_FAMILY.regular,
     fontSize: 12.5,
-    paddingVertical: 2,
-    marginTop: 2,
-  },
-  suggestionChipsWrap: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  nameOptionChip: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingHorizontal: 8,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  nameOptionChipActive: {
-    backgroundColor: 'rgba(165, 153, 255, 0.15)',
-    borderColor: '#A599FF',
-  },
-  nameOptionChipText: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 11.5,
-    color: '#8E8E93',
-    textAlign: 'center',
-  },
-  nameOptionChipTextActive: {
-    color: '#A599FF',
     fontFamily: FONT_FAMILY.bold,
+    color: tokens.accent.onPrimary,
   },
-  sessionVolumeBanner: {
-    borderRadius: 12,
-    padding: 10,
+  scrollContent: {
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    paddingBottom: 40,
+    gap: 10,
   },
-  sessionVolumeTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+
+  // Details Card
+  detailsCard: {
+    backgroundColor: surfaceBg,
+    borderRadius: RADIUS.card,
+    padding: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.border.subtle,
+  },
+  fieldLabel: {
+    fontSize: 10.5,
+    fontFamily: FONT_FAMILY.bold,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: tokens.text.secondary,
     marginBottom: 6,
   },
-  sessionVolumeTitle: {
+  nameInput: {
+    backgroundColor: controlBg,
+    borderRadius: RADIUS.inner,
+    paddingHorizontal: SPACE.md,
+    paddingVertical: 10,
+    fontSize: 15,
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#8E8E93',
-    letterSpacing: 0.6,
+    color: tokens.text.primary,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.border.subtle,
   },
-  sessionVolumeMeta: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-    color: '#A599FF',
-  },
-  sessionMusclePillsRow: {
+  dayStripScroll: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 5,
-  },
-  sessionMusclePill: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 5,
-  },
-  sessionMusclePillText: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 10.5,
-    color: '#E0E0E6',
-  },
-  addMoreExercisesBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#6C5CE7',
-    paddingVertical: 11,
-    borderRadius: 12,
-    shadowColor: '#6C5CE7',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 3,
+    paddingVertical: 2,
   },
-  addMoreExercisesBtnText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-    color: '#FFFFFF',
-  },
-  exerciseBuilderCard: {
-    borderRadius: 14,
-    padding: 12,
-  },
-  exHeaderRow: {
+  dayChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
+    backgroundColor: controlBg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.border.subtle,
+    minHeight: 28,
+    paddingHorizontal: 12,
+    borderRadius: RADIUS.sm,
+  },
+  dayChipActive: {
+    backgroundColor: tokens.accent.primary,
+    borderColor: tokens.accent.primary,
+  },
+  dayChipText: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+    color: tokens.text.secondary,
+  },
+  dayChipTextActive: {
+    color: tokens.accent.onPrimary,
+    fontFamily: FONT_FAMILY.bold,
+  },
+
+  // Volume HUD
+  hudCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: surfaceBg,
+    borderRadius: RADIUS.card,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.border.subtle,
+  },
+  hudItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  hudVal: {
+    fontSize: 16,
+    fontFamily: FONT_FAMILY.bold,
+    color: tokens.text.primary,
+    fontVariant: ['tabular-nums'],
+  },
+  hudLabel: {
+    fontSize: 10,
+    fontFamily: FONT_FAMILY.medium,
+    color: tokens.text.secondary,
+    marginTop: 2,
+  },
+  hudDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 24,
+    backgroundColor: tokens.border.subtle,
+  },
+
+  // Section Header
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACE.xs,
+    marginTop: SPACE.xs,
+  },
+  sectionHeaderLabel: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.bold,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: tokens.text.secondary,
+  },
+  sectionHeaderHint: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.medium,
+    color: tokens.text.muted,
+  },
+
+  // Exercise Card
+  exerciseCard: {
+    backgroundColor: surfaceBg,
+    borderRadius: RADIUS.card,
+    padding: SPACE.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.border.subtle,
+    gap: 9,
+  },
+  exCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACE.sm,
   },
   exIndexBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: tokens.bg.elevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
   exIndexText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    color: '#A599FF',
-  },
-  exTitleCol: {
-    flex: 1,
-  },
-  exName: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 14,
-    lineHeight: 18,
-  },
-  exMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 2,
-  },
-  muscleDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  exMuscle: {
-    fontFamily: FONT_FAMILY.regular,
     fontSize: 11,
-    color: '#8E8E93',
-  },
-  exActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  iconActionBtn: {
-    padding: 4,
-  },
-  swapActionBtn: {
-    padding: 5,
-    borderRadius: 6,
-    backgroundColor: 'rgba(165, 153, 255, 0.1)',
-  },
-  deleteActionBtn: {
-    padding: 5,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255, 69, 58, 0.1)',
-    marginLeft: 3,
-  },
-  controlRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 5,
-  },
-  controlLabel: {
-    width: 44,
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#8E8E93',
-    letterSpacing: 0.5,
+    color: tokens.accent.secondary,
   },
-  setsStepperContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  stepperMinusBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepperPlusBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepperBtnSymbol: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 16,
-    color: '#FFFFFF',
-    lineHeight: 18,
-  },
-  setsValueBadge: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  setsValueNumber: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
-  setsValueSub: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 9.5,
-    color: '#8E8E93',
-  },
-  pillsScroll: {
-    flexDirection: 'row',
-    gap: 5,
-  },
-  pillItem: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  pillItemSelected: {
-    backgroundColor: '#6C5CE7',
-  },
-  pillItemRestSelected: {
-    backgroundColor: '#A599FF',
-  },
-  pillItemText: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 11.5,
-    color: '#8E8E93',
-  },
-  pillItemTextSelected: {
-    fontFamily: FONT_FAMILY.bold,
-    color: '#FFFFFF',
-  },
-  searchBarContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    marginHorizontal: 16,
-    marginVertical: 8,
-    paddingHorizontal: 12,
-    height: 38,
-    borderRadius: 10,
-  },
-  searchInput: {
-    flex: 1,
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 14,
-  },
-  filterStripContainer: {
-    height: 42,
-    marginBottom: 8,
-  },
-  filterStrip: {
-    paddingHorizontal: 16,
-    gap: 8,
-    alignItems: 'center',
-    flexDirection: 'row',
-  },
-  filterChip: {
-    height: 32,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    alignSelf: 'center',
-  },
-  filterChipSelected: {
-    backgroundColor: '#FFFFFF',
-  },
-  filterChipText: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 12.5,
-    color: '#8E8E93',
-  },
-  filterChipTextSelected: {
-    fontFamily: FONT_FAMILY.bold,
-    color: '#000000',
-  },
-  vaultExerciseRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    gap: 12,
-  },
-  checkboxCircle: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    borderColor: '#48484A',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxCircleSelected: {
-    backgroundColor: '#6C5CE7',
-    borderColor: '#6C5CE7',
-  },
-  vaultExDetailsCol: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  vaultExName: {
-    fontFamily: FONT_FAMILY.bold,
+  exNameTitle: {
     fontSize: 14.5,
-    lineHeight: 19,
+    fontFamily: FONT_FAMILY.bold,
+    color: tokens.text.primary,
     letterSpacing: -0.2,
   },
-  vaultExMetaRow: {
+  exMuscleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    marginTop: 3,
-  },
-  vaultExSub: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 12,
-    color: '#8E8E93',
-  },
-  vaultTierBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
-    alignSelf: 'center',
-  },
-  sTierBadge: {
-    backgroundColor: 'rgba(255, 215, 0, 0.12)',
-  },
-  sTierText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#FFD700',
-    letterSpacing: 0.2,
-  },
-  aTierBadge: {
-    backgroundColor: 'rgba(165, 153, 255, 0.12)',
-  },
-  aTierText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#A599FF',
-    letterSpacing: 0.2,
-  },
-  aPlusTierBadge: {
-    backgroundColor: 'rgba(0, 229, 255, 0.12)',
-  },
-  aPlusTierText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#00E5FF',
-    letterSpacing: 0.2,
-  },
-  vaultTierText: {},
-  stickyBottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  confirmAddBtnFull: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    paddingVertical: 14,
-    borderRadius: 14,
-    gap: 8,
-  },
-  confirmAddBtnActive: {
-    backgroundColor: '#6C5CE7',
-    shadowColor: '#6C5CE7',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  confirmAddBtnDisabled: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  confirmBadgeBubble: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  confirmBadgeBubbleText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    color: '#FFFFFF',
-  },
-  confirmAddBtnText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 15,
-    color: '#FFFFFF',
-    letterSpacing: -0.2,
-  },
-  confirmAddBtnDisabledText: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 14,
-    color: '#8E8E93',
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    justifyContent: 'flex-end',
-  },
-  swapSheetContainer: {
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    padding: 16,
-    paddingBottom: 32,
-  },
-  swapSheetTitle: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 16,
-  },
-  swapSheetSub: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 12,
-    color: '#8E8E93',
-    marginBottom: 12,
+    gap: 4.5,
     marginTop: 2,
   },
-  swapAltRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(84, 84, 88, 0.15)',
+  exMuscleDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
-  swapAltCol: {
-    flex: 1,
-  },
-  swapAltName: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-  },
-  swapAltMuscle: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11,
-    color: '#8E8E93',
-    marginTop: 1,
-  },
-  swapPickBadge: {
-    backgroundColor: 'rgba(165, 153, 255, 0.12)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  swapPickBadgeText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-    color: '#A599FF',
-  },
-
-  // Zone 1: Unified Header Card
-  unifiedHeaderCard: {
-    borderRadius: 16,
-    padding: 14,
-    gap: 6,
-  },
-  headerTagRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 6,
-    flexWrap: 'wrap',
-  },
-  headerSelectorPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#2C2C2E',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  headerSelectorPillText: {
-    fontSize: 11.5,
-    fontFamily: FONT_FAMILY.bold,
-    color: '#FFFFFF',
-  },
-  nameOptionChipMini: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  nameOptionChipMiniActive: {
-    backgroundColor: 'rgba(165, 153, 255, 0.18)',
-    borderWidth: 1,
-    borderColor: '#A599FF',
-  },
-  nameOptionChipMiniText: {
+  exMuscleText: {
     fontSize: 11,
     fontFamily: FONT_FAMILY.medium,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
-  nameOptionChipMiniTextActive: {
-    color: '#A599FF',
-    fontFamily: FONT_FAMILY.bold,
-  },
-
-  // Zone 3: Clean Exercise Card
-  cleanExerciseCard: {
-    borderRadius: 16,
-    padding: 14,
-    gap: 12,
-  },
-  cleanExHeaderRow: {
+  reorderGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: SPACE.xs,
   },
-  cleanExName: {
-    fontSize: 15,
-    fontFamily: FONT_FAMILY.bold,
-  },
-  cleanExMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 2,
-  },
-  cleanExMuscle: {
-    fontSize: 11.5,
-    fontFamily: FONT_FAMILY.medium,
-    color: '#8E8E93',
-  },
-  exMoreOptionsBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#2C2C2E',
+  reorderBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: RADIUS.inner,
+    backgroundColor: tokens.bg.elevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cleanExControlsRow: {
-    flexDirection: 'row',
+  deleteExBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: RADIUS.inner,
+    backgroundColor: 'rgba(255, 69, 58, 0.12)',
     alignItems: 'center',
-    gap: 8,
-  },
-  cleanValueChip: {
-    flex: 1,
-    height: 52,
-    backgroundColor: '#2C2C2E',
-    borderRadius: 12,
-    paddingTop: 6,
-    paddingBottom: 6,
-    paddingHorizontal: 6,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  cleanValueChipLabel: {
-    fontSize: 10,
-    fontFamily: FONT_FAMILY.bold,
-    color: '#8E8E93',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  cleanValueChipValue: {
-    fontSize: 13.5,
-    fontFamily: FONT_FAMILY.bold,
-    color: '#FFFFFF',
-    textAlign: 'center',
-  },
-  chipValueWrapper: {
-    height: 24,
     justifyContent: 'center',
-    alignItems: 'center',
   },
+  cardInnerDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: tokens.border.subtle,
+  },
+
+  // Sets Stepper Row
   setsStepperRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    width: '100%',
-    height: 24,
-    paddingHorizontal: 4,
   },
-  stepperSubtleBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  // Day Sheet Modal Row
-  daySheetOptionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-  },
-  daySheetOptionRowActive: {
-    backgroundColor: 'rgba(48, 209, 88, 0.1)',
-  },
-  daySheetOptionText: {
-    fontSize: 14,
+  controlRowLabel: {
+    fontSize: 12,
     fontFamily: FONT_FAMILY.bold,
+    color: tokens.text.secondary,
+    width: 52,
   },
-
-  // Exercise Sheet Modal Row
-  exSheetActionRow: {
+  stepperControl: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 11,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    backgroundColor: '#2C2C2E',
+    gap: SPACE.md,
+    backgroundColor: controlBg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.border.subtle,
+    borderRadius: RADIUS.inner,
+    paddingHorizontal: SPACE.xs,
+    paddingVertical: SPACE.xs,
   },
-  exSheetActionIconWrap: {
+  stepperStepBtn: {
     width: 32,
     height: 32,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: RADIUS.sm,
+    backgroundColor: surfaceBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  exSheetActionLabel: {
-    fontSize: 13.5,
+  stepperValText: {
+    fontSize: 14,
     fontFamily: FONT_FAMILY.bold,
-    color: '#FFFFFF',
+    color: tokens.text.primary,
+    fontVariant: ['tabular-nums'],
   },
-  exSheetActionSublabel: {
+  stepperUnitText: {
     fontSize: 11,
+    fontFamily: FONT_FAMILY.medium,
+    color: tokens.text.secondary,
+  },
+
+  // Reps & Rest Rows
+  repsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACE.sm,
+  },
+  restRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACE.sm,
+  },
+  chipsWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  repChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: controlBg,
+    minHeight: 28,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: RADIUS.sm,
+  },
+  repChipActive: {
+    backgroundColor: tokens.accent.primary,
+  },
+  repChipText: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.medium,
+    color: tokens.text.secondary,
+  },
+  repChipTextActive: {
+    color: tokens.accent.onPrimary,
+    fontFamily: FONT_FAMILY.bold,
+  },
+  restChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: controlBg,
+    minHeight: 28,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: RADIUS.sm,
+  },
+  restChipActive: {
+    backgroundColor: tokens.accent.primary,
+  },
+  restChipText: {
+    fontSize: 11.5,
+    fontFamily: FONT_FAMILY.medium,
+    color: tokens.text.secondary,
+  },
+  restChipTextActive: {
+    color: tokens.accent.onPrimary,
+    fontFamily: FONT_FAMILY.bold,
+  },
+
+  // Unified Compact Empty Add Card
+  emptyAddCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: surfaceBg,
+    borderRadius: RADIUS.card,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    minHeight: 74,
+    gap: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.border.subtle,
+  },
+  emptyAddIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: tokens.accent.primaryDim,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyAddTextCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  emptyTitle: {
+    fontSize: 14.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: tokens.text.primary,
+  },
+  emptySub: {
+    fontSize: 12,
     fontFamily: FONT_FAMILY.regular,
-    color: '#8E8E93',
-    marginTop: 1,
+    color: tokens.text.secondary,
+    marginTop: 2,
+  },
+  emptyAddPlusPill: {
+    width: 30,
+    height: 30,
+    borderRadius: RADIUS.full,
+    backgroundColor: tokens.accent.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Main Add Button
+  addExerciseMainBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    backgroundColor: tokens.accent.primary,
+    minHeight: 44,
+    paddingHorizontal: 20,
+    borderRadius: RADIUS.md,
+    marginTop: SPACE.xs,
+  },
+  addExerciseMainBtnText: {
+    fontSize: 14.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: tokens.accent.onPrimary,
+  },
+
+  // Custom Rep Prompt Modal
+  promptBackdrop: {
+    flex: 1,
+    backgroundColor: tokens.bg.backdrop,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  promptCard: {
+    width: '100%',
+    backgroundColor: surfaceBg,
+    borderRadius: RADIUS.card,
+    padding: 18,
+    gap: SPACE.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.border.subtle,
+  },
+  promptTitle: {
+    fontSize: 16,
+    fontFamily: FONT_FAMILY.bold,
+    color: tokens.text.primary,
+  },
+  promptSub: {
+    fontSize: 12,
+    fontFamily: FONT_FAMILY.regular,
+    color: tokens.text.secondary,
+  },
+  promptInput: {
+    backgroundColor: controlBg,
+    borderRadius: RADIUS.inner,
+    paddingHorizontal: SPACE.md,
+    paddingVertical: 10,
+    fontSize: 15,
+    fontFamily: FONT_FAMILY.bold,
+    color: tokens.text.primary,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.border.subtle,
+  },
+  promptActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: SPACE.xs,
+  },
+  promptCancelBtn: {
+    minHeight: 36,
+    paddingHorizontal: 14,
+    justifyContent: 'center',
+  },
+  promptCancelText: {
+    fontSize: 13,
+    fontFamily: FONT_FAMILY.medium,
+    color: tokens.text.secondary,
+  },
+  promptSaveBtn: {
+    backgroundColor: tokens.accent.primary,
+    minHeight: 36,
+    paddingHorizontal: SPACE.lg,
+    justifyContent: 'center',
+    borderRadius: RADIUS.sm,
+  },
+  promptSaveText: {
+    fontSize: 13,
+    fontFamily: FONT_FAMILY.bold,
+    color: tokens.accent.onPrimary,
   },
 });
+};
+
+export default RoutineEditorModal;

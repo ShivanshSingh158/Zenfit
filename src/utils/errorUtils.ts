@@ -7,8 +7,10 @@
  * to handle sync seamlessly without interrupting the user.
  */
 export function handleSyncError(error: any) {
-  console.warn(
-    '[Sync Handler] Cloud write encountered network/sync latency (offline queue & optimistic state active):',
-    error?.message || error
-  );
+  const code = error?.code || '';
+  if (code === 'permission-denied' || code === 'invalid-argument' || code === 'unauthenticated' || code === 'quota-exceeded') {
+    console.error(`[Sync Handler] FATAL Firestore Rejection (${code}):`, error?.message || error);
+    return;
+  }
+  console.warn('[Sync Handler] Transient network/sync latency:', error?.message || error);
 }

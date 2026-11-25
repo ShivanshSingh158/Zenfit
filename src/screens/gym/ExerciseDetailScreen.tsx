@@ -1,21 +1,26 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  View, Text, TouchableOpacity, TextInput, KeyboardAvoidingView, ScrollView,
-  Switch, Alert, ActivityIndicator, AppState, Platform,
+  View, Text, Pressable, TextInput, ScrollView,
+  Switch, ActivityIndicator, AppState, Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
-import YoutubeIframe from 'react-native-youtube-iframe';
-import { StatusBar } from 'expo-status-bar';
+import { ChevronDown, Trash2, Play, EyeOff, Video, RefreshCw } from 'lucide-react-native';
 
-import { FONT_FAMILY } from '../../theme/tokens';
+import { FONT_FAMILY, ICON, RADIUS, SPACE } from '../../theme/tokens';
+import { ScreenWrapper, TactileButton } from '../../components/ui';
+import BottomSheet from '../../components/ui/BottomSheet';
+
+const LazyYoutubeIframe = React.lazy(() =>
+  import('react-native-youtube-iframe').then((mod: any) => ({
+    default: (mod?.default || mod) as React.ComponentType<any>,
+  }))
+);
 import { useGymLogs, useGymPlan } from '../../contexts/domains/WellnessContext';
 import { useGymLog, planDayIndexForDate, getCustomPlanDay } from '../../hooks/useGymLog';
-import { GYM_PLAN, GYM_PLAN_ARNOLD } from '../../data/gymPlan';
+import { resolvePlanDay } from '../../data/gymPlan';
 import { EXERCISE_DATABASE } from '../../data/exerciseDatabase';
-import { hexToRgba, MUSCLE_CANONICAL, resolveExerciseTargetMuscle, computeOrGetHotCache, normalizeExerciseKey } from '../../utils/gymUtils';
+import { MUSCLE_CANONICAL, resolveExerciseTargetMuscle, computeOrGetHotCache, normalizeExerciseKey, getCanonicalExerciseName } from '../../utils/gymUtils';
 import { generateDatasetFingerprint } from '../../utils/hotCacheStore';
 import { GymExerciseLog, GymNavigationParamList, GymSet } from '../../types/gym.types';
 import { hapticMedium, hapticLight, hapticSuccess } from '../../utils/haptics';
@@ -37,8 +42,8 @@ const extractVideoId = (urlOrId: string) => {
 };
 
 export default function ExerciseDetailScreen() {
-  const { colors, isDark } = useTheme();
-  const styles = useMemo(() => makeExerciseDetailStyles(colors, isDark), [colors, isDark]);
+  const { colors, isDark, tokens } = useTheme();
+  const styles = useMemo(() => makeExerciseDetailStyles(colors, isDark, tokens), [colors, isDark, tokens]);
   const navigation = useNavigation<NativeStackNavigationProp<GymNavigationParamList>>();
   const route = useRoute<RouteProp<GymNavigationParamList, 'ExerciseDetail'>>();
   const exerciseId = route.params?.exerciseId;
@@ -70,12 +75,9 @@ export default function ExerciseDetailScreen() {
         if (found) return found;
       }
     }
-    for (const day of GYM_PLAN) {
-      const found = day.exercises.find(e => e.id === exerciseId || (paramName && (e.name === paramName || (targetParamKey && normalizeExerciseKey(e.name) === targetParamKey))));
-      if (found) return found;
-    }
-    for (const day of GYM_PLAN_ARNOLD) {
-      const found = day.exercises.find(e => e.id === exerciseId || (paramName && (e.name === paramName || (targetParamKey && normalizeExerciseKey(e.name) === targetParamKey))));
+    for (let dIdx = 1; dIdx <= 7; dIdx++) {
+      const day = resolvePlanDay(userGymPlan, dIdx);
+      const found = day?.exercises?.find(e => e.id === exerciseId || (paramName && (e.name === paramName || (targetParamKey && normalizeExerciseKey(e.name) === targetParamKey))));
       if (found) return found;
     }
     const dbFound = EXERCISE_DATABASE.find(
@@ -118,7 +120,6 @@ export default function ExerciseDetailScreen() {
         targetReps: currentExercise.targetReps || paramReps || '10',
         restTimeSecs: currentExercise.restTimeSecs?.toString() || paramRest?.toString() || '90',
         videoLink: currentExercise.videoId ? `https://youtube.com/watch?v=${currentExercise.videoId}` : '',
-        progressionPolicy: (((currentExercise as any).progressionPolicy || 'double') as 'linear' | 'double' | 'triple' | 'top_backoff'),
       };
     }
     return {
@@ -128,7 +129,6 @@ export default function ExerciseDetailScreen() {
       targetReps: paramReps || '10',
       restTimeSecs: paramRest?.toString() || '90',
       videoLink: '',
-      progressionPolicy: 'double' as const,
     };
   }, [currentExercise, paramName, paramMuscle, paramSets, paramReps, paramRest]);
 
@@ -137,21 +137,24 @@ export default function ExerciseDetailScreen() {
   const [muscle, setMuscle] = useState(initialFormState.muscle);
   const [targetSets, setTargetSets] = useState(initialFormState.targetSets);
   const [targetReps, setTargetReps] = useState(initialFormState.targetReps);
-  const [progressionPolicy, setProgressionPolicy] = useState<'linear' | 'double' | 'triple' | 'top_backoff'>(
-    initialFormState.progressionPolicy || 'double'
-  );
   const [restTimeSecs, setRestTimeSecs] = useState(initialFormState.restTimeSecs);
   const [videoLink, setVideoLink] = useState(initialFormState.videoLink);
   const [showVideo, setShowVideo] = useState(false);
   const [showMuscleDropdown, setShowMuscleDropdown] = useState(false);
   const [saveGlobal, setSaveGlobal] = useState(true);
   const [isRefreshingVideo, setIsRefreshingVideo] = useState(false);
+  const [isTransitionSettled, setIsTransitionSettled] = useState(false);
+  const [showDeleteSheet, setShowDeleteSheet] = useState(false);
   const [appState, setAppState] = useState(AppState.currentState);
   const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoRetryCountRef = useRef(0);
 
   useEffect(() => {
+    const settleTimer = setTimeout(() => {
+      setIsTransitionSettled(true);
+    }, 210);
     return () => {
+      clearTimeout(settleTimer);
       if (blurTimerRef.current) {
         clearTimeout(blurTimerRef.current);
         blurTimerRef.current = null;
@@ -176,9 +179,13 @@ export default function ExerciseDetailScreen() {
     return suggestions.map(s => s.replace(/\b\w/g, c => c.toUpperCase()));
   }, [muscle, showMuscleDropdown]);
 
-  // Sync form if exercise loads asynchronously
+  // Sync form when route params change or exercise loads asynchronously
+  const routeFormKey = `${exerciseId || ''}_${date || ''}_${paramName || ''}`;
+  const loadedFormKeyRef = useRef(routeFormKey);
   useEffect(() => {
-    if (initialFormState.name && !name) {
+    const routeChanged = loadedFormKeyRef.current !== routeFormKey;
+    if (routeChanged || (initialFormState.name && !name)) {
+      loadedFormKeyRef.current = routeFormKey;
       setName(initialFormState.name);
       setMuscle(initialFormState.muscle);
       setTargetSets(initialFormState.targetSets);
@@ -186,7 +193,7 @@ export default function ExerciseDetailScreen() {
       setRestTimeSecs(initialFormState.restTimeSecs);
       setVideoLink(initialFormState.videoLink);
     }
-  }, [initialFormState]);
+  }, [routeFormKey, initialFormState, name]);
 
   // Auto-resolve video link if missing with 600ms debounce
   useEffect(() => {
@@ -206,9 +213,9 @@ export default function ExerciseDetailScreen() {
     };
   }, [name, videoLink]);
 
-  // Past 5 sessions history (anchored to currentExercise to eliminate typing latency on name change)
+  // Past 5 sessions history (deferred until after navigation transition settles)
   const history = useMemo(() => {
-    if (!currentExercise?.name && !exerciseId) return [];
+    if (!isTransitionSettled || (!currentExercise?.name && !exerciseId)) return [];
     const targetKey = currentExercise?.name ? normalizeExerciseKey(currentExercise.name) : '';
     const fingerprint = generateDatasetFingerprint(gymLogs);
     const cacheKey = `ex_history_5_${exerciseId || ''}_${targetKey}_${fingerprint}`;
@@ -227,31 +234,27 @@ export default function ExerciseDetailScreen() {
         .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
         .slice(0, 5);
     });
-  }, [gymLogs, exerciseId, currentExercise?.name]);
+  }, [isTransitionSettled, gymLogs, exerciseId, currentExercise?.name]);
+
+  const handleConfirmDelete = useCallback(() => {
+    setShowDeleteSheet(false);
+    if (!log) return;
+    const targetKey = paramName ? normalizeExerciseKey(paramName) : '';
+    const found = log.exercises.find(e =>
+      (exerciseId && (e.exerciseId === exerciseId || (e as any).id === exerciseId)) ||
+      (paramName && (e.name === paramName || (targetKey && normalizeExerciseKey(e.name) === targetKey)))
+    );
+    if (found) {
+      hapticMedium();
+      deleteExercise(found.exerciseId || found.id);
+      navigation.goBack();
+    }
+  }, [log, exerciseId, paramName, deleteExercise, navigation]);
 
   const handleDelete = useCallback(() => {
-    const exName = name || currentExercise?.name || 'this exercise';
-    Alert.alert(
-      'Remove Exercise',
-      `Remove "${exName}" from today's workout? This removes it for today only and keeps your weekly plan unchanged.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove from Today',
-          style: 'destructive',
-          onPress: () => {
-            if (!log) return;
-            const found = log.exercises.find(e => e.exerciseId === exerciseId);
-            if (found) {
-              hapticMedium();
-              deleteExercise(exerciseId);
-              navigation.goBack();
-            }
-          }
-        }
-      ]
-    );
-  }, [name, currentExercise?.name, log, exerciseId, deleteExercise, navigation]);
+    hapticMedium();
+    setShowDeleteSheet(true);
+  }, []);
 
   const handleSave = useCallback(async () => {
     if (!currentExercise) {
@@ -281,11 +284,12 @@ export default function ExerciseDetailScreen() {
       ? (currentExercise.exerciseId as string)
       : (exerciseId || currentExercise.id || `ex_${Date.now()}`);
 
+    const canonicalName = getCanonicalExerciseName(name || 'Custom Exercise');
     const updated: GymExerciseLog = {
       ...currentExercise,
       id: currentExercise.id || resolvedExerciseId,
       exerciseId: resolvedExerciseId,
-      name: name || 'Custom Exercise',
+      name: canonicalName,
       muscle: resolvedMuscle || muscle || 'General',
       targetSets: parsedTargetSets,
       targetReps: targetReps || '10',
@@ -306,14 +310,17 @@ export default function ExerciseDetailScreen() {
     if (saveGlobal || dayIndex) {
       const planIdx = dayIndex || (date ? planDayIndexForDate(date) : null);
       if (planIdx) {
-        const basePlan = userGymPlan?.templateId === 'arnold' ? GYM_PLAN_ARNOLD : GYM_PLAN;
-        const currentMasterDay = getCustomPlanDay(userGymPlan?.customDays, planIdx) || basePlan.find(d => d.dayIndex === planIdx) || GYM_PLAN.find(d => d.dayIndex === planIdx);
-        if (currentMasterDay) {
-          const exists = currentMasterDay.exercises.some((e: any) => e.id === exerciseId || (currentExercise.name && e.name === currentExercise.name));
-          let updatedExercises = [...currentMasterDay.exercises];
+        const currentMasterDay = resolvePlanDay(userGymPlan, planIdx);
+        if (currentMasterDay && !currentMasterDay.isRest) {
+          const exists = (currentMasterDay.exercises || []).some((e: any) =>
+            e.id === exerciseId ||
+            (currentExercise.name && e.name === currentExercise.name) ||
+            normalizeExerciseKey(e.name) === normalizeExerciseKey(canonicalName)
+          );
+          let updatedExercises = [...(currentMasterDay.exercises || [])];
           if (exists) {
             updatedExercises = updatedExercises.map(e =>
-              (e.id === exerciseId || (currentExercise.name && e.name === currentExercise.name))
+              (e.id === exerciseId || (currentExercise.name && e.name === currentExercise.name) || normalizeExerciseKey(e.name) === normalizeExerciseKey(canonicalName))
                 ? {
                     ...e,
                     name: updated.name,
@@ -345,192 +352,233 @@ export default function ExerciseDetailScreen() {
   }, [currentExercise, name, muscle, targetSets, targetReps, restTimeSecs, videoLink, log, exerciseId, saveGlobal, dayIndex, date, userGymPlan, updateMasterPlan, updateExercise, navigation]);
 
   return (
-    <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
-      <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.background} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Ionicons name="chevron-down" size={24} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Edit Exercise</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <TouchableOpacity onPress={handleDelete} style={{ padding: 6 }}>
-              <Ionicons name="trash-outline" size={22} color="#FF453A" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleSave} style={styles.saveBtn}>
-              <Text style={styles.saveBtnText}>Save</Text>
-            </TouchableOpacity>
+    <ScreenWrapper edges={['top', 'bottom']} keyboardAvoiding>
+      {/* Header */}
+      <View style={styles.header}>
+        <TactileButton
+          variant="custom"
+          onPress={() => navigation.goBack()}
+          style={styles.backBtn}
+          accessibilityLabel="Close exercise editor"
+        >
+          <ChevronDown size={ICON.lg} color={tokens.text.primary} strokeWidth={ICON.strokeWidth} />
+        </TactileButton>
+        <Text style={styles.headerTitle}>Edit Exercise</Text>
+        <View style={styles.headerActions}>
+          <TactileButton
+            variant="custom"
+            onPress={handleDelete}
+            style={styles.iconActionBtn}
+            haptic="medium"
+            accessibilityLabel="Delete exercise"
+          >
+            <Trash2 size={ICON.md} color={tokens.status.danger} strokeWidth={ICON.strokeWidth} />
+          </TactileButton>
+          <TactileButton
+            variant="primary"
+            onPress={handleSave}
+            style={styles.saveBtn}
+            haptic="medium"
+          >
+            <Text style={styles.saveBtnText}>Save</Text>
+          </TactileButton>
+        </View>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Header Preview */}
+        <View style={styles.previewHeader}>
+          <View style={styles.musclePill}>
+            <View style={styles.muscleDot} />
+            <Text style={styles.muscleText}>{muscle || 'General'}</Text>
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          {/* Header Preview */}
-          <View style={styles.previewHeader}>
-            <View style={[styles.musclePill, { backgroundColor: hexToRgba(colors.accentPrimary, 0.15) }]}>
-              <View style={[styles.muscleDot, { backgroundColor: colors.accentPrimary }]} />
-              <Text style={[styles.muscleText, { color: colors.accentPrimary }]}>{muscle || 'General'}</Text>
-            </View>
-          </View>
+        {/* Form Fields */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>Exercise Name</Text>
+          <TextInput
+            style={styles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="e.g. Bulgarian Split Squats"
+            placeholderTextColor={tokens.text.muted}
+          />
+        </View>
 
-          {/* Form Fields */}
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Exercise Name</Text>
+        <View style={styles.rowForm}>
+          <View style={[styles.formGroup, { flex: 1, zIndex: 10 }]}>
+            <Text style={styles.label}>Muscle Focus</Text>
             <TextInput
               style={styles.input}
-              value={name}
-              onChangeText={setName}
-              placeholder="e.g. Bulgarian Split Squats"
-              placeholderTextColor={colors.textMuted}
+              value={muscle}
+              onChangeText={(t) => { setMuscle(t); setShowMuscleDropdown(true); }}
+              onFocus={() => setShowMuscleDropdown(true)}
+              onBlur={() => {
+                if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
+                blurTimerRef.current = setTimeout(() => setShowMuscleDropdown(false), 200);
+              }}
+              placeholder="e.g. Quads"
+              placeholderTextColor={tokens.text.muted}
+            />
+            {showMuscleDropdown && muscleSuggestions.length > 0 && (
+              <View style={styles.dropdown}>
+                {muscleSuggestions.slice(0, 5).map(sug => (
+                  <Pressable
+                    key={sug}
+                    style={({ pressed }) => [
+                      styles.dropdownItem,
+                      pressed && { backgroundColor: tokens.bg.surface },
+                    ]}
+                    onPressIn={() => {
+                      hapticLight();
+                      setMuscle(sug);
+                      setShowMuscleDropdown(false);
+                    }}
+                    onPress={() => {
+                      setMuscle(sug);
+                      setShowMuscleDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.dropdownText}>{sug}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
+          <View style={{ width: SPACE[16] }} />
+          <View style={[styles.formGroup, { flex: 1, zIndex: 1 }]}>
+            <Text style={styles.label}>Rest Time (sec)</Text>
+            <TextInput
+              style={[styles.input, styles.numericInput]}
+              value={restTimeSecs}
+              onChangeText={setRestTimeSecs}
+              keyboardType="numeric"
+              maxFontSizeMultiplier={1.25}
+              placeholder="e.g. 90"
+              placeholderTextColor={tokens.text.muted}
             />
           </View>
+        </View>
 
-          <View style={styles.rowForm}>
-            <View style={[styles.formGroup, { flex: 1, zIndex: 10 }]}>
-              <Text style={styles.label}>Muscle Focus</Text>
-              <TextInput
-                style={styles.input}
-                value={muscle}
-                onChangeText={(t) => { setMuscle(t); setShowMuscleDropdown(true); }}
-                onFocus={() => setShowMuscleDropdown(true)}
-                onBlur={() => {
-                  if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
-                  blurTimerRef.current = setTimeout(() => setShowMuscleDropdown(false), 200);
-                }}
-                placeholder="e.g. Quads"
-                placeholderTextColor={colors.textMuted}
-              />
-              {showMuscleDropdown && muscleSuggestions.length > 0 && (
-                <View style={styles.dropdown}>
-                  {muscleSuggestions.slice(0, 5).map(sug => (
-                    <TouchableOpacity
-                      key={sug}
-                      style={styles.dropdownItem}
-                      onPressIn={() => {
-                        setMuscle(sug);
-                        setShowMuscleDropdown(false);
-                      }}
-                      onPress={() => {
-                        setMuscle(sug);
-                        setShowMuscleDropdown(false);
-                      }}
-                    >
-                      <Text style={styles.dropdownText}>{sug}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-            </View>
-            <View style={{ width: 16 }} />
-            <View style={[styles.formGroup, { flex: 1, zIndex: 1 }]}>
-              <Text style={styles.label}>Rest Time (sec)</Text>
-              <TextInput
-                style={styles.input}
-                value={restTimeSecs}
-                onChangeText={setRestTimeSecs}
-                keyboardType="numeric"
-                placeholder="e.g. 90"
-                placeholderTextColor={colors.textMuted}
-              />
-            </View>
-          </View>
-
-          <View style={styles.rowForm}>
-            <View style={[styles.formGroup, { flex: 1 }]}>
-              <Text style={styles.label}>Target Sets</Text>
-              <TextInput
-                style={styles.input}
-                value={targetSets}
-                onChangeText={setTargetSets}
-                keyboardType="numeric"
-                placeholder="e.g. 3"
-                placeholderTextColor={colors.textMuted}
-              />
-            </View>
-            <View style={{ width: 16 }} />
-            <View style={[styles.formGroup, { flex: 1 }]}>
-              <Text style={styles.label}>Target Reps</Text>
-              <TextInput
-                style={styles.input}
-                value={targetReps}
-                onChangeText={setTargetReps}
-                placeholder="e.g. 8-10"
-                placeholderTextColor={colors.textMuted}
-              />
-            </View>
-          </View>
-
-          {/* YouTube Video Link & Preview */}
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>YouTube Video Link</Text>
-            <View style={styles.videoInputRow}>
-              <TextInput
-                style={[styles.input, { flex: 1, marginBottom: 0 }]}
-                value={videoLink}
-                onChangeText={setVideoLink}
-                placeholder="https://youtube.com/..."
-                placeholderTextColor={colors.textMuted}
-                autoCapitalize="none"
-              />
-              {!!videoLink && (
-                <TouchableOpacity
-                  style={styles.previewVideoBtn}
-                  onPress={() => { hapticLight(); setShowVideo(!showVideo); }}
-                >
-                  <Ionicons name={showVideo ? 'eye-off' : 'play'} size={20} color={colors.background} />
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-
-          {/* Instant Looping Form Animation & Execution Cues */}
-          {name ? (
-            <ExerciseAnimationCard
-              exerciseName={name}
-              showInstructions={true}
+        <View style={styles.rowForm}>
+          <View style={[styles.formGroup, { flex: 1 }]}>
+            <Text style={styles.label}>Target Sets</Text>
+            <TextInput
+              style={[styles.input, styles.numericInput]}
+              value={targetSets}
+              onChangeText={setTargetSets}
+              keyboardType="numeric"
+              maxFontSizeMultiplier={1.25}
+              placeholder="e.g. 3"
+              placeholderTextColor={tokens.text.muted}
             />
-          ) : null}
+          </View>
+          <View style={{ width: SPACE[16] }} />
+          <View style={[styles.formGroup, { flex: 1 }]}>
+            <Text style={styles.label}>Target Reps</Text>
+            <TextInput
+              style={[styles.input, styles.numericInput]}
+              value={targetReps}
+              onChangeText={setTargetReps}
+              maxFontSizeMultiplier={1.25}
+              placeholder="e.g. 8-10"
+              placeholderTextColor={tokens.text.muted}
+            />
+          </View>
+        </View>
 
-          {showVideo && extractVideoId(videoLink) && (
-            <View style={styles.videoContainer}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 4 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="logo-youtube" size={16} color="#ff453a" />
-                  <Text style={{ fontFamily: FONT_FAMILY.bold, fontSize: 12, color: colors.textPrimary }}>Form Guide Demonstration</Text>
-                </View>
+        {/* YouTube Video Link & Preview */}
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>YouTube Video Link</Text>
+          <View style={styles.videoInputRow}>
+            <TextInput
+              style={[styles.input, { flex: 1, marginBottom: 0 }]}
+              value={videoLink}
+              onChangeText={setVideoLink}
+              placeholder="https://youtube.com/..."
+              placeholderTextColor={tokens.text.muted}
+              autoCapitalize="none"
+            />
+            {!!videoLink && (
+              <TactileButton
+                variant="custom"
+                style={styles.previewVideoBtn}
+                onPress={() => { hapticLight(); setShowVideo(!showVideo); }}
+                accessibilityLabel={showVideo ? 'Hide form video' : 'Play form video'}
+              >
+                {showVideo ? (
+                  <EyeOff size={ICON.md} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
+                ) : (
+                  <Play size={ICON.md} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
+                )}
+              </TactileButton>
+            )}
+          </View>
+        </View>
 
-                <TouchableOpacity
-                  onPress={async () => {
-                    if (isRefreshingVideo || !name) return;
-                    hapticMedium();
-                    setIsRefreshingVideo(true);
-                    try {
-                      const freshId = await autoResolveExerciseVideoId(name, true);
-                      if (freshId) {
-                        setVideoLink(`https://youtube.com/watch?v=${freshId}`);
-                        hapticSuccess();
-                      }
-                    } catch (e) {
-                      console.warn('[Refresh Video Detail] Error:', e);
-                    } finally {
-                      setIsRefreshingVideo(false);
-                    }
-                  }}
-                  disabled={isRefreshingVideo}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 }}
-                >
-                  {isRefreshingVideo ? (
-                    <ActivityIndicator size="small" color="#a599ff" />
-                  ) : (
-                    <Ionicons name="refresh" size={13} color="#a599ff" />
-                  )}
-                  <Text style={{ fontSize: 11, fontFamily: FONT_FAMILY.bold, color: '#a599ff' }}>
-                    {isRefreshingVideo ? 'Refreshing...' : 'Refresh'}
-                  </Text>
-                </TouchableOpacity>
+        {/* Instant Looping Form Animation & Execution Cues */}
+        {name ? (
+          <ExerciseAnimationCard
+            exerciseName={name}
+            showInstructions={true}
+          />
+        ) : null}
+
+        {showVideo && extractVideoId(videoLink) && (
+          <View style={styles.videoContainer}>
+            <View style={styles.videoHeaderRow}>
+              <View style={styles.videoHeaderLeft}>
+                <Video size={ICON.sm} color={tokens.accent.crimson} strokeWidth={ICON.strokeWidth} />
+                <Text style={styles.videoHeaderTitle}>Form Guide Demonstration</Text>
               </View>
 
-              <YoutubeIframe
+              <TactileButton
+                variant="custom"
+                onPress={async () => {
+                  if (isRefreshingVideo || !name) return;
+                  hapticMedium();
+                  setIsRefreshingVideo(true);
+                  try {
+                    const freshId = await autoResolveExerciseVideoId(name, true);
+                    if (freshId) {
+                      setVideoLink(`https://youtube.com/watch?v=${freshId}`);
+                      hapticSuccess();
+                    }
+                  } catch (e) {
+                    console.warn('[Refresh Video Detail] Error:', e);
+                  } finally {
+                    setIsRefreshingVideo(false);
+                  }
+                }}
+                disabled={isRefreshingVideo}
+                style={styles.refreshVideoBtn}
+              >
+                {isRefreshingVideo ? (
+                  <ActivityIndicator size="small" color={tokens.accent.primary} />
+                ) : (
+                  <RefreshCw size={ICON.xs} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                )}
+                <Text style={styles.refreshVideoText}>
+                  {isRefreshingVideo ? 'Refreshing...' : 'Refresh'}
+                </Text>
+              </TactileButton>
+            </View>
+
+            <React.Suspense
+              fallback={
+                <ActivityIndicator
+                  size="small"
+                  color={tokens.accent.primary}
+                  style={{ height: 200 }}
+                />
+              }
+            >
+              <LazyYoutubeIframe
                 play={true}
                 height={200}
                 videoId={extractVideoId(videoLink)}
@@ -556,32 +604,79 @@ export default function ExerciseDetailScreen() {
                   javaScriptEnabled: true,
                 }}
               />
-            </View>
-          )}
+            </React.Suspense>
+          </View>
+        )}
 
-          <View style={styles.divider} />
+        <View style={styles.divider} />
 
-          {/* Master Split Toggle */}
-          <View style={styles.masterSplitContainer}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.masterSplitTitle}>Save to Master Split</Text>
-              <Text style={styles.masterSplitDesc}>Update this exercise for all future workouts on this day.</Text>
-            </View>
-            <Switch
-              value={saveGlobal}
-              onValueChange={setSaveGlobal}
-              trackColor={{ false: 'rgba(255,255,255,0.1)', true: colors.accentPrimary }}
-              thumbColor={Platform.OS === 'ios' ? '#fff' : saveGlobal ? '#fff' : '#f4f3f4'}
-            />
+        {/* Master Split Toggle */}
+        <View style={styles.masterSplitContainer}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.masterSplitTitle}>Save to Master Split</Text>
+            <Text style={styles.masterSplitDesc}>Update this exercise for all future workouts on this day.</Text>
+          </View>
+          <Switch
+            value={saveGlobal}
+            onValueChange={setSaveGlobal}
+            trackColor={{ false: tokens.border.medium, true: tokens.accent.primary }}
+            thumbColor={Platform.OS === 'ios' ? undefined : (saveGlobal ? tokens.accent.onPrimary : tokens.text.primary)}
+          />
+        </View>
+
+        <View style={styles.divider} />
+
+        {/* History */}
+        <Text style={styles.sectionTitle}>Past 5 Sessions</Text>
+        {isTransitionSettled ? (
+          <ExercisePastSessions history={history} colors={colors} styles={styles} />
+        ) : (
+          <ActivityIndicator size="small" color={tokens.accent.primary} style={{ marginVertical: SPACE[24] }} />
+        )}
+      </ScrollView>
+
+      <BottomSheet
+        visible={showDeleteSheet}
+        onClose={() => setShowDeleteSheet(false)}
+        avoidKeyboard={false}
+        noPadding={true}
+        sheetBackgroundColor={tokens.bg.elevated}
+      >
+        <View style={{ paddingHorizontal: SPACE[16], paddingTop: SPACE[8], paddingBottom: SPACE[16], gap: SPACE[12] }}>
+          <View
+            style={{
+              backgroundColor: tokens.bg.surface,
+              borderRadius: RADIUS.card,
+              padding: SPACE[16],
+              borderWidth: tokens.border.hairlineWidth,
+              borderColor: tokens.border.subtle,
+              gap: SPACE[6],
+            }}
+          >
+            <Text style={{ fontSize: 17, fontFamily: FONT_FAMILY.bold, color: tokens.text.primary }}>
+              Remove Exercise
+            </Text>
+            <Text style={{ fontSize: 13.5, lineHeight: 19, fontFamily: FONT_FAMILY.regular, color: tokens.text.secondary }}>
+              Remove "{name || currentExercise?.name || 'this exercise'}" from today's workout? This keeps your weekly plan unchanged.
+            </Text>
           </View>
 
-          <View style={styles.divider} />
-
-          {/* History */}
-          <Text style={styles.sectionTitle}>Past 5 Sessions</Text>
-          <ExercisePastSessions history={history} colors={colors} styles={styles} />
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          <View style={{ gap: SPACE[8] }}>
+            <TactileButton
+              variant="danger"
+              size="lg"
+              label="Remove from Today"
+              onPress={handleConfirmDelete}
+            />
+            <TactileButton
+              variant="secondary"
+              size="lg"
+              label="Cancel"
+              onPress={() => setShowDeleteSheet(false)}
+            />
+          </View>
+        </View>
+      </BottomSheet>
+    </ScreenWrapper>
   );
 }

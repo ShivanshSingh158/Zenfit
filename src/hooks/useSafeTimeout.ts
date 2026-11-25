@@ -8,11 +8,14 @@ import { useEffect, useRef, useCallback } from 'react';
  * "Can't perform a React state update on an unmounted component" error.
  */
 export function useSafeTimeout() {
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   const safeSetTimeout = useCallback((callback: () => void, delay: number) => {
-    const id = setTimeout(callback, delay);
-    timers.current.push(id);
+    const id = setTimeout(() => {
+      timers.current.delete(id);
+      callback();
+    }, delay);
+    timers.current.add(id);
     return id;
   }, []);
 
@@ -20,7 +23,7 @@ export function useSafeTimeout() {
   useEffect(() => {
     return () => {
       timers.current.forEach(clearTimeout);
-      timers.current = [];
+      timers.current.clear();
     };
   }, []);
 

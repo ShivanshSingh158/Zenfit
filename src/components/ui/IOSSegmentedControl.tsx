@@ -1,16 +1,21 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
+  Pressable,
   StyleSheet,
   StyleProp,
   ViewStyle,
-  TextStyle,
+  LayoutChangeEvent,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
 import { useTheme } from '../../contexts/ThemeContext';
-import { FONT_FAMILY, IOS_DARK } from '../../theme/tokens';
-import { hapticLight } from '../../utils/haptics';
+import { springs } from '../../theme/motion';
+import { hapticSelection } from '../../utils/haptics';
 
 export interface SegmentOption<T extends string = string> {
   id: T;
@@ -29,34 +34,98 @@ interface IOSSegmentedControlProps<T extends string = string> {
   inactiveTextColor?: string;
 }
 
+/**
+ * IOSSegmentedControl — Native UI-thread sliding pill segmented control.
+ */
 export function IOSSegmentedControl<T extends string = string>({
   segments,
   activeId,
   onSelect,
   style,
-  height = 34,
+  height = 36,
   activeTextColor,
   inactiveTextColor,
 }: IOSSegmentedControlProps<T>) {
-  const { isDark } = useTheme();
+  const { tokens } = useTheme();
+  const [trackWidth, setTrackWidth] = useState(0);
 
-  const trackBg = isDark ? IOS_DARK.bgGroupedCard : '#E5E5EA'; // #1C1C1E in dark
-  const activePillBg = isDark ? IOS_DARK.bgElevatedInput : '#FFFFFF'; // #2C2C2E in dark
-  const activeText = activeTextColor || (isDark ? '#FFFFFF' : '#000000');
-  const inactiveText = inactiveTextColor || (isDark ? '#8E8E93' : '#636366');
+  const count = Math.max(1, segments.length);
+  const activeIndex = Math.max(
+    0,
+    segments.findIndex((seg) => (typeof seg === 'string' ? seg : seg.id) === activeId)
+  );
+
+  const padding = 3;
+  const innerWidth = Math.max(0, trackWidth - padding * 2);
+  const pillWidth = innerWidth / count;
+  const pillRadius = height <= 32 ? tokens.radius.sm : tokens.radius.inner;
+  const trackRadius = pillRadius + padding;
+  const labelFontSize = height <= 32 ? 11.5 : height <= 35 ? 12 : 12.5;
+
+  const translateX = useSharedValue(0);
+  const pillWidthSV = useSharedValue(0);
+
+  useEffect(() => {
+    pillWidthSV.value = pillWidth;
+    if (pillWidth > 0) {
+      translateX.value = withSpring(activeIndex * pillWidth, springs.snappy);
+    }
+  }, [activeIndex, pillWidth, pillWidthSV, translateX]);
+
+  const indicatorStyle = useAnimatedStyle(() => ({
+    width: pillWidthSV.value,
+    transform: [{ translateX: translateX.value }],
+  }));
+
+  const handleLayout = (e: LayoutChangeEvent) => {
+    const w = e.nativeEvent.layout.width;
+    if (w > 0 && Math.abs(w - trackWidth) > 0.5) {
+      setTrackWidth(w);
+      const nextPillW = Math.max(0, w - padding * 2) / count;
+      pillWidthSV.value = nextPillW;
+      translateX.value = activeIndex * nextPillW;
+    }
+  };
+
+  const activeText = activeTextColor ?? tokens.text.primary;
+  const inactiveText = inactiveTextColor ?? tokens.text.secondary;
 
   return (
     <View
+      onLayout={handleLayout}
       style={[
         styles.track,
         {
           height,
-          backgroundColor: trackBg,
+          padding,
+          borderRadius: trackRadius,
+          backgroundColor: tokens.bg.surface,
+          borderWidth: tokens.border.hairlineWidth,
+          borderColor: tokens.border.subtle,
         },
         style,
       ]}
     >
-      {segments.map(seg => {
+      {pillWidth > 0 && (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.activeIndicator,
+            {
+              top: padding,
+              bottom: padding,
+              left: padding,
+              borderRadius: pillRadius,
+              backgroundColor: tokens.bg.elevated,
+              borderWidth: tokens.border.hairlineWidth,
+              borderColor: tokens.border.subtle,
+            },
+            indicatorStyle,
+          ]}
+        />
+      )}
+
+      {segments.map((seg) => {
         const id = typeof seg === 'string' ? seg : seg.id;
         const label = typeof seg === 'string' ? seg : seg.label;
         const icon = typeof seg === 'object' ? seg.icon : undefined;
@@ -64,32 +133,29 @@ export function IOSSegmentedControl<T extends string = string>({
         const isActive = activeId === id;
 
         return (
-          <TouchableOpacity
+          <Pressable
             key={`seg-${id}`}
-            activeOpacity={0.8}
             onPress={() => {
               if (!isActive) {
-                hapticLight();
+                hapticSelection();
                 onSelect(id);
               }
             }}
-            style={[
-              styles.pill,
-              {
-                backgroundColor: isActive ? activePillBg : 'transparent',
-              },
-              isActive && styles.activePillShadow,
-            ]}
+            style={styles.pill}
+            hitSlop={tokens.touch.hitSlop}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: isActive }}
           >
             <View style={styles.pillContent}>
               {icon}
               <Text
+                maxFontSizeMultiplier={1.2}
                 style={[
                   styles.label,
                   {
+                    fontSize: labelFontSize,
                     color: isActive ? activeText : inactiveText,
-                    fontFamily: isActive ? FONT_FAMILY.bold : FONT_FAMILY.medium,
-                    fontWeight: isActive ? '700' : '500',
+                    fontFamily: isActive ? tokens.font.bold : tokens.font.medium,
                   },
                 ]}
                 numberOfLines={1}
@@ -97,14 +163,33 @@ export function IOSSegmentedControl<T extends string = string>({
                 {label}
               </Text>
               {badge !== undefined && (
-                <View style={[styles.badge, { backgroundColor: isActive ? '#A599FF' : 'rgba(142, 142, 147, 0.2)' }]}>
-                  <Text style={[styles.badgeText, { color: isActive ? '#000000' : inactiveText }]}>
+                <View
+                  style={[
+                    styles.badge,
+                    {
+                      backgroundColor: isActive
+                        ? tokens.accent.primary
+                        : tokens.bg.elevated,
+                      borderRadius: tokens.radius.sm,
+                    },
+                  ]}
+                >
+                  <Text
+                    maxFontSizeMultiplier={1.2}
+                    style={[
+                      tokens.typography.badge,
+                      styles.badgeText,
+                      {
+                        color: isActive ? tokens.accent.onPrimary : inactiveText,
+                      },
+                    ]}
+                  >
                     {badge}
                   </Text>
                 </View>
               )}
             </View>
-          </TouchableOpacity>
+          </Pressable>
         );
       })}
     </View>
@@ -114,23 +199,18 @@ export function IOSSegmentedControl<T extends string = string>({
 const styles = StyleSheet.create({
   track: {
     flexDirection: 'row',
-    borderRadius: 9,
-    padding: 2,
     alignItems: 'center',
+    position: 'relative',
+  },
+  activeIndicator: {
+    position: 'absolute',
   },
   pill: {
     flex: 1,
     height: '100%',
-    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  activePillShadow: {
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1.5 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2.5,
-    elevation: 2,
+    zIndex: 1,
   },
   pillContent: {
     flexDirection: 'row',
@@ -141,18 +221,18 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     letterSpacing: -0.1,
+    includeFontPadding: false,
   },
   badge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 6,
-    minWidth: 16,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    minWidth: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
   badgeText: {
     fontSize: 10,
-    fontWeight: '700',
-    fontFamily: FONT_FAMILY.bold,
   },
 });
+
+export default IOSSegmentedControl;

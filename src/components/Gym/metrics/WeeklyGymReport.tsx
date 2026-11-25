@@ -17,20 +17,48 @@
  */
 
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Animated, Image, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
-import { Ionicons } from '@expo/vector-icons';
-import { COLORS, RADIUS, FONT_FAMILY, FONT_SIZE } from '../../../theme/tokens';
+import {
+  Activity,
+  AlertCircle,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Clock,
+  Dumbbell,
+  Flag,
+  Flame,
+  Gauge,
+  Navigation,
+  RefreshCw,
+  Sparkles,
+} from 'lucide-react-native';
+import {
+  COLORS,
+  DARK_TOKENS,
+  LIGHT_TOKENS,
+  RADIUS,
+  FONT_FAMILY,
+  FONT_SIZE,
+  ICON,
+  TOUCH,
+  ThemeTokens,
+} from '../../../theme/tokens';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { canonicalizeMuscle, isValidWorkoutSession } from '../../../utils/gymUtils';
+import { TactileButton } from '../../ui/TactileButton';
+import { NumericText } from '../../ui/NumericText';
+import { RollingNumber } from '../../ui/RollingNumber';
+import { AnimatedProgressBar } from '../../ui/AnimatedProgressBar';
+import { canonicalizeMuscle, isValidWorkoutSession, resolveExerciseTargetMuscle } from '../../../utils/gymUtils';
+import { formatVolumeParts, formatWeight, useWeightUnit } from '../../../utils/weightUnit';
 import { hapticLight, hapticMedium } from '../../../utils/haptics';
-import { GYM_PLAN } from '../../../data/gymPlan';
+import { resolvePlanDay } from '../../../data/gymPlan';
 import VolumeTrendLine from '../Charts/VolumeTrendLine';
 import StrengthProgressionChart from '../Charts/StrengthProgressionChart';
 import type { ExerciseSpark } from '../Charts/StrengthProgressionChart';
 import ExerciseDeepDiveModal from '../exercise/ExerciseDeepDiveModal';
 import AnatomicalBodyMapCard from './AnatomicalBodyMapCard';
-import WeeklyReportSkeleton from './WeeklyReportSkeleton';
 import {
   getOrGenerateWeeklyGymAnalysis,
   getCachedWeeklyGymAnalysis,
@@ -43,7 +71,10 @@ import type { GymDayLog, GymPlanDay, UserGymPlanDoc } from '../../../types/gym.t
 import { makeStyles } from './weeklyGymReportStyles';
 import { computeOrGetHotCache, generateDatasetFingerprint } from '../../../utils/hotCacheStore';
 import WeeklyHighlightsCarousel, { WeeklyHighlightStats } from './WeeklyHighlightsCarousel';
-import { computeUnifiedAnalytics } from '../../../services/gymAnalyticsEngine';
+import {
+  computeUnifiedAnalytics,
+  WeekScopedSummary,
+} from '../../../services/gymAnalyticsEngine';
 
 
 
@@ -57,6 +88,11 @@ interface Props {
   scrollable?: boolean;
   hideHeader?: boolean;
   hideEmptyCard?: boolean;
+  hideKpiRow?: boolean;
+  replayKey?: number | string;
+  /** Pre-computed week-scoped stats from Analytics hub (avoids duplicate full scans & redundant cards) */
+  weekScopedSummary?: WeekScopedSummary;
+  onPressBodyMap?: () => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -90,21 +126,23 @@ function getPrevWeekRange(anchor: string): string[] {
   return getWeekRange(localDateStr(d));
 }
 
-const MUSCLE_COLORS: Record<string, string> = {
-  Chest:      '#a599ff', // accent purple
-  Back:       '#89dceb', // accent blue
-  Shoulders:  '#ff9f4d', // amber
-  Triceps:    '#5eda9e', // green
-  Biceps:     '#b8afff', // accent light
-  Quads:      '#ff9f4d', // amber
-  Hamstrings: '#89dceb', // blue
-  Calves:     '#5eda9e', // green
-  Abs:        '#a599ff', // purple
-  Forearms:   '#ff9f4d', // amber
-  Glutes:     '#a599ff', // purple
-  Traps:      '#89dceb', // blue
-  Mixed:      '#8e8e93', // muted
-};
+function getMuscleColors(tokens: ThemeTokens): Record<string, string> {
+  return {
+    Chest: tokens.accent.secondary,
+    Back: tokens.accent.primary,
+    Shoulders: tokens.status.warning,
+    Triceps: tokens.status.success,
+    Biceps: tokens.accent.secondary,
+    Quads: tokens.status.warning,
+    Hamstrings: tokens.accent.primary,
+    Calves: tokens.status.success,
+    Abs: tokens.accent.secondary,
+    Forearms: tokens.status.warning,
+    Glutes: tokens.accent.secondary,
+    Traps: tokens.accent.primary,
+    Mixed: tokens.text.secondary,
+  };
+}
 
 // ── Formatted Text Component (Parses **bold** into native bold font) ─────────
 
@@ -117,6 +155,8 @@ function FormattedText({
   style?: any;
   boldColor?: string;
 }) {
+  const { isDark } = useTheme();
+  const tokens = isDark ? DARK_TOKENS : LIGHT_TOKENS;
   if (!text) return null;
   // Splits by **...** markers
   const segments = text.split(/(\*\*[^*]+\*\*)/g);
@@ -131,8 +171,7 @@ function FormattedText({
               key={idx}
               style={{
                 fontFamily: FONT_FAMILY.bold,
-                fontWeight: '700',
-                color: boldColor || COLORS.textPrimary,
+                color: boldColor || tokens.text.primary,
               }}
             >
               {inner}
@@ -162,6 +201,7 @@ const DonutRing = React.memo(function DonutRing({
   strokeWidth?: number;
 }) {
   const { isDark } = useTheme();
+  const tokens = isDark ? DARK_TOKENS : LIGHT_TOKENS;
   const r = (size - strokeWidth) / 2;
   const circ = 2 * Math.PI * r;
   const clampedPct = Math.min(100, Math.max(0, pct));
@@ -176,7 +216,7 @@ const DonutRing = React.memo(function DonutRing({
         cx={center}
         cy={center}
         r={r}
-        stroke={isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}
+        stroke={tokens.border.subtle}
         strokeWidth={strokeWidth}
         fill="none"
       />
@@ -187,7 +227,7 @@ const DonutRing = React.memo(function DonutRing({
             cx={center}
             cy={center}
             r={r}
-            stroke={isComplete ? (color === '#8e8e93' ? (isDark ? '#5EDA9E' : '#059669') : color) : color}
+            stroke={isComplete ? (color === DARK_TOKENS.text.secondary ? tokens.status.success : color) : color}
             strokeWidth={strokeWidth}
             fill="none"
             strokeDasharray={`${filled} ${circ - filled}`}
@@ -201,17 +241,18 @@ const DonutRing = React.memo(function DonutRing({
 
 // ── Change Delta Badge ───────────────────────────────────────────────────────
 
-function ChangeBadge({ delta, unit = '' }: { delta: number; unit?: string }) {
-  const { colors, isDark } = useTheme();
-  const st = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
-  if (delta === 0) return <Text style={st.changeBadgeNeutral}>• no change</Text>;
+const ChangeBadge = React.memo(function ChangeBadge({ delta, unit = '', st, tokens }: { delta: number; unit?: string; st?: any; tokens?: any }) {
+  const theme = useTheme();
+  const activeTokens = tokens ?? (theme.isDark ? DARK_TOKENS : LIGHT_TOKENS);
+  const activeSt = st ?? makeStyles(theme.colors, theme.isDark);
+  if (delta === 0) return <NumericText style={activeSt.changeBadgeNeutral}>• no change</NumericText>;
   const isPositive = delta > 0;
   return (
-    <Text style={[st.changeBadge, { color: isPositive ? (isDark ? '#5EDA9E' : '#059669') : (isDark ? '#FF4C4C' : '#DC2626') }]}>
+    <NumericText style={[activeSt.changeBadge, { color: isPositive ? activeTokens.status.success : activeTokens.accent.crimson }]}>
       {isPositive ? '▲ +' : '▼ -'}{Math.abs(delta)}{unit}
-    </Text>
+    </NumericText>
   );
-}
+});
 
 export const WeeklyGymReport = React.memo(function WeeklyGymReport({
   gymLogs,
@@ -220,8 +261,14 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
   scrollable = false,
   hideHeader = false,
   hideEmptyCard = false,
+  hideKpiRow = false,
+  replayKey = 0,
+  weekScopedSummary,
+  onPressBodyMap,
 }: Props) {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, tokens } = useTheme();
+  const unitIsLbs = useWeightUnit();
+  const muscleColors = useMemo(() => getMuscleColors(tokens), [tokens]);
   const st = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const weekDates = useMemo(() => getWeekRange(weekAnchorDate), [weekAnchorDate]);
   const prevDates = useMemo(() => getPrevWeekRange(weekAnchorDate), [weekAnchorDate]);
@@ -268,12 +315,14 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
     const daysIndices = [1, 2, 3, 4, 5, 6, 7];
 
     daysIndices.forEach(dayIdx => {
-      const planDay: GymPlanDay | undefined =
-        userGymPlan?.customDays?.[dayIdx] || GYM_PLAN.find(p => p.dayIndex === dayIdx);
+      const planDay: GymPlanDay | undefined = resolvePlanDay(userGymPlan, dayIdx);
 
       if (planDay && !planDay.isRest && planDay.exercises) {
         planDay.exercises.forEach(ex => {
-          const m = canonicalizeMuscle(ex.muscle);
+          const resolved = resolveExerciseTargetMuscle(ex.name, ex.muscle);
+        const m = (resolved.canonicalGroup && resolved.canonicalGroup !== 'Mixed')
+          ? resolved.canonicalGroup
+          : canonicalizeMuscle(ex.muscle);
           const sets = ex.targetSets || 3;
           targets[m] = (targets[m] || 0) + sets;
         });
@@ -288,8 +337,7 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
     const daysIndices = [1, 2, 3, 4, 5, 6, 7];
     let count = 0;
     daysIndices.forEach(dayIdx => {
-      const planDay: GymPlanDay | undefined =
-        userGymPlan?.customDays?.[dayIdx] || GYM_PLAN.find(p => p.dayIndex === dayIdx);
+      const planDay: GymPlanDay | undefined = resolvePlanDay(userGymPlan, dayIdx);
       if (planDay && !planDay.isRest) count++;
     });
     return Math.max(1, count);
@@ -307,7 +355,10 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
     for (const log of logs) {
       for (const ex of log.exercises ?? []) {
         if (ex.skipped) continue;
-        const m = canonicalizeMuscle(ex.muscle);
+        const resolved = resolveExerciseTargetMuscle(ex.name, ex.muscle);
+        const m = (resolved.canonicalGroup && resolved.canonicalGroup !== 'Mixed')
+          ? resolved.canonicalGroup
+          : canonicalizeMuscle(ex.muscle);
         if (!map[m]) map[m] = { sets: 0, totalKg: 0, sessions: 0 };
         const completedSets = (ex.setsLog ?? []).filter(s => s.completed && !s.isWarmup);
         map[m].sets += completedSets.length;
@@ -449,6 +500,17 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
       });
   }, [plannedMuscleTargets, thisWeekMuscle]);
 
+  const trainedMuscles = useMemo(() => {
+    return Object.keys(thisWeekMuscle)
+      .filter(m => (thisWeekMuscle[m]?.sets ?? 0) > 0)
+      .map(m => ({
+        muscle: m,
+        sets: thisWeekMuscle[m]?.sets ?? 0,
+        pctOfTotal: totalSets > 0 ? Math.round(((thisWeekMuscle[m]?.sets ?? 0) / totalSets) * 100) : 0,
+      }))
+      .sort((a, b) => b.sets - a.sets);
+  }, [thisWeekMuscle, totalSets]);
+
   const untrainedMuscles = useMemo(() => {
     return Object.keys(plannedMuscleTargets).filter(
       m => !(thisWeekMuscle[m]?.sets ?? 0) && (plannedMuscleTargets[m] ?? 0) > 0,
@@ -461,7 +523,7 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
     const cacheKey = `weekly_cur_daily_vol_${weekAnchorDate}_${generateDatasetFingerprint(weekLogs)}`;
     return computeOrGetHotCache(cacheKey, () => {
       return weekDates.map(date => {
-        const log = weekLogs.find(l => l.date === date);
+        const log = weekLogs.find(l => l.date?.slice(0, 10) === date);
         if (!log) return 0;
         return (log.exercises ?? []).reduce((sum: number, ex: any) => {
           if (ex.skipped) return sum;
@@ -483,7 +545,10 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
     [plannedMuscleTargets],
   );
   const adherenceRate = totalPlannedSets > 0 ? Math.round((totalSets / totalPlannedSets) * 100) : 100;
-  const hasData = workoutDays > 0 || cardioSummary.sessions > 0;
+  const hasData =
+    workoutDays > 0 ||
+    cardioSummary.sessions > 0 ||
+    weekLogs.some(l => (l.exercises?.length ?? 0) > 0 || (l.cardio?.length ?? 0) > 0);
 
   // ── Estimated 1RM per exercise (Epley) ───────────────────────────────────
   const exerciseEstRMs = useMemo(() => {
@@ -591,13 +656,6 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
         }
       }
 
-      const EXERCISE_COLORS: Record<string, string> = {
-        Chest: '#a599ff', Back: '#89dceb', Shoulders: '#ff9f4d',
-        Triceps: '#5eda9e', Biceps: '#b8afff', Quads: '#ff9f4d',
-        Hamstrings: '#89dceb', Abs: '#a599ff', Forearms: '#ff9f4d',
-        Glutes: '#a599ff', Traps: '#89dceb', Calves: '#5eda9e', Mixed: '#8e8e93',
-      };
-
       return Object.entries(exWeeklyRMs)
         .filter(([, v]) => v.weeks[3] > 0) // must have current-week data
         .sort(([, a], [, b]) => b.weeks[3] - a.weeks[3])
@@ -608,10 +666,10 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
           weeks: ranges.map((r, i) => ({ label: r.label, est1RM: v.weeks[i] })),
           currentRM: v.weeks[3],
           prevRM: v.weeks[2] || v.weeks[1] || v.weeks[0] || 0,
-          color: EXERCISE_COLORS[v.muscle] ?? '#a599ff',
+          color: muscleColors[v.muscle] ?? tokens.accent.secondary,
         }));
     });
-  }, [gymLogs, weekAnchorDate]);
+  }, [gymLogs, weekAnchorDate, muscleColors, tokens.accent.secondary]);
 
   // ── Heatmap data (90 days of volume) ─────────────────────────────────────
   // FIX 2: Wrapped in computeOrGetHotCache — previously the only heavy memo
@@ -634,25 +692,19 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
 
   // ── Muscle distribution data for donut chart ─────────────────────────────
   const muscleDonutData = useMemo(() => {
-    const MUSCLE_COLORS_MAP: Record<string, string> = {
-      Chest: '#a599ff', Back: '#89dceb', Shoulders: '#ff9f4d',
-      Triceps: '#5eda9e', Biceps: '#b8afff', Quads: '#ff9f4d',
-      Hamstrings: '#89dceb', Abs: '#a599ff', Forearms: '#ff9f4d',
-      Glutes: '#b8afff', Traps: '#89dceb', Calves: '#5eda9e', Mixed: '#8e8e93',
-    };
     return Object.entries(thisWeekMuscle).map(([muscle, stats]) => ({
       muscle,
       sets: stats.sets,
-      color: MUSCLE_COLORS_MAP[muscle] ?? '#a599ff',
+      color: muscleColors[muscle] ?? tokens.accent.secondary,
     }));
-  }, [thisWeekMuscle]);
+  }, [thisWeekMuscle, muscleColors, tokens.accent.secondary]);
 
   // ── Last week daily volume for trend overlay ──────────────────────────────
   const prevDailyVolume = useMemo(() => {
     const cacheKey = `weekly_prev_daily_vol_${weekAnchorDate}_${generateDatasetFingerprint(prevLogs)}`;
     return computeOrGetHotCache(cacheKey, () => {
       return prevDates.map(date => {
-        const log = prevLogs.find(l => l.date === date);
+        const log = prevLogs.find(l => l.date?.slice(0, 10) === date);
         if (!log) return 0;
         return (log.exercises ?? []).reduce((sum: number, ex: any) => {
           if (ex.skipped) return sum;
@@ -664,8 +716,30 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
     });
   }, [prevLogs, prevDates, weekAnchorDate]);
 
-  // ── Story-Style Carousel Stats ───────────────────────────────────────────
+  // ── Story-Style Carousel Stats (Standalone fallback only; omitted in Analytics Hub) ──
   const carouselStats: WeeklyHighlightStats = useMemo(() => {
+    if (weekScopedSummary) {
+      return {
+        thisWeekVolume: Math.round(weekScopedSummary.volumeKg),
+        prevWeekVolume: Math.round(weekScopedSummary.prevVolumeKg),
+        volumeDeltaPct: weekScopedSummary.volumeDeltaPct ?? 0,
+        thisWeekSets: weekScopedSummary.setsCount,
+        sessionCount: weekScopedSummary.sessionsCount,
+        overloadRatePct: weekScopedSummary.overloadRatePct ?? 0,
+        weightUnlocksCount: weekScopedSummary.weightUnlocks,
+        repBuildsCount: weekScopedSummary.repBuilds,
+        topPRs: weekScopedSummary.topLifts.slice(0, 3).map((l) => ({
+          exerciseName: l.exerciseName,
+          weight: l.weight,
+          reps: l.reps,
+          e1rm: l.e1rm,
+          diffText: l.prLabel || undefined,
+        })),
+        muscleAdherence: [],
+        overallAdherencePct: adherenceRate,
+      };
+    }
+
     const analytics = computeUnifiedAnalytics(gymLogs || []);
     const sc = analytics.weeklyScorecard;
 
@@ -681,22 +755,6 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
           e1rm: summary.bestE1RM,
           diffText: pr.diffText,
         });
-      }
-    }
-
-    if (weekPRs.length < 3) {
-      for (const sp of strengthProgressionData) {
-        if (!weekPRs.some(p => p.exerciseName === sp.name)) {
-          const delta = sp.currentRM - sp.prevRM;
-          weekPRs.push({
-            exerciseName: sp.name,
-            weight: sp.currentRM,
-            reps: 6,
-            e1rm: sp.currentRM,
-            diffText: delta > 0 ? `+${delta}kg est. 1RM` : 'Peak Load',
-          });
-        }
-        if (weekPRs.length >= 3) break;
       }
     }
 
@@ -720,17 +778,17 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
       volumeDeltaPct: precomputedStats.volumeDeltaPct,
       thisWeekSets: totalSets,
       sessionCount: workoutDays,
-      overloadRatePct: sc.overloadRatePct || 85,
-      weightUnlocksCount: sc.weightUnlocks || 2,
-      repBuildsCount: sc.repBuilds || 4,
+      overloadRatePct: sc.evaluatedCount > 0 ? sc.overloadRatePct : 0,
+      weightUnlocksCount: sc.weightUnlocks,
+      repBuildsCount: sc.repBuilds,
       topPRs: weekPRs.slice(0, 3),
       muscleAdherence,
       overallAdherencePct: adherenceRate,
     };
   }, [
+    weekScopedSummary,
     gymLogs,
     weekDates,
-    strengthProgressionData,
     displayMuscles,
     thisWeekMuscle,
     plannedMuscleTargets,
@@ -748,7 +806,6 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
   const [aiError, setAiError] = useState<string | null>(null);
   const [isAiCollapsed, setIsAiCollapsed] = useState(true);
   const [selectedDeepDiveEx, setSelectedDeepDiveEx] = useState<string | null>(null);
-  const autoGeneratedWeeksRef = useRef<Set<string>>(new Set());
 
   const toggleAiCard = useCallback((collapsed: boolean) => {
     setIsAiCollapsed(collapsed);
@@ -820,7 +877,7 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
       {!hasData ? (
         hideEmptyCard ? null : (
           <View style={st.emptyCard}>
-            <Ionicons name="barbell-outline" size={42} color={COLORS.textTertiary} />
+            <Dumbbell size={42} color={(isDark ? DARK_TOKENS : LIGHT_TOKENS).text.muted} strokeWidth={ICON.strokeWidth} />
             <Text style={st.emptyText}>No workouts logged this week yet.</Text>
             <Text style={st.emptySubtext}>
               Log your workouts during the week and your full analytics and progress rings will populate here.
@@ -830,94 +887,255 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
       ) : (
         <>
           {/* 1. ── Global KPI Stats (Sessions, Total Sets, Total Volume) ────── */}
-          <View style={st.statsRow}>
-            <View style={st.statCard}>
-              <Text style={st.statValue}>
-                {workoutDays}
-                <Text style={st.statSuffix}>/{plannedWorkoutDaysCount}</Text>
-              </Text>
-              <Text style={st.statLabel}>Sessions</Text>
-              <ChangeBadge delta={workoutDays - prevWorkoutDays} unit="d" />
-            </View>
-
-            <View style={st.statCard}>
-              <Text style={st.statValue}>{totalSets}</Text>
-              <Text style={st.statLabel}>Total Sets</Text>
-              <ChangeBadge delta={totalSets - prevTotalSets} unit="s" />
-            </View>
-
-            <View style={st.statCard}>
-              <Text style={st.statValue}>
-                {totalVolume >= 1000
-                  ? `${Math.round(totalVolume / 100) / 10}k`
-                  : totalVolume}
-                <Text style={st.statSuffix}> kg</Text>
-              </Text>
-              <Text style={st.statLabel}>Volume</Text>
-              <ChangeBadge
-                delta={Math.round((totalVolume - prevTotalVolume) / 100) / 10}
-                unit="k"
-              />
-            </View>
-          </View>
-
-          {/* 1.5 ── Story-Style Weekly Highlights Carousel ─────────────────── */}
-          <WeeklyHighlightsCarousel
-            stats={carouselStats}
-            onSelectExercise={name => setSelectedDeepDiveEx(name)}
-          />
-
-          {/* 2.5 ── Anatomical Muscle Heatmap & Recovery BodyMap (Dual-View Vector Engine) ──── */}
-          <AnatomicalBodyMapCard
-            gymLogs={weekLogs}
-            weekAnchorDate={weekAnchorDate}
-            variant="weekly"
-            defaultMode="volume"
-          />
-
-          <View style={st.muscleBadgesWrap}>
-            {displayMuscles.map(m => {
-              const sets = thisWeekMuscle[m]?.sets ?? 0;
-              const target = plannedMuscleTargets[m] ?? 0;
-              const color = MUSCLE_COLORS[m] ?? '#30D158';
-              return (
-                <View key={m} style={st.muscleBadge}>
-                  <View style={[st.muscleBadgeDot, { backgroundColor: color }]} />
-                  <Text style={st.muscleBadgeText}>
-                    {m} <Text style={st.muscleBadgeSets}>{sets}{target > 0 ? `/${target}` : ''} sets</Text>
-                  </Text>
+          {!hideKpiRow && (
+            <View style={st.statsRow}>
+              <View style={st.statCard}>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                  <RollingNumber
+                    value={workoutDays}
+                    replayKey={replayKey}
+                    cycles={0}
+                    durationMs={420}
+                    style={st.statValue}
+                  />
+                  <NumericText style={st.statSuffix}>/{plannedWorkoutDaysCount}</NumericText>
                 </View>
-              );
-            })}
-          </View>
-
-          {/* 3.5 ── Untrained Planned Muscles Alert ─────────────────────────── */}
-          {untrainedMuscles.length > 0 && (
-            <View style={st.warningCard}>
-              <View style={st.warningHeader}>
-                <Ionicons name="alert-circle-outline" size={14} color={isDark ? colors.accentAmber : '#EA580C'} />
-                <Text style={st.warningTitle}>UNTRAINED PLANNED MUSCLES</Text>
+                <Text style={st.statLabel}>Sessions</Text>
+                <ChangeBadge delta={workoutDays - prevWorkoutDays} unit="d" />
               </View>
-              <Text style={st.warningBody}>
-                Planned in your split this week but no working sets logged yet:
-              </Text>
-              <View style={st.chipRow}>
-                {untrainedMuscles.map(m => (
-                  <View key={m} style={st.chip}>
-                    <Text style={st.chipText}>{m} ({plannedMuscleTargets[m]} sets)</Text>
-                  </View>
-                ))}
+
+              <View style={st.statCard}>
+                <RollingNumber
+                  value={totalSets}
+                  replayKey={replayKey}
+                  cycles={1}
+                  durationMs={480}
+                  style={st.statValue}
+                />
+                <Text style={st.statLabel}>Total Sets</Text>
+                <ChangeBadge delta={totalSets - prevTotalSets} unit="s" />
+              </View>
+
+              <View style={st.statCard}>
+                {(() => {
+                  const volFmt = formatVolumeParts(totalVolume, unitIsLbs);
+                  const diffFmt = formatVolumeParts(Math.abs(totalVolume - prevTotalVolume), unitIsLbs);
+                  const deltaNum = parseFloat(diffFmt.numStr.replace(/[^0-9.]/g, '')) || 0;
+                  const signedDelta = totalVolume >= prevTotalVolume ? deltaNum : -deltaNum;
+                  return (
+                    <>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                        <RollingNumber
+                          value={volFmt.numStr}
+                          replayKey={replayKey}
+                          cycles={1}
+                          durationMs={580}
+                          style={st.statValue}
+                        />
+                        <NumericText style={st.statSuffix}> {volFmt.suffix}</NumericText>
+                      </View>
+                      <Text style={st.statLabel}>Volume</Text>
+                      <ChangeBadge
+                        delta={signedDelta}
+                        unit={volFmt.numStr.endsWith('k') ? 'k' : ''}
+                      />
+                    </>
+                  );
+                })()}
               </View>
             </View>
           )}
 
-          {/* 5. ── Volume Trends (This week vs last week line overlay) ──────── */}
-          <VolumeTrendLine thisWeek={dailyVolume} lastWeek={prevDailyVolume} height={140} />
+          {/* Standalone Highlights Carousel & Body Map ONLY when rendered outside Analytics Hub */}
+          {!weekScopedSummary ? (
+            <>
+              <WeeklyHighlightsCarousel
+                stats={carouselStats}
+                onSelectExercise={name => setSelectedDeepDiveEx(name)}
+              />
+              <AnatomicalBodyMapCard
+                gymLogs={weekLogs}
+                weekAnchorDate={weekAnchorDate}
+                variant="weekly"
+                defaultMode="volume"
+              />
+            </>
+          ) : null}
 
-          {/* 4. ── Strength Progression Sparklines with Interactive Deep-Dive Modal ── */}
-          {strengthProgressionData.length > 0 && (
+          {/* Volume Trend (Mon–Sun vs last week) */}
+          <VolumeTrendLine
+            thisWeek={weekScopedSummary ? weekScopedSummary.dailyVolume : dailyVolume}
+            lastWeek={weekScopedSummary ? weekScopedSummary.prevDailyVolume : prevDailyVolume}
+            height={138}
+            replayKey={replayKey}
+          />
+
+          {/* Muscles Trained (Compact Bars + Direct Deep Link to Body Map) */}
+          {((weekScopedSummary ? weekScopedSummary.trainedMuscles : trainedMuscles).length > 0) && (() => {
+            const muscleRows = weekScopedSummary ? weekScopedSummary.trainedMuscles : trainedMuscles;
+            const totalS = weekScopedSummary ? weekScopedSummary.setsCount : totalSets;
+            const activeTokens = isDark ? DARK_TOKENS : LIGHT_TOKENS;
+            const layer2Card = isDark ? '#0F1015' : activeTokens.bg.surface;
+            return (
+              <View
+                style={[
+                  st.muscleDistributionCard,
+                  {
+                    backgroundColor: layer2Card,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: activeTokens.border.subtle,
+                    marginTop: 0,
+                    marginBottom: 10,
+                  },
+                ]}
+              >
+                <View style={st.cardHeaderRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={st.cardSectionLabel}>MUSCLES TRAINED</Text>
+                    <NumericText style={st.cardSubLabel}>
+                      {muscleRows.length} muscle groups · {totalS} working sets
+                    </NumericText>
+                  </View>
+                  {onPressBodyMap ? (
+                    <TactileButton
+                      variant="custom"
+                      haptic="light"
+                      onPress={onPressBodyMap}
+                      hitSlop={TOUCH.hitSlop}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 2, paddingVertical: 2 }}
+                    >
+                      <Text style={{ fontSize: 12, fontFamily: FONT_FAMILY.bold, color: activeTokens.accent.primary }}>
+                        Body Map
+                      </Text>
+                      <ChevronRight size={13} color={activeTokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                    </TactileButton>
+                  ) : null}
+                </View>
+
+                <View style={st.muscleProgressList}>
+                  {muscleRows.slice(0, 6).map((item, mIdx) => {
+                    const maxSets = muscleRows[0]?.sets || 1;
+                    const ratio = Math.min(1, item.sets / maxSets);
+                    return (
+                      <View key={item.muscle} style={st.muscleProgressItem}>
+                        <View style={st.muscleProgressLabelRow}>
+                          <Text style={st.muscleProgressName}>{item.muscle}</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <NumericText style={st.muscleProgressStat}>
+                              {item.sets} {item.sets === 1 ? 'set' : 'sets'} ·{' '}
+                            </NumericText>
+                            <NumericText style={[st.muscleProgressStat, { color: activeTokens.text.muted }]}>
+                              {item.pctOfTotal}%
+                            </NumericText>
+                          </View>
+                        </View>
+                        <AnimatedProgressBar
+                          progress={ratio}
+                          height={6}
+                          borderRadius={RADIUS.xs}
+                          delayMs={mIdx * 25}
+                          durationMs={380}
+                          replayKey={replayKey}
+                          color={activeTokens.accent.primary}
+                          trackColor={activeTokens.bg.elevated}
+                        />
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            );
+          })()}
+
+          {/* Top Lifts & Real PRs (Selected Week Only — Zero Fake Fallbacks) */}
+          {weekScopedSummary && weekScopedSummary.topLifts.length > 0 && (() => {
+            const activeTokens = isDark ? DARK_TOKENS : LIGHT_TOKENS;
+            const layer2Card = isDark ? '#0F1015' : activeTokens.bg.surface;
+            return (
+              <View
+                style={[
+                  st.muscleDistributionCard,
+                  {
+                    backgroundColor: layer2Card,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: activeTokens.border.subtle,
+                    marginTop: 0,
+                    marginBottom: 10,
+                    gap: 4,
+                  },
+                ]}
+              >
+                <View style={[st.cardHeaderRow, { marginBottom: 6 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={st.cardSectionLabel}>TOP LIFTS THIS WEEK</Text>
+                    <Text style={st.cardSubLabel}>Tap any lift for full history & PRs</Text>
+                  </View>
+                </View>
+
+                {weekScopedSummary.topLifts.map((lift, lIdx) => {
+                  const isLast = lIdx === weekScopedSummary.topLifts.length - 1;
+                  return (
+                    <TactileButton
+                      key={lift.exerciseName}
+                      variant="custom"
+                      haptic="light"
+                      onPress={() => setSelectedDeepDiveEx(lift.exerciseName)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        paddingVertical: 10,
+                        borderBottomWidth: isLast ? 0 : StyleSheet.hairlineWidth,
+                        borderBottomColor: activeTokens.border.subtle,
+                        gap: 10,
+                      }}
+                    >
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text
+                          style={{ fontSize: 13.5, fontFamily: FONT_FAMILY.bold, color: activeTokens.text.primary }}
+                          numberOfLines={1}
+                        >
+                          {lift.exerciseName}
+                        </Text>
+                        <NumericText style={{ fontSize: 12, fontFamily: FONT_FAMILY.medium, color: activeTokens.text.secondary, marginTop: 2 }}>
+                          {lift.weight > 0 ? `${formatWeight(lift.weight, unitIsLbs, 1)} × ${lift.reps}` : `BW × ${lift.reps} reps`}
+                          {lift.muscle ? ` · ${lift.muscle}` : ''}
+                        </NumericText>
+                      </View>
+
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                        {lift.prLabel ? (
+                          <View
+                            style={{
+                              paddingHorizontal: 7,
+                              paddingVertical: 3,
+                              borderRadius: 6,
+                              backgroundColor: activeTokens.status.successDim,
+                            }}
+                          >
+                            <Text style={{ fontSize: 10.5, fontFamily: FONT_FAMILY.bold, color: activeTokens.status.success }}>
+                              {lift.prLabel}
+                            </Text>
+                          </View>
+                        ) : lift.e1rm > 0 ? (
+                          <NumericText style={{ fontSize: 11.5, fontFamily: FONT_FAMILY.medium, color: activeTokens.text.muted }}>
+                            ~{formatWeight(lift.e1rm, unitIsLbs, 0)} 1RM
+                          </NumericText>
+                        ) : null}
+                        <ChevronRight size={14} color={activeTokens.text.muted} strokeWidth={ICON.strokeWidth} />
+                      </View>
+                    </TactileButton>
+                  );
+                })}
+              </View>
+            );
+          })()}
+
+          {/* Standalone Strength Progression Sparklines (Outside Analytics Hub) */}
+          {!weekScopedSummary && strengthProgressionData.length > 0 && (
             <StrengthProgressionChart
               exercises={strengthProgressionData}
+              replayKey={replayKey}
               onSelectExercise={name => {
                 hapticLight();
                 setSelectedDeepDiveEx(name);
@@ -925,235 +1143,193 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
             />
           )}
 
-          {/* 5. ── Coach's 60-Second Takeaway (Concise & Actionable AI) ──────── */}
-          <View style={[st.aiCard, isAiCollapsed && st.aiCardCollapsed]}>
-            <TouchableOpacity
-              style={[st.aiCardHeader, isAiCollapsed && st.aiCardHeaderCollapsed]}
-              onPress={() => {
-                hapticLight();
-                toggleAiCard(!isAiCollapsed);
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1, minWidth: 0 }}>
-                <View style={st.aiSparkleBadge}>
-                  <Ionicons name="sparkles" size={16} color="#a599ff" />
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={st.aiSectionTitle} numberOfLines={1}>COACH'S 60-SECOND TAKEAWAYS</Text>
-                  <Text style={st.aiSectionSubtitle} numberOfLines={1}>
-                    Weekly Insights & Directives
-                  </Text>
-                </View>
-              </View>
-
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                {aiAnalysis && (
-                  <View style={st.aiScoreBadge}>
-                    <Text style={st.aiScoreBadgeText}>
-                      {aiAnalysis.scoreGrade} • {aiAnalysis.score}%
-                    </Text>
-                  </View>
-                )}
-                <View style={st.aiFoldBtn}>
-                  <Ionicons
-                    name={isAiCollapsed ? 'chevron-down' : 'chevron-up'}
-                    size={14}
-                    color={COLORS.textTertiary}
-                  />
-                </View>
-              </View>
-            </TouchableOpacity>
-
-            {isAiCollapsed && (
-              <TouchableOpacity
-                style={st.aiCollapsedRow}
-                onPress={() => {
-                  hapticLight();
-                  toggleAiCard(false);
-                }}
-                activeOpacity={0.7}
+          {/* Weekly Summary Insights (Clean Plain Language) */}
+          {(() => {
+            const activeTokens = isDark ? DARK_TOKENS : LIGHT_TOKENS;
+            const layer2Card = isDark ? '#0F1015' : activeTokens.bg.surface;
+            return (
+              <View
+                style={[
+                  st.aiCard,
+                  isAiCollapsed && st.aiCardCollapsed,
+                  {
+                    backgroundColor: layer2Card,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: activeTokens.border.subtle,
+                    marginBottom: 10,
+                  },
+                ]}
               >
-                <View style={st.aiCollapsedLeft}>
-                  <Ionicons name="sparkles" size={12} color="#a599ff" />
-                  <Text style={st.aiClickToOpenText}>Click to open</Text>
-                  {aiAnalysis?.headline ? (
-                    <>
-                      <Text style={st.aiCollapsedDot}>•</Text>
-                      <Text style={st.aiCollapsedHeadlineText} numberOfLines={1}>
-                        {aiAnalysis.headline}
-                      </Text>
-                    </>
-                  ) : null}
-                </View>
-                <Ionicons name="chevron-forward" size={12} color="#a599ff" />
-              </TouchableOpacity>
-            )}
-
-            {!isAiCollapsed && (
-              aiLoading ? (
-                <View style={st.aiLoadingState}>
-                  <ActivityIndicator size="small" color="#a599ff" />
-                  <Text style={st.aiLoadingText}>
-                    Synthesizing weekly coaching insights...
-                  </Text>
-                </View>
-              ) : aiError ? (
-                <View style={st.aiErrorState}>
-                  <Ionicons name="alert-circle-outline" size={18} color={COLORS.error} />
-                  <Text style={st.aiErrorText}>Analysis failed. Check connection and retry.</Text>
-                  <TouchableOpacity
-                    style={st.aiErrorRetryBtn}
-                    onPress={() => { hapticLight(); loadWeeklyAnalysis(true); }}
-                  >
-                    <Ionicons name="refresh" size={13} color="#a599ff" />
-                    <Text style={st.aiErrorRetryText}>Retry Analysis</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : aiAnalysis ? (
-                <View style={st.aiContent}>
-                  {/* Executive Verdict */}
-                  <View style={st.aiHeroBlock}>
-                    <FormattedText
-                      text={aiAnalysis.verdict || aiAnalysis.headline}
-                      style={st.aiVerdict}
-                      boldColor="#ffffff"
-                    />
-                  </View>
-
-                  {/* Next Cycle Directives (Max 2 cards) */}
-                  {aiAnalysis.nextWeekDirectives && aiAnalysis.nextWeekDirectives.length > 0 && (
-                    <View style={st.aiBlock}>
-                      <View style={st.aiBlockHeader}>
-                        <Ionicons name="flag" size={13} color="#a599ff" />
-                        <Text style={[st.aiBlockTitle, { color: '#a599ff' }]}>
-                          NEXT CYCLE DIRECTIVES
-                        </Text>
-                      </View>
-
-                      <View style={{ gap: 8, marginTop: 4 }}>
-                        {aiAnalysis.nextWeekDirectives.slice(0, 2).map((directive, idx) => (
-                          <View key={idx} style={st.aiDirectiveCard}>
-                            <View style={st.aiDirectiveNumPill}>
-                              <Text style={st.aiDirectiveNumText}>0{idx + 1}</Text>
-                            </View>
-                            <FormattedText
-                              text={directive}
-                              style={st.aiDirectiveText}
-                              boldColor="#ffffff"
-                            />
-                          </View>
-                        ))}
-                      </View>
+                <TactileButton
+                  variant="custom"
+                  haptic="none"
+                  style={[st.aiCardHeader, isAiCollapsed && st.aiCardHeaderCollapsed]}
+                  onPress={() => {
+                    hapticLight();
+                    toggleAiCard(!isAiCollapsed);
+                  }}
+                  hitSlop={TOUCH.hitSlop}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1, minWidth: 0 }}>
+                    <View style={st.aiSparkleBadge}>
+                      <Sparkles size={15} color={activeTokens.accent.secondary} strokeWidth={ICON.strokeWidth} />
                     </View>
-                  )}
-                </View>
-              ) : (
-                <View style={st.aiPromptState}>
-                  <Text style={st.aiPromptTitle}>Weekly Coach Insights</Text>
-                  <Text style={st.aiPromptSub}>
-                    Generate S.A.R.A's concise coaching analysis and directives for next week.
-                  </Text>
-                  <TouchableOpacity
-                    style={st.aiGenerateBtn}
-                    onPress={() => {
-                      hapticMedium();
-                      loadWeeklyAnalysis(false);
-                    }}
-                    activeOpacity={0.75}
-                  >
-                    <Ionicons name="sparkles" size={16} color="#fff" />
-                    <Text style={st.aiGenerateBtnText}>Generate Coaching Takeaways</Text>
-                  </TouchableOpacity>
-                </View>
-              )
-            )}
-          </View>
-
-          {/* 6. ── Cardio & Conditioning (Elevated Luxury Pods Design) ─────── */}
-          {cardioSummary.sessions > 0 && (
-            <View style={st.cardioCard}>
-              <View style={st.cardioHeaderRow}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <View style={st.cardioIconBadge}>
-                    <Ionicons name="flame" size={14} color={COLORS.accentAmber} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={st.aiSectionTitle} numberOfLines={1}>WEEKLY INSIGHTS</Text>
+                      <Text style={st.aiSectionSubtitle} numberOfLines={1}>
+                        {aiAnalysis?.headline || 'Takeaways & next-week focus'}
+                      </Text>
+                    </View>
                   </View>
-                  <View>
-                    <Text style={st.cardioSectionTitle}>CARDIO & CONDITIONING</Text>
-                    <Text style={st.cardioSectionSubtitle}>Aerobic & Heart Health Output</Text>
+
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    {aiAnalysis && (
+                      <View style={st.aiScoreBadge}>
+                        <NumericText style={st.aiScoreBadgeText}>
+                          {aiAnalysis.scoreGrade} · {aiAnalysis.score}%
+                        </NumericText>
+                      </View>
+                    )}
+                    <View style={st.aiFoldBtn}>
+                      {isAiCollapsed ? (
+                        <ChevronDown size={14} color={activeTokens.text.muted} strokeWidth={ICON.strokeWidth} />
+                      ) : (
+                        <ChevronUp size={14} color={activeTokens.text.muted} strokeWidth={ICON.strokeWidth} />
+                      )}
+                    </View>
                   </View>
+                </TactileButton>
+
+                {!isAiCollapsed && (
+                  aiLoading ? (
+                    <View style={st.aiLoadingState}>
+                      <ActivityIndicator size="small" color={activeTokens.accent.secondary} />
+                      <Text style={st.aiLoadingText}>Building weekly summary...</Text>
+                    </View>
+                  ) : aiError ? (
+                    <View style={st.aiErrorState}>
+                      <AlertCircle size={18} color={activeTokens.status.danger} strokeWidth={ICON.strokeWidth} />
+                      <Text style={st.aiErrorText}>Could not load summary. Try again.</Text>
+                      <TactileButton
+                        variant="custom"
+                        haptic="none"
+                        style={st.aiErrorRetryBtn}
+                        onPress={() => { hapticLight(); loadWeeklyAnalysis(true); }}
+                        hitSlop={TOUCH.hitSlop}
+                      >
+                        <RefreshCw size={13} color={activeTokens.accent.secondary} strokeWidth={ICON.strokeWidth} />
+                        <Text style={st.aiErrorRetryText}>Retry</Text>
+                      </TactileButton>
+                    </View>
+                  ) : aiAnalysis ? (
+                    <View style={st.aiContent}>
+                      <View style={st.aiHeroBlock}>
+                        <FormattedText
+                          text={aiAnalysis.verdict || aiAnalysis.headline}
+                          style={st.aiVerdict}
+                          boldColor={activeTokens.text.primary}
+                        />
+                      </View>
+
+                      {aiAnalysis.nextWeekDirectives && aiAnalysis.nextWeekDirectives.length > 0 && (
+                        <View style={st.aiBlock}>
+                          <View style={st.aiBlockHeader}>
+                            <Flag size={13} color={activeTokens.accent.secondary} strokeWidth={ICON.strokeWidth} />
+                            <Text style={[st.aiBlockTitle, { color: activeTokens.accent.secondary }]}>
+                              NEXT WEEK FOCUS
+                            </Text>
+                          </View>
+
+                          <View style={{ gap: 8, marginTop: 4 }}>
+                            {aiAnalysis.nextWeekDirectives.slice(0, 2).map((directive, idx) => (
+                              <View key={idx} style={st.aiDirectiveCard}>
+                                <View style={st.aiDirectiveNumPill}>
+                                  <NumericText style={st.aiDirectiveNumText}>0{idx + 1}</NumericText>
+                                </View>
+                                <FormattedText
+                                  text={directive}
+                                  style={st.aiDirectiveText}
+                                  boldColor={activeTokens.text.primary}
+                                />
+                              </View>
+                            ))}
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                  ) : (
+                    <View style={st.aiPromptState}>
+                      <Text style={st.aiPromptTitle}>Weekly Training Summary</Text>
+                      <Text style={st.aiPromptSub}>
+                        Get clear targets for your next week based on this week's logged sets.
+                      </Text>
+                      <TactileButton
+                        variant="custom"
+                        haptic="none"
+                        style={st.aiGenerateBtn}
+                        onPress={() => {
+                          hapticMedium();
+                          loadWeeklyAnalysis(false);
+                        }}
+                      >
+                        <Sparkles size={16} color={colors.accentPrimary} strokeWidth={ICON.strokeWidth} />
+                        <Text style={st.aiGenerateBtnText}>Build Weekly Summary</Text>
+                      </TactileButton>
+                    </View>
+                  )
+                )}
+              </View>
+            );
+          })()}
+
+          {/* Compact Cardio Strip (Only when cardio > 0) */}
+          {(() => {
+            const cardio = weekScopedSummary ? weekScopedSummary.cardio : cardioSummary;
+            if (!cardio || cardio.sessions <= 0) return null;
+            const activeTokens = isDark ? DARK_TOKENS : LIGHT_TOKENS;
+            const layer2Card = isDark ? '#0F1015' : activeTokens.bg.surface;
+            return (
+              <View
+                style={[
+                  st.cardioCard,
+                  {
+                    backgroundColor: layer2Card,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: activeTokens.border.subtle,
+                    marginBottom: 10,
+                    paddingVertical: 14,
+                  },
+                ]}
+              >
+                <View style={[st.cardioHeaderRow, { marginBottom: 10 }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                    <Flame size={14} color={activeTokens.status.warning} strokeWidth={ICON.strokeWidth} />
+                    <Text style={st.cardioSectionTitle}>CARDIO</Text>
+                  </View>
+                  <NumericText style={{ fontSize: 11.5, fontFamily: FONT_FAMILY.medium, color: activeTokens.text.secondary }}>
+                    {cardio.sessions} {cardio.sessions === 1 ? 'session' : 'sessions'} · ~{cardio.estCalories} kcal
+                  </NumericText>
                 </View>
 
-                <View style={st.cardioTagPill}>
-                  <Text style={st.cardioTagText}>
-                    {cardioSummary.avgDuration > 0
-                      ? `Avg ${cardioSummary.avgDuration}m / run`
-                      : `${cardioSummary.sessions} Sessions`}
-                  </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={{ flex: 1, alignItems: 'center' }}>
+                    <NumericText style={st.cardioPodValue}>{cardio.totalMinutes}m</NumericText>
+                    <Text style={st.cardioPodLabel}>Time</Text>
+                  </View>
+                  <View style={{ width: StyleSheet.hairlineWidth, height: 26, backgroundColor: activeTokens.border.subtle }} />
+                  <View style={{ flex: 1, alignItems: 'center' }}>
+                    <NumericText style={st.cardioPodValue}>{cardio.totalKm} km</NumericText>
+                    <Text style={st.cardioPodLabel}>Distance</Text>
+                  </View>
+                  <View style={{ width: StyleSheet.hairlineWidth, height: 26, backgroundColor: activeTokens.border.subtle }} />
+                  <View style={{ flex: 1, alignItems: 'center' }}>
+                    <NumericText style={st.cardioPodValue}>{cardio.avgDuration > 0 ? `${cardio.avgDuration}m` : '—'}</NumericText>
+                    <Text style={st.cardioPodLabel}>Avg / Session</Text>
+                  </View>
                 </View>
               </View>
-
-              {/* 3 Styled Metric Pods */}
-              <View style={st.cardioPodsGrid}>
-                {/* Pod 1: Duration */}
-                <View style={st.cardioPod}>
-                  <View style={[st.cardioPodIconBox, { backgroundColor: 'rgba(255, 159, 77, 0.12)' }]}>
-                    <Ionicons name="time-outline" size={12} color={COLORS.accentAmber} />
-                  </View>
-                  <Text style={st.cardioPodValue}>
-                    {cardioSummary.totalMinutes}
-                    <Text style={st.cardioPodUnit}> min</Text>
-                  </Text>
-                  <Text style={st.cardioPodLabel}>Total Time</Text>
-                </View>
-
-                {/* Pod 2: Distance */}
-                <View style={st.cardioPod}>
-                  <View style={[st.cardioPodIconBox, { backgroundColor: 'rgba(137, 220, 235, 0.12)' }]}>
-                    <Ionicons name="navigate-outline" size={12} color={COLORS.accentBlue} />
-                  </View>
-                  <Text style={st.cardioPodValue}>
-                    {cardioSummary.totalKm}
-                    <Text style={st.cardioPodUnit}> km</Text>
-                  </Text>
-                  <Text style={st.cardioPodLabel}>Distance</Text>
-                </View>
-
-                {/* Pod 3: Frequency */}
-                <View style={st.cardioPod}>
-                  <View style={[st.cardioPodIconBox, { backgroundColor: 'rgba(94, 218, 158, 0.12)' }]}>
-                    <Ionicons name="pulse-outline" size={12} color={COLORS.accentGreen} />
-                  </View>
-                  <Text style={st.cardioPodValue}>
-                    {cardioSummary.sessions}
-                    <Text style={st.cardioPodUnit}> runs</Text>
-                  </Text>
-                  <Text style={st.cardioPodLabel}>Sessions</Text>
-                </View>
-              </View>
-
-              {/* Footer Output / Pace & Calorie Bar */}
-              <View style={st.cardioFooterRow}>
-                <View style={st.cardioFooterItem}>
-                  <Ionicons name="speedometer-outline" size={12} color={COLORS.accentAmber} />
-                  <Text style={st.cardioFooterText}>
-                    {cardioSummary.avgPaceMinKm > 0
-                      ? `${cardioSummary.avgPaceMinKm} min/km pace`
-                      : cardioSummary.avgSpeedKmh > 0
-                      ? `${cardioSummary.avgSpeedKmh} km/h speed`
-                      : `Aerobic Base Active`}
-                  </Text>
-                </View>
-
-                <View style={st.cardioFooterItem}>
-                  <Ionicons name="flame-outline" size={12} color={COLORS.accentAmber} />
-                  <Text style={st.cardioFooterText}>
-                    ~{cardioSummary.estCalories} kcal burned
-                  </Text>
-                </View>
-              </View>
-            </View>
-          )}
+            );
+          })()}
 
 
           {/* ── Single-Exercise Deep-Dive Inspector Modal ────────────────────── */}
@@ -1161,6 +1337,7 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
             visible={!!selectedDeepDiveEx}
             exerciseName={selectedDeepDiveEx}
             gymLogs={gymLogs}
+            initialTab="analytics"
             onClose={() => setSelectedDeepDiveEx(null)}
           />
         </>

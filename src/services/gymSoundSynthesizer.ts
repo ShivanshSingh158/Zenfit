@@ -10,8 +10,20 @@
  */
 
 import { Platform } from 'react-native';
-import * as Haptics from 'expo-haptics';
-import { impactAsync, notificationAsync } from '../utils/haptics';
+
+let _audioModeChain = Promise.resolve();
+async function safeSetAudioMode(options: any): Promise<void> {
+  _audioModeChain = _audioModeChain.then(async () => {
+    try {
+      const { Audio } = require('expo-av');
+      if (Audio?.setAudioModeAsync) {
+        await safeSetAudioMode(options);
+      }
+    } catch (_) {}
+  }).catch(() => {});
+  return _audioModeChain;
+}
+
 
 let webAudioCtx: any = null;
 
@@ -62,9 +74,9 @@ function playWebBeep(freq: number, durationMs: number) {
 }
 
 /**
- * Generates a valid in-memory 8-bit mono PCM WAV Data-URI
+ * Generates a valid in-memory 8-bit mono PCM WAV Base64 data string
  */
-function generatePcmWavDataUri(freq: number, durationMs: number, sampleRate = 8000): string {
+function generatePcmWavBase64(freq: number, durationMs: number, sampleRate = 8000): string {
   const numSamples = Math.floor(sampleRate * (durationMs / 1000));
   const bytes = new Uint8Array(44 + numSamples);
 
@@ -96,12 +108,14 @@ function generatePcmWavDataUri(freq: number, durationMs: number, sampleRate = 80
   writeString(36, 'data');
   writeUint32LE(40, numSamples);
 
+  const fadeOutSamples = Math.min(Math.floor(sampleRate * 0.01), Math.floor(numSamples / 4));
   for (let i = 0; i < numSamples; i++) {
     const t = i / sampleRate;
     const attack = Math.min(1, t / 0.005); // 5ms linear attack envelope to prevent click/pop
     const decay = Math.exp(-t * (3500 / durationMs));
-    const sample = Math.sin(2 * Math.PI * freq * t) * attack * decay;
-    bytes[44 + i] = Math.floor((sample + 1) * 127.5);
+    const fadeOut = i >= numSamples - fadeOutSamples ? (numSamples - 1 - i) / fadeOutSamples : 1;
+    const sample = Math.sin(2 * Math.PI * freq * t) * attack * decay * fadeOut;
+    bytes[44 + i] = Math.round((sample + 1) * 127.5);
   }
 
   // Pre-allocated Pure JS Base64 encoder (avoids string concatenation heap fragmentation)
@@ -133,7 +147,40 @@ function generatePcmWavDataUri(freq: number, durationMs: number, sampleRate = 80
     out[outIdx++] = enc4 === 64 ? '=' : chars.charAt(enc4);
   }
 
-  return `data:audio/wav;base64,${out.join('')}`;
+  return out.join('');
+}
+
+/**
+ * Generates a valid in-memory 8-bit mono PCM WAV Data-URI
+ */
+function generatePcmWavDataUri(freq: number, durationMs: number, sampleRate = 8000): string {
+  return `data:audio/wav;base64,${generatePcmWavBase64(freq, durationMs, sampleRate)}`;
+}
+
+/**
+ * Persists synthesized audio buffer to a local cache file so native Android/iOS
+ * MediaPlayer can stream it with a native file descriptor (file://) instead of
+ * large data-URIs, eliminating Android MediaPlayer IOException.
+ */
+async function getCachedSoundFileUri(name: string, freq: number, durationMs: number): Promise<string> {
+  if (Platform.OS === 'web') return '';
+  try {
+    const FileSystem = require('expo-file-system/legacy');
+    if (!FileSystem.cacheDirectory) {
+      return generatePcmWavDataUri(freq, durationMs);
+    }
+    const path = `${FileSystem.cacheDirectory}zenfit_${name}.wav`;
+    const info = await FileSystem.getInfoAsync(path);
+    if (!info.exists) {
+      const b64 = generatePcmWavBase64(freq, durationMs);
+      await FileSystem.writeAsStringAsync(path, b64, {
+        encoding: FileSystem.EncodingType ? FileSystem.EncodingType.Base64 : 'base64',
+      });
+    }
+    return path;
+  } catch (err) {
+    return generatePcmWavDataUri(freq, durationMs);
+  }
 }
 
 // Lazy-synthesized Base64 sound data URIs — avoids blocking main JS thread during cold boot
@@ -154,19 +201,88 @@ function getCompleteUri(): string {
   return COMPLETE_URI;
 }
 
-let audioCuesEnabled = true;
+import { getGymProfileSync } from '../hooks/useGymProfile';
+
+let audioCuesEnabled: boolean | null = null;
+
+function resolveAudioCuesEnabled(): boolean {
+  if (audioCuesEnabled === null) {
+    try {
+      const saved = getGymProfileSync()?.audioCues;
+      audioCuesEnabled = typeof saved === 'boolean' ? saved : true;
+    } catch {
+      audioCuesEnabled = true;
+    }
+  }
+  return audioCuesEnabled;
+}
 
 export function setAudioCuesEnabledGlobal(enabled: boolean) {
-  audioCuesEnabled = enabled;
+  audioCuesEnabled = Boolean(enabled);
 }
 
 export function isAudioCuesEnabledGlobal(): boolean {
-  return audioCuesEnabled;
+  return resolveAudioCuesEnabled();
 }
 
 export function toggleAudioCuesEnabledGlobal(): boolean {
-  audioCuesEnabled = !audioCuesEnabled;
+  audioCuesEnabled = !resolveAudioCuesEnabled();
   return audioCuesEnabled;
+}
+
+let _cachedSetCompleteSound: any = null;
+let _cachedChimeSound: any = null;
+let _cachedTickSound: any = null;
+let _isAudioWarmingUp = false;
+
+/**
+ * Pre-warms the audio pipeline and loads PCM sound buffers into memory.
+ * This guarantees 0ms latency when sets are checked off or timer expires.
+ */
+export async function warmUpGymAudioSynthesizer(): Promise<void> {
+  if (Platform.OS === 'web' || !resolveAudioCuesEnabled() || _isAudioWarmingUp) return;
+  _isAudioWarmingUp = true;
+  try {
+    const { Audio, InterruptionModeAndroid, InterruptionModeIOS } = require('expo-av');
+
+    await safeSetAudioMode({
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: true,
+      shouldDuckAndroid: true,
+      interruptionModeAndroid: InterruptionModeAndroid ? InterruptionModeAndroid.DuckOthers : 2,
+      interruptionModeIOS: InterruptionModeIOS ? InterruptionModeIOS.DuckOthers : 2,
+      playThroughEarpieceAndroid: false,
+    });
+
+    if (!_cachedSetCompleteSound) {
+      const uri = await getCachedSoundFileUri('complete_v1', 660, 110);
+      const { sound } = await Audio.Sound.createAsync(
+        { uri },
+        { shouldPlay: false, volume: 1.0 }
+      );
+      _cachedSetCompleteSound = sound;
+    }
+    if (!_cachedChimeSound) {
+      const uri = await getCachedSoundFileUri('chime_v1', 1320, 240);
+      const { sound } = await Audio.Sound.createAsync(
+        { uri },
+        { shouldPlay: false, volume: 1.0 }
+      );
+      _cachedChimeSound = sound;
+    }
+    if (!_cachedTickSound) {
+      const uri = await getCachedSoundFileUri('tick_v1', 880, 85);
+      const { sound } = await Audio.Sound.createAsync(
+        { uri },
+        { shouldPlay: false, volume: 1.0 }
+      );
+      _cachedTickSound = sound;
+    }
+  } catch (err) {
+    // Non-fatal
+  } finally {
+    _isAudioWarmingUp = false;
+  }
 }
 
 /**
@@ -178,12 +294,12 @@ export function toggleAudioCuesEnabledGlobal(): boolean {
  * 5. Includes a safety watchdog timer to guarantee audio focus is released even if an OS event is dropped.
  */
 async function playTransientDuckedSound(uri: string, approxDurationMs = 800) {
-  if (!audioCuesEnabled || Platform.OS === 'web') return;
+  if (!resolveAudioCuesEnabled() || Platform.OS === 'web') return;
 
   try {
     const { Audio, InterruptionModeAndroid, InterruptionModeIOS } = require('expo-av');
 
-    await Audio.setAudioModeAsync({
+    await safeSetAudioMode({
       playsInSilentModeIOS: true,
       staysActiveInBackground: true,
       shouldDuckAndroid: true,
@@ -205,6 +321,17 @@ async function playTransientDuckedSound(uri: string, approxDurationMs = 800) {
         } catch (_) {}
         soundInstance = null;
       }
+      // Revert ducking immediately so background media (Spotify, Apple Music) returns to 100% volume
+      try {
+        await safeSetAudioMode({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: true,
+          shouldDuckAndroid: false,
+          interruptionModeAndroid: InterruptionModeAndroid ? InterruptionModeAndroid.DuckOthers : 2,
+          interruptionModeIOS: InterruptionModeIOS ? InterruptionModeIOS.MixWithOthers : 0,
+          playThroughEarpieceAndroid: false,
+        });
+      } catch (_) {}
     };
 
     const { sound } = await Audio.Sound.createAsync(
@@ -230,36 +357,45 @@ async function playTransientDuckedSound(uri: string, approxDurationMs = 800) {
  * 3... 2... 1... Countdown Tick (880 Hz High-Pitch Pulse + Medium Haptic)
  */
 let backgroundAudioKeeper: any = null;
+let _isStartingBackgroundAudio = false;
 
 /**
  * Keeps the audio pipeline alive in the background when phone screen is turned off / locked.
- * Plays an inaudible PCM silence buffer so Android/iOS doesn't suspend JavaScript timers or mute background ducking.
+ * Plays an inaudible PCM silence buffer without ducking background music.
  */
 export async function startRestTimerBackgroundAudioSession(): Promise<void> {
-  if (!audioCuesEnabled || Platform.OS === 'web') return;
+  if (!resolveAudioCuesEnabled() || Platform.OS === 'web') return;
+  if (_isStartingBackgroundAudio || backgroundAudioKeeper) return;
+  _isStartingBackgroundAudio = true;
   try {
     const { Audio, InterruptionModeAndroid, InterruptionModeIOS } = require('expo-av');
 
-    await Audio.setAudioModeAsync({
+    // Never duck background media during silent rest timer keep-alive
+    await safeSetAudioMode({
       playsInSilentModeIOS: true,
       staysActiveInBackground: true,
-      shouldDuckAndroid: true,
+      shouldDuckAndroid: false,
       interruptionModeAndroid: InterruptionModeAndroid ? InterruptionModeAndroid.DuckOthers : 2,
-      interruptionModeIOS: InterruptionModeIOS ? InterruptionModeIOS.DuckOthers : 2,
+      interruptionModeIOS: InterruptionModeIOS ? InterruptionModeIOS.MixWithOthers : 0,
       playThroughEarpieceAndroid: false,
     });
 
     if (!backgroundAudioKeeper) {
-      // In-memory 1-second silent WAV
-      const silenceUri = generatePcmWavDataUri(0, 1000);
+      // In-memory 1-second silent WAV cached to local file for Android MediaPlayer background resilience
+      const silenceUri = await getCachedSoundFileUri('silence_v1', 0, 1000);
       const { sound } = await Audio.Sound.createAsync(
         { uri: silenceUri },
         { shouldPlay: true, isLooping: true, volume: 0.001 }
       );
       backgroundAudioKeeper = sound;
     }
+
+    // Pre-warm chime sounds while background audio session is established
+    warmUpGymAudioSynthesizer().catch(() => {});
   } catch (err) {
     // Non-fatal
+  } finally {
+    _isStartingBackgroundAudio = false;
   }
 }
 
@@ -268,47 +404,75 @@ export async function startRestTimerBackgroundAudioSession(): Promise<void> {
  */
 export async function stopRestTimerBackgroundAudioSession(): Promise<void> {
   if (backgroundAudioKeeper) {
-    try {
-      await backgroundAudioKeeper.stopAsync().catch(() => {});
-      await backgroundAudioKeeper.unloadAsync().catch(() => {});
-    } catch (_) {}
+    const keeper = backgroundAudioKeeper;
     backgroundAudioKeeper = null;
+    try {
+      await keeper.stopAsync().catch(() => {});
+      await keeper.unloadAsync().catch(() => {});
+    } catch (_) {}
   }
 }
 
-export function playCountdownTick() {
-  if (!audioCuesEnabled) return;
+export async function playCountdownTick(): Promise<void> {
+  if (!resolveAudioCuesEnabled()) return;
 
   if (Platform.OS === 'web') {
     playWebBeep(880, 85);
-  } else {
-    playTransientDuckedSound(getTickUri(), 150);
+    return;
   }
+
+  if (_cachedTickSound) {
+    try {
+      await _cachedTickSound.replayAsync();
+      return;
+    } catch (_) {}
+  }
+  const uri = await getCachedSoundFileUri('tick_v1', 880, 85);
+  playTransientDuckedSound(uri, 150);
+  warmUpGymAudioSynthesizer().catch(() => {});
 }
 
 /**
  * Timer Completed Chime (1320 Hz Resonant Gong + Success Haptic)
  * Ducks background Spotify/Apple Music volume for ~800ms, then restores to 100%.
  */
-export function playTimerFinishChime() {
-  if (!audioCuesEnabled) return;
+export async function playTimerFinishChime(): Promise<void> {
+  if (!resolveAudioCuesEnabled()) return;
 
   if (Platform.OS === 'web') {
     playWebBeep(1320, 240);
-  } else {
-    playTransientDuckedSound(getChimeUri(), 800);
+    return;
   }
+
+  if (_cachedChimeSound) {
+    try {
+      await _cachedChimeSound.replayAsync();
+      return;
+    } catch (_) {}
+  }
+  const uri = await getCachedSoundFileUri('chime_v1', 1320, 240);
+  playTransientDuckedSound(uri, 800);
+  warmUpGymAudioSynthesizer().catch(() => {});
 }
 
 /**
  * Set Logged / Checked Off Tone (660 Hz Subtle Ping + Light Haptic)
  */
-export function playSetCompleteTone() {
-  if (!audioCuesEnabled) return;
+export async function playSetCompleteTone(): Promise<void> {
+  if (!resolveAudioCuesEnabled()) return;
 
   if (Platform.OS === 'web') {
     playWebBeep(660, 110);
-  } else {
-    playTransientDuckedSound(getCompleteUri(), 200);
+    return;
   }
+
+  if (_cachedSetCompleteSound) {
+    try {
+      await _cachedSetCompleteSound.replayAsync();
+      return;
+    } catch (_) {}
+  }
+  const uri = await getCachedSoundFileUri('complete_v1', 660, 110);
+  playTransientDuckedSound(uri, 200);
+  warmUpGymAudioSynthesizer().catch(() => {});
 }

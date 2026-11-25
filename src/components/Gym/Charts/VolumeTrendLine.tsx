@@ -1,19 +1,29 @@
 /**
  * VolumeTrendLine.tsx — ZenTrack Mobile
  *
- * SVG multi-line chart showing daily training volume for this week vs last week.
- * Built with react-native-svg Path — no external chart library needed.
- *
- * Two overlaid lines:
- *  - This week: accent purple (#a599ff) solid line with filled area
- *  - Last week: accent blue (#89dceb) dashed line (reference)
+ * Animated SVG multi-line chart showing daily training volume for this week vs last week.
+ * Draws left -> right via UI-thread strokeDashoffset with gradient reveal.
  */
 
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, useWindowDimensions } from 'react-native';
-import Svg, { Path, Defs, LinearGradient, Stop, Rect, Circle, G, Line } from 'react-native-svg';
-import { COLORS, FONT_FAMILY, FONT_SIZE, RADIUS, SPACE } from '../../../theme/tokens';
+import React, { useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import Svg, { Defs, LinearGradient, Stop, Line, Circle } from 'react-native-svg';
+import Animated, {
+  useSharedValue,
+  useAnimatedProps,
+  useAnimatedStyle,
+  withTiming,
+  withDelay,
+  cancelAnimation,
+} from 'react-native-reanimated';
+import { FONT_FAMILY, RADIUS, SPACE, ThemeTokens } from '../../../theme/tokens';
+import { iosEasing } from '../../../theme/motion';
+import { useResponsiveMetrics } from '../../../theme/responsive';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { NumericText } from '../../ui/NumericText';
+import { AnimatedSvgPath } from '../../ui/AnimatedSvgCharts';
+import { buildSvgLinePath, estimatePolylineLength } from './chartMath';
+import { useWeightUnit, unitLabel } from '../../../utils/weightUnit';
 
 interface VolumeTrendLineProps {
   /** Mon–Sun volumes for this week (index 0 = Monday) */
@@ -21,22 +31,20 @@ interface VolumeTrendLineProps {
   /** Mon–Sun volumes for last week */
   lastWeek: number[];
   height?: number;
+  replayKey?: number | string;
 }
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-function buildLinePath(values: number[], width: number, height: number, maxVal: number, padX: number, padY: number): string {
+function buildCoords(values: number[], width: number, height: number, maxVal: number, padX: number, padY: number) {
   const chartW = width - padX * 2;
   const chartH = height - padY * 2;
   const step = chartW / Math.max(values.length - 1, 1);
 
-  return values
-    .map((v, i) => {
-      const x = padX + i * step;
-      const y = padY + chartH - (maxVal > 0 ? (v / maxVal) * chartH : 0);
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(' ');
+  return values.map((v, i) => ({
+    x: padX + i * step,
+    y: padY + chartH - (maxVal > 0 ? (v / maxVal) * chartH : 0),
+  }));
 }
 
 function buildAreaPath(values: number[], width: number, height: number, maxVal: number, padX: number, padY: number): string {
@@ -55,18 +63,25 @@ function buildAreaPath(values: number[], width: number, height: number, maxVal: 
   return `${lineParts.join(' ')} L${lastX.toFixed(1)},${baseY.toFixed(1)} L${padX.toFixed(1)},${baseY.toFixed(1)} Z`;
 }
 
-export const VolumeTrendLine: React.FC<VolumeTrendLineProps> = React.memo(function VolumeTrendLine({ thisWeek, lastWeek, height = 160 }: VolumeTrendLineProps) {
-  const { colors, isDark } = useTheme();
-  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
-  const { width: windowWidth } = useWindowDimensions();
+export const VolumeTrendLine: React.FC<VolumeTrendLineProps> = React.memo(function VolumeTrendLine({
+  thisWeek,
+  lastWeek,
+  height = 160,
+  replayKey = 0,
+}: VolumeTrendLineProps) {
+  const { tokens, isDark } = useTheme();
+  const unitIsLbs = useWeightUnit();
+  const uLabel = unitLabel(unitIsLbs);
+  const styles = useMemo(() => makeStyles(tokens), [tokens]);
+  const { clampChartWidth } = useResponsiveMetrics();
 
-  const svgWidth = Math.max(280, windowWidth - 64);
+  const svgWidth = clampChartWidth(64);
   const padX = 8;
   const padY = 12;
 
-  const primaryColor = isDark ? '#a599ff' : '#6C5CE7';
-  const secondaryColor = isDark ? '#89dceb' : '#64748B';
-  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : '#EAE9F2';
+  const primaryColor = tokens.charts.primarySeries;
+  const secondaryColor = tokens.charts.tertiarySeries;
+  const gridColor = tokens.charts.gridLine;
 
   const safeThisWeek = useMemo(() => {
     const arr = [...(thisWeek || [])];
@@ -82,26 +97,58 @@ export const VolumeTrendLine: React.FC<VolumeTrendLineProps> = React.memo(functi
 
   const maxVal = useMemo(
     () => Math.max(1, ...safeThisWeek, ...safeLastWeek),
-    [safeThisWeek, safeLastWeek],
+    [safeThisWeek, safeLastWeek]
+  );
+
+  const thisCoords = useMemo(
+    () => buildCoords(safeThisWeek, svgWidth, height, maxVal, padX, padY),
+    [safeThisWeek, svgWidth, height, maxVal]
   );
 
   const thisLinePath = useMemo(
-    () => buildLinePath(safeThisWeek, svgWidth, height, maxVal, padX, padY),
-    [safeThisWeek, svgWidth, height, maxVal],
+    () => buildSvgLinePath(safeThisWeek, svgWidth, height, maxVal, padX, padY),
+    [safeThisWeek, svgWidth, height, maxVal]
   );
   const thisAreaPath = useMemo(
     () => buildAreaPath(safeThisWeek, svgWidth, height, maxVal, padX, padY),
-    [safeThisWeek, svgWidth, height, maxVal],
+    [safeThisWeek, svgWidth, height, maxVal]
   );
   const lastLinePath = useMemo(
-    () => buildLinePath(safeLastWeek, svgWidth, height, maxVal, padX, padY),
-    [safeLastWeek, svgWidth, height, maxVal],
+    () => buildSvgLinePath(safeLastWeek, svgWidth, height, maxVal, padX, padY),
+    [safeLastWeek, svgWidth, height, maxVal]
   );
 
-  const chartW = svgWidth - padX * 2;
-  const step = chartW / Math.max(safeThisWeek.length - 1, 1);
+  const thisLen = useMemo(() => Math.max(1, estimatePolylineLength(thisCoords)), [thisCoords]);
 
-  const hasData = safeThisWeek.some(v => v > 0) || safeLastWeek.some(v => v > 0);
+  const drawProgress = useSharedValue(0);
+  const auraOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    cancelAnimation(drawProgress);
+    cancelAnimation(auraOpacity);
+    drawProgress.value = 0;
+    auraOpacity.value = 0;
+
+    drawProgress.value = withTiming(1, { duration: 640, easing: iosEasing.decel });
+    auraOpacity.value = withDelay(
+      140,
+      withTiming(1, { duration: 480, easing: iosEasing.decel })
+    );
+  }, [replayKey, thisLinePath, drawProgress, auraOpacity]);
+
+  const animatedLineProps = useAnimatedProps(() => ({
+    strokeDashoffset: thisLen * (1 - drawProgress.value),
+  }));
+
+  const animatedAuraProps = useAnimatedProps(() => ({
+    opacity: auraOpacity.value,
+  }));
+
+  const dotsLayerStyle = useAnimatedStyle(() => ({
+    opacity: drawProgress.value > 0.65 ? (drawProgress.value - 0.65) / 0.35 : 0,
+  }));
+
+  const hasData = safeThisWeek.some((v) => v > 0) || safeLastWeek.some((v) => v > 0);
 
   if (!hasData) {
     return (
@@ -118,7 +165,7 @@ export const VolumeTrendLine: React.FC<VolumeTrendLineProps> = React.memo(functi
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>VOLUME TREND</Text>
-          <Text style={styles.subtitle}>This week vs last week (kg)</Text>
+          <Text style={styles.subtitle}>This week vs last week ({uLabel})</Text>
         </View>
         <View style={styles.legend}>
           <View style={styles.legendItem}>
@@ -137,12 +184,11 @@ export const VolumeTrendLine: React.FC<VolumeTrendLineProps> = React.memo(functi
         <Svg width="100%" height={height} viewBox={`0 0 ${svgWidth} ${height}`}>
           <Defs>
             <LinearGradient id="thisWeekGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor={primaryColor} stopOpacity={isDark ? 0.28 : 0.20} />
+              <Stop offset="0" stopColor={primaryColor} stopOpacity={isDark ? 0.28 : 0.2} />
               <Stop offset="1" stopColor={primaryColor} stopOpacity={0.02} />
             </LinearGradient>
           </Defs>
 
-          {/* Horizontal grid lines */}
           {[0.25, 0.5, 0.75, 1].map((f, i) => (
             <Line
               key={i}
@@ -155,49 +201,50 @@ export const VolumeTrendLine: React.FC<VolumeTrendLineProps> = React.memo(functi
             />
           ))}
 
-          {/* Last week dashed reference line */}
-          {lastWeek.some(v => v > 0) && (
-            <Path
+          {lastWeek.some((v) => v > 0) && (
+            <AnimatedSvgPath
               d={lastLinePath}
               fill="none"
               stroke={secondaryColor}
               strokeWidth="1.5"
               strokeOpacity={isDark ? 0.55 : 0.65}
               strokeDasharray="4,4"
+              animatedProps={animatedAuraProps}
             />
           )}
 
-          {/* This week filled area */}
-          <Path d={thisAreaPath} fill="url(#thisWeekGrad)" />
-
-          {/* This week solid line */}
-          <Path
+          <AnimatedSvgPath d={thisAreaPath} fill="url(#thisWeekGrad)" animatedProps={animatedAuraProps} />
+          <AnimatedSvgPath
             d={thisLinePath}
             fill="none"
             stroke={primaryColor}
             strokeWidth="2.5"
             strokeLinecap="round"
             strokeLinejoin="round"
+            strokeDasharray={`${thisLen}, ${thisLen}`}
+            animatedProps={animatedLineProps}
           />
-
-          {/* Data point dots for this week */}
-          {safeThisWeek.map((v, i) => {
-            if (v === 0) return null;
-            const x = padX + i * step;
-            const y = padY + (height - padY * 2) - (v / maxVal) * (height - padY * 2);
-            return (
-              <Circle
-                key={i}
-                cx={x.toFixed(1)}
-                cy={y.toFixed(1)}
-                r="3.5"
-                fill={primaryColor}
-                stroke={isDark ? '#1a1a2e' : '#ffffff'}
-                strokeWidth="1.5"
-              />
-            );
-          })}
         </Svg>
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFillObject, dotsLayerStyle]}>
+          <Svg width="100%" height={height} viewBox={`0 0 ${svgWidth} ${height}`}>
+            {safeThisWeek.map((v, i) => {
+              if (v === 0) return null;
+              const pt = thisCoords[i];
+              if (!pt) return null;
+              return (
+                <Circle
+                  key={i}
+                  cx={pt.x.toFixed(1)}
+                  cy={pt.y.toFixed(1)}
+                  r="3.5"
+                  fill={primaryColor}
+                  stroke={tokens.bg.surface}
+                  strokeWidth="1.5"
+                />
+              );
+            })}
+          </Svg>
+        </Animated.View>
       </View>
 
       {/* Day labels */}
@@ -211,9 +258,9 @@ export const VolumeTrendLine: React.FC<VolumeTrendLineProps> = React.memo(functi
                 {label}
               </Text>
               {isTrained && (
-                <Text style={styles.dayVolLabel}>
-                  {vol >= 1000 ? `${(vol / 1000).toFixed(1)}k` : vol}
-                </Text>
+                <NumericText style={styles.dayVolLabel}>
+                  {vol >= 1000 ? `${(vol / 1000).toFixed(1)}k` : `${vol}`}
+                </NumericText>
               )}
             </View>
           );
@@ -225,62 +272,62 @@ export const VolumeTrendLine: React.FC<VolumeTrendLineProps> = React.memo(functi
 
 export default VolumeTrendLine;
 
-const makeStyles = (colors: any, isDark: boolean = true) =>
+const makeStyles = (tokens: ThemeTokens) =>
   StyleSheet.create({
     container: {
-      backgroundColor: colors.surface,
-      borderRadius: RADIUS.xl,
-      padding: 16,
-      marginBottom: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
+      backgroundColor: tokens.isDark ? '#0F1015' : tokens.bg.surface,
+      borderRadius: RADIUS.card,
+      padding: SPACE.lg,
+      marginBottom: 10,
+      borderWidth: tokens.border.hairlineWidth,
+      borderColor: tokens.border.subtle,
     },
     header: {
       flexDirection: 'row',
       alignItems: 'flex-start',
       justifyContent: 'space-between',
-      marginBottom: 12,
+      marginBottom: SPACE.md,
     },
     title: {
-      fontSize: 10,
-      fontWeight: '700',
-      color: colors.textTertiary,
+      fontSize: tokens.fontSize.xs,
+      color: tokens.text.secondary,
       letterSpacing: 1.2,
       fontFamily: FONT_FAMILY.bold,
     },
     subtitle: {
-      fontSize: 11,
-      color: colors.textTertiary,
+      fontSize: tokens.fontSize.xs,
+      color: tokens.text.secondary,
       fontFamily: FONT_FAMILY.regular,
       marginTop: 2,
     },
     legend: {
-      gap: 6,
+      gap: SPACE.xs + 2,
       alignItems: 'flex-end',
     },
     legendItem: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 5,
+      gap: SPACE.xs + 1,
     },
     legendDot: {
       width: 8,
       height: 8,
-      borderRadius: 4,
+      borderRadius: RADIUS.full,
     },
     legendText: {
       fontSize: 10,
-      color: colors.textTertiary,
+      color: tokens.text.secondary,
       fontFamily: FONT_FAMILY.medium,
     },
     svgWrap: {
-      width: '100%',
-      marginBottom: 4,
+      alignItems: 'center',
+      marginVertical: SPACE.xs,
     },
     dayLabels: {
       flexDirection: 'row',
-      justifyContent: 'space-around',
-      paddingHorizontal: 4,
+      justifyContent: 'space-between',
+      marginTop: SPACE.xs + 2,
+      paddingHorizontal: 2,
     },
     dayLabelCol: {
       alignItems: 'center',
@@ -288,24 +335,23 @@ const makeStyles = (colors: any, isDark: boolean = true) =>
     },
     dayLabel: {
       fontSize: 10,
-      color: colors.textTertiary,
+      color: tokens.text.muted,
       fontFamily: FONT_FAMILY.medium,
     },
     dayLabelActive: {
-      color: colors.textPrimary,
+      color: tokens.text.primary,
       fontFamily: FONT_FAMILY.bold,
     },
     dayVolLabel: {
       fontSize: 9,
-      color: colors.accentPrimary,
-      fontFamily: FONT_FAMILY.bold,
-      marginTop: 1,
+      color: tokens.accent.primary,
+      fontFamily: FONT_FAMILY.semibold,
+      marginTop: 2,
     },
     empty: {
+      color: tokens.text.muted,
       fontSize: 13,
-      color: colors.textTertiary,
+      marginTop: 24,
       textAlign: 'center',
-      marginTop: 20,
-      fontFamily: FONT_FAMILY.regular,
     },
   });

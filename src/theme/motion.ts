@@ -1,55 +1,53 @@
 /**
- * motion.ts — ZenTrack Mobile
+ * motion.ts — ZenFit Native UI-Thread Motion Physics
  *
- * Single source of truth for all spring configs and timing durations.
- * RULE: Every `withSpring` call in the app MUST import from here.
- * Never write one-off { damping: X, stiffness: Y } inline.
+ * Single source of truth for Reanimated v4 spring configs, easing curves,
+ * and micro-interaction durations. Every animation runs on the native UI thread.
  */
 
-import { Easing } from 'react-native-reanimated';
-import type { WithSpringConfig } from 'react-native-reanimated';
+import { Easing, WithSpringConfig } from 'react-native-reanimated';
 
-export const springs: Record<string, WithSpringConfig> = {
-  /** iOS Snappy — buttons, checkboxes, small toggles (critically damped, zero oscillation) */
-  snappy: { damping: 28, stiffness: 300, mass: 0.7 },
+export const springs = {
+  /** Tactile button release recovery — zero rubber-band oscillation */
+  tactile: { damping: 20, stiffness: 350, mass: 0.7 } satisfies WithSpringConfig,
 
-  /** iOS Standard — card expand, sheet contents settling, tab switches */
-  standard: { damping: 30, stiffness: 240, mass: 0.8 },
+  /** Snappy checkboxes, small toggles, segmented pills */
+  snappy: { damping: 28, stiffness: 320, mass: 0.7 } satisfies WithSpringConfig,
 
-  /** iOS Gentle — bottom sheets sliding up, page transitions */
-  gentle: { damping: 34, stiffness: 220, mass: 0.9 },
+  /** Card transitions, sheet settles, directional exercise glide */
+  standard: { damping: 30, stiffness: 260, mass: 0.8 } satisfies WithSpringConfig,
 
-  /** Subtle Tactile Pop — celebrations, achievements (controlled, zero rubber-banding) */
-  bouncy: { damping: 22, stiffness: 200, mass: 0.8 },
-};
+  /** Bottom sheets & full-height overlays */
+  gentle: { damping: 34, stiffness: 220, mass: 0.9 } satisfies WithSpringConfig,
 
-/** Apple iOS Cubic-Bezier Easing Presets */
+  /** Apple iOS sheet presentation & dismissal spring (crisp deceleration, zero overshoot) */
+  sheet: { damping: 32, stiffness: 380, mass: 0.72 } satisfies WithSpringConfig,
+
+  /** Continuous media/layout morphing (GIF expand/collapse, row glide) */
+  morph: { damping: 28, stiffness: 310, mass: 0.8 } satisfies WithSpringConfig,
+
+  /** Controlled completion pop (checkmarks, PR celebration badges) */
+  bouncy: { damping: 14, stiffness: 280, mass: 0.65 } satisfies WithSpringConfig,
+} as const;
+
 export const iosEasing = {
-  /** Deceleration curve (Ease-out) — entering elements, modals, dropdowns */
   decel: Easing.bezier(0.16, 1, 0.3, 1),
-  /** Standard iOS curve (Ease-in-out) — gestures, switches, transitions */
   standard: Easing.bezier(0.25, 0.1, 0.25, 1),
-  /** Acceleration curve (Ease-in) — exiting elements, dismissals */
   accel: Easing.bezier(0.32, 0, 0.67, 0),
-};
+} as const;
 
 export const durations = {
-  /** Instant touch feedback press-down */
+  tactilePressIn: 90,
   microTap: 70,
-  /** Fast touch release recovery */
   microRelease: 140,
-  /** Delay between list items animating in */
   stagger: 30,
-  /** Bottom sheet slide-up */
-  sheetOpen: 250,
-  /** Bottom sheet slide-down */
-  sheetClose: 200,
-  /** Tab content swap, week-strip day switch */
-  crossFade: 180,
-  /** Checkmark border fade-out */
+  sheetOpen: 205,
+  sheetClose: 165,
+  crossFade: 155,
   checkFade: 120,
-  /** Checkmark path draw-in */
   checkDraw: 160,
-  /** Poof dismiss (scale + opacity) */
   poof: 140,
-};
+  roulette: 580,
+  chartDraw: 650,
+  barFill: 540,
+} as const;

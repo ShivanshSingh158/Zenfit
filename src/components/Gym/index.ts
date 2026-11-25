@@ -3,4 +3,4 @@ export * from './exercise';
 export * from './metrics';
 export * from './schedule';
 export * from './cardio';
-export * from './common';
+export * from './profile';

@@ -3,23 +3,22 @@
  * Allows user to swap the active workout routine for the selected day.
  */
 import React, { useMemo } from 'react';
-import { View, Text, Modal, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, Text } from 'react-native';
+import { X } from 'lucide-react-native';
+import BottomSheet from '../../ui/BottomSheet';
+import { TactileButton } from '../../ui/TactileButton';
+import { ICON, TOUCH } from '../../../theme/tokens';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { GYM_PLAN } from '../../../data/gymPlan';
+import { resolvePlanDay } from '../../../data/gymPlan';
 import { useGymPlan } from '../../../contexts/domains/WellnessContext';
-import { getCustomPlanDay } from '../../../hooks/useGymLog';
 import { hapticSuccess } from '../../../utils/haptics';
-import { formatIndianDate } from '../../../utils/gymUtils';
 
-// Extracted Subcomponents & Styles
 import { makeSwapRoutineStyles } from './swapRoutineStyles';
 import RoutineSplitCard from './RoutineSplitCard';
 
 interface Props {
   visible: boolean;
-  selectedDate: string;
+  selectedDate?: string;
   currentPlanDayIndex?: number;
   onClose: () => void;
   onSelectDay: (dayIndex: number) => void;
@@ -27,22 +26,16 @@ interface Props {
 
 export function SwapRoutineModal({
   visible,
-  selectedDate,
   currentPlanDayIndex,
   onClose,
   onSelectDay,
 }: Props) {
-  const { colors, isDark } = useTheme();
-  const insets = useSafeAreaInsets();
+  const { colors, isDark, tokens } = useTheme();
   const styles = useMemo(() => makeSwapRoutineStyles(colors, isDark), [colors, isDark]);
   const { userGymPlan } = useGymPlan();
 
   const days = useMemo(() => {
-    return Array.from({ length: 7 }, (_, i) => i + 1).map(idx => {
-      const custom = getCustomPlanDay(userGymPlan?.customDays, idx);
-      const fallback = GYM_PLAN.find(p => p.dayIndex === idx);
-      return custom || fallback || { dayIndex: idx, name: `Day ${idx}`, subtitle: '', focus: '', exercises: [], isRest: false };
-    });
+    return Array.from({ length: 7 }, (_, i) => resolvePlanDay(userGymPlan, i + 1));
   }, [userGymPlan]);
 
   const handleSelect = (idx: number) => {
@@ -52,59 +45,47 @@ export function SwapRoutineModal({
   };
 
   return (
-    <Modal
+    <BottomSheet
       visible={visible}
-      animationType="slide"
-      transparent
-      statusBarTranslucent
-      onRequestClose={onClose}
+      onClose={onClose}
+      scrollable={true}
+      avoidKeyboard={false}
     >
-      <View style={styles.modalBg}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
-        <View
-          style={[
-            styles.sheet,
-            { paddingBottom: Math.max(insets.bottom + 16, 28) },
-          ]}
-        >
-          {/* Top Sheet Drag Handle */}
-          <View style={styles.sheetHandleWrap}>
-            <View style={styles.sheetHandle} />
-          </View>
-
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerTextCol}>
-              <Text style={styles.title}>Swap Day Routine</Text>
-              <Text style={styles.subtitle} numberOfLines={1}>
-                Select a workout program for {formatIndianDate(selectedDate)}
-              </Text>
-            </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="close" size={18} color={colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Routine List */}
-          <ScrollView
-            style={styles.scrollArea}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 16 }}
-          >
-            {days.map(d => (
-              <RoutineSplitCard
-                key={d.dayIndex}
-                day={d}
-                isSelected={currentPlanDayIndex === d.dayIndex}
-                onSelect={handleSelect}
-                styles={styles}
-                colors={colors}
-              />
-            ))}
-          </ScrollView>
+      {/* Unified Sheet Header */}
+      <View style={styles.header}>
+        <View style={styles.headerTextCol}>
+          <Text style={styles.title}>Swap Today's Workout</Text>
+          <Text style={styles.subtitle}>
+            Changes today only — your weekly plan stays the same.
+          </Text>
         </View>
+        <TactileButton
+          variant="custom"
+          haptic="light"
+          onPress={onClose}
+          style={styles.closeBtn}
+          hitSlop={TOUCH.hitSlop}
+          accessibilityLabel="Close swap workout sheet"
+        >
+          <X size={16} color={tokens.text.secondary} strokeWidth={ICON.strokeWidth} />
+        </TactileButton>
       </View>
-    </Modal>
+
+      {/* Single Obsidian Hairline Ledger */}
+      <View style={styles.ledgerCard}>
+        {days.map((d, idx) => (
+          <RoutineSplitCard
+            key={d.dayIndex}
+            day={d}
+            isSelected={currentPlanDayIndex === d.dayIndex}
+            showDivider={idx < days.length - 1}
+            onSelect={handleSelect}
+            styles={styles}
+            colors={colors}
+          />
+        ))}
+      </View>
+    </BottomSheet>
   );
 }
 

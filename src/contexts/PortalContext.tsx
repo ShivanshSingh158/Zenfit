@@ -24,6 +24,7 @@ class PortalStore {
   }
 
   mount = (node: ReactNode, key: string) => {
+    if (this.portals.get(key) === node) return;
     this.portals.set(key, node);
     this.updateSnapshot();
     this.notify();
@@ -65,15 +66,21 @@ export function usePortal() {
  * Because state is decoupled into PortalStore, PortalProvider itself
  * never re-renders, protecting the entire root app tree from spurious renders.
  */
+const PortalEntry = React.memo(function PortalEntry({ node }: { node: ReactNode }) {
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none" accessible={false}>
+      {node}
+    </View>
+  );
+});
+
 function PortalOutlet() {
   const activePortals = useSyncExternalStore(portalStore.subscribe, portalStore.getSnapshot);
 
   return (
     <>
       {activePortals.map(([key, node]) => (
-        <View key={key} style={StyleSheet.absoluteFill} pointerEvents="box-none" accessible={false}>
-          {node}
-        </View>
+        <PortalEntry key={key} node={node} />
       ))}
     </>
   );
@@ -96,11 +103,12 @@ export function PortalProvider({ children }: { children: ReactNode }) {
 export function Portal({ children, name }: { children: ReactNode; name: string }) {
   const { mount, unmount } = usePortal();
 
-  React.useEffect(() => {
+  // Synchronous layout commit eliminates an extra passive-effect frame latency when opening sheets
+  React.useLayoutEffect(() => {
     mount(children, name);
   }, [children, name, mount]);
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     return () => unmount(name);
   }, [name, unmount]);
 

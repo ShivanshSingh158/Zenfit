@@ -1,57 +1,35 @@
 /**
- * domainCache.ts — AsyncStorage helpers for ALL domain data in ZenTrack Mobile
+ * domainCache.ts — AsyncStorage helpers for domain data in ZenFit
  *
- * Implements stale-while-revalidate for every domain context:
- *   Wellness  : gymLogs, userGymPlan, waterLogs, sleepLogs, weightLogs
- *   Academic  : attendance, attendanceLogs, assignments, semesters, semesterSubjects
- *   Planner   : customEvents, goals, weeklyReviews
- *   Creative  : storageNodes, learningTopics, jobs
+ * Implements stale-while-revalidate for wellness domain contexts:
+ *   Wellness: gymLogs, userGymPlan, waterLogs, sleepLogs, weightLogs
  *
- * Boot flow (same pattern as coreCache.ts):
+ * Boot flow:
  *   1. On boot: multiGet from AsyncStorage instantly (~5ms, no network)
  *   2. Seed context state immediately — screen is usable before Firestore responds
  *   3. After each Firestore snapshot: multiSet to update the cache
- *
- * This ensures ALL screens show real data even when offline.
  *
  * Cache clear: called on logout — stale data from a previous user never bleeds.
  */
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clearDomainHotCache } from './hotCacheStore';
-import { clearBootManifest, updateL1Cache } from './bootManifest';
+import { clearBootManifest, updateL1Cache, GYM_ARCHIVE_YEARS_KEY, EXERCISE_LEDGER_KEY } from './bootManifest';
 
 // Automatically flush any pending debounced AsyncStorage writes when app backgrounds
 AppState.addEventListener('change', nextState => {
-  if (nextState === 'background' || nextState === 'inactive') {
+  if ((nextState === 'background' || nextState === 'inactive') && _pendingWrites.size > 0) {
     flushDomainCache().catch(() => {});
   }
 });
 
 // ─── Cache Keys ───────────────────────────────────────────────────────────────
 export const DOMAIN_CACHE_KEYS = {
-  // Wellness
-  GYM_LOGS:         '@zentrack_cache_gym_logs',
-  USER_GYM_PLAN:    '@zentrack_cache_user_gym_plan',
-  WATER_LOGS:       '@zentrack_cache_water_logs',
-  SLEEP_LOGS:       '@zentrack_cache_sleep_logs',
-  WEIGHT_LOGS:      '@zentrack_cache_weight_logs',
-  // Academic
-  ATTENDANCE:       '@zentrack_cache_attendance',
-  ATTENDANCE_LOGS:  '@zentrack_cache_attendance_logs',
-  ASSIGNMENTS:      '@zentrack_cache_assignments',
-  SEMESTERS:        '@zentrack_cache_semesters',
-  SEM_SUBJECTS:     '@zentrack_cache_sem_subjects',
-  HOLIDAYS:         '@zentrack_cache_holidays',
-  // Planner
-  CUSTOM_EVENTS:    '@zentrack_cache_custom_events',
-  GOALS:            '@zentrack_cache_goals',
-  WEEKLY_REVIEWS:   '@zentrack_cache_weekly_reviews',
-  // Creative
-  STORAGE_NODES:    '@zentrack_cache_storage_nodes',
-  LEARNING_TOPICS:  '@zentrack_cache_learning_topics',
-  JOBS:             '@zentrack_cache_jobs',
-  CONTENT_LOGS:     '@zentrack_cache_content_logs',
+  GYM_LOGS:      '@zentrack_cache_gym_logs',
+  USER_GYM_PLAN: '@zentrack_cache_user_gym_plan',
+  WATER_LOGS:    '@zentrack_cache_water_logs',
+  SLEEP_LOGS:    '@zentrack_cache_sleep_logs',
+  WEIGHT_LOGS:   '@zentrack_cache_weight_logs',
 } as const;
 
 type CacheKey = typeof DOMAIN_CACHE_KEYS[keyof typeof DOMAIN_CACHE_KEYS];
@@ -122,10 +100,16 @@ export async function flushDomainCache(domainKey?: string): Promise<void> {
 
             const hotJson = JSON.stringify(hotLogs);
             pairs.push([cacheKey, hotJson]);
-            // Shadow backup key for self-healing storage recovery
+            // Shadow backup for corruption recovery (Issue #122)
             pairs.push([`${cacheKey}_bak`, hotJson]);
 
-            // Archive cold logs partitioned by year if any exist
+            // Archive cold logs partitioned by year if any exist (Issue #4, #52, #55 & #160)
+            let existingYears: string[] = [];
+            try {
+              const rawExisting = await AsyncStorage.getItem(GYM_ARCHIVE_YEARS_KEY);
+              if (rawExisting) existingYears = JSON.parse(rawExisting);
+            } catch {}
+
             if (coldLogs.length > 0) {
               const byYear: Record<string, any[]> = {};
               for (const cl of coldLogs) {
@@ -133,18 +117,28 @@ export async function flushDomainCache(domainKey?: string): Promise<void> {
                 if (!byYear[yr]) byYear[yr] = [];
                 byYear[yr].push(cl);
               }
+              const years = Object.keys(byYear);
+              const allYears = Array.from(new Set([...existingYears, ...years]));
+              pairs.push([GYM_ARCHIVE_YEARS_KEY, JSON.stringify(allYears)]);
               for (const [yr, yrLogs] of Object.entries(byYear)) {
-                pairs.push([`@zentrack_cache_gym_archive_${yr}`, JSON.stringify(yrLogs)]);
+                // Deduplicate cold logs by id or date to guarantee idempotency
+                const dedupMap = new Map<string, any>();
+                for (const cl of yrLogs) {
+                  dedupMap.set(cl?.id || cl?.date, cl);
+                }
+                pairs.push([`@zentrack_cache_gym_archive_${yr}`, JSON.stringify(Array.from(dedupMap.values()))]);
               }
+            } else {
+              // Issue #52: Ensure GYM_ARCHIVE_YEARS_KEY is always persisted (at least []) so rawYears === null never forces getAllKeys()
+              pairs.push([GYM_ARCHIVE_YEARS_KEY, JSON.stringify(existingYears || [])]);
             }
             continue;
           }
 
           const serialized = JSON.stringify(valueToStore);
           pairs.push([cacheKey, serialized]);
-          if (cacheKey.includes('gym_logs') || cacheKey.includes('attendance_logs')) {
-            pairs.push([`${cacheKey}_bak`, serialized]);
-          }
+          // Shadow backup for corruption recovery (Issue #122)
+          pairs.push([`${cacheKey}_bak`, serialized]);
         }
       }
       if (pairs.length > 0) await AsyncStorage.multiSet(pairs);
@@ -154,11 +148,11 @@ export async function flushDomainCache(domainKey?: string): Promise<void> {
 
 function getCanonicalDomain(keyMap: Record<string, CacheKey>): string {
   const vals = Object.values(keyMap);
-  if (vals.some(v => v.includes('gym') || v.includes('water') || v.includes('sleep') || v.includes('weight'))) return 'wellness';
-  if (vals.some(v => v.includes('attendance') || v.includes('assignment') || v.includes('sem'))) return 'academic';
-  if (vals.some(v => v.includes('event') || v.includes('goal') || v.includes('review'))) return 'planner';
-  if (vals.some(v => v.includes('storage') || v.includes('topic') || v.includes('job') || v.includes('content'))) return 'creative';
-  return vals.sort().join('|');
+  if (vals.some(v => v.includes('gym') || v.includes('water') || v.includes('sleep') || v.includes('weight'))) {
+    return 'wellness';
+  }
+  const keys = Object.keys(keyMap).sort().join('_');
+  return keys || 'default';
 }
 
 // ─── Generic write helper — immediate=true for user writes, false for snapshot writes ───
@@ -186,8 +180,7 @@ export async function writeDomainCache(
     return flushDomainCache(domainKey);
   }
 
-  // Background/snapshot write — debounce 1s so burst snapshots coalesce into one write.
-  // JSON.stringify for large arrays (gym logs, attendance) runs once, not on every snapshot.
+  // Background/snapshot write — debounce 1s so burst snapshots coalesce into one write
   const existing_timer = _writeTimers.get(domainKey);
   if (existing_timer) clearTimeout(existing_timer);
   _writeTimers.set(domainKey, setTimeout(() => {
@@ -195,8 +188,6 @@ export async function writeDomainCache(
     flushDomainCache(domainKey).catch(() => {});
   }, 1000));
 }
-
-// ─── Domain-specific helpers — typed wrappers around the generic functions ────
 
 // ── Wellness ─────────────────────────────────────────────────────────────────
 const WELLNESS_KEY_MAP = {
@@ -218,9 +209,20 @@ export interface WellnessCache {
 export const readWellnessCache = async (): Promise<Partial<WellnessCache>> => {
   const result = await readDomainCache<WellnessCache>(WELLNESS_KEY_MAP);
   try {
-    const allKeys = await AsyncStorage.getAllKeys();
-    const archiveKeys = allKeys.filter(k => k.startsWith('@zentrack_cache_gym_archive_'));
-    if (archiveKeys.length > 0) {
+    let archiveYears: string[] = [];
+    const rawYears = await AsyncStorage.getItem(GYM_ARCHIVE_YEARS_KEY);
+    if (rawYears !== null && rawYears !== undefined) {
+      try { archiveYears = JSON.parse(rawYears); } catch {}
+    } else {
+      const allKeys = await AsyncStorage.getAllKeys();
+      archiveYears = allKeys
+        .filter(k => k.startsWith('@zentrack_cache_gym_archive_'))
+        .map(k => k.replace('@zentrack_cache_gym_archive_', ''));
+      AsyncStorage.setItem(GYM_ARCHIVE_YEARS_KEY, JSON.stringify(archiveYears)).catch(() => {});
+    }
+
+    if (archiveYears.length > 0) {
+      const archiveKeys = archiveYears.map(yr => `@zentrack_cache_gym_archive_${yr}`);
       const archivePairs = await AsyncStorage.multiGet(archiveKeys);
       const archiveLogs: any[] = [];
       for (const [, raw] of archivePairs) {
@@ -232,13 +234,21 @@ export const readWellnessCache = async (): Promise<Partial<WellnessCache>> => {
       }
       if (archiveLogs.length > 0) {
         const existingLogs = Array.isArray(result.gymLogs) ? result.gymLogs : [];
-        const seenIds = new Set(existingLogs.map((l: any) => l?.id).filter(Boolean));
+        const seenDates = new Set<string>();
+        const seenIds = new Set<string>();
+        for (const l of existingLogs) {
+          if (l?.date) seenDates.add(l.date);
+          if (l?.id) seenIds.add(l.id);
+        }
         const merged = [...existingLogs];
         for (const al of archiveLogs) {
-          if (al?.id && !seenIds.has(al.id)) {
-            seenIds.add(al.id);
-            merged.push(al);
-          } else if (!al?.id) {
+          if (!al) continue;
+          // Issue #56: deduplicate archive logs by date AND id
+          const hasDate = al.date && seenDates.has(al.date);
+          const hasId = al.id && seenIds.has(al.id);
+          if (!hasDate && !hasId) {
+            if (al.date) seenDates.add(al.date);
+            if (al.id) seenIds.add(al.id);
             merged.push(al);
           }
         }
@@ -249,63 +259,9 @@ export const readWellnessCache = async (): Promise<Partial<WellnessCache>> => {
   } catch {}
   return result;
 };
-export const writeWellnessCache = (data: Partial<WellnessCache>, immediate = false) => writeDomainCache(data, WELLNESS_KEY_MAP, immediate);
 
-// ── Academic ─────────────────────────────────────────────────────────────────
-const ACADEMIC_KEY_MAP = {
-  attendance:      DOMAIN_CACHE_KEYS.ATTENDANCE,
-  attendanceLogs:  DOMAIN_CACHE_KEYS.ATTENDANCE_LOGS,
-  assignments:     DOMAIN_CACHE_KEYS.ASSIGNMENTS,
-  semesters:       DOMAIN_CACHE_KEYS.SEMESTERS,
-  semesterSubjects: DOMAIN_CACHE_KEYS.SEM_SUBJECTS,
-  holidays:         DOMAIN_CACHE_KEYS.HOLIDAYS,
-} as const;
-
-export interface AcademicCache {
-  attendance: any[];
-  attendanceLogs: any[];
-  assignments: any[];
-  semesters: any[];
-  semesterSubjects: any[];
-  holidays: string[];
-}
-
-export const readAcademicCache  = () => readDomainCache<AcademicCache>(ACADEMIC_KEY_MAP);
-export const writeAcademicCache = (data: Partial<AcademicCache>, immediate = false) => writeDomainCache(data, ACADEMIC_KEY_MAP, immediate);
-
-// ── Planner ───────────────────────────────────────────────────────────────────
-const PLANNER_KEY_MAP = {
-  customEvents:  DOMAIN_CACHE_KEYS.CUSTOM_EVENTS,
-  goals:         DOMAIN_CACHE_KEYS.GOALS,
-  weeklyReviews: DOMAIN_CACHE_KEYS.WEEKLY_REVIEWS,
-} as const;
-
-export interface PlannerCache {
-  customEvents: any[];
-  goals: any[];
-  weeklyReviews: any[];
-}
-
-export const readPlannerCache  = () => readDomainCache<PlannerCache>(PLANNER_KEY_MAP);
-export const writePlannerCache = (data: Partial<PlannerCache>, immediate = false) => writeDomainCache(data, PLANNER_KEY_MAP, immediate);
-
-// ── Creative ──────────────────────────────────────────────────────────────────
-const CREATIVE_KEY_MAP = {
-  storageNodes:   DOMAIN_CACHE_KEYS.STORAGE_NODES,
-  learningTopics: DOMAIN_CACHE_KEYS.LEARNING_TOPICS,
-  jobs:           DOMAIN_CACHE_KEYS.JOBS,
-  contentLogs:    DOMAIN_CACHE_KEYS.CONTENT_LOGS,
-} as const;
-
-export interface CreativeCache {
-  storageNodes: any[];
-  learningTopics: any[];
-  jobs: any[];
-  contentLogs: any[];
-}
-
-export const readCreativeCache  = () => readDomainCache<CreativeCache>(CREATIVE_KEY_MAP);
-export const writeCreativeCache = (data: Partial<CreativeCache>, immediate = false) => writeDomainCache(data, CREATIVE_KEY_MAP, immediate);
+export const writeWellnessCache = (data: Partial<WellnessCache>, immediate = false) =>
+  writeDomainCache(data, WELLNESS_KEY_MAP, immediate);
 
 export async function clearAllDomainCaches(): Promise<void> {
   for (const timer of _writeTimers.values()) {
@@ -316,10 +272,64 @@ export async function clearAllDomainCaches(): Promise<void> {
   try {
     clearBootManifest();
     clearDomainHotCache();
-    const allKeys = await AsyncStorage.getAllKeys();
-    const archiveKeys = allKeys.filter(k => k.startsWith('@zentrack_cache_gym_archive_') || k.endsWith('_bak'));
-    const allToRemove = Array.from(new Set([...Object.values(DOMAIN_CACHE_KEYS), ...archiveKeys]));
-    await AsyncStorage.multiRemove(allToRemove);
+    let archiveYears: string[] = [];
+    try {
+      const rawYears = await AsyncStorage.getItem(GYM_ARCHIVE_YEARS_KEY);
+      if (rawYears) archiveYears = JSON.parse(rawYears);
+    } catch {}
+    const archiveKeys = archiveYears.map(yr => `@zentrack_cache_gym_archive_${yr}`);
+
+    // Issue #57: Also scan for and remove all user-scoped dynamic caches, hot logs, drafts, sync meta, weekly analysis, video & avatar keys
+    let extraDynamicKeys: string[] = [];
+    try {
+      const allKeys = await AsyncStorage.getAllKeys();
+      extraDynamicKeys = allKeys.filter(
+        k =>
+          k.startsWith('@zenfit_hot_log_') ||
+          k.startsWith('gym_active_draft_') ||
+          k.startsWith('@gym_active_session_') ||
+          k.startsWith('@zenfit_firestore_cursor_') ||
+          k.startsWith('@zentrack_last_sync_meta_v1') ||
+          k.startsWith('zenfit_weekly_gym_analysis_v4_') ||
+          k.startsWith('@zentrack_video_id_') ||
+          k.startsWith('@zentrack_avatar_disk_path_') ||
+          k.startsWith('@zentrack_avatar_source_url_') ||
+          k.startsWith('@zenfit_media_cache_')
+      );
+    } catch {}
+
+    const bakMirrors = Object.values(DOMAIN_CACHE_KEYS).map(k => `${k}_bak`);
+
+    const keysToRemove = Array.from(new Set([
+      ...Object.values(DOMAIN_CACHE_KEYS),
+      ...bakMirrors,
+      ...archiveKeys,
+      ...extraDynamicKeys,
+      GYM_ARCHIVE_YEARS_KEY,
+      EXERCISE_LEDGER_KEY,
+      'gym_profile_v1',
+      '@gym_profile_v2',
+      '@zenfit_guest_mode_v1',
+      'zentrack_exercise_prs_v1',
+      'zentrack_xp_v1',
+      'zentrack_xp_streak',
+      '@zentrack_xp_rewarded_keys_v1',
+      'zenfit_xp_v1',
+      'zenfit_xp_streak',
+      '@zenfit_global_rest_timer',
+      '@zenfit_widget_live_workout_data',
+      '@zentrack_widget_mutation_ts',
+      '@zenfit_notification_ledger_v2',
+      '@zenfit_in_app_notifications_v2',
+      '@zenfit_notif_fingerprint',
+      '@zenfit_last_app_open_ts',
+      '@zentrack_active_workout_state',
+      '@zenfit_active_workout_state',
+      '@gym_last_completed_session',
+      'zenfit_onboarding_flow_done_v3',
+      'zenfit_initial_weight_seeded_v1',
+      '@zentrack_dead_letter_vault',
+    ]));
+    await AsyncStorage.multiRemove(keysToRemove);
   } catch { /* silent */ }
 }
-

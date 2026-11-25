@@ -1,9 +1,16 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, useWindowDimensions } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { LineChart } from 'react-native-chart-kit';
+import React, { useMemo, useState } from 'react';
+import { View, Text, ScrollView } from 'react-native';
+import { Dumbbell } from 'lucide-react-native';
 import Animated from 'react-native-reanimated';
 import { feedback } from '../../../utils/haptics';
+import { ICON, SPACE } from '../../../theme/tokens';
+import { useResponsiveMetrics } from '../../../theme/responsive';
+import { useTheme } from '../../../contexts/ThemeContext';
+import { TactileButton } from '../../ui/TactileButton';
+import { IOSSegmentedControl } from '../../ui/IOSSegmentedControl';
+import { AnimatedSvgLineChart, ChartDataPoint } from '../../ui/AnimatedSvgCharts';
+import { NumericText } from '../../ui/NumericText';
+import { useWeightUnit, kgToDisplay, unitLabel } from '../../../utils/weightUnit';
 
 export interface WorkoutSummaryProgressionChartProps {
   availableLifts: string[];
@@ -15,122 +22,129 @@ export interface WorkoutSummaryProgressionChartProps {
   streakStyle: any;
   styles: any;
   isDark: boolean;
+  replayKey?: number | string;
 }
 
-export const WorkoutSummaryProgressionChart: React.FC<WorkoutSummaryProgressionChartProps> = React.memo(({
-  availableLifts,
-  selectedLift,
-  setSelectedLift,
-  selectedMetric,
-  setSelectedMetric,
-  chartData,
-  streakStyle,
-  styles,
-  isDark,
-}) => {
-  const { width: screenWidth } = useWindowDimensions();
+export const WorkoutSummaryProgressionChart: React.FC<WorkoutSummaryProgressionChartProps> = React.memo(
+  ({
+    availableLifts,
+    selectedLift,
+    setSelectedLift,
+    selectedMetric,
+    setSelectedMetric,
+    chartData,
+    streakStyle,
+    styles,
+    replayKey = 0,
+  }) => {
+    const { tokens } = useTheme();
+    const unitIsLbs = useWeightUnit();
+    const uLabel = unitLabel(unitIsLbs);
+    const { clampChartWidth } = useResponsiveMetrics();
+    const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
 
-  const hasValidChartPoints = Boolean(
-    chartData?.datasets?.[0]?.data &&
-    chartData.datasets[0].data.length > 0 &&
-    chartData.datasets[0].data.every((n: any) => typeof n === 'number' && Number.isFinite(n))
-  );
+    const svgPoints = useMemo<ChartDataPoint[]>(() => {
+      const nums: number[] = chartData?.datasets?.[0]?.data || [];
+      const labels: string[] = chartData?.labels || [];
+      if (
+        !Array.isArray(nums) ||
+        nums.length === 0 ||
+        !nums.every((n) => typeof n === 'number' && Number.isFinite(n))
+      ) {
+        return [];
+      }
+      return nums.map((val, idx) => ({
+        value: kgToDisplay(val, unitIsLbs, selectedMetric === 'Volume' ? 0 : 1),
+        xLabel: labels[idx] || '',
+      }));
+    }, [chartData, unitIsLbs, selectedMetric]);
 
-  return (
-    <Animated.View style={[styles.progressionCard, streakStyle]}>
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>90-DAY PROGRESSION</Text>
-      </View>
+    const chartWidth = clampChartWidth(56);
+    const activePt = selectedIdx != null && svgPoints[selectedIdx] ? svgPoints[selectedIdx] : null;
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.pillRow}
-        style={{ marginBottom: 14 }}
-      >
-        {availableLifts.map(lift => {
-          const isActive = selectedLift.toLowerCase() === lift.toLowerCase();
-          return (
-            <TouchableOpacity
-              key={lift}
-              style={[styles.liftPill, isActive && styles.liftPillActive]}
-              onPress={() => {
-                feedback.tap();
-                setSelectedLift(lift);
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.liftPillText, isActive && styles.liftPillTextActive]}>{lift}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+    return (
+      <Animated.View style={[styles.progressionCard, streakStyle]}>
+        <View style={[styles.sectionHeaderRow, { justifyContent: 'space-between', alignItems: 'center' }]}>
+          <Text style={styles.sectionTitle}>90-DAY PROGRESSION</Text>
+          {activePt && (
+            <NumericText style={{ fontSize: 12, color: tokens.accent.primary }}>
+              {activePt.xLabel ? `${activePt.xLabel} · ` : ''}
+              {activePt.value} {uLabel}
+            </NumericText>
+          )}
+        </View>
 
-      <View style={styles.segmentedControl}>
-        <TouchableOpacity
-          style={[styles.segmentBtn, selectedMetric === '1RM' && styles.segmentBtnActive]}
-          onPress={() => {
-            feedback.tap();
-            setSelectedMetric('1RM');
-          }}
-          activeOpacity={0.7}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.pillRow}
+          style={{ marginBottom: 14 }}
         >
-          <Text style={[styles.segmentText, selectedMetric === '1RM' && styles.segmentTextActive]}>
-            Est. 1RM (kg)
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.segmentBtn, selectedMetric === 'Volume' && styles.segmentBtnActive]}
-          onPress={() => {
-            feedback.tap();
-            setSelectedMetric('Volume');
-          }}
-          activeOpacity={0.7}
-        >
-          <Text style={[styles.segmentText, selectedMetric === 'Volume' && styles.segmentTextActive]}>
-            Total Volume (kg)
-          </Text>
-        </TouchableOpacity>
-      </View>
+          {availableLifts.map((lift) => {
+            const isActive = selectedLift.toLowerCase() === lift.toLowerCase();
+            return (
+              <TactileButton
+                key={lift}
+                variant="custom"
+                haptic="none"
+                style={[styles.liftPill, isActive && styles.liftPillActive]}
+                onPress={() => {
+                  feedback.tap();
+                  setSelectedIdx(null);
+                  setSelectedLift(lift);
+                }}
+              >
+                <Text style={[styles.liftPillText, isActive && styles.liftPillTextActive]}>
+                  {lift}
+                </Text>
+              </TactileButton>
+            );
+          })}
+        </ScrollView>
 
-      {hasValidChartPoints ? (
-        <View style={styles.chartWrapper}>
-          <LineChart
-            data={chartData}
-            width={Math.max(280, screenWidth - 40)}
-            height={160}
-            withDots={true}
-            withInnerLines={true}
-            withOuterLines={false}
-            withVerticalLines={false}
-            chartConfig={{
-              backgroundColor: 'transparent',
-              backgroundGradientFrom: isDark ? '#1C1C1E' : '#FFFFFF',
-              backgroundGradientTo: isDark ? '#1C1C1E' : '#FFFFFF',
-              decimalPlaces: 0,
-              color: (opacity = 1) => isDark ? `rgba(255, 255, 255, ${opacity})` : `rgba(108, 92, 231, ${opacity})`,
-              labelColor: (opacity = 1) => isDark ? `rgba(255, 255, 255, ${opacity * 0.45})` : `rgba(28, 28, 30, ${opacity * 0.6})`,
-              style: { borderRadius: 12 },
-              propsForBackgroundLines: { strokeDasharray: '4 4', stroke: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' },
-              propsForDots: { r: '3.5', strokeWidth: '1.5', stroke: isDark ? '#1C1C1E' : '#FFFFFF' },
+        <View style={{ marginBottom: SPACE.sm }}>
+          <IOSSegmentedControl
+            segments={[
+              { id: '1RM', label: `Est. 1RM (${uLabel})` },
+              { id: 'Volume', label: `Total Volume (${uLabel})` },
+            ]}
+            activeId={selectedMetric}
+            onSelect={(id) => {
+              setSelectedIdx(null);
+              setSelectedMetric(id as '1RM' | 'Volume');
             }}
-            bezier
-            style={styles.chartStyle}
+            height={34}
           />
         </View>
-      ) : (
-        <View style={styles.emptyChartBox}>
-          <View style={styles.emptyIconBadge}>
-            <Ionicons name="barbell-outline" size={18} color="#8E8E93" />
+
+        {svgPoints.length > 0 ? (
+          <View style={styles.chartWrapper}>
+            <AnimatedSvgLineChart
+              points={svgPoints}
+              width={chartWidth}
+              height={168}
+              strokeColor={tokens.accent.primary}
+              interactiveScrub={true}
+              selectedIndex={selectedIdx}
+              onSelectIndex={setSelectedIdx}
+              replayKey={`${replayKey}-${selectedLift}-${selectedMetric}`}
+              gradientId="summary_90d_grad"
+            />
           </View>
-          <Text style={styles.emptyChartTitle}>No Lift History</Text>
-          <Text style={styles.emptyChartText}>
-            Log sets for {selectedLift} across multiple workouts to plot your 90-day strength curve.
-          </Text>
-        </View>
-      )}
-    </Animated.View>
-  );
-});
+        ) : (
+          <View style={styles.emptyChartBox}>
+            <View style={styles.emptyIconBadge}>
+              <Dumbbell size={18} color={tokens.text.secondary} strokeWidth={ICON.strokeWidth} />
+            </View>
+            <Text style={styles.emptyChartTitle}>No Lift History</Text>
+            <Text style={styles.emptyChartText}>
+              Log sets for {selectedLift} across multiple workouts to plot your 90-day strength curve.
+            </Text>
+          </View>
+        )}
+      </Animated.View>
+    );
+  }
+);
 
 export default WorkoutSummaryProgressionChart;

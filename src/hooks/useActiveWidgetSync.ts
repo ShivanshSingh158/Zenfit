@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { Platform, AppState, InteractionManager } from 'react-native';
 import { todayStr } from './useGymLog';
+import { getGymProfileSync } from './useGymProfile';
 import { saveCachedLiveWorkoutData, updateLiveWorkoutWidget } from '../services/widgetSyncService';
 import type { LiveWorkoutWidgetData } from '../types/widget.types';
 
@@ -22,7 +23,7 @@ export function useActiveWidgetSync({
   date,
   log,
 }: UseActiveWidgetSyncProps) {
-  const [appState, setAppState] = useState(AppState.currentState);
+  const appStateRef = useRef(AppState.currentState);
   const prevAppStateRef = useRef(AppState.currentState);
 
   const latestWidgetStateRef = useRef({
@@ -82,7 +83,7 @@ export function useActiveWidgetSync({
         0
       );
       const totalSets = exercises.reduce(
-        (sum, ex) => sum + (ex.setsLog || []).length,
+        (sum, ex) => sum + (ex.setsLog?.length || Number(ex.targetSets) || 3),
         0
       );
 
@@ -95,8 +96,12 @@ export function useActiveWidgetSync({
         day: 'numeric',
       });
 
+      const uncompletedIdx = (currentEx.setsLog || []).findIndex((s: any) => !s.completed);
+      const currentSetIndex = uncompletedIdx >= 0 ? uncompletedIdx : 0;
+
       const widgetData: LiveWorkoutWidgetData = {
         dateStr: curDate || logDate || todayStr(),
+        unit: getGymProfileSync()?.unitIsLbs ? 'lbs' : 'kg',
         dayName,
         displayDate,
         isActive: !isCompleted,
@@ -108,20 +113,18 @@ export function useActiveWidgetSync({
         currentExerciseIndex: curIdx,
         totalExercises: exercises.length,
         currentExercise: {
-          id: currentEx.id || currentEx.name,
+          id: currentEx.exerciseId || currentEx.id || currentEx.name,
           name: currentEx.name,
           targetSets: currentEx.setsLog?.length || currentEx.targetSets || 4,
-          currentSetIndex: (currentEx.setsLog || []).findIndex((s: any) => !s.completed) >= 0
-            ? (currentEx.setsLog || []).findIndex((s: any) => !s.completed)
-            : 0,
+          currentSetIndex,
           sets: (currentEx.setsLog || []).map((s: any, idx: number) => ({
             setNumber: idx + 1,
             weight: Number(s.weight) || 0,
             reps: Number(s.reps) || 10,
             completed: Boolean(s.completed),
           })),
-          targetWeight: currentEx.setsLog?.[0]?.weight != null ? Number(currentEx.setsLog[0].weight) : null,
-          targetReps: currentEx.setsLog?.[0]?.reps != null ? Number(currentEx.setsLog[0].reps) : null,
+          targetWeight: currentEx.setsLog?.[currentSetIndex]?.weight != null ? Number(currentEx.setsLog[currentSetIndex].weight) : undefined,
+          targetReps: currentEx.setsLog?.[currentSetIndex]?.reps != null ? Number(currentEx.setsLog[currentSetIndex].reps) : undefined,
         },
         nextExerciseName: nextEx?.name,
         completedSetsCount: completedSets,
@@ -142,7 +145,7 @@ export function useActiveWidgetSync({
         syncAndroidLiveWidget();
       }
       prevAppStateRef.current = nextState;
-      setAppState(nextState);
+      appStateRef.current = nextState;
     });
     return () => sub.remove();
   }, [syncAndroidLiveWidget]);
@@ -154,7 +157,7 @@ export function useActiveWidgetSync({
   }, [log?.completed, syncAndroidLiveWidget]);
 
   return {
-    appState,
+    appState: appStateRef.current,
     syncAndroidLiveWidget,
   };
 }

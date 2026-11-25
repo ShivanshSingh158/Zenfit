@@ -1,3 +1,4 @@
+import { estimate1RM } from './oneRepMaxEngine';
 /**
  * muscleRecoveryService.ts — ZenTrack Mobile
  *
@@ -15,7 +16,7 @@
  */
 
 import { GymDayLog, UserGymPlanDoc, GymPlanDay } from '../types/gym.types';
-import { GYM_PLAN, GYM_PLAN_ARNOLD } from '../data/gymPlan';
+import { GYM_PLAN, GYM_PLAN_ARNOLD, resolvePlanDay } from '../data/gymPlan';
 import { inferAutomaticRIR } from './effortEngine';
 import { computeOrGetHotCache, generateDatasetFingerprint } from '../utils/hotCacheStore';
 import { formatLocalDateStr, parseLocalDate } from '../utils/dateUtils';
@@ -160,6 +161,14 @@ export function canonicalizeMuscleSlug(name?: string): MuscleSlug | null {
 
 const _EXERCISE_WEIGHTS_MEMO = new Map<string, Partial<Record<MuscleSlug, number>>>();
 
+function setMemoWeights(key: string, val: Partial<Record<MuscleSlug, number>>) {
+  if (_EXERCISE_WEIGHTS_MEMO.size >= 1000) {
+    const firstKey = _EXERCISE_WEIGHTS_MEMO.keys().next().value;
+    if (firstKey) _EXERCISE_WEIGHTS_MEMO.delete(firstKey);
+  }
+  _EXERCISE_WEIGHTS_MEMO.set(key, Object.freeze({ ...val }));
+}
+
 /**
  * Returns muscle weight distribution (primary = 1.0, secondary = 0.4) for any exercise
  */
@@ -179,7 +188,7 @@ export function getExerciseMuscleWeights(exercise: { name?: string; muscle?: str
   const sciEntry = SCIENTIFIC_BY_NAME[lowerRaw] || SCIENTIFIC_BY_NAME[sanitizedRaw] || SCIENTIFIC_BY_NAME[canonicalKey];
   if (sciEntry && sciEntry.weights && Object.keys(sciEntry.weights).length > 0) {
     const res = { ...sciEntry.weights };
-    _EXERCISE_WEIGHTS_MEMO.set(memoKey, res);
+    setMemoWeights(memoKey, res);
     return res;
   }
 
@@ -235,7 +244,19 @@ export function getExerciseMuscleWeights(exercise: { name?: string; muscle?: str
   } else if (name.includes('curl') && !name.includes('leg curl')) {
     add('biceps', 1.0);
     add('forearm', 0.4);
-  } else if (name.includes('tricep') || name.includes('skullcrusher') || name.includes('pushdown') || name.includes('extension') && !name.includes('leg extension')) {
+  } else if (name.includes('back extension') || name.includes('hyperextension')) {
+    add('lower-back', 1.0);
+    add('gluteal', 0.6);
+    add('hamstring', 0.4);
+  } else if (
+    name.includes('tricep') ||
+    name.includes('skullcrusher') ||
+    name.includes('pushdown') ||
+    (name.includes('extension') &&
+      !name.includes('leg extension') &&
+      !name.includes('back extension') &&
+      !name.includes('hip extension'))
+  ) {
     add('triceps', 1.0);
   } else if (name.includes('leg extension')) {
     add('quadriceps', 1.0);
@@ -258,7 +279,7 @@ export function getExerciseMuscleWeights(exercise: { name?: string; muscle?: str
     if (fb) Object.assign(out, fb);
   }
 
-  _EXERCISE_WEIGHTS_MEMO.set(memoKey, out);
+  setMemoWeights(memoKey, out);
   return out;
 }
 
@@ -307,14 +328,22 @@ function resolveAnchorTimestamp(anchorDateStr?: string): number {
 
 function resolveLogTimestamp(log: GymDayLog): number {
   if (typeof log.workoutStartTime === 'number' && log.workoutStartTime > 1000000000000) {
-    return log.workoutStartTime;
+    return Math.min(Date.now(), log.workoutStartTime);
   }
   if (typeof log.updatedAt === 'number' && log.updatedAt > 1000000000000 && log.date === formatLocalDateStr(new Date(log.updatedAt))) {
-    return log.updatedAt;
+    return Math.min(Date.now(), log.updatedAt);
   }
-  const d = parseLocalDate(String(log.date || '').slice(0, 10));
-  d.setHours(18, 0, 0, 0); // Default historical session anchor at 6:00 PM local time
-  return d.getTime();
+  const cleanDateStr = String(log.date || '').slice(0, 10);
+  const todayIso = formatLocalDateStr(new Date());
+  if (cleanDateStr === todayIso) {
+    // Untimed workout today: anchor to noon (capped at now) so recovery decay advances cleanly
+    const noonToday = parseLocalDate(cleanDateStr);
+    noonToday.setHours(12, 0, 0, 0);
+    return Math.min(Date.now(), noonToday.getTime());
+  }
+  const d = parseLocalDate(cleanDateStr);
+  d.setHours(12, 0, 0, 0); // Default historical session anchor at noon local time
+  return Math.min(Date.now(), d.getTime());
 }
 
 /**
@@ -323,30 +352,17 @@ function resolveLogTimestamp(log: GymDayLog): number {
  * Defaults to 7 (Sunday).
  */
 export function getPrimaryRestDayIndex(userGymPlan?: UserGymPlanDoc | null): number {
-  if (!userGymPlan) return 7; // Sunday by default
-
-  const basePlan = userGymPlan.templateId === 'arnold' ? GYM_PLAN_ARNOLD : GYM_PLAN;
+  if (!userGymPlan) return 7;
 
   const isRest = (d: number): boolean => {
-    const custom = userGymPlan.customDays?.[d];
-    if (custom) {
-      if (custom.isRest === true) return true;
-      if (custom.name && /rest|recovery/i.test(custom.name)) return true;
-      if (Array.isArray(custom.exercises) && custom.exercises.length === 0) return true;
-      return false;
-    }
-    const baseDay = basePlan.find(bd => bd.dayIndex === d) || basePlan[d - 1];
-    return baseDay ? Boolean(baseDay.isRest) : d === 7;
+    const plan = resolvePlanDay(userGymPlan, d);
+    return Boolean(plan?.isRest);
   };
 
-  // If Sunday (7) is rest, Sunday is the primary reset day (standard case)
   if (isRest(7)) return 7;
-
-  // Otherwise check if any other day is marked rest
   for (let d = 1; d <= 7; d++) {
     if (isRest(d)) return d;
   }
-
   return 7;
 }
 
@@ -517,7 +533,11 @@ export function calculateMuscleFatigue(
     const out: Record<MuscleSlug, MuscleRecoveryData> = {} as any;
 
     const muscleSessions: Record<MuscleSlug, Map<number, number>> = {} as any;
-    MUSCLES.forEach(m => (muscleSessions[m] = new Map()));
+    const muscleRawSets7d: Record<MuscleSlug, number> = {} as any;
+    MUSCLES.forEach(m => {
+      muscleSessions[m] = new Map();
+      muscleRawSets7d[m] = 0;
+    });
 
     let cnsFatiguePool = 0;
 
@@ -547,14 +567,19 @@ export function calculateMuscleFatigue(
               const mSlug = slug as MuscleSlug;
               const prev = muscleSessions[mSlug].get(logTime) || 0;
               muscleSessions[mSlug].set(logTime, prev + setImpulse * (w || 1));
+              if (hoursAgo <= 168 && (w || 0) >= 0.3) {
+                muscleRawSets7d[mSlug] = (muscleRawSets7d[mSlug] || 0) + 1;
+              }
             }
           }
 
-          // Systemic CNS impulse (tau = 40h)
+          // Systemic CNS impulse (tau = 40h) incorporating RIR
           const weight = Number(s.weight) || 0;
-          const e1rm = weight > 0 ? weight * (1 + (Number(s.reps) || 8) / 30) : weight;
-          const loadFraction = e1rm > 0 ? Math.min(1.0, weight / e1rm) : 0.7;
-          const cnsImpulse = effortScalar * biometrics.cnsDemandScalar * loadFraction * 0.08;
+          const reps = Number(s.reps) || 8;
+          const rEff = reps + (s.rir != null ? Number(s.rir) : 0);
+          const loadFraction = Math.min(1.0, 1 / (1 + rEff / 30));
+          const absoluteLoadScalar = weight > 0 ? Math.min(1.3, Math.max(0.6, Math.sqrt(weight / 60))) : 0.7;
+          const cnsImpulse = effortScalar * biometrics.cnsDemandScalar * loadFraction * absoluteLoadScalar * 0.08;
           cnsFatiguePool += cnsImpulse * cnsDecay;
         }
       }
@@ -570,16 +595,12 @@ export function calculateMuscleFatigue(
 
       let totalFatigue = 0;
       let mostRecentTime: number | null = null;
-      let totalSetsIn7Days = 0;
 
       sessionMap.forEach((sessionImpulse, sessionTime) => {
         if (!mostRecentTime || sessionTime > mostRecentTime) {
           mostRecentTime = sessionTime;
         }
         const hoursAgo = Math.max(0, (now - sessionTime) / 3600000);
-        if (hoursAgo <= 168) {
-          totalSetsIn7Days += sessionImpulse;
-        }
         // Dynamic non-linear tau scaling (volume spillover beyond 6 sets)
         const tauEffective = tauBaseHours * (1 + 0.04 * Math.max(0, sessionImpulse - 6));
         const decay = Math.exp(-hoursAgo / tauEffective);
@@ -596,8 +617,9 @@ export function calculateMuscleFatigue(
       const state: FatigueState = isPrime ? 'ready' : isFatigued ? 'fatigued' : 'recovering';
       const fLevel = isPrime ? 0 : isFatigued ? (totalFatigue >= 0.85 ? 4 : 3) : (totalFatigue >= 0.42 ? 2 : 1);
 
-      const hoursSince = mostRecentTime != null ? Math.max(0, (now - mostRecentTime) / 3600000) : 999;
-      const strengthScore = Math.min(1.0, 0.65 + 0.35 * (1 - Math.exp(-hoursSince / tauBaseHours)));
+      // Strength recovery scales smoothly with accumulated fatigue
+      const fatiguePenalty = Math.min(0.35, totalFatigue * 0.35);
+      const strengthScore = Math.max(0.50, Math.min(1.0, 1.0 - fatiguePenalty));
 
       let estimatedRecoveryHours = 0;
       if (!isPrime && totalFatigue > 0.28) {
@@ -614,7 +636,7 @@ export function calculateMuscleFatigue(
         state,
         strengthScore: Math.round(strengthScore * 100) / 100,
         lastTrainedDaysAgo: daysAgo,
-        totalSets: Math.round(totalSetsIn7Days),
+        totalSets: muscleRawSets7d[m] || 0,
         estimatedRecoveryHours,
         readinessPct,
         cnsFatigueScore,
@@ -700,9 +722,11 @@ export function calculateMacroVolumeLoad(
           for (const [slug, mWeight] of Object.entries(weights)) {
             if (slug in out) {
               const muscleKey = slug as MuscleSlug;
-              out[muscleKey].sets += mWeight || 1;
-              out[muscleKey].volumeKg += setVol * (mWeight || 1);
-              totalKgAll += setVol * (mWeight || 1);
+              // Issue #104: Use nullish coalescing ?? so weight of 0 does not fall back to 1.0
+              const effectiveW = mWeight ?? 1;
+              out[muscleKey].sets += effectiveW;
+              out[muscleKey].volumeKg += setVol * effectiveW;
+              totalKgAll += setVol * effectiveW;
             }
           }
         }
@@ -738,7 +762,7 @@ export function calculateMuscleGrowthProgression(
     MUSCLES.forEach(m => (out[m] = {
       gainPct: 0,
       status: 'untrained',
-      color: '#232128',
+      color: '#27272A',
       bestExercise: null,
       loadDeltaKg: 0,
     }));
@@ -769,7 +793,8 @@ export function calculateMuscleGrowthProgression(
 
         const topW = Math.max(0, ...completed.map((s: any) => Number(s.weight) || 0));
         const topR = completed.find((s: any) => Number(s.weight) === topW)?.reps || 1;
-        const rm = topW * (1 + topR / 30); // Epley 1RM
+        const cappedReps = Math.min(Number(topR) || 1, 15);
+        const rm = topW * (1 + cappedReps / 30); // Capped Epley 1RM
 
         const weights = getExerciseMuscleWeights(ex);
         for (const slug of Object.keys(weights)) {
@@ -851,7 +876,7 @@ export function calculateSymmetryAndBalance(
   // cache misses — without this hoist, the full log traversal ran twice in one JS frame.
   // Now volumeMap is computed once (and itself cached), then reused by symmetry calculation.
   const todayTag = anchorDateStr || formatLocalDateStr(new Date());
-  const planSig = userGymPlan ? JSON.stringify(userGymPlan.customDays || {}) + (userGymPlan.templateId || '') : 'default';
+  const planSig = userGymPlan ? `${userGymPlan.templateId || ''}|${userGymPlan.updatedAt || ''}|${Object.keys(userGymPlan.customDays || {}).sort().join(',')}` : 'default';
   const cacheKey = `macro_symmetry_${generateDatasetFingerprint(logs, `${windowDays}_${todayTag}_${planSig}`)}`;
   const volumeMap = calculateMacroVolumeLoad(logs, windowDays, anchorDateStr);
   return computeOrGetHotCache(cacheKey, () => {
@@ -869,13 +894,13 @@ export function calculateSymmetryAndBalance(
       // Pair-aware check BEFORE returning 'untrained' so 0-set lagging antagonists still turn RED!
       if (m === 'hamstring' || m === 'gluteal') {
         if (!legPair || legPair.status === 'untrained') {
-          out[m] = { status: 'untrained', ratio: 0, color: '#232128', recommendation: 'No leg sessions logged this week.' };
+          out[m] = { status: 'untrained', ratio: 0, color: '#27272A', recommendation: 'No leg sets logged or planned this week.' };
         } else if (legPair.status === 'lagging_b') {
           out[m] = { 
             status: 'lagging', 
             ratio: legPair.ratio, 
             color: '#FF453A', 
-            recommendation: `Hamstrings & Glutes are falling behind your Quads. Add 3 sets of Romanian Deadlifts (RDLs) or Leg Curls to protect your knees and balance your hips.`,
+            recommendation: `Hamstrings & glutes are behind quads. Add 3 sets of RDLs or Leg Curls to balance legs.`,
             addExerciseName: legPair.correctiveExerciseName || 'Romanian Deadlift (Barbell)',
             addExerciseId: legPair.correctiveExerciseId || 'rdl_barbell',
             targetDayIndex: legPair.targetDayIndex || 6,
@@ -886,7 +911,7 @@ export function calculateSymmetryAndBalance(
             removeDayName: legPair.removeDayName,
           };
         } else if (legPair.status === 'lagging_a') {
-          out[m] = { status: 'dominant', ratio: legPair.ratio, color: '#FF9F0A', recommendation: 'Posterior chain is dominant. Ensure quad movements like Squats or Leg Extensions maintain balance.' };
+          out[m] = { status: 'dominant', ratio: legPair.ratio, color: '#FF9F0A', recommendation: 'Back of legs getting more work than quads. Keep squats or extensions in your week.' };
         } else {
           out[m] = { status: 'optimal', ratio: legPair.ratio, color: '#30D158', recommendation: legPair.correctiveRecommendation };
         }
@@ -895,13 +920,13 @@ export function calculateSymmetryAndBalance(
 
       if (m === 'quadriceps') {
         if (!legPair || legPair.status === 'untrained') {
-          out[m] = { status: 'untrained', ratio: 0, color: '#232128', recommendation: 'No leg sessions logged this week.' };
+          out[m] = { status: 'untrained', ratio: 0, color: '#27272A', recommendation: 'No leg sets logged or planned this week.' };
         } else if (legPair.status === 'lagging_b') {
           out[m] = { 
             status: 'dominant', 
             ratio: legPair.ratio, 
             color: '#FF9F0A', 
-            recommendation: `Quad dominant (${Math.round(legPair.totalSetsA)} sets). Balance with more Hamstring & Glute work to prevent knee strain.`,
+            recommendation: `Quads ahead (${Math.round(legPair.totalSetsA)} sets). Balance with hamstrings or glutes.`,
             removeExerciseName: legPair.removeExerciseName,
             removeExerciseId: legPair.removeExerciseId,
             removeDayIndex: legPair.removeDayIndex,
@@ -912,7 +937,7 @@ export function calculateSymmetryAndBalance(
             targetDayName: legPair.targetDayName,
           };
         } else if (legPair.status === 'lagging_a') {
-          out[m] = { status: 'lagging', ratio: legPair.ratio, color: '#FF453A', recommendation: 'Quads are lagging behind your posterior chain. Add 3 sets of Squats or Leg Extensions.' };
+          out[m] = { status: 'lagging', ratio: legPair.ratio, color: '#FF453A', recommendation: 'Quads are behind back-of-leg work. Add 3 sets of Squats or Leg Extensions.' };
         } else {
           out[m] = { status: 'optimal', ratio: legPair.ratio, color: '#30D158', recommendation: legPair.correctiveRecommendation };
         }
@@ -921,13 +946,13 @@ export function calculateSymmetryAndBalance(
 
       if (m === 'chest' || m === 'deltoids') {
         if (!upperPair || upperPair.status === 'untrained') {
-          out[m] = { status: 'untrained', ratio: 0, color: '#232128', recommendation: 'No upper body sessions logged this week.' };
+          out[m] = { status: 'untrained', ratio: 0, color: '#27272A', recommendation: 'No upper body sets logged or planned this week.' };
         } else if (upperPair.status === 'lagging_b') {
           out[m] = { 
             status: 'dominant', 
             ratio: upperPair.ratio, 
             color: '#FF9F0A', 
-            recommendation: `Push volume is very high (${Math.round(upperPair.totalSetsA)} sets). To prevent forward shoulder rounding, either add more Back pulling or reduce excess pushing.`,
+            recommendation: `Pressing volume is ahead (${Math.round(upperPair.totalSetsA)} sets). Add rows or face pulls to keep shoulders balanced.`,
             removeExerciseName: upperPair.removeExerciseName,
             removeExerciseId: upperPair.removeExerciseId,
             removeDayIndex: upperPair.removeDayIndex,
@@ -938,7 +963,7 @@ export function calculateSymmetryAndBalance(
             targetDayName: upperPair.targetDayName,
           };
         } else if (upperPair.status === 'lagging_a') {
-          out[m] = { status: 'lagging', ratio: upperPair.ratio, color: '#FF453A', recommendation: 'Chest is lagging behind Back pulling. Add 3 sets of Incline Dumbbell Press or Bench Press.' };
+          out[m] = { status: 'lagging', ratio: upperPair.ratio, color: '#FF453A', recommendation: 'Chest pressing is behind back pulling. Add 3 sets of Incline DB Press or Bench.' };
         } else {
           out[m] = { status: 'optimal', ratio: upperPair.ratio, color: '#30D158', recommendation: upperPair.correctiveRecommendation };
         }
@@ -947,14 +972,13 @@ export function calculateSymmetryAndBalance(
 
       if (m === 'upper-back' || m === 'trapezius') {
         if (!upperPair || upperPair.status === 'untrained') {
-          out[m] = { status: 'untrained', ratio: 0, color: '#232128', recommendation: 'No upper body sessions logged this week.' };
+          out[m] = { status: 'untrained', ratio: 0, color: '#27272A', recommendation: 'No upper body sets logged or planned this week.' };
         } else if (upperPair.status === 'lagging_b') {
-          const ratioPct = Math.round(upperPair.ratio * 100);
           out[m] = { 
             status: 'lagging', 
             ratio: upperPair.ratio, 
             color: '#FF453A', 
-            recommendation: `Your Back & Lats are falling behind your Chest (Pull is only ${ratioPct}% of Push). Add 3–4 sets of Rows, Lat Pulldowns, or Face Pulls to match your pushing volume and protect your posture.`,
+            recommendation: `Back volume is behind chest & shoulders. Add 3–4 sets of Rows or Face Pulls to stay balanced.`,
             addExerciseName: upperPair.correctiveExerciseName || 'Face Pull (Cable)',
             addExerciseId: upperPair.correctiveExerciseId || 'face_pull_cable',
             targetDayIndex: upperPair.targetDayIndex || 2,
@@ -965,7 +989,7 @@ export function calculateSymmetryAndBalance(
             removeDayName: upperPair.removeDayName,
           };
         } else if (upperPair.status === 'lagging_a') {
-          out[m] = { status: 'dominant', ratio: upperPair.ratio, color: '#FF9F0A', recommendation: 'Great back pulling volume. Ensure chest pressing stays in healthy proportion.' };
+          out[m] = { status: 'dominant', ratio: upperPair.ratio, color: '#FF9F0A', recommendation: 'Back pulling is ahead of chest. Balance pressing sets if needed.' };
         } else {
           out[m] = { status: 'optimal', ratio: upperPair.ratio, color: '#30D158', recommendation: upperPair.correctiveRecommendation };
         }
@@ -974,7 +998,7 @@ export function calculateSymmetryAndBalance(
 
       if (m === 'biceps' || m === 'triceps') {
         if (!armPair || armPair.status === 'untrained') {
-          out[m] = { status: 'untrained', ratio: 0, color: '#232128', recommendation: 'No arm work logged this week.' };
+          out[m] = { status: 'untrained', ratio: 0, color: '#27272A', recommendation: 'No direct arm work this week.' };
         } else if (armPair.status === 'lagging_a' || armPair.status === 'lagging_b') {
           const isLagging = (m === 'biceps' && armPair.status === 'lagging_a') || (m === 'triceps' && armPair.status === 'lagging_b');
           out[m] = {
@@ -990,9 +1014,9 @@ export function calculateSymmetryAndBalance(
       }
 
       if (vol <= 0) {
-        out[m] = { status: 'untrained', ratio: 0, color: '#232128', recommendation: 'No sets logged in this timeframe.' };
+        out[m] = { status: 'untrained', ratio: 0, color: '#27272A', recommendation: 'No sets logged in this timeframe.' };
       } else {
-        out[m] = { status: 'optimal', ratio: 1.0, color: '#30D158', recommendation: 'Consistent stimulus applied across core chains.' };
+        out[m] = { status: 'optimal', ratio: 1.0, color: '#30D158', recommendation: 'Steady stimulus applied this week.' };
       }
     });
 
@@ -1094,7 +1118,7 @@ export function getHypertrophyLandmarkInfo(
   if (s <= 0) {
     return {
       tier: 'untrained',
-      tierLabel: 'Not Trained Yet (0 sets)',
+      tierLabel: 'Not Trained',
       tierColor: '#8E8E93',
       currentSets: 0,
       mevTarget: mev,
@@ -1102,7 +1126,7 @@ export function getHypertrophyLandmarkInfo(
       mavMaxTarget: mavMax,
       mrvLimit: mrv,
       actionableDeficitSets: mavMin,
-      actionableMessage: `Do ${mev} sets to maintain muscle, or ${mavMin} sets by ${targetDayName} to build new muscle.`,
+      actionableMessage: `Not trained this week · aim for ${mavMin}–${mavMax} sets by ${targetDayName}.`,
     };
   }
 
@@ -1111,15 +1135,15 @@ export function getHypertrophyLandmarkInfo(
     const deficitToMav = Math.max(1, mavMin - s);
     return {
       tier: 'below_mev',
-      tierLabel: `Just Started (${s} sets)`,
-      tierColor: '#6D5FE0', // 🔮 Deep Purple
+      tierLabel: `Light (${s} sets)`,
+      tierColor: '#0055D4',
       currentSets: s,
       mevTarget: mev,
       mavMinTarget: mavMin,
       mavMaxTarget: mavMax,
       mrvLimit: mrv,
       actionableDeficitSets: deficitToMav,
-      actionableMessage: `Do +${deficitToMev} more ${deficitToMev === 1 ? 'set' : 'sets'} to maintain, or +${deficitToMav} more sets by ${targetDayName} to hit the Growth Zone.`,
+      actionableMessage: `${s} done · +${deficitToMev} to maintain or +${deficitToMav} to reach growth zone.`,
     };
   }
 
@@ -1127,59 +1151,59 @@ export function getHypertrophyLandmarkInfo(
     const deficitToMav = Math.max(1, mavMin - s);
     return {
       tier: 'mev',
-      tierLabel: `Maintaining (${s} sets)`,
-      tierColor: '#A599FF', // 🟣 Light Purple
+      tierLabel: `Moderate (${s} sets)`,
+      tierColor: '#0A84FF',
       currentSets: s,
       mevTarget: mev,
       mavMinTarget: mavMin,
       mavMaxTarget: mavMax,
       mrvLimit: mrv,
       actionableDeficitSets: deficitToMav,
-      actionableMessage: `Enough to keep your muscle. Do +${deficitToMav} more ${deficitToMav === 1 ? 'set' : 'sets'} by ${targetDayName} to trigger new growth.`,
+      actionableMessage: `${s} sets done · +${deficitToMav} more sets hits weekly growth target.`,
     };
   }
 
   if (s <= mavMax) {
     return {
       tier: 'mav',
-      tierLabel: `Growth Zone (${s} sets)`,
-      tierColor: '#30D158', // 🟢 Green
+      tierLabel: `On Target (${s} sets)`,
+      tierColor: '#30D158',
       currentSets: s,
       mevTarget: mev,
       mavMinTarget: mavMin,
       mavMaxTarget: mavMax,
       mrvLimit: mrv,
       actionableDeficitSets: 0,
-      actionableMessage: `Weekly goal hit! You've done enough sets for maximum muscle growth this week.`,
+      actionableMessage: `Target hit (${mavMin}–${mavMax} sets) — solid weekly growth stimulus.`,
     };
   }
 
   if (s <= mrv) {
     return {
       tier: 'mav',
-      tierLabel: `Heavy Workload (${s} sets)`,
-      tierColor: '#64D2FF', // 🔹 Ice Blue
+      tierLabel: `High Load (${s} sets)`,
+      tierColor: '#64D2FF',
       currentSets: s,
       mevTarget: mev,
       mavMinTarget: mavMin,
       mavMaxTarget: mavMax,
       mrvLimit: mrv,
       actionableDeficitSets: 0,
-      actionableMessage: `Strong week. You're close to the max your body can recover from—no more sets needed.`,
+      actionableMessage: `Strong weekly volume (${s} sets) — no extra sets needed.`,
     };
   }
 
   return {
     tier: 'mrv_risk',
-    tierLabel: `Overworked (${s} sets)`,
-    tierColor: '#FF9F0A', // 🟠 Orange Alert
+    tierLabel: `Very High (${s} sets)`,
+    tierColor: '#FF9F0A',
     currentSets: s,
     mevTarget: mev,
     mavMinTarget: mavMin,
     mavMaxTarget: mavMax,
     mrvLimit: mrv,
     actionableDeficitSets: 0,
-    actionableMessage: `Too many sets this week. Extra sets won't build more muscle and may cause joint pain—rest this muscle.`,
+    actionableMessage: `Very high volume (${s} sets). Prioritize rest before adding more.`,
   };
 }
 
@@ -1269,7 +1293,9 @@ export function calculateAntagonisticPairs(
         v += data.volumeKg;
       }
     }
-    return { sets: Math.round(s * 10) / 10, vol: Math.round(v) };
+    // Normalize to 7-day rate to prevent 30-day accumulation from falsely triggering >20 sets overload
+    const weeklyFactor = windowDays > 0 ? 7 / windowDays : 1;
+    return { sets: Math.round(s * weeklyFactor * 10) / 10, vol: Math.round(v * weeklyFactor) };
   };
 
   // ── Plan Awareness & Upcoming Schedule Extraction ─────────────────────────
@@ -1284,19 +1310,14 @@ export function calculateAntagonisticPairs(
   );
   const startUpcomingDay = hasCompletedWorkoutToday ? currentDayIndex + 1 : currentDayIndex;
 
-  const isArnold = userGymPlan?.templateId === 'arnold';
-  const basePlan = isArnold ? GYM_PLAN_ARNOLD : GYM_PLAN;
-
   const restDayIndex = getPrimaryRestDayIndex(userGymPlan);
-  const daysUntilRestDay = (restDayIndex - currentDayIndex + 7) % 7;
+  const daysUntilRestDay = ((restDayIndex - currentDayIndex + 7) % 7) || 7;
 
   const allWeekExercises: ScheduledPlanExerciseItem[] = [];
   const upcomingExercises: ScheduledPlanExerciseItem[] = [];
 
   for (let d = 1; d <= 7; d++) {
-    const customDay = userGymPlan?.customDays?.[d];
-    const baseDay = basePlan.find(bd => bd.dayIndex === d) || basePlan[d - 1];
-    const planDay: GymPlanDay | undefined = customDay || baseDay;
+    const planDay: GymPlanDay | undefined = resolvePlanDay(userGymPlan, d);
     if (!planDay || planDay.isRest || !planDay.exercises?.length) continue;
 
     const dayName = PLAN_DAY_NAMES[d] || `Day ${d}`;
@@ -1429,11 +1450,11 @@ export function calculateAntagonisticPairs(
   const routineHasPushExercise = allWeekExercises.some(item => isPushMovement(item));
 
   let upperStatus: AntagonisticPairAnalysis['status'] = 'optimal';
-  let upperStatusLabel = 'Optimal 1:1 Balance';
-  let upperHumanStatus = 'Well Balanced 🟢';
+  let upperStatusLabel = 'Balanced';
+  let upperHumanStatus = 'Balanced';
   let upperColor = '#30D158';
   let upperDeficit = 0;
-  let upperRec = 'Great balance between Chest and Back. This keeps your posture straight and protects your shoulders.';
+  let upperRec = 'Chest and back volume match nicely.';
   let upperAction: AntagonisticPairAnalysis['actionType'] = 'none';
   let upperExName: string | undefined;
   let upperExId: string | undefined;
@@ -1447,16 +1468,16 @@ export function calculateAntagonisticPairs(
   if (pushData.sets === 0 && pullData.sets === 0 && totalPush === 0 && totalPull === 0) {
     upperStatus = 'untrained';
     upperStatusLabel = 'No Data';
-    upperHumanStatus = 'No Workouts Logged';
+    upperHumanStatus = 'Not Tracked';
     upperColor = '#8E8E93';
-    upperRec = 'No chest pressing or back pulling logged or scheduled this week.';
+    upperRec = 'No chest or back sets logged or scheduled yet.';
   } else if (totalPush > 20 || (totalPush > totalPull + 8 && totalPush >= 12)) {
     const pushToRemove = findExerciseToRemove(pushSlugs, item => isPushMovement(item));
     if (pushToRemove) {
       upperStatus = 'lagging_b';
-      upperStatusLabel = `Push Heavy (${Math.round(totalPush)} sets)`;
-      upperHumanStatus = 'Needs Catch-Up 🔴';
-      upperColor = '#FF453A';
+      upperStatusLabel = `Push heavy (${Math.round(totalPush)} sets)`;
+      upperHumanStatus = 'Push Heavy';
+      upperColor = '#FF9F0A';
       upperAction = 'remove';
       upperRemoveName = pushToRemove.exerciseName;
       upperRemoveId = pushToRemove.exerciseId;
@@ -1464,73 +1485,73 @@ export function calculateAntagonisticPairs(
       upperRemoveDayName = pushToRemove.dayName;
       upperExName = 'Face Pull (Cable)';
       upperExId = 'face_pull_cable';
-      upperRec = `Push volume is very high (${Math.round(totalPush)} sets). Suggest removing ${pushToRemove.exerciseName} from ${pushToRemove.dayName} or adding Face Pulls to balance shoulders.`;
+      upperRec = `Pressing volume is high (${Math.round(totalPush)} sets). Trim ${pushToRemove.exerciseName} on ${pushToRemove.dayName} or add Face Pulls.`;
     } else if (pullUpcoming.sets > 0 || routineHasFacePullOrRows || totalPull >= 8) {
       upperStatus = 'optimal';
       const setsPlanned = Math.round(pullUpcoming.sets || 3);
-      upperStatusLabel = `Balanced (+${setsPlanned} Pull sets planned)`;
-      upperHumanStatus = `${setsPlanned} Pull sets planned 🟢`;
+      upperStatusLabel = 'Balanced in plan';
+      upperHumanStatus = 'Balanced in Plan';
       upperColor = '#30D158';
       upperAction = 'none';
-      upperRec = `Upcoming pull exercises (${Math.round(totalPull)} sets planned/logged) balance your routine. No further changes needed.`;
+      upperRec = `${setsPlanned} back pulling sets already scheduled later this week.`;
     } else {
       upperStatus = 'lagging_b';
-      upperStatusLabel = `Back lagging (${Math.round(totalPush)} vs ${Math.round(totalPull)} sets)`;
-      upperHumanStatus = 'Needs Catch-Up 🔴';
+      upperStatusLabel = 'Back behind';
+      upperHumanStatus = 'Back Behind';
       upperColor = '#FF453A';
       upperAction = 'add';
       upperExName = 'Face Pull';
       upperExId = 'rear_delts_face_pulls';
-      upperRec = `Push volume is very high (${Math.round(totalPush)} sets). Add 3 sets of Face Pulls or Rows to protect your shoulders from forward rounding.`;
+      upperRec = `Pressing is ahead of pulling. Add 3 sets of Face Pulls or Rows to balance shoulders.`;
     }
   } else if (totalPush > totalPull + 2.5) {
     upperDeficit = Math.round(totalPush - totalPull);
     if (pullUpcoming.sets > 0 || routineHasFacePullOrRows) {
       upperStatus = 'optimal';
       const setsPlanned = Math.round(pullUpcoming.sets || 3);
-      upperStatusLabel = `Balanced (+${setsPlanned} Pull sets planned)`;
-      upperHumanStatus = `${setsPlanned} Pull sets planned 🟢`;
+      upperStatusLabel = 'Balanced in plan';
+      upperHumanStatus = 'Balanced in Plan';
       upperColor = '#30D158';
       upperAction = 'none';
-      upperRec = `Pull exercises are already scheduled in your routine (+${setsPlanned} sets). No additions needed.`;
+      upperRec = `${setsPlanned} pull sets are already scheduled in your week.`;
     } else {
       upperStatus = 'lagging_b';
-      upperStatusLabel = `Back lagging by ${upperDeficit} sets`;
-      upperHumanStatus = `Needs ${upperDeficit} more Back sets ⚠️`;
+      upperStatusLabel = `+${upperDeficit} back sets needed`;
+      upperHumanStatus = 'Back Behind';
       upperColor = '#FF453A';
       upperAction = 'add';
       upperExName = 'Face Pull';
       upperExId = 'rear_delts_face_pulls';
-      upperRec = `You're training Chest much more than Back, which pulls your shoulders forward. Add 3 sets of Face Pulls or Rows.`;
+      upperRec = `Chest has ${upperDeficit} more sets than Back. Add Face Pulls or Rows to stay balanced.`;
     }
   } else if (totalPull > totalPush + 4) {
     upperDeficit = Math.round(totalPull - totalPush);
     if (pushUpcoming.sets > 0 || routineHasPushExercise) {
       upperStatus = 'optimal';
       const setsPlanned = Math.round(pushUpcoming.sets || 3);
-      upperStatusLabel = `Balanced (+${setsPlanned} Push sets planned)`;
-      upperHumanStatus = `${setsPlanned} Push sets planned 🟢`;
+      upperStatusLabel = 'Balanced in plan';
+      upperHumanStatus = 'Balanced in Plan';
       upperColor = '#30D158';
       upperAction = 'none';
-      upperRec = `Chest pressing is already scheduled in your routine (+${setsPlanned} sets). No additions needed.`;
+      upperRec = `${setsPlanned} pressing sets are already scheduled in your week.`;
     } else {
       upperStatus = 'lagging_a';
-      upperStatusLabel = `Chest lagging by ${upperDeficit} sets`;
-      upperHumanStatus = `Needs ${upperDeficit} more Chest sets ⚠️`;
+      upperStatusLabel = `+${upperDeficit} chest sets needed`;
+      upperHumanStatus = 'Chest Behind';
       upperColor = '#FF9F0A';
       upperAction = 'add';
       upperExName = 'Incline Bench Press (Dumbbell)';
       upperExId = 'upper_chest_incline_dumbbell_press';
-      upperRec = `You're training Back much more than Chest. Add 3 sets of Incline Dumbbell Press to keep your pressing power balanced.`;
+      upperRec = `Back is ahead of Chest by ${upperDeficit} sets. Add 3 sets of Incline DB Press.`;
     }
   } else {
     upperStatus = 'optimal';
-    upperStatusLabel = 'Optimal 1:1 Balance';
-    upperHumanStatus = 'Well Balanced 🟢';
+    upperStatusLabel = 'Balanced';
+    upperHumanStatus = 'Balanced';
     upperColor = '#30D158';
     upperRec = pullUpcoming.sets > 0
-      ? `Great balance between Chest and Back (+${Math.round(pullUpcoming.sets)} pull sets scheduled on ${pullUpcoming.days.join(', ')}). This keeps posture straight.`
-      : 'Great balance between Chest and Back. This keeps your posture straight and protects your shoulders.';
+      ? `Chest and back are balanced (${Math.round(pullUpcoming.sets)} back sets scheduled on ${pullUpcoming.days.join(', ')}).`
+      : 'Chest and back volume match nicely.';
   }
 
   const upperRatio = totalPush > 0 && totalPull > 0
@@ -1576,11 +1597,11 @@ export function calculateAntagonisticPairs(
   const routineHasQuad = allWeekExercises.some(item => isQuadMovement(item));
 
   let legStatus: AntagonisticPairAnalysis['status'] = 'optimal';
-  let legStatusLabel = 'Even Leg Balance';
-  let legHumanStatus = 'Well Balanced 🟢';
+  let legStatusLabel = 'Balanced';
+  let legHumanStatus = 'Balanced';
   let legColor = '#30D158';
   let legDeficit = 0;
-  let legRec = 'Front and back leg muscles are evenly trained, keeping your knees and lower back safe.';
+  let legRec = 'Front and back leg work match nicely.';
   let legAction: AntagonisticPairAnalysis['actionType'] = 'none';
   let legExName: string | undefined;
   let legExId: string | undefined;
@@ -1594,16 +1615,16 @@ export function calculateAntagonisticPairs(
   if (quadData.sets === 0 && postData.sets === 0 && totalQuads === 0 && totalPost === 0) {
     legStatus = 'untrained';
     legStatusLabel = 'No Data';
-    legHumanStatus = 'No Leg Sessions';
+    legHumanStatus = 'Not Tracked';
     legColor = '#8E8E93';
-    legRec = 'No leg sessions logged or scheduled this week.';
+    legRec = 'No leg exercises logged or scheduled yet.';
   } else if (totalQuads > 20 || (totalQuads > totalPost + 8 && totalQuads >= 12)) {
     const quadToRemove = findExerciseToRemove(quadSlugs, item => isQuadMovement(item));
     if (quadToRemove) {
       legStatus = 'lagging_b';
-      legStatusLabel = `Quad Heavy (${Math.round(totalQuads)} sets)`;
-      legHumanStatus = 'Needs Catch-Up 🔴';
-      legColor = '#FF453A';
+      legStatusLabel = `Quad heavy (${Math.round(totalQuads)} sets)`;
+      legHumanStatus = 'Quad Heavy';
+      legColor = '#FF9F0A';
       legAction = 'remove';
       legRemoveName = quadToRemove.exerciseName;
       legRemoveId = quadToRemove.exerciseId;
@@ -1611,73 +1632,73 @@ export function calculateAntagonisticPairs(
       legRemoveDayName = quadToRemove.dayName;
       legExName = 'Romanian Deadlift (Barbell)';
       legExId = 'rdl_barbell';
-      legRec = `High Quad volume (${Math.round(totalQuads)} sets). Suggest removing ${quadToRemove.exerciseName} from ${quadToRemove.dayName} or adding RDLs to balance leg load.`;
+      legRec = `Quad volume is high (${Math.round(totalQuads)} sets). Trim ${quadToRemove.exerciseName} on ${quadToRemove.dayName} or add RDLs.`;
     } else if (postUpcoming.sets > 0 || routineHasPosterior || totalPost >= 8) {
       legStatus = 'optimal';
       const setsPlanned = Math.round(postUpcoming.sets || 3);
-      legStatusLabel = `Balanced (+${setsPlanned} Back Leg sets planned)`;
-      legHumanStatus = `${setsPlanned} Back Leg sets planned 🟢`;
+      legStatusLabel = 'Balanced in plan';
+      legHumanStatus = 'Balanced in Plan';
       legColor = '#30D158';
       legAction = 'none';
-      legRec = `Hamstring and glute exercises (${Math.round(totalPost)} sets planned/logged) balance your leg load.`;
+      legRec = `${setsPlanned} hamstring & glute sets are already scheduled later this week.`;
     } else {
       legStatus = 'lagging_b';
-      legStatusLabel = `Back Legs lagging (${Math.round(totalQuads)} vs ${Math.round(totalPost)} sets)`;
-      legHumanStatus = 'Needs Catch-Up 🔴';
+      legStatusLabel = 'Back legs behind';
+      legHumanStatus = 'Hamstrings Behind';
       legColor = '#FF453A';
       legAction = 'add';
       legExName = 'Romanian Deadlift (Barbell)';
       legExId = 'hamstrings_romanian_deadlifts_rdls';
-      legRec = `Front thighs are working much harder than hamstrings. Add 3 sets of Romanian Deadlifts or Leg Curls to protect knees and hips.`;
+      legRec = `Quads are doing most of the leg work. Add 3 sets of RDLs or Leg Curls.`;
     }
   } else if (totalQuads > totalPost + 2.5) {
     legDeficit = Math.round(totalQuads - totalPost);
     if (postUpcoming.sets > 0 || routineHasPosterior) {
       legStatus = 'optimal';
       const setsPlanned = Math.round(postUpcoming.sets || 3);
-      legStatusLabel = `Balanced (+${setsPlanned} Back Leg sets planned)`;
-      legHumanStatus = `${setsPlanned} Back Leg sets planned 🟢`;
+      legStatusLabel = 'Balanced in plan';
+      legHumanStatus = 'Balanced in Plan';
       legColor = '#30D158';
       legAction = 'none';
-      legRec = `Hamstring and glute exercises are already scheduled in your routine (+${setsPlanned} sets). No additions needed.`;
+      legRec = `${setsPlanned} hamstring & glute sets are scheduled in your week.`;
     } else {
       legStatus = 'lagging_b';
-      legStatusLabel = `Back Legs lagging by ${legDeficit} sets`;
-      legHumanStatus = `Needs ${legDeficit} more Back Leg sets ⚠️`;
+      legStatusLabel = `+${legDeficit} back-leg sets needed`;
+      legHumanStatus = 'Hamstrings Behind';
       legColor = '#FF453A';
       legAction = 'add';
       legExName = 'Romanian Deadlift (Barbell)';
       legExId = 'hamstrings_romanian_deadlifts_rdls';
-      legRec = `Front thighs are working much harder than hamstrings and glutes. Add 3 sets of Romanian Deadlifts or Leg Curls to protect knees and hips.`;
+      legRec = `Quads have ${legDeficit} more sets than hamstrings. Add RDLs or Leg Curls.`;
     }
   } else if (totalPost > totalQuads + 4) {
     legDeficit = Math.round(totalPost - totalQuads);
     if (quadUpcoming.sets > 0 || routineHasQuad) {
       legStatus = 'optimal';
       const setsPlanned = Math.round(quadUpcoming.sets || 3);
-      legStatusLabel = `Balanced (+${setsPlanned} Quad sets planned)`;
-      legHumanStatus = `${setsPlanned} Quad sets planned 🟢`;
+      legStatusLabel = 'Balanced in plan';
+      legHumanStatus = 'Balanced in Plan';
       legColor = '#30D158';
       legAction = 'none';
-      legRec = `Quad exercises are already scheduled in your routine (+${setsPlanned} sets). No additions needed.`;
+      legRec = `${setsPlanned} quad sets are already scheduled in your week.`;
     } else {
       legStatus = 'lagging_a';
-      legStatusLabel = `Quads lagging by ${legDeficit} sets`;
-      legHumanStatus = `Needs ${legDeficit} more Quad sets ⚠️`;
+      legStatusLabel = `+${legDeficit} quad sets needed`;
+      legHumanStatus = 'Quads Behind';
       legColor = '#FF9F0A';
       legAction = 'add';
       legExName = 'Hack Squat (Machine)';
       legExId = 'quads_hack_squats';
-      legRec = `Back leg muscles are getting more work than your quads. Add 3 sets of Hack Squats or Leg Extensions.`;
+      legRec = `Hamstrings/glutes lead quads by ${legDeficit} sets. Add Hack Squats or Leg Extensions.`;
     }
   } else {
     legStatus = 'optimal';
-    legStatusLabel = 'Even Leg Balance';
-    legHumanStatus = 'Well Balanced 🟢';
+    legStatusLabel = 'Balanced';
+    legHumanStatus = 'Balanced';
     legColor = '#30D158';
     legRec = postUpcoming.sets > 0
-      ? `Front and back leg muscles are evenly balanced this week (+${Math.round(postUpcoming.sets)} back leg sets scheduled on ${postUpcoming.days.join(', ')}).`
-      : 'Front and back leg muscles are evenly trained, keeping your knees and lower back safe.';
+      ? `Quads and posterior chain balance cleanly (${Math.round(postUpcoming.sets)} back-leg sets scheduled).`
+      : 'Front and back leg muscles match cleanly.';
   }
 
   const legRatio = totalQuads > 0 && totalPost > 0
@@ -1720,11 +1741,11 @@ export function calculateAntagonisticPairs(
   const routineHasTriceps = allWeekExercises.some(item => isTricepMovement(item));
 
   let armStatus: AntagonisticPairAnalysis['status'] = 'optimal';
-  let armStatusLabel = 'Balanced Arm Ratio';
-  let armHumanStatus = 'Well Balanced 🟢';
+  let armStatusLabel = 'Balanced';
+  let armHumanStatus = 'Balanced';
   let armColor = '#30D158';
   let armDeficit = 0;
-  let armRec = 'Biceps and triceps are evenly matched for strong arms and healthy elbow joints.';
+  let armRec = 'Biceps and triceps match nicely.';
   let armAction: AntagonisticPairAnalysis['actionType'] = 'none';
   let armExName: string | undefined;
   let armExId: string | undefined;
@@ -1738,7 +1759,7 @@ export function calculateAntagonisticPairs(
   if (biData.sets === 0 && triData.sets === 0 && totalBi === 0 && totalTri === 0) {
     armStatus = 'untrained';
     armStatusLabel = 'No Data';
-    armHumanStatus = 'No Direct Arm Work';
+    armHumanStatus = 'Not Tracked';
     armColor = '#8E8E93';
     armRec = 'No direct arm work logged or scheduled this week.';
   } else if (totalBi > totalTri + 2.5) {
@@ -1746,49 +1767,49 @@ export function calculateAntagonisticPairs(
     if (triUpcoming.sets > 0 || routineHasTriceps) {
       armStatus = 'optimal';
       const setsPlanned = Math.round(triUpcoming.sets || 3);
-      armStatusLabel = `Balanced (+${setsPlanned} Tricep sets planned)`;
-      armHumanStatus = `${setsPlanned} Tricep sets planned 🟢`;
+      armStatusLabel = 'Balanced in plan';
+      armHumanStatus = 'Balanced in Plan';
       armColor = '#30D158';
       armAction = 'none';
-      armRec = `Triceps training is already scheduled in your routine (+${setsPlanned} sets). No additions needed.`;
+      armRec = `${setsPlanned} tricep sets are scheduled in your weekly plan.`;
     } else {
       armStatus = 'lagging_b';
-      armStatusLabel = `Triceps lagging by ${armDeficit} sets`;
-      armHumanStatus = `Needs ${armDeficit} more Tricep sets ⚠️`;
+      armStatusLabel = 'Triceps behind';
+      armHumanStatus = 'Triceps Behind';
       armColor = '#FF453A';
       armAction = 'add';
       armExName = 'Overhead Triceps Extension (Cable)';
       armExId = 'long_tricep_overhead_cable_extensions';
-      armRec = `Biceps are getting more work than triceps. Add 3 sets of Overhead Cable Extensions to balance your arms.`;
+      armRec = `Biceps lead triceps by ${armDeficit} sets. Add Overhead Cable Extensions.`;
     }
   } else if (totalTri > totalBi + 3.5) {
     armDeficit = Math.round(totalTri - totalBi);
     if (biUpcoming.sets > 0 || routineHasBiceps) {
       armStatus = 'optimal';
       const setsPlanned = Math.round(biUpcoming.sets || 3);
-      armStatusLabel = `Balanced (+${setsPlanned} Bicep sets planned)`;
-      armHumanStatus = `${setsPlanned} Bicep sets planned 🟢`;
+      armStatusLabel = 'Balanced in plan';
+      armHumanStatus = 'Balanced in Plan';
       armColor = '#30D158';
       armAction = 'none';
-      armRec = `Biceps training is already scheduled in your routine (+${setsPlanned} sets). No additions needed.`;
+      armRec = `${setsPlanned} bicep sets are scheduled in your weekly plan.`;
     } else {
       armStatus = 'lagging_a';
-      armStatusLabel = `Biceps lagging by ${armDeficit} sets`;
-      armHumanStatus = `Needs ${armDeficit} more Bicep sets ⚠️`;
+      armStatusLabel = 'Biceps behind';
+      armHumanStatus = 'Biceps Behind';
       armColor = '#FF9F0A';
       armAction = 'add';
       armExName = 'EZ Bar Biceps Curl';
       armExId = 'short_bicep_standing_ez_bar_curls';
-      armRec = `Triceps are getting more work than biceps. Add 3 sets of EZ Bar Curls to balance your arm strength.`;
+      armRec = `Triceps lead biceps by ${armDeficit} sets. Add EZ Bar Curls.`;
     }
   } else {
     armStatus = 'optimal';
-    armStatusLabel = 'Balanced Arm Ratio';
-    armHumanStatus = 'Well Balanced 🟢';
+    armStatusLabel = 'Balanced';
+    armHumanStatus = 'Balanced';
     armColor = '#30D158';
     armRec = triUpcoming.sets > 0
-      ? `Biceps and triceps are evenly matched this week (+${Math.round(triUpcoming.sets)} tricep sets scheduled on ${triUpcoming.days.join(', ')}).`
-      : 'Biceps and triceps are evenly matched for strong arms and healthy elbow joints.';
+      ? `Biceps and triceps stay balanced (${Math.round(triUpcoming.sets)} tricep sets scheduled).`
+      : 'Biceps and triceps match nicely.';
   }
 
   const armRatio = totalBi > 0 && totalTri > 0
@@ -1843,11 +1864,11 @@ export function calculateAntagonisticPairs(
   const routineHasHorizPull = allWeekExercises.some(item => item.isHorizPull);
 
   let pullStatus: AntagonisticPairAnalysis['status'] = 'optimal';
-  let pullStatusLabel = 'Balanced Pull Planes';
-  let pullHumanStatus = 'Well Balanced 🟢';
+  let pullStatusLabel = 'Balanced';
+  let pullHumanStatus = 'Balanced';
   let pullColor = '#30D158';
   let pullDeficit = 0;
-  let pullRec = 'Balanced vertical and horizontal pulling keeps your shoulders healthy and gives you a thick, wide back.';
+  let pullRec = 'Vertical and horizontal back pulling stay well balanced.';
   let pullAction: AntagonisticPairAnalysis['actionType'] = 'none';
   let pullExName: string | undefined;
   let pullExId: string | undefined;
@@ -1861,57 +1882,57 @@ export function calculateAntagonisticPairs(
   if (vertPullSets === 0 && horizPullSets === 0 && totalVert === 0 && totalHoriz === 0) {
     pullStatus = 'untrained';
     pullStatusLabel = 'No Data';
-    pullHumanStatus = 'No Back Pulling';
+    pullHumanStatus = 'Not Tracked';
     pullColor = '#8E8E93';
-    pullRec = 'No back pulling movements logged or scheduled this week.';
+    pullRec = 'No back pulling exercises logged or scheduled yet.';
   } else if (totalVert > totalHoriz + 2.5) {
     pullDeficit = Math.round(totalVert - totalHoriz);
     if (horizUpcoming.sets > 0 || routineHasHorizPull) {
       pullStatus = 'optimal';
       const setsPlanned = Math.round(horizUpcoming.sets || 3);
-      pullStatusLabel = `Balanced (+${setsPlanned} Row sets planned)`;
-      pullHumanStatus = `${setsPlanned} Row sets planned 🟢`;
+      pullStatusLabel = 'Balanced in plan';
+      pullHumanStatus = 'Balanced in Plan';
       pullColor = '#30D158';
       pullAction = 'none';
-      pullRec = `Horizontal rows are already scheduled in your routine (+${setsPlanned} sets). No additions needed.`;
+      pullRec = `${setsPlanned} row sets are already scheduled in your weekly plan.`;
     } else {
       pullStatus = 'lagging_b';
-      pullStatusLabel = `Rows lagging by ${pullDeficit} sets`;
-      pullHumanStatus = `Needs ${pullDeficit} more Row sets ⚠️`;
+      pullStatusLabel = 'Rows behind';
+      pullHumanStatus = 'Rows Behind';
       pullColor = '#FF9F0A';
       pullAction = 'add';
       pullExName = 'Face Pull';
       pullExId = 'rear_delts_face_pulls';
-      pullRec = `You're doing more pulldowns than rows. Add 3 sets of Face Pulls or Rows to build back thickness and pull your shoulders back.`;
+      pullRec = `More pulldowns than rows. Add 3 sets of Rows or Face Pulls for upper back thickness.`;
     }
   } else if (totalHoriz > totalVert + 3.5) {
     pullDeficit = Math.round(totalHoriz - totalVert);
     if (vertUpcoming.sets > 0 || routineHasVertPull) {
       pullStatus = 'optimal';
       const setsPlanned = Math.round(vertUpcoming.sets || 3);
-      pullStatusLabel = `Balanced (+${setsPlanned} Pulldown sets planned)`;
-      pullHumanStatus = `${setsPlanned} Pulldown sets planned 🟢`;
+      pullStatusLabel = 'Balanced in plan';
+      pullHumanStatus = 'Balanced in Plan';
       pullColor = '#30D158';
       pullAction = 'none';
-      pullRec = `Vertical pulls are already scheduled in your routine (+${setsPlanned} sets). No additions needed.`;
+      pullRec = `${setsPlanned} pulldown sets are already scheduled in your weekly plan.`;
     } else {
       pullStatus = 'lagging_a';
-      pullStatusLabel = `Vertical pull lagging by ${pullDeficit} sets`;
-      pullHumanStatus = `Needs ${pullDeficit} more Pulldown sets ⚠️`;
+      pullStatusLabel = 'Pulldowns behind';
+      pullHumanStatus = 'Pulldowns Behind';
       pullColor = '#FF9F0A';
       pullAction = 'add';
       pullExName = 'Lat Pulldown (Cable)';
       pullExId = 'lat_width_lat_pulldowns_standard';
-      pullRec = `You're doing more rows than pulldowns. Add 3 sets of Lat Pulldowns to build back width.`;
+      pullRec = `More rows than pulldowns. Add 3 sets of Lat Pulldowns for back width.`;
     }
   } else {
     pullStatus = 'optimal';
-    pullStatusLabel = 'Balanced Pull Planes';
-    pullHumanStatus = 'Well Balanced 🟢';
+    pullStatusLabel = 'Balanced';
+    pullHumanStatus = 'Balanced';
     pullColor = '#30D158';
     pullRec = horizUpcoming.sets > 0
-      ? `Balanced vertical and horizontal pulling (+${Math.round(horizUpcoming.sets)} row sets scheduled on ${horizUpcoming.days.join(', ')}). Excellent posture and shoulder health.`
-      : 'Balanced vertical and horizontal pulling keeps your shoulders healthy and gives you a thick, wide back.';
+      ? `Vertical and horizontal pulling stay balanced (${Math.round(horizUpcoming.sets)} row sets scheduled).`
+      : 'Vertical and horizontal back pulling stay well balanced.';
   }
 
   const pullRatio = totalVert > 0 && totalHoriz > 0
@@ -1921,9 +1942,9 @@ export function calculateAntagonisticPairs(
   return [
     {
       id: 'upper',
-      category: 'Upper Body',
-      nameA: 'Push (Chest & Shoulders)',
-      nameB: 'Pull (Back & Traps)',
+      category: 'Chest vs Back',
+      nameA: 'Chest & Shoulders',
+      nameB: 'Back & Traps',
       musclesA: pushSlugs,
       musclesB: pullSlugs,
       setsA: pushData.sets,
@@ -1954,9 +1975,9 @@ export function calculateAntagonisticPairs(
     },
     {
       id: 'pull_balance',
-      category: 'Back Balance',
-      nameA: 'Back Width (Pulldowns)',
-      nameB: 'Back Thickness (Rows)',
+      category: 'Pulldowns vs Rows',
+      nameA: 'Pulldowns',
+      nameB: 'Rows',
       musclesA: ['upper-back'],
       musclesB: ['upper-back', 'trapezius'],
       setsA: Math.round(vertPullSets * 10) / 10,
@@ -1987,9 +2008,9 @@ export function calculateAntagonisticPairs(
     },
     {
       id: 'legs',
-      category: 'Legs',
-      nameA: 'Front Thighs (Quads)',
-      nameB: 'Back Legs (Hamstrings & Glutes)',
+      category: 'Front vs Back Legs',
+      nameA: 'Quads',
+      nameB: 'Hamstrings & Glutes',
       musclesA: quadSlugs,
       musclesB: postSlugs,
       setsA: quadData.sets,

@@ -1,12 +1,33 @@
-import React, { useEffect } from 'react';
-import { Modal, StyleSheet, Pressable, ViewStyle, StyleProp } from 'react-native';
+import React, { useEffect, useCallback, useRef, useState } from 'react';
+import {
+  StyleSheet,
+  Pressable,
+  ViewStyle,
+  StyleProp,
+  BackHandler,
+  Keyboard,
+  Platform,
+  KeyboardAvoidingView,
+  useWindowDimensions,
+} from 'react-native';
 import Animated, {
+  cancelAnimation,
   useSharedValue,
   useAnimatedStyle,
   withTiming,
+  withSpring,
   runOnJS,
 } from 'react-native-reanimated';
-import { useTheme } from "../../contexts/ThemeContext";
+import { Portal } from '../../contexts/PortalContext';
+import { useTheme } from '../../contexts/ThemeContext';
+import { springs, durations, iosEasing } from '../../theme/motion';
+import {
+  markSheetClosing,
+  markSheetClosed,
+  clearSheetClosing,
+  registerModalInStack,
+  isTopModalInStack,
+} from '../../utils/sheetCoordinator';
 
 interface FadeModalProps {
   visible: boolean;
@@ -14,6 +35,7 @@ interface FadeModalProps {
   children: React.ReactNode;
   contentStyle?: StyleProp<ViewStyle>;
   dismissible?: boolean;
+  avoidKeyboard?: boolean;
 }
 
 export default function FadeModal({
@@ -22,59 +44,248 @@ export default function FadeModal({
   children,
   contentStyle,
   dismissible = true,
+  avoidKeyboard = false,
 }: FadeModalProps) {
-    const { colors, isDark } = useTheme();
-    const styles = React.useMemo(() => makeStyles(colors), [colors]);
-  const [mounted, setMounted] = React.useState(visible);
-  const opacity = useSharedValue(0);
+  const { tokens, isDark } = useTheme();
+  const { height: windowHeight } = useWindowDimensions();
+  const styles = React.useMemo(() => makeStyles(tokens, isDark), [tokens, isDark]);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    if (!avoidKeyboard) return;
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const subShow = Keyboard.addListener(showEvt, (e: any) => {
+      setKeyboardHeight(Math.max(0, Math.round(e?.endCoordinates?.height || 0)));
+    });
+    const subHide = Keyboard.addListener(hideEvt, () => setKeyboardHeight(0));
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, [avoidKeyboard]);
+
+  const effectiveWindowHeight = Math.max(240, windowHeight - (avoidKeyboard ? keyboardHeight : 0));
+  const maxCardHeight = Math.max(240, Math.round(effectiveWindowHeight * 0.88));
+
+  const [mounted, setMounted] = useState(visible);
+  const isMountedRef = useRef(visible);
+  const isClosingRef = useRef(false);
+  const rafRef = useRef<number | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  const backdropOpacity = useSharedValue(visible ? 1 : 0);
+  const scale = useSharedValue(visible ? 1 : 0.95);
+  const translateY = useSharedValue(visible ? 0 : 8);
+  const opacity = useSharedValue(visible ? 1 : 0);
+
+  const [portalId] = useState(
+    () => `fade-modal-${Math.random().toString(36).substring(2, 9)}`
+  );
+
+  useEffect(() => {
+    return () => {
+      markSheetClosed(portalId);
+    };
+  }, [portalId]);
+
+  const finalizeClose = useCallback((notifyParent: boolean) => {
+    isClosingRef.current = false;
+    isMountedRef.current = false;
+    setMounted(false);
+    markSheetClosed(portalId);
+    if (notifyParent) {
+      onCloseRef.current?.();
+    }
+  }, [portalId]);
+
+  const animateClose = useCallback(
+    (notifyParent: boolean) => {
+      if (!isMountedRef.current || isClosingRef.current) return;
+      isClosingRef.current = true;
+      markSheetClosing(portalId);
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      Keyboard.dismiss();
+
+      cancelAnimation(backdropOpacity);
+      cancelAnimation(scale);
+      cancelAnimation(translateY);
+      cancelAnimation(opacity);
+
+      backdropOpacity.value = withTiming(0, {
+        duration: durations.poof,
+        easing: iosEasing.standard,
+      });
+      scale.value = withTiming(0.95, {
+        duration: durations.poof,
+        easing: iosEasing.accel,
+      });
+      translateY.value = withTiming(6, {
+        duration: durations.poof,
+        easing: iosEasing.accel,
+      });
+      opacity.value = withTiming(
+        0,
+        { duration: durations.poof, easing: iosEasing.standard },
+        (finished) => {
+          if (finished) {
+            runOnJS(finalizeClose)(notifyParent);
+          } else {
+            runOnJS(clearSheetClosing)(portalId);
+          }
+        }
+      );
+    },
+    [backdropOpacity, scale, translateY, opacity, finalizeClose, portalId]
+  );
 
   useEffect(() => {
     if (visible) {
-      setMounted(true);
-      opacity.value = withTiming(1, { duration: 150 });
-    } else if (mounted) {
-      opacity.value = withTiming(0, { duration: 120 }, (finished) => {
-        if (finished) {
-          runOnJS(setMounted)(false);
-        }
-      });
+      clearSheetClosing(portalId);
+      registerModalInStack(portalId);
+      isClosingRef.current = false;
+      const needsMount = !isMountedRef.current;
+      if (needsMount) {
+        isMountedRef.current = true;
+        setMounted(true);
+        backdropOpacity.value = 0;
+        scale.value = 0.95;
+        translateY.value = 8;
+        opacity.value = 0;
+      }
+
+      const startEnter = () => {
+        cancelAnimation(backdropOpacity);
+        cancelAnimation(scale);
+        cancelAnimation(translateY);
+        cancelAnimation(opacity);
+        backdropOpacity.value = withTiming(1, {
+          duration: durations.crossFade,
+          easing: iosEasing.decel,
+        });
+        scale.value = withSpring(1, springs.sheet);
+        translateY.value = withSpring(0, springs.sheet);
+        opacity.value = withTiming(1, {
+          duration: 170,
+          easing: iosEasing.decel,
+        });
+      };
+
+      if (needsMount) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          startEnter();
+        });
+      } else {
+        startEnter();
+      }
+    } else if (isMountedRef.current && !isClosingRef.current) {
+      animateClose(false);
     }
-  }, [visible, mounted]);
+
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [visible, backdropOpacity, scale, translateY, opacity, animateClose, portalId]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const onBackPress = () => {
+      if (!isTopModalInStack(portalId)) return false;
+      if (dismissible) {
+        animateClose(true);
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [visible, dismissible, animateClose, portalId]);
+
+  const backdropStyle = useAnimatedStyle(() => ({
+    opacity: backdropOpacity.value,
+  }));
+
+  const cardStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }, { scale: scale.value }] as const,
+  }));
 
   if (!mounted) return null;
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-  }));
+  const scrimTint =
+    Platform.OS === 'ios'
+      ? isDark
+        ? 'rgba(9, 9, 11, 0.34)'
+        : 'rgba(9, 9, 11, 0.20)'
+      : tokens.bg.backdrop;
 
   return (
-    <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose}>
-      <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, animatedStyle]}>
-        {dismissible && <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />}
-        <Animated.View style={[styles.container, contentStyle]}>
+    <Portal name={portalId}>
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFill,
+          styles.backdropContainer,
+          { backgroundColor: scrimTint },
+          backdropStyle,
+        ]}
+      >
+        {dismissible && (
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => animateClose(true)}
+          />
+        )}
+      </Animated.View>
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.centerWrapper}
+        pointerEvents="box-none"
+        enabled={avoidKeyboard}
+      >
+        <Animated.View
+          style={[
+            styles.container,
+            { maxHeight: maxCardHeight, flexShrink: 1 },
+            contentStyle,
+            cardStyle,
+          ]}
+        >
           {children}
         </Animated.View>
-      </Animated.View>
-    </Modal>
+      </KeyboardAvoidingView>
+    </Portal>
   );
 }
 
-const makeStyles = (colors: any) => StyleSheet.create({
-      backdrop: {
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        justifyContent: 'center',
-        alignItems: 'center',
-      },
-      container: {
-        backgroundColor: colors.background,
-        borderRadius: 20,
-        padding: 24,
-        width: '85%',
-        maxWidth: 400,
-        elevation: 24,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.25,
-        shadowRadius: 16,
-      },
-    });
+const makeStyles = (tokens: ReturnType<typeof useTheme>['tokens'], isDark: boolean) =>
+  StyleSheet.create({
+    backdropContainer: {
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    centerWrapper: {
+      ...StyleSheet.absoluteFillObject,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: tokens.space.lg,
+    },
+    container: {
+      backgroundColor: isDark ? '#0B0C10' : '#F8F8FA',
+      borderRadius: tokens.radius.card,
+      padding: tokens.space.xl,
+      width: '100%',
+      maxWidth: 420,
+      borderWidth: tokens.border.hairlineWidth,
+      borderColor: tokens.border.subtle,
+      overflow: 'hidden',
+    },
+  });

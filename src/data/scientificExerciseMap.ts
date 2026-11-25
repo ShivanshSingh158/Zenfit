@@ -1,5 +1,5 @@
 // Generated from zenfit_scientific_exercise_fractional_set_volume_database.md
-import { MuscleSlug } from '../services/muscleRecoveryService';
+import type { MuscleSlug } from '../services/muscleRecoveryService';
 
 export interface ScientificExerciseMeta {
   name: string;

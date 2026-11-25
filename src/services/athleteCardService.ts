@@ -1,14 +1,23 @@
 /**
  * athleteCardService.ts — ZenFit
  *
- * Data engine for the Athlete Profile Card:
- * Analyzes lifter history, workout logs, bodyweight, height, and exercise database
- * to compute strength-to-weight ratios, consistency stats, lifter archetype, and tier rank.
+ * Data engine for the Athlete Performance Card:
+ * Analyzes real workout logs, bodyweight, height, and goal to compute
+ * verified strength ratios, consistency streaks, muscle focus distribution,
+ * archetype, and tier rank without static or fabricated placeholders.
  */
 
 import { GymDayLog, GymProfile } from '../types/gym.types';
-import { calculate1RM } from '../utils/progressiveOverload';
-import { calculateGymStreak, calculateHighestGymStreak, resolveExerciseTargetMuscle } from '../utils/gymUtils';
+import { estimate1RM } from './oneRepMaxEngine';
+import { formatVolumeParts, getUnitIsLbsSync } from '../utils/weightUnit';
+import { computeOrGetHotCache, generateDatasetFingerprint } from '../utils/hotCacheStore';
+import { parseLocalDate } from '../utils/dateCore';
+import {
+  calculateGymStreak,
+  calculateHighestGymStreak,
+  resolveExerciseTargetMuscle,
+  getVolumeMultiplier,
+} from '../utils/gymUtils';
 
 export type LifterTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'elite';
 export type LifterArchetype =
@@ -18,6 +27,12 @@ export type LifterArchetype =
   | 'Consistent Grinder'
   | 'Iron Rookie';
 
+export interface MuscleDistributionItem {
+  group: string;
+  sets: number;
+  pct: number;
+}
+
 export interface StrengthBenchmark {
   exerciseName: string;
   category: 'Bench' | 'Squat' | 'Deadlift' | 'OHP';
@@ -25,9 +40,10 @@ export interface StrengthBenchmark {
   iconName: 'barbell' | 'body' | 'fitness' | 'trending-up';
   maxWeightKg: number;
   est1RMKg: number;
-  bwRatio: number; // e.g. 1.35x
+  bwRatio: number;
+  isCompoundStandard: boolean;
   level: 'Novice' | 'Intermediate' | 'Advanced' | 'Elite';
-  progressPct: number; // 0 - 100 towards Elite
+  progressPct: number;
   nextMilestoneKg: number;
   nextTierName: string;
   kgToNextTier: number;
@@ -39,35 +55,40 @@ export interface AthleteCardStats {
   displayName: string;
   photoURL: string | null;
   heightCm: number;
-  heightFormatted: string; // e.g. "180 cm (5'11\")"
+  heightFormatted: string;
   weightKg: number;
-  weightFormatted: string; // e.g. "78 kg (172 lbs)"
+  weightFormatted: string;
   bmi: number;
-  bmiClassification: string; // e.g. "Athletic / Lean"
+  bmiClassification: string;
   goalLabel: string;
 
-  // Consistency & Grind
+  // Consistency & Output
   streakDays: number;
   highestStreakDays: number;
   totalWorkouts: number;
+  totalWorkingSets: number;
+  totalPRCount: number;
   weeklyFrequency: number;
   totalLifetimeVolumeKg: number;
-  totalLifetimeVolumeFormatted: string; // e.g. "142.5k kg"
-  consistencyScorePct: number; // 0 - 100
+  totalLifetimeVolumeFormatted: string;
+  consistencyScorePct: number;
 
-  // Strength Ratios
+  // Strength & Tier
   tier: LifterTier;
-  tierLabel: string; // e.g. "DIAMOND TIER"
+  tierLabel: string;
+  tierNextName: string | null;
+  tierProgressPct: number;
+  tierRequirementText: string;
   archetype: LifterArchetype;
   benchmarks: StrengthBenchmark[];
-  overallStrengthScore: number; // 0 - 100
+  overallStrengthScore: number;
 
-  // Signatures
+  // Signatures & Distribution
   signatureExercise: string;
   topMuscleGroup: string;
+  muscleDistribution: MuscleDistributionItem[];
 }
 
-// ── Standard Strength-to-Bodyweight Standards ─────────────────────────────────
 const STRENGTH_STANDARDS = {
   Bench:    { novice: 0.8, intermediate: 1.15, advanced: 1.45, elite: 1.75 },
   Squat:    { novice: 1.1, intermediate: 1.50, advanced: 1.90, elite: 2.25 },
@@ -75,12 +96,37 @@ const STRENGTH_STANDARDS = {
   OHP:      { novice: 0.5, intermediate: 0.70, advanced: 0.90, elite: 1.10 },
 };
 
+const COMPOUND_KEYWORDS: Record<'Bench' | 'Squat' | 'Deadlift' | 'OHP', string[]> = {
+  Bench: ['bench press', 'chest press', 'floor press', 'dip'],
+  Squat: ['squat', 'hack squat', 'leg press'],
+  Deadlift: ['deadlift', 'rdl', 'romanian', 'rack pull', 'good morning'],
+  OHP: ['overhead press', 'military press', 'shoulder press', 'arnold press', 'push press'],
+};
+
+const MUSCLE_PRETTY_PAIRS: Record<string, string> = {
+  Chest: 'Chest & Push',
+  Back: 'Back & Lats',
+  Shoulders: 'Shoulders & Delts',
+  Quads: 'Quads & Legs',
+  Hamstrings: 'Hamstrings & Hinge',
+  Glutes: 'Glutes & Lower',
+  Biceps: 'Biceps & Pull',
+  Triceps: 'Triceps & Arms',
+  Calves: 'Calves & Lower',
+  Abs: 'Core & Abs',
+};
+
 function formatHeight(cm: number): string {
   if (!cm || cm <= 0) return '—';
   const totalInches = cm / 2.54;
   const feet = Math.floor(totalInches / 12);
-  const inches = Math.round(totalInches % 12);
-  return `${Math.round(cm)} cm (${feet}'${inches}")`;
+  let inches = Math.round(totalInches % 12);
+  let adjFeet = feet;
+  if (inches === 12) {
+    adjFeet += 1;
+    inches = 0;
+  }
+  return `${Math.round(cm)} cm (${adjFeet}'${inches}")`;
 }
 
 function formatWeight(kg: number): string {
@@ -92,8 +138,8 @@ function formatWeight(kg: number): string {
 function getBmiStatus(bmi: number): string {
   if (bmi <= 0) return '—';
   if (bmi < 18.5) return 'Lean';
-  if (bmi < 24.9) return 'Athletic';
-  if (bmi < 29.9) return 'Solid Mass';
+  if (bmi < 25) return 'Athletic';
+  if (bmi < 30) return 'Solid Mass';
   return 'Heavy Mass';
 }
 
@@ -111,6 +157,17 @@ function getStrengthLevel(
 } {
   const std = STRENGTH_STANDARDS[category];
   const bw = bodyweightKg > 0 ? bodyweightKg : 75;
+
+  if (currentEst1RM <= 0 || ratio <= 0) {
+    const nextKg = Math.round(std.intermediate * bw);
+    return {
+      level: 'Novice',
+      progressPct: 0,
+      nextMilestoneKg: nextKg,
+      nextTierName: 'Intermediate',
+      kgToNextTier: nextKg,
+    };
+  }
 
   if (ratio >= std.elite) {
     return {
@@ -156,79 +213,78 @@ function getStrengthLevel(
   };
 }
 
-/**
- * Computes full Athlete Profile Card stats from profile and workout history.
- */
 export function computeAthleteCardStats(
   profile: GymProfile | null | undefined,
   logs: GymDayLog[] = [],
-  userAuth?: { displayName?: string | null; photoURL?: string | null; email?: string | null },
+  userAuth?: { uid?: string | null; displayName?: string | null; photoURL?: string | null; email?: string | null },
   latestTrackedWeightKg?: number | null,
   userGymPlan?: any | null
 ): AthleteCardStats {
+  const profileKey = `${profile?.displayName || ''}_${profile?.weightKg || 0}_${profile?.heightCm || 0}_${profile?.goal || ''}`;
+  const cacheKey = `athlete_card_${profileKey}_${generateDatasetFingerprint(logs)}`;
+  return computeOrGetHotCache(cacheKey, () => {
   const heightCm = profile?.heightCm || 0;
-  // Prioritize live latest tracked weight from Weight Tracking section
   const weightKg =
-    (latestTrackedWeightKg && latestTrackedWeightKg > 0)
+    latestTrackedWeightKg && latestTrackedWeightKg > 0
       ? latestTrackedWeightKg
       : profile?.weightKg || profile?.bodyweightKg || 0;
   const hasPhysicalStats = heightCm > 0 && weightKg > 0;
 
-  // Name & Avatar (Prioritize Google auth then profile)
   const displayName =
-    userAuth?.displayName?.trim() ||
     profile?.displayName?.trim() ||
+    userAuth?.displayName?.trim() ||
     (userAuth?.email ? userAuth.email.split('@')[0] : 'Athlete');
   const photoURL = userAuth?.photoURL || profile?.photoURL || null;
 
-  // BMI calculation
   const heightM = heightCm / 100;
   const bmi = heightM > 0 && weightKg > 0 ? Math.round((weightKg / (heightM * heightM)) * 10) / 10 : 0;
   const bmiClassification = getBmiStatus(bmi);
 
-  // Goal Label
   const rawGoal = profile?.goal || profile?.primaryGoal || 'hypertrophy';
   const goalMap: Record<string, string> = {
-    hypertrophy: 'Hypertrophy & Growth',
-    strength: 'Maximum Strength',
-    fat_loss: 'Fat Loss & Conditioning',
-    athletic: 'Athletic Performance',
-    recomp: 'Body Recomposition',
+    hypertrophy: 'Hypertrophy',
+    strength: 'Strength',
+    fat_loss: 'Fat Loss',
+    athletic: 'Athletic',
+    recomp: 'Recomposition',
   };
-  const goalLabel = goalMap[rawGoal] || 'General Fitness';
+  const goalLabel = goalMap[rawGoal] || 'General';
 
-  // 1. Consistency & Workouts
   const totalWorkouts = logs.filter((l) => l.completed).length;
   let totalLifetimeVolumeKg = 0;
-  const exerciseMaxes: Record<string, { maxWeight: number; est1RM: number; count: number }> = {};
+  let totalWorkingSets = 0;
+
+  const exerciseMaxes: Record<string, { maxWeight: number; est1RM: number; count: number; muscle?: string }> = {};
   const exerciseSetCounts: Record<string, number> = {};
+  const muscleSetCounts: Record<string, number> = {};
 
-  // Sort logs chronological
   const sortedLogs = [...logs].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-
-  // Calculate streaks using canonical gymUtils engine
   const streakDays = calculateGymStreak(logs, userGymPlan);
   const highestStreakDays = calculateHighestGymStreak(logs, userGymPlan);
 
-  // Aggregate set weights & 1RMs
   logs.forEach((dayLog) => {
     (dayLog.exercises || []).forEach((ex) => {
-      const name = ex.name || (ex as any).exerciseName || '';
+      const name = (ex.name || (ex as any).exerciseName || '').trim();
       if (!name) return;
 
       const sets = ex.setsLog || (ex as any).sets || [];
-      exerciseSetCounts[name] = (exerciseSetCounts[name] || 0) + sets.length;
+      const canonical = resolveExerciseTargetMuscle(name, ex.muscle).canonicalGroup || 'Other';
 
+      let loggedSetsInEx = 0;
       sets.forEach((s: any) => {
         if (!s.completed && s.completed !== undefined) return;
+        if (s.isWarmup) return;
+        loggedSetsInEx += 1;
+
         const w = Number(s.weight) || 0;
         const r = Number(s.reps) || 0;
         if (w > 0 && r > 0) {
-          totalLifetimeVolumeKg += w * r;
-          const oneRM = calculate1RM(w, r);
+          const mult = getVolumeMultiplier(name);
+          totalLifetimeVolumeKg += w * r * mult;
+          const oneRM = estimate1RM(w, r, 'hybrid', s.rir ?? 0);
 
           if (!exerciseMaxes[name]) {
-            exerciseMaxes[name] = { maxWeight: w, est1RM: oneRM, count: 1 };
+            exerciseMaxes[name] = { maxWeight: w, est1RM: oneRM, count: 1, muscle: ex.muscle };
           } else {
             exerciseMaxes[name].maxWeight = Math.max(exerciseMaxes[name].maxWeight, w);
             exerciseMaxes[name].est1RM = Math.max(exerciseMaxes[name].est1RM, oneRM);
@@ -236,106 +292,116 @@ export function computeAthleteCardStats(
           }
         }
       });
+
+      if (loggedSetsInEx > 0) {
+        totalWorkingSets += loggedSetsInEx;
+        exerciseSetCounts[name] = (exerciseSetCounts[name] || 0) + loggedSetsInEx;
+        if (canonical !== 'Mixed' && canonical !== 'Other') {
+          muscleSetCounts[canonical] = (muscleSetCounts[canonical] || 0) + loggedSetsInEx;
+        }
+      }
     });
   });
 
-  // Format Tonnage
-  const totalLifetimeVolumeFormatted =
-    totalLifetimeVolumeKg >= 1000000
-      ? `${(totalLifetimeVolumeKg / 1000000).toFixed(1)}M kg`
-      : totalLifetimeVolumeKg >= 1000
-      ? `${Math.round(totalLifetimeVolumeKg / 1000).toLocaleString()}k kg`
-      : `${Math.round(totalLifetimeVolumeKg)} kg`;
+  const totalPRCount = Object.keys(exerciseMaxes).length;
 
-  // Weekly frequency
-  const firstLogDate = sortedLogs[0]?.date ? new Date(sortedLogs[0].date).getTime() : Date.now();
+  const totalLifetimeVolumeFormatted = formatVolumeParts(
+    totalLifetimeVolumeKg,
+    getUnitIsLbsSync()
+  ).full;
+
+  const firstLogDate = sortedLogs[0]?.date ? parseLocalDate(sortedLogs[0].date).getTime() : Date.now();
   const weeksDiff = Math.max(1, (Date.now() - firstLogDate) / (1000 * 60 * 60 * 24 * 7));
   const weeklyFrequency = Math.round((totalWorkouts / weeksDiff) * 10) / 10;
   const consistencyScorePct = Math.min(100, Math.round((weeklyFrequency / 4.0) * 100));
 
-  // 2. Intelligent Dynamic Lifts Identification (Prioritizes Athlete's Real Tracked PRs)
-  const findBestLift = (
-    keywords: string[],
-    muscleCategories: string[],
-    fallbackPlanExercise?: string
-  ): { name: string; maxWeight: number; est1RM: number } => {
-    let best = { name: '', maxWeight: 0, est1RM: 0 };
+  const muscleDistribution: MuscleDistributionItem[] = Object.entries(muscleSetCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([group, sets]) => ({
+      group,
+      sets,
+      pct: totalWorkingSets > 0 ? Math.round((sets / totalWorkingSets) * 100) : 0,
+    }));
 
-    // 1. Check logged exercises where the athlete has actual tracked weight/reps
+  // Cached target muscle resolution to avoid repetitive lookups
+  const muscleResMap = new Map<string, { targetMuscle: string; canonicalGroup: string }>();
+  const getCachedMuscleRes = (liftName: string, expMuscle?: string | null) => {
+    let cached = muscleResMap.get(liftName);
+    if (!cached) {
+      cached = resolveExerciseTargetMuscle(liftName, expMuscle);
+      muscleResMap.set(liftName, cached);
+    }
+    return cached;
+  };
+
+  const findBestLoggedLift = (
+    category: 'Bench' | 'Squat' | 'Deadlift' | 'OHP',
+    keywords: string[],
+    muscleCategories: string[]
+  ): { name: string; maxWeight: number; est1RM: number; isCompoundStandard: boolean } => {
+    let best = { name: '', maxWeight: 0, est1RM: 0, isCompoundStandard: false };
+
     Object.keys(exerciseMaxes).forEach((name) => {
       const lower = name.toLowerCase();
+      const item = exerciseMaxes[name];
       const matchKeyword = keywords.some((k) => lower.includes(k));
-      const targetM = (resolveExerciseTargetMuscle(name).targetMuscle || '').toLowerCase();
-      const matchMuscle = muscleCategories.some((m) => targetM.includes(m.toLowerCase()));
+      const res = getCachedMuscleRes(name, item.muscle);
+      const targetM = (res.targetMuscle || '').toLowerCase();
+      const canonical = (res.canonicalGroup || '').toLowerCase();
+      const matchMuscle = muscleCategories.some((m) => targetM.includes(m) || canonical.includes(m));
 
       if (matchKeyword || matchMuscle) {
-        const item = exerciseMaxes[name];
-        if (item.est1RM > best.est1RM || (best.est1RM === 0 && item.maxWeight > best.maxWeight)) {
-          best = { name, maxWeight: item.maxWeight, est1RM: item.est1RM };
+        const isCompound = COMPOUND_KEYWORDS[category].some((ck) => lower.includes(ck));
+        const candidateScore = item.est1RM * (isCompound ? 1.15 : 1);
+        const currentScore = best.est1RM * (best.isCompoundStandard ? 1.15 : 1);
+        if (candidateScore > currentScore || (best.est1RM === 0 && item.maxWeight > best.maxWeight)) {
+          best = {
+            name,
+            maxWeight: item.maxWeight,
+            est1RM: item.est1RM,
+            isCompoundStandard: isCompound,
+          };
         }
       }
     });
 
-    // 2. If nothing logged yet, pull the primary exercise from the athlete's active plan
-    if (!best.name && userGymPlan) {
-      const planDays = Object.values(userGymPlan.customDays || {}) as any[];
-      for (const day of planDays) {
-        for (const ex of day.exercises || []) {
-          const exName = ex.name || '';
-          const lower = exName.toLowerCase();
-          const matchKeyword = keywords.some((k) => lower.includes(k));
-          const targetM = (resolveExerciseTargetMuscle(exName, ex.muscle).targetMuscle || '').toLowerCase();
-          const matchMuscle = muscleCategories.some((m) => targetM.includes(m.toLowerCase()));
-          if (matchKeyword || matchMuscle) {
-            best = { name: exName, maxWeight: 0, est1RM: 0 };
-            return best;
-          }
-        }
-      }
-    }
-
-    // 3. Fallback to recommended key exercise
-    if (!best.name && fallbackPlanExercise) {
-      best = { name: fallbackPlanExercise, maxWeight: 0, est1RM: 0 };
-    }
-
     return best;
   };
 
-  // Find best lifts with broad, inclusive keyword and muscle matching (e.g. flyes, dumbbells, cables, presses)
-  const benchLift = findBestLift(
-    ['bench', 'chest', 'fly', 'press', 'push', 'pec'],
-    ['chest', 'pectoral'],
-    'Incline Bench Press (Dumbbell)'
+  const benchLift = findBestLoggedLift(
+    'Bench',
+    ['bench', 'chest', 'fly', 'pec', 'dip'],
+    ['chest', 'pectoral']
   );
-  const squatLift = findBestLift(
-    ['squat', 'hack', 'leg press', 'extension', 'quad', 'lunge'],
-    ['quad', 'leg', 'glute'],
-    'Hack Squat (Machine)'
+  const squatLift = findBestLoggedLift(
+    'Squat',
+    ['squat', 'hack', 'leg press', 'lunge', 'extension'],
+    ['quad', 'leg', 'glute']
   );
-  const deadLift = findBestLift(
-    ['deadlift', 'rdl', 'romanian', 'lat', 'pulldown', 'row', 'pull'],
-    ['back', 'lat', 'hamstring'],
-    'Lat Pulldown (Cable)'
+  const deadLift = findBestLoggedLift(
+    'Deadlift',
+    ['deadlift', 'rdl', 'romanian', 'pulldown', 'row', 'pull-up', 'chin'],
+    ['back', 'lat', 'hamstring']
   );
-  const ohpLift = findBestLift(
-    ['shoulder', 'overhead', 'military', 'raise', 'delt', 'curl', 'tricep', 'arm'],
-    ['shoulder', 'delt', 'arm', 'bicep', 'tricep'],
-    'Lateral Raise (Cable)'
+  const ohpLift = findBestLoggedLift(
+    'OHP',
+    ['overhead', 'military', 'shoulder press', 'arnold', 'raise', 'delt', 'curl', 'tricep'],
+    ['shoulder', 'delt', 'bicep', 'tricep']
   );
 
-  const refWeight = weightKg > 0 ? weightKg : 75; // fallback standard
+  const refWeight = weightKg > 0 ? weightKg : 75;
 
   const buildBenchmark = (
     category: 'Bench' | 'Squat' | 'Deadlift' | 'OHP',
     categoryLabel: string,
     iconName: 'barbell' | 'body' | 'fitness' | 'trending-up',
-    lift: { name: string; maxWeight: number; est1RM: number },
-    defaultName: string
+    lift: { name: string; maxWeight: number; est1RM: number; isCompoundStandard: boolean }
   ): StrengthBenchmark => {
     const est1RMKg = Math.round(lift.est1RM);
     const maxWeightKg = Math.round(lift.maxWeight);
-    const bwRatio = Math.round((est1RMKg / refWeight) * 100) / 100;
+    const hasHistory = est1RMKg > 0 && Boolean(lift.name);
+    const bwRatio = hasHistory ? Math.round((est1RMKg / refWeight) * 100) / 100 : 0;
     const { level, progressPct, nextMilestoneKg, nextTierName, kgToNextTier } = getStrengthLevel(
       category,
       bwRatio,
@@ -347,54 +413,72 @@ export function computeAthleteCardStats(
       category,
       categoryLabel,
       iconName,
-      exerciseName: lift.name || defaultName,
+      exerciseName: lift.name || categoryLabel,
       maxWeightKg,
       est1RMKg,
       bwRatio,
+      isCompoundStandard: lift.isCompoundStandard,
       level,
       progressPct,
       nextMilestoneKg,
       nextTierName,
       kgToNextTier,
-      hasHistory: est1RMKg > 0,
+      hasHistory,
     };
   };
 
   const benchmarks: StrengthBenchmark[] = [
-    buildBenchmark('Bench', 'CHEST & PRESS', 'barbell', benchLift, 'Incline Bench Press (Dumbbell)'),
-    buildBenchmark('Squat', 'LEGS & SQUAT', 'body', squatLift, 'Hack Squat (Machine)'),
-    buildBenchmark('Deadlift', 'BACK & PULL', 'fitness', deadLift, 'Lat Pulldown (Cable)'),
-    buildBenchmark('OHP', 'DELTS & ARMS', 'trending-up', ohpLift, 'Lateral Raise (Cable)'),
+    buildBenchmark('Bench', 'Chest & Press', 'barbell', benchLift),
+    buildBenchmark('Squat', 'Legs & Squat', 'body', squatLift),
+    buildBenchmark('Deadlift', 'Back & Hinge', 'fitness', deadLift),
+    buildBenchmark('OHP', 'Shoulders & Arms', 'trending-up', ohpLift),
   ];
 
-  // 3. Overall Strength Score (0 - 100)
-  const avgProgress = Math.round(
-    benchmarks.reduce((acc, b) => acc + b.progressPct, 0) / benchmarks.length
-  );
-  const overallStrengthScore = avgProgress;
+  const trackedBenchmarks = benchmarks.filter((b) => b.hasHistory);
+  const overallStrengthScore =
+    trackedBenchmarks.length > 0
+      ? Math.round(benchmarks.reduce((acc, b) => acc + b.progressPct, 0) / benchmarks.length)
+      : 0;
 
-  // 4. Lifter Tier Rank
+  // Tier Rank + Progress to Next Tier
   let tier: LifterTier = 'bronze';
-  let tierLabel = 'BRONZE TIER';
+  let tierLabel = 'BRONZE';
+  let tierNextName: string | null = 'Silver';
+  let tierProgressPct = Math.min(100, Math.round((totalWorkouts / 3) * 100));
+  let tierRequirementText = `${Math.max(0, 3 - totalWorkouts)} more session${3 - totalWorkouts === 1 ? '' : 's'} to unlock Silver Tier`;
 
   if (overallStrengthScore >= 90 && totalWorkouts >= 30) {
     tier = 'elite';
-    tierLabel = '👑 ELITE TIER';
+    tierLabel = 'ELITE';
+    tierNextName = null;
+    tierProgressPct = 100;
+    tierRequirementText = 'Peak rank achieved across all verified lifts';
   } else if (overallStrengthScore >= 75 && totalWorkouts >= 20) {
     tier = 'diamond';
-    tierLabel = '💎 DIAMOND TIER';
+    tierLabel = 'DIAMOND';
+    tierNextName = 'Elite';
+    tierProgressPct = Math.min(99, Math.round(((overallStrengthScore - 75) / 15) * 50 + (Math.min(30, totalWorkouts) - 20) * 5));
+    tierRequirementText = `Score 90 & 30 sessions required for Elite Tier`;
   } else if (overallStrengthScore >= 60 && totalWorkouts >= 12) {
     tier = 'platinum';
-    tierLabel = '⚡ PLATINUM TIER';
+    tierLabel = 'PLATINUM';
+    tierNextName = 'Diamond';
+    tierProgressPct = Math.min(99, Math.round(((overallStrengthScore - 60) / 15) * 50 + (Math.min(20, totalWorkouts) - 12) * 6));
+    tierRequirementText = `Score 75 & 20 sessions required for Diamond Tier`;
   } else if (overallStrengthScore >= 45 || totalWorkouts >= 8) {
     tier = 'gold';
-    tierLabel = '🥇 GOLD TIER';
+    tierLabel = 'GOLD';
+    tierNextName = 'Platinum';
+    tierProgressPct = Math.min(99, Math.round((Math.min(60, overallStrengthScore) / 60) * 50 + (Math.min(12, totalWorkouts) / 12) * 50));
+    tierRequirementText = `Score 60 & 12 sessions required for Platinum Tier`;
   } else if (totalWorkouts >= 3) {
     tier = 'silver';
-    tierLabel = '🥈 SILVER TIER';
+    tierLabel = 'SILVER';
+    tierNextName = 'Gold';
+    tierProgressPct = Math.min(99, Math.round((totalWorkouts / 8) * 100));
+    tierRequirementText = `${Math.max(0, 8 - totalWorkouts)} sessions or 45 strength score for Gold Tier`;
   }
 
-  // 5. Lifter Archetype
   let archetype: LifterArchetype = 'Iron Rookie';
   if (totalWorkouts >= 5) {
     if (benchmarks[0].bwRatio >= 1.25 && benchmarks[1].bwRatio >= 1.6) {
@@ -408,8 +492,7 @@ export function computeAthleteCardStats(
     }
   }
 
-  // 6. Signatures (Favorite Exercise & Top Muscle)
-  let signatureExercise = 'Barbell Bench Press';
+  let signatureExercise = 'No lifts logged yet';
   let maxSets = 0;
   Object.keys(exerciseSetCounts).forEach((name) => {
     if (exerciseSetCounts[name] > maxSets) {
@@ -418,7 +501,10 @@ export function computeAthleteCardStats(
     }
   });
 
-  const topMuscleGroup = benchmarks[0].bwRatio > benchmarks[1].bwRatio ? 'Chest & Triceps' : 'Quads & Glutes';
+  const topGroupKey = muscleDistribution[0]?.group;
+  const topMuscleGroup = topGroupKey
+    ? MUSCLE_PRETTY_PAIRS[topGroupKey] || topGroupKey
+    : 'Not logged yet';
 
   return {
     hasPhysicalStats,
@@ -434,16 +520,24 @@ export function computeAthleteCardStats(
     streakDays,
     highestStreakDays,
     totalWorkouts,
+    totalWorkingSets,
+    totalPRCount,
     weeklyFrequency,
     totalLifetimeVolumeKg,
     totalLifetimeVolumeFormatted,
     consistencyScorePct,
     tier,
     tierLabel,
+    tierNextName,
+    tierProgressPct,
+    tierRequirementText,
     archetype,
     benchmarks,
     overallStrengthScore,
     signatureExercise,
     topMuscleGroup,
+    muscleDistribution,
   };
+
+  });
 }

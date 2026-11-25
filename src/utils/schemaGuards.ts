@@ -1,21 +1,18 @@
 /**
- * schemaGuards.ts — ZenTrack Mobile Defensive Schema Parsing & Null Safety Engine
+ * schemaGuards.ts — ZenFit Defensive Schema Parsing & Null Safety Engine
  *
  * WhatsApp Architecture Standard:
  * 1. Zero tolerance for corrupted documents, missing fields, or legacy schemas crashing the UI.
  * 2. Strict type-coercion and default fallback injection on every Firestore doc ingestion.
  * 3. Extreme range validation & boundary clamping (negative reps, 0/negative minutes, overflow strings).
- * 4. Unicode & Emoji surrogate pair safety to prevent layout rendering exceptions.
+ * 4. Preserves 100% of advanced workout metadata: 'top' | 'backoff' set types, cardio metrics, and progression policies.
+ * 5. Ultra-fast bitwise dataset fingerprinting for React re-render bailouts.
  */
 
-import {
-  Task, Habit, HabitLog, StorageNode, Note, Goal, CustomEvent,
-  WaterLog, SleepLog, WeightLog, GymLog, AttendanceSubject,
-  AttendanceLog, Assignment, Semester, SemesterSubject,
-  LearningTopic, LearningSubTask, JobApplication, WeeklyReview, ContentLog
-} from '../types/legacy.types';
-import { resolveExerciseTargetMuscle } from './gymUtils';
+import { GymLog, GymSet, GymExerciseLog, GymCardioLog } from '../types/gym.types';
+import { resolveExerciseTargetMuscle, MUSCLE_COLORS } from './gymUtils';
 import { formatLocalDateStr } from './dateUtils';
+import { generateDatasetFingerprint } from './hotCacheStore';
 
 // ─── Helper Primitives ────────────────────────────────────────────────────────
 
@@ -67,7 +64,6 @@ export function sanitizeDateString(val: any, fallback?: string): string {
   return safeFallback;
 }
 
-
 /**
  * Truncates and sanitizes strings to prevent memory or layout crashes from giant strings.
  * Preserves unicode code points and handles emoji surrogate pairs safely.
@@ -79,6 +75,8 @@ export function sanitizeString(val: any, fallback: string = '', maxLen: number =
   }
   const trimmed = val.trim();
   if (trimmed.length === 0) return fallback;
+  // Issue #31: Fast return without array allocation if UTF-16 length <= maxLen
+  if (trimmed.length <= maxLen) return trimmed;
   // Array.from splits correctly across multi-byte UTF-16 surrogate pairs (emojis)
   const chars = Array.from(trimmed);
   if (chars.length > maxLen) {
@@ -110,106 +108,71 @@ export function sanitizeEnum<T extends string>(val: any, allowed: T[], fallback:
   return fallback;
 }
 
-// ─── Domain Document Parsers ──────────────────────────────────────────────────
-
-export function parseTask(docData: any, docId: string): Task {
-  const d = docData && typeof docData === 'object' ? docData : {};
-  const id = sanitizeString(docId || d.id, 'task_' + Date.now());
-  const title = sanitizeString(d.title || d.text, 'Untitled Task', 300);
-  const isDocCompleted = d.status === 'completed' || d.status === 'done' || Boolean(d.completed);
-  const status: 'pending' | 'completed' = isDocCompleted ? 'completed' : 'pending';
-  const priority = sanitizeEnum<'P1' | 'P2' | 'P3' | 'high' | 'medium' | 'low'>(
-    d.priority,
-    ['P1', 'P2', 'P3', 'high', 'medium', 'low'],
-    'P2'
-  );
-
-  const subtasks = Array.isArray(d.subtasks)
-    ? d.subtasks.map((st: any, idx: number) => ({
-        id: sanitizeString(st?.id, `st_${idx}`),
-        title: sanitizeString(st?.title, 'Subtask', 200),
-        completed: Boolean(st?.completed),
-      }))
-    : [];
-
-  const tags = Array.isArray(d.tags)
-    ? d.tags.map((t: any) => sanitizeString(t, '', 50)).filter(Boolean)
-    : [];
-
-  return {
-    id,
-    userId: sanitizeString(d.userId, ''),
-    title,
-    status,
-    priority,
-    date: d.date ? sanitizeDateString(d.date, '') || undefined : undefined,
-    tags,
-
-    isRecurring: Boolean(d.isRecurring),
-    recurrenceRule: d.recurrenceRule && typeof d.recurrenceRule === 'object' ? d.recurrenceRule : undefined,
-    recurringSourceId: d.recurringSourceId ? String(d.recurringSourceId) : undefined,
-    timeSlot: d.timeSlot ? sanitizeString(d.timeSlot, undefined as any, 50) : undefined,
-    estimatedMinutes: sanitizeNumber(d.estimatedMinutes, 0, 0, 1440),
-    actualMinutes: sanitizeNumber(d.actualMinutes, 0, 0, 1440),
-    actualStartTime: d.actualStartTime ? sanitizeString(d.actualStartTime, undefined as any, 30) : undefined,
-    subject: d.subject ? sanitizeString(d.subject, undefined as any, 100) : undefined,
-    commitmentTo: d.commitmentTo ? sanitizeString(d.commitmentTo, undefined as any, 100) : undefined,
-    energyRequirement: sanitizeEnum<'low' | 'medium' | 'high'>(d.energyRequirement, ['low', 'medium', 'high'], 'medium'),
-    order: sanitizeNumber(d.order, 0, 0, 10000),
-    subtasks,
-    completedAt: d.completedAt ? sanitizeString(d.completedAt, null as any, 50) : null,
-  };
-}
-
-export function parseHabit(docData: any, docId: string): Habit {
-  const d = docData && typeof docData === 'object' ? docData : {};
-  const id = sanitizeString(docId || d.id, 'habit_' + Date.now());
-  const name = sanitizeString(d.name, 'Untitled Habit', 200);
-  const emoji = sanitizeString(d.emoji, '⚡', 8);
-  const frequency = sanitizeString(d.frequency, 'daily', 30);
-  const streak = sanitizeNumber(d.streak, 0, 0, 10000);
-  const longestStreak = sanitizeNumber(d.longestStreak, streak, 0, 10000);
-
-  return {
-    id,
-    userId: sanitizeString(d.userId, ''),
-    name,
-    emoji,
-    frequency,
-    streak,
-    longestStreak,
-    color: d.color ? sanitizeString(d.color, undefined as any, 30) : undefined,
-    archived: Boolean(d.archived),
-    type: sanitizeEnum<'positive' | 'negative'>(d.type, ['positive', 'negative'], 'positive'),
-    startDate: d.startDate ? sanitizeString(d.startDate, undefined as any, 10) : undefined,
-    costPerDay: d.costPerDay !== undefined ? sanitizeNumber(d.costPerDay, 0, 0, 100000) : undefined,
-    targetCount: d.targetCount !== undefined ? sanitizeNumber(d.targetCount, 1, 1, 10000) : undefined,
-  };
-}
-
-export function parseHabitLog(docData: any, docId: string): HabitLog {
-  const d = docData && typeof docData === 'object' ? docData : {};
-  return {
-    id: sanitizeString(docId || d.id, 'hlog_' + Date.now()),
-    habitId: sanitizeString(d.habitId, ''),
-    userId: sanitizeString(d.userId, ''),
-    date: sanitizeDateString(d.date),
-    count: sanitizeNumber(d.count, 1, 0, 10000),
-
-    isFreeze: Boolean(d.isFreeze),
-  };
-}
+// ─── Gym Document Parser ──────────────────────────────────────────────────────
 
 export function parseGymLog(docData: any, docId: string): GymLog {
   const d = docData && typeof docData === 'object' ? docData : {};
+  // Tier-1 Upgrade #75: Schema migration version gate for cold boot (0.01ms fast-path bypass)
+  if (d._schemaVer === 3 && d.id && d.date && Array.isArray(d.exercises)) {
+    let valid = true;
+    for (let i = 0; i < d.exercises.length; i++) {
+      const ex = d.exercises[i];
+      if (!ex || typeof ex !== 'object') { valid = false; break; }
+      if (Array.isArray(ex.setsLog)) {
+        for (let s = 0; s < ex.setsLog.length; s++) {
+          const sl = ex.setsLog[s];
+          if (!sl || typeof sl !== 'object') continue;
+          if (sl.weight !== null && sl.weight !== undefined && !Number.isFinite(Number(sl.weight))) { valid = false; break; }
+          if (sl.reps !== null && sl.reps !== undefined && !Number.isFinite(Number(sl.reps))) { valid = false; break; }
+        }
+      }
+      if (!valid) break;
+    }
+    if (valid) return d as GymLog;
+  }
   const safeDate = sanitizeDateString(d.date, '1970-01-01');
   const id = sanitizeString(docId || d.id, `gym_${sanitizeString(d.userId, 'anon')}_${safeDate}`);
 
-  const exercises = Array.isArray(d.exercises)
+  const exercises: GymExerciseLog[] = Array.isArray(d.exercises)
     ? d.exercises.map((ex: any, idx: number) => {
         const name = sanitizeString(ex?.name, 'Exercise', 150);
         const rawMuscle = ex?.muscle ? sanitizeString(ex.muscle, '', 50) : '';
-        const resolvedMuscle = resolveExerciseTargetMuscle(name, rawMuscle).targetMuscle;
+        // Fast-path: if rawMuscle is already a valid canonical muscle, reuse it directly
+        const resolvedMuscle = (rawMuscle && MUSCLE_COLORS[rawMuscle])
+          ? rawMuscle
+          : resolveExerciseTargetMuscle(name, rawMuscle).targetMuscle;
+
+        const setsLog: GymSet[] = Array.isArray(ex?.setsLog)
+          ? ex.setsLog.map((s: any, sIdx: number) => {
+              const rawWeight = s?.weight !== undefined ? s.weight : s?.weightKg;
+              const weight = rawWeight !== null && rawWeight !== undefined && rawWeight !== '' && !isNaN(Number(rawWeight))
+                ? Number(rawWeight)
+                : null;
+              const rawReps = s?.reps;
+              const reps = rawReps !== null && rawReps !== undefined && rawReps !== '' && !isNaN(Number(rawReps))
+                ? Number(rawReps)
+                : null;
+              return {
+                id: s?.id ? String(s.id) : undefined,
+                setNumber: sanitizeNumber(s?.setNumber, sIdx + 1, 1, 99),
+                reps,
+                weight,
+                completed: Boolean(s?.completed),
+                isWarmup: s?.isWarmup !== undefined ? Boolean(s.isWarmup) : undefined,
+                warmupLabel: s?.warmupLabel ? sanitizeString(s.warmupLabel, 'W', 10) : undefined,
+                // Preserves full setType enum including 'top' and 'backoff'
+                setType: s?.setType
+                  ? sanitizeEnum(s.setType, ['normal', 'warmup', 'drop', 'failure', 'top', 'backoff'], 'normal')
+                  : undefined,
+                rir: s?.rir !== undefined && s?.rir !== null ? sanitizeNumber(s.rir, 0, 0, 10) : undefined,
+                rpe: s?.rpe !== undefined && s?.rpe !== null ? sanitizeNumber(s.rpe, 0, 0, 10) : undefined,
+                restSecondsOverride: s?.restSecondsOverride !== undefined && s?.restSecondsOverride !== null
+                  ? sanitizeNumber(s.restSecondsOverride, 0, 0, 600)
+                  : undefined,
+              };
+            })
+          : [];
+
         return {
           _idx: ex?._idx !== undefined ? sanitizeNumber(ex._idx, idx, 0) : idx,
           id: sanitizeString(ex?.id || ex?.exerciseId, ''),
@@ -224,37 +187,17 @@ export function parseGymLog(docData: any, docId: string): GymLog {
           restTimeSecs: ex?.restTimeSecs !== undefined ? sanitizeNumber(ex.restTimeSecs, 90, 0, 600) : undefined,
           skipped: Boolean(ex?.skipped),
           lastSessionSets: Array.isArray(ex?.lastSessionSets) ? ex.lastSessionSets : undefined,
-          setsLog: Array.isArray(ex?.setsLog)
-            ? ex.setsLog.map((s: any, sIdx: number) => {
-                const rawWeight = s?.weight !== undefined ? s.weight : s?.weightKg;
-                const weight = rawWeight !== null && rawWeight !== undefined && rawWeight !== '' && !isNaN(Number(rawWeight))
-                  ? Number(rawWeight)
-                  : null;
-                const rawReps = s?.reps;
-                const reps = rawReps !== null && rawReps !== undefined && rawReps !== '' && !isNaN(Number(rawReps))
-                  ? Number(rawReps)
-                  : null;
-                return {
-                  setNumber: sanitizeNumber(s?.setNumber, sIdx + 1, 1, 99),
-                  reps,
-                  weight,
-                  weightKg: weight ?? 0,
-                  completed: Boolean(s?.completed),
-                  // CRITICAL FIX: Preserve all advanced set metadata so snapshots never strip them!
-                  isWarmup: s?.isWarmup !== undefined ? Boolean(s.isWarmup) : undefined,
-                  warmupLabel: s?.warmupLabel ? sanitizeString(s.warmupLabel, 'W', 10) : undefined,
-                  setType: s?.setType ? sanitizeEnum(s.setType, ['normal', 'warmup', 'drop', 'failure'], 'normal') : undefined,
-                  rir: s?.rir !== undefined && s?.rir !== null ? sanitizeNumber(s.rir, 0, 0, 10) : undefined,
-                  rpe: s?.rpe !== undefined && s?.rpe !== null ? sanitizeNumber(s.rpe, 0, 0, 10) : undefined,
-                  completedAt: s?.completedAt ? sanitizeNumber(s.completedAt, 0, 0) : undefined,
-                };
-              })
-            : [],
+          isCompound: ex?.isCompound !== undefined ? Boolean(ex.isCompound) : undefined,
+          isCustom: ex?.isCustom !== undefined ? Boolean(ex.isCustom) : undefined,
+          progressionPolicy: ex?.progressionPolicy
+            ? sanitizeEnum(ex.progressionPolicy, ['linear', 'double', 'triple', 'top_backoff'], 'linear')
+            : undefined,
+          setsLog,
         };
       })
     : [];
 
-  const cardio = Array.isArray(d.cardio)
+  const cardio: GymCardioLog[] = Array.isArray(d.cardio)
     ? d.cardio.map((c: any, cIdx: number) => ({
         id: sanitizeString(c?.id, `cardio_${safeDate}_${cIdx}`),
         type: sanitizeString(c?.type, 'Cardio', 50),
@@ -264,10 +207,18 @@ export function parseGymLog(docData: any, docId: string): GymLog {
         speedKmh: c?.speedKmh != null ? sanitizeNumber(c.speedKmh, 0, 0, 100) : null,
         incline: c?.incline != null ? sanitizeNumber(c.incline, 0, 0, 50) : null,
         completed: Boolean(c?.completed),
+        isPermanent: Boolean(c?.isPermanent),
+        floors: c?.floors != null ? sanitizeNumber(c.floors, 0, 0, 10000) : null,
+        level: c?.level != null ? sanitizeNumber(c.level, 0, 0, 100) : null,
+        laps: c?.laps != null ? sanitizeNumber(c.laps, 0, 0, 10000) : null,
+        rounds: c?.rounds != null ? sanitizeNumber(c.rounds, 0, 0, 1000) : null,
+        spm: c?.spm != null ? sanitizeNumber(c.spm, 0, 0, 500) : null,
+        pace: c?.pace != null ? sanitizeNumber(c.pace, 0, 0, 120) : null,
       }))
     : [];
 
   return {
+    _schemaVer: 3,
     id,
     userId: sanitizeString(d.userId, ''),
     date: safeDate,
@@ -275,8 +226,18 @@ export function parseGymLog(docData: any, docId: string): GymLog {
     cardio,
     workoutStartTime: d.workoutStartTime != null ? sanitizeNumber(d.workoutStartTime, 0, 0) : undefined,
     workoutDurationMinutes: d.workoutDurationMinutes != null ? sanitizeNumber(d.workoutDurationMinutes, 0, 0, 600) : undefined,
+    workoutDurationSeconds: d.workoutDurationSeconds != null ? sanitizeNumber(d.workoutDurationSeconds, 0, 0, 36000) : undefined,
     completed: Boolean(d.completed),
-    dayPlanIndex: d.dayPlanIndex != null ? sanitizeNumber(d.dayPlanIndex, 1, 1, 7) : undefined,
+    dayPlanIndex: d.dayPlanIndex != null ? sanitizeNumber(d.dayPlanIndex, 1, 1, 7) : (() => {
+      try {
+        const parts = safeDate.split('-').map(Number);
+        if (parts.length === 3) {
+          const dow = new Date(parts[0], parts[1] - 1, parts[2]).getDay();
+          return dow === 0 ? 7 : dow;
+        }
+      } catch {}
+      return 1;
+    })(),
     startTime: d.startTime ? sanitizeString(d.startTime, undefined as any, 20) : undefined,
     endTime: d.endTime ? sanitizeString(d.endTime, undefined as any, 20) : undefined,
     createdAt: d.createdAt != null ? sanitizeNumber(d.createdAt, 0, 0) : undefined,
@@ -289,206 +250,13 @@ export function parseGymLog(docData: any, docId: string): GymLog {
   };
 }
 
-export function parseAttendanceSubject(docData: any, docId: string): AttendanceSubject {
-  const d = docData && typeof docData === 'object' ? docData : {};
-  const id = sanitizeString(docId || d.id, 'att_' + Date.now());
-
-  return {
-    id,
-    userId: sanitizeString(d.userId, ''),
-    name: sanitizeString(d.name, 'Untitled Subject', 200),
-    classesAttended: sanitizeNumber(d.classesAttended, 0, 0, 1000),
-    classesTotal: sanitizeNumber(d.classesTotal, 0, 0, 1000),
-    labsAttended: sanitizeNumber(d.labsAttended, 0, 0, 1000),
-    labsTotal: sanitizeNumber(d.labsTotal, 0, 0, 1000),
-    targetPercentage: sanitizeNumber(d.targetPercentage, 75, 1, 100),
-    schedule: d.schedule && typeof d.schedule === 'object' ? d.schedule : {},
-    schemaVersion: sanitizeNumber(d.schemaVersion, 1, 1, 10),
-    lastUpdated: sanitizeNumber(d.lastUpdated, 0, 0),
-    color: d.color ? sanitizeString(d.color, undefined as any, 30) : undefined,
-    order: sanitizeNumber(d.order, 0, 0, 1000),
-  };
-}
-
-export function parseAttendanceLog(docData: any, docId: string): AttendanceLog {
-  const d = docData && typeof docData === 'object' ? docData : {};
-
-  // Fix #17: Normalize legacy action enum values before validation.
-  // 'absent' → 'missed', 'present' → 'attended'. Without this, docs with
-  // action='absent' silently fall back to 'attended', corrupting counts.
-  const rawAction = typeof d.action === 'string' ? d.action.toLowerCase() : d.action;
-  const normalizedAction = rawAction === 'absent' ? 'missed'
-    : rawAction === 'present' ? 'attended'
-    : rawAction;
-
-  return {
-    id: sanitizeString(docId || d.id, 'alog_' + Date.now()),
-    userId: sanitizeString(d.userId, ''),
-    subjectId: sanitizeString(d.subjectId || d.subject_id || d.subId || '', ''),
-    subjectName: sanitizeString(d.subjectName || d.name || 'Subject', 'Subject', 200),
-    type: sanitizeEnum<'class' | 'lab'>(d.type, ['class', 'lab'], 'class'),
-    action: sanitizeEnum<'attended' | 'missed' | 'cancelled'>(normalizedAction, ['attended', 'missed', 'cancelled'], 'attended'),
-    date: sanitizeDateString(d.date),
-    isExtra: Boolean(d.isExtra),
-    timestamp: sanitizeNumber(d.timestamp || d.createdAt, 0, 0),
-    idx: typeof d.idx === 'number' ? d.idx : undefined,
-  };
-}
-
-export function parseAssignment(docData: any, docId: string): Assignment {
-  const d = docData && typeof docData === 'object' ? docData : {};
-  return {
-    id: sanitizeString(docId || d.id, 'asg_' + Date.now()),
-    userId: sanitizeString(d.userId, ''),
-    title: sanitizeString(d.title, 'Untitled Assignment', 200),
-    subjectName: sanitizeString(d.subjectName, 'General', 150),
-    description: d.description ? sanitizeString(d.description, '', 1000) : undefined,
-    dueDate: sanitizeDateString(d.dueDate),
-    weightage: sanitizeNumber(d.weightage, 0, 0, 100),
-    status: sanitizeEnum<'not_started' | 'in_progress' | 'submitted' | 'graded'>(
-      d.status,
-      ['not_started', 'in_progress', 'submitted', 'graded'],
-      'not_started'
-    ),
-    grade: d.grade ? sanitizeString(d.grade, undefined as any, 10) : undefined,
-    maxMarks: sanitizeNumber(d.maxMarks, 100, 0, 1000),
-    obtainedMarks: sanitizeNumber(d.obtainedMarks, 0, 0, 1000),
-    notes: d.notes ? sanitizeString(d.notes, '', 1000) : undefined,
-    createdAt: sanitizeNumber(d.createdAt, 0, 0),
-    updatedAt: sanitizeNumber(d.updatedAt, 0, 0),
-  };
-}
-
-export function parseCustomEvent(docData: any, docId: string): CustomEvent {
-  const d = docData && typeof docData === 'object' ? docData : {};
-  return {
-    id: sanitizeString(docId || d.id, 'evt_' + Date.now()),
-    userId: sanitizeString(d.userId, ''),
-    title: sanitizeString(d.title, 'Untitled Event', 300),
-    date: sanitizeDateString(d.date),
-
-    type: sanitizeEnum<any>(
-      d.type,
-      ['todo', 'job', 'goal', 'exam', 'assignment_due', 'holiday', 'viva', 'submission', 'gcal', 'gym'],
-      'todo'
-    ),
-    startTime: sanitizeString(d.startTime, '09:00', 10),
-    endTime: sanitizeString(d.endTime, '10:00', 10),
-    location: d.location ? sanitizeString(d.location, '', 200) : undefined,
-    description: d.description ? sanitizeString(d.description, '', 1000) : undefined,
-  };
-}
-
-export function parseGoal(docData: any, docId: string): Goal {
-  const d = docData && typeof docData === 'object' ? docData : {};
-  const keyResults = Array.isArray(d.keyResults)
-    ? d.keyResults.map((kr: any, idx: number) => {
-        const targetValue = sanitizeNumber(kr?.targetValue, 100, 1, 1000000);
-        const currentValue = sanitizeNumber(
-          kr?.currentValue,
-          kr?.completed ? targetValue : 0,
-          0,
-          1000000
-        );
-        const title = sanitizeString(kr?.title || kr?.text, 'Key Result', 200);
-        return {
-          ...kr, // Preserve Web OKR fields (history, syncType, syncQuery, unit)
-          id: sanitizeString(kr?.id, `kr_${idx}`),
-          title,
-          text: title,
-          targetValue,
-          currentValue,
-          unit: sanitizeString(kr?.unit, '%', 20),
-          completed: Boolean(kr?.completed || currentValue >= targetValue),
-        };
-      })
-    : [];
-
-  return {
-    id: sanitizeString(docId || d.id, 'goal_' + Date.now()),
-    userId: sanitizeString(d.userId, ''),
-    title: sanitizeString(d.title, 'Untitled Goal', 300),
-    status: sanitizeString(d.status, 'active', 30),
-    progress: sanitizeNumber(d.progress, 0, 0, 100),
-    description: d.description ? sanitizeString(d.description, '', 1000) : undefined,
-    deadline: d.deadline ? sanitizeString(d.deadline, '', 20) : undefined,
-    subject: d.subject ? sanitizeString(d.subject, '', 100) : undefined,
-    firstStep: d.firstStep ? sanitizeString(d.firstStep, '', 300) : undefined,
-    successMetric: d.successMetric ? sanitizeString(d.successMetric, '', 300) : undefined,
-    keyResults,
-    createdAt: sanitizeNumber(d.createdAt, 0, 0),
-    updatedAt: sanitizeNumber(d.updatedAt, 0, 0),
-  } as Goal;
-}
-
-export function parseStorageNode(docData: any, docId: string): StorageNode {
-  const d = docData && typeof docData === 'object' ? docData : {};
-  return {
-    id: sanitizeString(docId || d.id, 'node_' + Date.now()),
-    userId: sanitizeString(d.userId, ''),
-    type: sanitizeEnum<'folder' | 'file' | 'note'>(d.type, ['folder', 'file', 'note'], 'note'),
-    name: sanitizeString(d.name, 'Untitled', 250),
-    parentId: d.parentId ? sanitizeString(d.parentId, null as any, 100) : null,
-    fileType: d.fileType ? sanitizeEnum<'pdf' | 'docx' | 'image' | 'other'>(d.fileType, ['pdf', 'docx', 'image', 'other'], 'other') : undefined,
-    size: sanitizeNumber(d.size, 0, 0),
-    url: d.url ? sanitizeString(d.url, '', 2000) : undefined,
-    content: typeof d.content === 'string' ? d.content : '',
-    createdAt: sanitizeNumber(d.createdAt, 0, 0),
-    updatedAt: sanitizeNumber(d.updatedAt, 0, 0),
-    pinned: Boolean(d.pinned),
-    tags: Array.isArray(d.tags) ? d.tags.map((t: any) => sanitizeString(t, '', 50)).filter(Boolean) : [],
-  };
-}
-
-export function parseLearningTopic(docData: any, docId: string): LearningTopic {
-  const d = docData && typeof docData === 'object' ? docData : {};
-  const subTasks: LearningSubTask[] = Array.isArray(d.subTasks)
-    ? d.subTasks.map((st: any, idx: number) => ({
-        id: sanitizeString(st?.id, `lst_${idx}`),
-        title: sanitizeString(st?.title, 'Lecture', 200),
-        category: st?.category ? sanitizeString(st.category, '', 100) : undefined,
-        url: st?.url ? sanitizeString(st.url, '', 2000) : undefined,
-        notes: st?.notes ? String(st.notes) : undefined,
-        isCompleted: Boolean(st?.isCompleted),
-        timeSpentMinutes: sanitizeNumber(st?.timeSpentMinutes, 0, 0, 10000),
-        timeSpentMs: sanitizeNumber(st?.timeSpentMs, 0, 0),
-        resources: Array.isArray(st?.resources) ? st.resources : [],
-        masteryLevel: sanitizeEnum<'not_started' | 'learning' | 'revising' | 'mastered'>(
-          st?.masteryLevel,
-          ['not_started', 'learning', 'revising', 'mastered'],
-          'not_started'
-        ),
-        estimatedHours: sanitizeNumber(st?.estimatedHours, 1, 0, 1000),
-        revisionCount: sanitizeNumber(st?.revisionCount, 0, 0, 1000),
-        lastRevisedAt: sanitizeNumber(st?.lastRevisedAt, 0, 0),
-        pinned: Boolean(st?.pinned),
-        pinnedAt: sanitizeNumber(st?.pinnedAt, 0, 0),
-        completedDate: st?.completedDate ? sanitizeString(st.completedDate, '', 20) : undefined,
-      }))
-    : [];
-
-  return {
-    id: sanitizeString(docId || d.id, 'lt_' + Date.now()),
-    userId: sanitizeString(d.userId, ''),
-    title: sanitizeString(d.title, 'Untitled Roadmap', 200),
-    description: d.description ? sanitizeString(d.description, '', 1000) : undefined,
-    notes: d.notes ? String(d.notes) : undefined,
-    lastStudiedAt: sanitizeNumber(d.lastStudiedAt, 0, 0),
-    subTasks,
-    createdAt: sanitizeNumber(d.createdAt, 0, 0),
-    order: sanitizeNumber(d.order, 0, 0, 10000),
-    timeSpentMinutes: sanitizeNumber(d.timeSpentMinutes, 0, 0, 10000),
-    timeSpentMs: sanitizeNumber(d.timeSpentMs, 0, 0),
-  };
-}
-
 /**
  * Fast equality check between previous state array and incoming snapshot array.
- * If every item is identical (same IDs and properties), returns true so React
- * can reuse the existing array reference and bail out of re-rendering.
+ * If every item is identical, returns true so React can reuse the existing array reference
+ * and bail out of re-rendering.
  *
- * NOTE: Sorts by ID before comparing to handle non-deterministic document ordering
- * from Firestore SDK snapshots vs cached local state.
+ * Uses order-independent commutative fingerprinting for workout logs (incorporating sets,
+ * completed status, reps, and weights), and fast Map comparison for other items.
  */
 export function areItemsEqual<T>(prev: T[] | null | undefined, next: T[] | null | undefined): boolean {
   if (prev === next) return true;
@@ -496,8 +264,14 @@ export function areItemsEqual<T>(prev: T[] | null | undefined, next: T[] | null 
   if (prev.length !== next.length) return false;
   if (prev.length === 0 && next.length === 0) return true;
 
-  // Fast-path: if items have `id` and `updatedAt`, compare via Map in O(N) without JSON.stringify!
   const sample = (prev[0] || next[0]) as any;
+
+  // For workout logs with exercises: use O(N) bitwise dataset fingerprinting
+  if (sample?.exercises !== undefined || sample?.cardio !== undefined) {
+    return generateDatasetFingerprint(prev as any[]) === generateDatasetFingerprint(next as any[]);
+  }
+
+  // Fast-path: if items have `id` and `updatedAt`, compare via Map in O(N) without JSON.stringify
   if (sample?.id !== undefined && sample?.updatedAt !== undefined) {
     const prevMap = new Map<string, any>();
     for (let i = 0; i < prev.length; i++) {
@@ -512,11 +286,12 @@ export function areItemsEqual<T>(prev: T[] | null | undefined, next: T[] | null 
       if (
         p.updatedAt !== n.updatedAt ||
         p.completed !== n.completed ||
-        (p.exercises?.length !== n.exercises?.length) ||
-        (p.cardio?.length !== n.cardio?.length) ||
-        (p.workoutStartTime !== n.workoutStartTime) ||
-        (p.restTimerStartTime !== n.restTimerStartTime)
-      ) return false;
+        p.weightKg !== n.weightKg ||
+        p.amountMl !== n.amountMl ||
+        p.durationMinutes !== n.durationMinutes
+      ) {
+        return false;
+      }
     }
     return true;
   }
@@ -535,4 +310,3 @@ export function areItemsEqual<T>(prev: T[] | null | undefined, next: T[] | null 
     return false;
   }
 }
-

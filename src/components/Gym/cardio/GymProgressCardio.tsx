@@ -1,6 +1,9 @@
 import React from 'react';
 import { View, Text } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Activity, Clock, Flame, MapPin } from 'lucide-react-native';
+import { useTheme } from '../../../contexts/ThemeContext';
+import { ICON } from '../../../theme/tokens';
+import { NumericText } from '../../ui';
 
 export interface GymProgressCardioProps {
   totalCardioMins: number;
@@ -15,10 +18,12 @@ export const GymProgressCardio: React.FC<GymProgressCardioProps> = React.memo(({
   distance,
   styles,
 }) => {
+  const { tokens } = useTheme();
+
   if (totalCardioMins === 0) {
     return (
       <View style={styles.emptyBox}>
-        <Ionicons name="walk-outline" size={24} color="#8E8E93" />
+        <Activity size={ICON.lg} strokeWidth={ICON.strokeWidth} color={tokens.text.secondary} />
         <Text style={styles.emptyText}>No cardio logged in this period.</Text>
       </View>
     );
@@ -27,19 +32,43 @@ export const GymProgressCardio: React.FC<GymProgressCardioProps> = React.memo(({
   return (
     <View style={styles.cardioMetricsGrid}>
       <View style={styles.cardioMetricBox}>
-        <Ionicons name="time-outline" size={20} color="#FF9F0A" />
-        <Text style={styles.cardioMetricValue}>{totalCardioMins}</Text>
-        <Text style={styles.cardioMetricLabel}>Minutes</Text>
+        <Clock size={ICON.md} strokeWidth={ICON.strokeWidth} color={tokens.status.warning} />
+        <NumericText style={styles.cardioMetricValue}>{totalCardioMins}</NumericText>
+        <Text
+          style={styles.cardioMetricLabel}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.8}
+          maxFontSizeMultiplier={1.2}
+        >
+          Minutes
+        </Text>
       </View>
       <View style={styles.cardioMetricBox}>
-        <Ionicons name="flame-outline" size={20} color="#FF453A" />
-        <Text style={styles.cardioMetricValue}>{Math.round(calories)}</Text>
-        <Text style={styles.cardioMetricLabel}>Calories</Text>
+        <Flame size={ICON.md} strokeWidth={ICON.strokeWidth} color={tokens.status.danger} />
+        <NumericText style={styles.cardioMetricValue}>{Math.round(calories)}</NumericText>
+        <Text
+          style={styles.cardioMetricLabel}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.8}
+          maxFontSizeMultiplier={1.2}
+        >
+          Calories
+        </Text>
       </View>
       <View style={styles.cardioMetricBox}>
-        <Ionicons name="location-outline" size={20} color="#38BDF8" />
-        <Text style={styles.cardioMetricValue}>{distance.toFixed(1)}</Text>
-        <Text style={styles.cardioMetricLabel}>Distance (km)</Text>
+        <MapPin size={ICON.md} strokeWidth={ICON.strokeWidth} color={tokens.status.info} />
+        <NumericText style={styles.cardioMetricValue}>{distance.toFixed(1)}</NumericText>
+        <Text
+          style={styles.cardioMetricLabel}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.8}
+          maxFontSizeMultiplier={1.2}
+        >
+          Distance (km)
+        </Text>
       </View>
     </View>
   );

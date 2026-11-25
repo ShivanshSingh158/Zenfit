@@ -1,3 +1,5 @@
+import { estimate1RM } from '../services/oneRepMaxEngine';
+import { getExerciseLedgerRecordSync } from './exerciseLedger';
 // src/utils/progressionEngine.ts
 import { GymDayLog, GymExerciseLog, GymSet } from '../types/gym.types';
 import { normalizeExerciseKey } from './gymUtils';
@@ -29,6 +31,7 @@ export interface LoggedSetInput {
   reps: number;
   rir?: number;
   isWarmup?: boolean;
+  setType?: string;
   completed?: boolean;
 }
 
@@ -77,7 +80,7 @@ export interface InferredExerciseMeta {
 export interface ProgressionRecommendation {
   state: ProgressionState;
   badgeLabel: string;
-  badgeColor: '#30D158' | '#0A84FF' | '#FF9F0A' | '#BF5AF2' | '#8E8E93' | '#A599FF';
+  badgeColor: '#30D158' | '#0A84FF' | '#FF9F0A' | '#38BDF8' | '#8E8E93';
   headline: string;
   subheadline: string;
   prescribedSets: SetPrescription[];
@@ -167,17 +170,18 @@ export function inferExerciseMeta(
       ? profile.isCompound
       : isIsolation
       ? false
-      : (COMPOUND_REGEX.test(name) || true);
+      : COMPOUND_REGEX.test(name);
 
   const isLowerBody =
     LOWER_BODY_REGEX.test(name) ||
     /\b(quad|hamstring|glute|calf|calves|leg|lower back)\b/i.test(muscle);
 
   // 3. Historical Weight-Step Fingerprinting (Learn user's actual gym increments)
+  // Issue #106: Exclude warmups from uniqueWeights calculation
   const uniqueWeights = Array.from(
     new Set(
       history
-        .flatMap((s) => (s.sets || []).map((set) => Number(set.weight)))
+        .flatMap((s) => (s.sets || []).filter(set => !set.isWarmup && set.setType !== 'warmup').map((set) => Number(set.weight)))
         .filter((w) => Number.isFinite(w) && w > 0)
     )
   ).sort((a, b) => a - b);
@@ -242,20 +246,22 @@ export function inferExerciseMeta(
 // 2. CORE EXERCISE SCIENCE & FILTERING FUNCTIONS
 // ---------------------------------------------------------------------------
 
-export function calculateSetE1RM(weight: number, reps: number, rir = 0): number {
-  if (weight <= 0 || reps <= 0) return 0;
-  // Cap effective reps at 20 so ultra-high-rep sets don't artificially inflate e1RM
-  const effectiveReps = Math.min(reps + Math.max(0, rir), 20);
-  return Number((weight * (1 + effectiveReps / 30)).toFixed(2));
+export function calculateSetE1RM(weight: number, reps: number, rir = 0, defaultBodyweightTare = 70): number {
+  if (reps <= 0) return 0;
+  const effectiveWeight = weight > 0 ? weight : (weight === 0 ? defaultBodyweightTare : 0);
+  if (effectiveWeight <= 0) return 0;
+  return Number(estimate1RM(effectiveWeight, reps, 'hybrid', rir).toFixed(2));
 }
 
 export function predictRepsAtWeight(
   e1RM: number,
   targetWeight: number,
-  targetRir = 1
+  targetRir = 1,
+  defaultBodyweightTare = 70
 ): number {
-  if (targetWeight <= 0 || e1RM <= targetWeight) return 1;
-  const rawMaxReps = 30 * (e1RM / targetWeight - 1);
+  const effectiveTarget = targetWeight > 0 ? targetWeight : (targetWeight === 0 ? defaultBodyweightTare : 0);
+  if (effectiveTarget <= 0 || e1RM <= effectiveTarget) return 1;
+  const rawMaxReps = 30 * (e1RM / effectiveTarget - 1);
   return Math.max(1, Math.floor(rawMaxReps - targetRir));
 }
 
@@ -549,7 +555,7 @@ export function generateProgressionRecommendation(
     return {
       state: 'REP_BUILD',
       badgeLabel: 'Top Set + Back-Off',
-      badgeColor: '#A599FF',
+      badgeColor: '#38BDF8',
       headline: `Top Set: ${topW} kg × ${topReps} • Back-Off: ${backOffW} kg × ${backOffReps}`,
       subheadline: 'Heavy maximal top set followed by -10% volume back-off sets for hypertrophy.',
       prescribedSets,
@@ -597,7 +603,7 @@ export function generateProgressionRecommendation(
         };
       } else {
         // Reached 5 sets of Rmax -> load increment unlock!
-        const nextW = snapToGymWeight(W + deltaW, deltaW || 2.5);
+        const nextW = Math.max(0, snapToGymWeight(W + direction * deltaW, deltaW || 2.5));
         const resetSets = 3;
         const prescribedSets: SetPrescription[] = Array.from({ length: resetSets }, (_, i) => ({
           setNumber: i + 1,
@@ -609,14 +615,14 @@ export function generateProgressionRecommendation(
         }));
         return {
           state: 'WEIGHT_UNLOCK',
-          badgeLabel: `Triple Progression (+${deltaW} kg)`,
+          badgeLabel: `Triple Progression (${direction > 0 ? '+' : '-'}${deltaW} kg)`,
           badgeColor: '#30D158',
           headline: `Load Increment: Advance to ${nextW} kg × ${resetSets} sets of ${Rmin}`,
-          subheadline: `Mastered 5 sets at ${Rmax} reps. Stepping up weight by ${deltaW} kg and resetting to 3 sets.`,
+          subheadline: `Mastered 5 sets at ${Rmax} reps. Adjusting weight by ${direction > 0 ? '+' : '-'}${deltaW} kg and resetting to 3 sets.`,
           prescribedSets,
           totalTargetReps: resetSets * Rmin,
           recommendedWeight: nextW,
-          weightDelta: deltaW,
+          weightDelta: direction * deltaW,
           isDeload: false,
           lastSessionSummary,
           inferredMeta,
@@ -648,7 +654,7 @@ export function generateProgressionRecommendation(
     return {
       state: 'DETRAINED_RAMP',
       badgeLabel: `Ramp-Back (${Math.round(daysSinceLastSession)}d off)`,
-      badgeColor: '#BF5AF2',
+      badgeColor: '#38BDF8',
       headline:
         rampWeight > 0
           ? `Ramp back at ${rampWeight} kg × ${prescribedSets.map((s) => s.targetReps).join(', ')}`
@@ -748,12 +754,6 @@ export function generateProgressionRecommendation(
     prev.anchorSetE1RM < prev2.anchorSetE1RM * 0.97 &&
     last.anchorSetE1RM < ewma1RM * 0.94;
 
-  const failedFloorTwice =
-    prev !== undefined &&
-    last.workingSets[0].reps < Rmin - 1 &&
-    prev.workingSets[0].reps < Rmin - 1 &&
-    last.anchorWeight === prev.anchorWeight;
-
   const hasHighSystemicFatigue = (recovery.recentPrimaryMuscleHardSets ?? 0) >= 12;
 
   if (regressedThreeTimes && hasHighSystemicFatigue) {
@@ -775,7 +775,7 @@ export function generateProgressionRecommendation(
     return {
       state: 'REACTIVE_DELOAD',
       badgeLabel: 'Systemic Deload',
-      badgeColor: '#BF5AF2',
+      badgeColor: '#38BDF8',
       headline: `Deload: ${deloadWeight} kg × ${deloadSetsCount} sets of ${Rmin}`,
       subheadline: '3 consecutive sessions of drop-off with high volume load. Shedding systemic fatigue today.',
       prescribedSets,
@@ -812,14 +812,16 @@ export function generateProgressionRecommendation(
   // STATE 3: WEIGHT UNLOCK (Mastered Current Weight -> +DeltaW)
   // -------------------------------------------------------------------------
   if (hitTopSetCeiling && hitTotalRepUnlock && deltaW > 0) {
-    const nextWeight = Number((W + direction * deltaW).toFixed(2));
+    const nextWeight = Math.max(0, Number((W + direction * deltaW).toFixed(2)));
 
     // Iso-e1RM landing rep calculation so big % jumps don't prescribe impossible reps
-    const predictedFirstSetReps = predictRepsAtWeight(
-      Math.max(last.anchorSetE1RM, ewma1RM),
-      nextWeight,
-      1 + intraWorkoutFatiguePenalty
-    );
+    const predictedFirstSetReps = inferredMeta.equipment === 'Assisted'
+      ? Math.max(Rmin - 1, last.firstSetReps - 2)
+      : predictRepsAtWeight(
+          Math.max(last.anchorSetE1RM, ewma1RM),
+          nextWeight,
+          1 + intraWorkoutFatiguePenalty
+        );
     const startingSet1Reps = Math.max(
       Rmin - 1,
       Math.min(Rmin + 1, predictedFirstSetReps)
@@ -988,12 +990,14 @@ export function recalculateRemainingSetsLive(
   initialRecommendation: ProgressionRecommendation,
   completedSetsToday: LoggedSetInput[]
 ): SetPrescription[] {
-  const workingCompleted = extractWorkingSets(completedSetsToday);
-  if (workingCompleted.length === 0) {
+  const nonWarmupCompleted = (completedSetsToday || []).filter(
+    (s) => !s.isWarmup && s.setType !== 'warmup' && (s.completed ?? true) && s.reps > 0
+  );
+  if (nonWarmupCompleted.length === 0) {
     return initialRecommendation.prescribedSets;
   }
 
-  const latestLogged = workingCompleted[workingCompleted.length - 1];
+  const latestLogged = nonWarmupCompleted[nonWarmupCompleted.length - 1];
   const latestE1RM = calculateSetE1RM(
     latestLogged.weight,
     latestLogged.reps,
@@ -1005,8 +1009,8 @@ export function recalculateRemainingSetsLive(
 
   return initialRecommendation.prescribedSets.map((prescription, idx) => {
     // Preserve already completed sets
-    if (idx < workingCompleted.length) {
-      const done = workingCompleted[idx];
+    if (idx < nonWarmupCompleted.length) {
+      const done = nonWarmupCompleted[idx];
       return {
         ...prescription,
         targetWeight: done.weight,
@@ -1015,7 +1019,7 @@ export function recalculateRemainingSetsLive(
       };
     }
 
-    const setsAhead = idx - (workingCompleted.length - 1);
+    const setsAhead = idx - (nonWarmupCompleted.length - 1);
     const fatigueDrop = isCompound ? setsAhead : Math.ceil(setsAhead * 0.75);
 
     // If bodyweight or 0kg, scale directly from latestLogged.reps
@@ -1031,9 +1035,9 @@ export function recalculateRemainingSetsLive(
     // If this is a back-off set following a completed top set, snap load to 90% of set 1
     const isBackOff = prescription.role === 'BACK_OFF' || initialRecommendation.badgeLabel.includes('Back-Off');
     let effectiveTargetWeight = prescription.targetWeight;
-    if (isBackOff && workingCompleted.length >= 1 && workingCompleted[0].weight > 0) {
+    if (isBackOff && nonWarmupCompleted.length >= 1 && nonWarmupCompleted[0].weight > 0) {
       const step = initialRecommendation.inferredMeta.incrementKg || 2.5;
-      effectiveTargetWeight = snapToGymWeight(workingCompleted[0].weight * 0.90, step);
+      effectiveTargetWeight = snapToGymWeight(nonWarmupCompleted[0].weight * 0.90, step);
     }
 
     const predictedAtTargetWeight = predictRepsAtWeight(
@@ -1049,9 +1053,9 @@ export function recalculateRemainingSetsLive(
     return {
       ...prescription,
       targetWeight: effectiveTargetWeight,
-      targetReps: isBackOff ? Math.max(Rmin, Math.min(Rmax + 3, workingCompleted[0].reps + 2)) : liveAdjustedReps,
+      targetReps: isBackOff ? Math.max(Rmin, Math.min(Rmax + 3, nonWarmupCompleted[0].reps + 2)) : liveAdjustedReps,
       label: isBackOff
-        ? `${effectiveTargetWeight} kg × ${Math.max(Rmin, Math.min(Rmax + 3, workingCompleted[0].reps + 2))} (Back-Off)`
+        ? `${effectiveTargetWeight} kg × ${Math.max(Rmin, Math.min(Rmax + 3, nonWarmupCompleted[0].reps + 2))} (Back-Off)`
         : `${effectiveTargetWeight} kg × ${liveAdjustedReps}`,
     };
   });
@@ -1076,43 +1080,99 @@ export interface ProgressionResult {
 /**
  * Converts raw GymDayLog entries into HistoricalSessionInput format.
  */
+// Cached session history index by (logsRef, targetDateStr)
+let _lastLogsRef: GymDayLog[] | null = null;
+let _lastTargetDate: string | undefined = undefined;
+let _cachedSessionsByExercise = new Map<string, HistoricalSessionInput[]>();
+
 export function convertGymLogsToHistory(
   exerciseName: string,
   gymLogs: GymDayLog[],
   targetDateStr?: string
 ): HistoricalSessionInput[] {
   const targetKey = normalizeExerciseKey(exerciseName);
-  const sessions: HistoricalSessionInput[] = [];
+  if (!targetKey) return [];
 
-  const filteredLogs = targetDateStr
-    ? (gymLogs || []).filter((l) => (l.date || '') < targetDateStr)
-    : (gymLogs || []);
+  // Rebuild cache if logs reference or target date changed
+  if (_lastLogsRef !== gymLogs || _lastTargetDate !== targetDateStr) {
+    _lastLogsRef = gymLogs;
+    _lastTargetDate = targetDateStr;
+    _cachedSessionsByExercise = new Map();
 
-  const sorted = filteredLogs.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const filteredLogs = targetDateStr
+      ? (gymLogs || []).filter((l) => (l?.date || '') < targetDateStr)
+      : (gymLogs || []);
 
-  for (const log of sorted) {
-    if (!Array.isArray(log.exercises)) continue;
-    const match = log.exercises.find((e) => e?.name && normalizeExerciseKey(e.name) === targetKey);
-    if (!match) continue;
+    const sorted = filteredLogs.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-    const completedSets = (match.setsLog || []).filter((s) => s.completed && !s.isWarmup);
-    if (completedSets.length === 0) continue;
+    for (const log of sorted) {
+      if (!Array.isArray(log.exercises)) continue;
+      for (const ex of log.exercises) {
+        if (!ex?.name) continue;
+        const eKey = normalizeExerciseKey(ex.name);
+        if (!eKey) continue;
 
-    sessions.push({
-      sessionId: log.id || log.date,
-      performedAt: log.date,
-      sets: completedSets.map((s, idx) => ({
-        setNumber: s.setNumber || idx + 1,
-        weight: Number(s.weight) || 0,
-        reps: Number(s.reps) || 0,
-        rir: s.rir,
-        isWarmup: !!s.isWarmup,
-        completed: !!s.completed,
-      })),
-    });
+        let list = _cachedSessionsByExercise.get(eKey);
+        if (!list) {
+          list = [];
+          _cachedSessionsByExercise.set(eKey, list);
+        }
+        if (list.length >= 8) continue;
 
-    if (sessions.length >= 8) break;
+        const completedSets = (ex.setsLog || []).filter((s) => s.completed && !s.isWarmup);
+        if (completedSets.length === 0) continue;
+
+        list.push({
+          sessionId: log.id || log.date,
+          performedAt: log.date,
+          sets: completedSets.map((s, idx) => ({
+            setNumber: s.setNumber || idx + 1,
+            weight: Number(s.weight ?? (s as any).weightKg) || 0,
+            reps: Number(s.reps) || 0,
+            rir: s.rir,
+            isWarmup: !!s.isWarmup,
+            completed: !!s.completed,
+          })),
+        });
+      }
+    }
   }
 
-  return sessions;
+  const cached = _cachedSessionsByExercise.get(targetKey);
+  if (cached && cached.length > 0) {
+    return cached;
+  }
+
+  // Fallback to exerciseLedger for fast O(1) recent session data
+  const ledgerRec = getExerciseLedgerRecordSync(exerciseName);
+  if (ledgerRec && ledgerRec.sets && ledgerRec.sets.length > 0) {
+    const fallbackSessions: HistoricalSessionInput[] = [];
+    fallbackSessions.push({
+      sessionId: `ledger_${ledgerRec.lastDate}`,
+      performedAt: ledgerRec.lastDate,
+      sets: ledgerRec.sets.map((s) => ({
+        setNumber: s.setNumber,
+        weight: s.weight,
+        reps: s.reps,
+        rir: s.rir,
+        completed: true,
+      })),
+    });
+    if (ledgerRec.historicalSets && ledgerRec.historicalSets.length > 0 && ledgerRec.historicalDate) {
+      fallbackSessions.push({
+        sessionId: `ledger_hist_${ledgerRec.historicalDate}`,
+        performedAt: ledgerRec.historicalDate,
+        sets: ledgerRec.historicalSets.map((s) => ({
+          setNumber: s.setNumber,
+          weight: s.weight,
+          reps: s.reps,
+          rir: s.rir,
+          completed: true,
+        })),
+      });
+    }
+    return fallbackSessions;
+  }
+
+  return [];
 }

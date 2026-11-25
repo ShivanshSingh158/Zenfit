@@ -10,318 +10,68 @@
  *   so modal opening, closing, and interactions feel instantaneous.
  */
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   Text,
-  Modal,
-  TouchableOpacity,
   TextInput,
   ScrollView,
-  KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
   FlatList,
   Keyboard,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  Check,
+  ChevronLeft,
+  Dumbbell,
+  Plus,
+  Search,
+  X,
+} from 'lucide-react-native';
+import { TactileButton } from '../../ui';
+import BottomSheet from '../../ui/BottomSheet';
 
-import { FONT_FAMILY } from '../../../theme/tokens';
+import { FONT_FAMILY, ICON, SPACE, TOUCH } from '../../../theme/tokens';
 import { GymExerciseLog, GymPlanDay } from '../../../types/gym.types';
 import { useGymPlan, useGymLogs } from '../../../contexts/domains/WellnessContext';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { getCustomPlanDay } from '../../../hooks/useGymLog';
-import { autoResolveExerciseVideoId } from '../../../services/exerciseVideoResolver';
 import { KNOWN_EXERCISE_VIDEOS, sanitizeName } from '../../../services/exerciseVideoDatabase';
-import { aiResolveExercise, AIExerciseInfo } from '../../../services/geminiProxy';
-import { GYM_PLAN } from '../../../data/gymPlan';
-import { EXERCISE_DATABASE } from '../../../data/exerciseDatabase';
 import { handleSyncError } from '../../../utils/errorUtils';
-import { hapticLight, hapticSuccess, hapticMedium } from '../../../utils/haptics';
+import { hapticSelection, hapticSuccess } from '../../../utils/haptics';
+import {
+  UNIFIED_MUSCLE_CHIPS,
+  checkCatalogCategoryMatch,
+  getUnifiedCategoryMap,
+  getUnifiedExerciseCatalogue,
+  loadMergedCustomExercises,
+  persistUnifiedCustomExercise,
+  warmUnifiedExerciseCatalogue,
+} from '../../../services/exerciseCatalogService';
 
 // Subcomponents & Styles
 import { makeAddExerciseStyles } from './addExerciseStyles';
-import { ExerciseCatalogEntry } from './ExerciseSearchDropdown';
-import ExerciseCardItem, { getEquipmentGlyph } from './ExerciseCardItem';
+import type { ExerciseCatalogEntry } from '../../../types/gym.types';
+import ExerciseCardItem from './ExerciseCardItem';
 import ExerciseCustomFields from './ExerciseCustomFields';
 import ExerciseAnimationCard from './ExerciseAnimationCard';
-import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
-import { triggerLayoutAnimation } from '../../../theme/animations';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import {
   getBiomechanicalPrescription,
   resolveExerciseTargetMuscle,
   getPreviousExerciseSession,
+  normalizeExerciseKey,
   resolveMuscleColor,
+  buildExerciseHistoryIndex,
 } from '../../../utils/gymUtils';
 
-// ── Muscle Filter Chips (Matching Customize Exercise design with subtle dot) ──
-export const MUSCLE_FILTER_CHIPS: {
-  id: string;
-  label: string;
-}[] = [
-  { id: 'all', label: 'All' },
-  { id: 'Chest', label: 'Chest' },
-  { id: 'Back', label: 'Back' },
-  { id: 'Shoulders', label: 'Shoulders' },
-  { id: 'Legs', label: 'Legs' },
-  { id: 'Arms', label: 'Arms' },
-  { id: 'Abs', label: 'Abs' },
-  { id: 'Cardio', label: 'Cardio' },
-];
-
-const STAPLE_NAMES = [
-  'incline bench press (dumbbell)',
-  'lat pulldown (cable)',
-  'squat (barbell)',
-  'lateral raise (cable)',
-  'flat bench press (barbell)',
-  'bench press (barbell)',
-  'romanian deadlift (dumbbell)',
-  'triceps pushdown (cable)',
-  'incline bicep curl (dumbbell)',
-  'seated cable row',
-  'leg extension (machine)',
-  'leg curl (seated machine)',
-  'leg curl (lying machine)',
-  'hamstring curl (seated machine)',
-  'overhead press (barbell)',
-  'shoulder press (dumbbell)',
-  'cable chest fly',
-  'face pull (cable)',
-  'standing calf raise',
-  'bulgarian split squat',
-  'pull-up',
-  'dips',
-];
-
-/** Build a full deduplicated exercise catalogue from our curated 45+ exercise database + plan. */
-function buildCatalogue(): ExerciseCatalogEntry[] {
-  const seen = new Set<string>();
-  const result: ExerciseCatalogEntry[] = [];
-
-  const add = (e: ExerciseCatalogEntry, isCurated: boolean) => {
-    const key = (e.name || '').toLowerCase().trim();
-    if (!key) return;
-    if (seen.has(key)) {
-      const existing = result.find(r => (r.name || '').toLowerCase().trim() === key);
-      if (existing && e.aliases && e.aliases.length > 0) {
-        existing.aliases = Array.from(new Set([...(existing.aliases || []), ...e.aliases]));
-      }
-      return;
-    }
-    seen.add(key);
-    result.push({ ...e, isCurated });
-  };
-
-  // 1. EXERCISE_DATABASE (Curated master library with calibrated tiers)
-  for (const dbEntry of EXERCISE_DATABASE) {
-    const rx = getBiomechanicalPrescription(dbEntry.name, dbEntry.muscle);
-    add({
-      id: dbEntry.id,
-      name: dbEntry.name,
-      muscle: dbEntry.muscle,
-      tier: dbEntry.tier || 'A Tier',
-      targetSets: rx.targetSets,
-      targetReps: rx.targetReps,
-      restTimeSecs: rx.restTimeSecs,
-      videoId: (dbEntry as any).videoId || '',
-      aliases: dbEntry.aliases,
-    }, true);
-  }
-
-  // 2. GYM_PLAN exercises
-  for (const day of GYM_PLAN) {
-    for (const ex of day.exercises) {
-      const rx = getBiomechanicalPrescription(ex.name, ex.muscle);
-      add({
-        id: ex.id,
-        name: ex.name,
-        muscle: ex.muscle ?? 'Mixed',
-        tier: (ex as any).tier || 'A Tier',
-        targetSets: ex.targetSets ?? rx.targetSets,
-        targetReps: ex.targetReps ?? rx.targetReps,
-        restTimeSecs: (ex as any).restTimeSecs ?? rx.restTimeSecs,
-        videoId: ex.videoId ?? '',
-      }, true);
-    }
-  }
-
-  // Pre-sort so standard staples appear at the top, then alphabetically
-  result.sort((a, b) => {
-    const aName = a.name.toLowerCase();
-    const bName = b.name.toLowerCase();
-    const aIdx = STAPLE_NAMES.findIndex(s => aName.includes(s));
-    const bIdx = STAPLE_NAMES.findIndex(s => bName.includes(s));
-    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
-    if (aIdx !== -1) return -1;
-    if (bIdx !== -1) return 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  return result;
-}
-
-// Lazy singleton — built ONLY upon active user search or filter selection
-let _exerciseCatalogue: ExerciseCatalogEntry[] | null = null;
-let _categoryMap: Record<string, ExerciseCatalogEntry[]> | null = null;
-
-export function getExerciseCatalogue(): ExerciseCatalogEntry[] {
-  if (!_exerciseCatalogue) {
-    _exerciseCatalogue = buildCatalogue();
-    loadCustomExercisesToCatalogue().catch(() => {});
-  }
-  return _exerciseCatalogue;
-}
-
-const TIER_SORT_WEIGHT: Record<string, number> = {
-  'S Tier': 1,
-  'A+ Tier': 2,
-  'A Tier': 3,
-  'B Tier': 4,
-  'C Tier': 5,
-};
-
-const sortTierWise = (list: ExerciseCatalogEntry[]) => {
-  return list.sort((a, b) => {
-    const weightA = a.tier ? (TIER_SORT_WEIGHT[a.tier] ?? 5) : 5;
-    const weightB = b.tier ? (TIER_SORT_WEIGHT[b.tier] ?? 5) : 5;
-    if (weightA !== weightB) return weightA - weightB;
-    return a.name.localeCompare(b.name);
-  });
-};
-
-function checkCategoryMatch(m: string, category: string): boolean {
-  const l = (m || '').toLowerCase();
-  const cat = category.toLowerCase();
-
-  if (cat === 'all') return true;
-
-  if (cat === 'cardio') {
-    return (
-      l.includes('cardio') ||
-      l.includes('conditioning') ||
-      l.includes('hiit') ||
-      l.includes('sport') ||
-      l.includes('plyometric') ||
-      l.includes('mobility') ||
-      l.includes('warmup') ||
-      l.includes('olympic')
-    );
-  }
-  if (cat === 'back') {
-    if (l.includes('tricep') || l.includes('bicep') || l.includes('brach') || l.includes('delt')) return false;
-    return (
-      l.includes('back') ||
-      l.includes('lat') ||
-      l.includes('wing') ||
-      l.includes('rhomboid') ||
-      l.includes('trap') ||
-      l.includes('erector')
-    );
-  }
-  if (cat === 'arms') {
-    return (
-      l.includes('bicep') ||
-      l.includes('tricep') ||
-      l.includes('brach') ||
-      l.includes('forearm') ||
-      l.includes('wrist') ||
-      l.includes('grip')
-    );
-  }
-  if (cat === 'legs') {
-    return (
-      l.includes('quad') ||
-      l.includes('glute') ||
-      l.includes('hamstring') ||
-      l.includes('calf') ||
-      l.includes('calves') ||
-      l.includes('soleus') ||
-      l.includes('tibialis') ||
-      l.includes('vmo') ||
-      l.includes('adductor') ||
-      l.includes('abductor') ||
-      l.includes('legs')
-    );
-  }
-  if (cat === 'chest') {
-    return l.includes('chest') || l.includes('pec') || l.includes('serratus');
-  }
-  if (cat === 'shoulders') {
-    return l.includes('delt') || l.includes('shoulder');
-  }
-  if (cat === 'abs') {
-    return l.includes('abs') || l.includes('oblique') || l.includes('core') || l.includes('transverse') || l.includes('vacuum');
-  }
-  return l.includes(cat);
-}
-
-export function getCategoryMap(): Record<string, ExerciseCatalogEntry[]> {
-  if (!_categoryMap) {
-    const cat = getExerciseCatalogue();
-    _categoryMap = {
-      Chest: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Chest'))),
-      Back: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Back'))),
-      Legs: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Legs'))),
-      Shoulders: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Shoulders'))),
-      Arms: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Arms'))),
-      Abs: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Abs'))),
-      Cardio: sortTierWise(cat.filter(e => checkCategoryMatch(e.muscle, 'Cardio'))),
-    };
-  }
-  return _categoryMap;
-}
-
-const CUSTOM_EXERCISES_KEY = '@zentrack_custom_exercises';
-let _customExercisesMutex: Promise<void> = Promise.resolve();
-
-async function loadCustomExercisesToCatalogue(): Promise<void> {
-  try {
-    const raw = await AsyncStorage.getItem(CUSTOM_EXERCISES_KEY);
-    if (!raw) return;
-    const customs: ExerciseCatalogEntry[] = JSON.parse(raw);
-    const catalogue = getExerciseCatalogue();
-    for (const ex of customs) {
-      const key = ex.name.toLowerCase().trim();
-      const existing = catalogue.find(e => e.name.toLowerCase().trim() === key || (ex.id && e.id === ex.id));
-      if (!existing) {
-        catalogue.push(ex);
-      } else if (ex.videoId && !existing.videoId) {
-        existing.videoId = ex.videoId;
-      }
-    }
-  } catch (_) {}
-}
-
-async function persistCustomExercise(entry: ExerciseCatalogEntry): Promise<void> {
-  _customExercisesMutex = _customExercisesMutex.then(async () => {
-    try {
-      const raw = await AsyncStorage.getItem(CUSTOM_EXERCISES_KEY);
-      const existing: ExerciseCatalogEntry[] = raw ? JSON.parse(raw) : [];
-      const key = entry.name.toLowerCase().trim();
-      const idx = existing.findIndex(e => e.name.toLowerCase().trim() === key || (entry.id && e.id === entry.id));
-      if (idx >= 0) {
-        existing[idx] = {
-          ...existing[idx],
-          ...entry,
-          videoId: entry.videoId || existing[idx].videoId || '',
-        };
-      } else {
-        existing.push(entry);
-      }
-      await AsyncStorage.setItem(CUSTOM_EXERCISES_KEY, JSON.stringify(existing));
-
-      const catalogue = getExerciseCatalogue();
-      const live = catalogue.find(e => e.name.toLowerCase().trim() === key || (entry.id && e.id === entry.id));
-      if (live) {
-        if (entry.videoId) live.videoId = entry.videoId;
-      } else {
-        catalogue.push(entry);
-      }
-    } catch (_) {}
-  }).catch(() => {});
-  return _customExercisesMutex;
-}
+// ── Muscle Filter Chips & Unified Catalogue Re-exports ────────────────────────
+export const MUSCLE_FILTER_CHIPS = UNIFIED_MUSCLE_CHIPS;
+export const getExerciseCatalogue = getUnifiedExerciseCatalogue;
+export const getCategoryMap = getUnifiedCategoryMap;
+export const warmExerciseCatalogue = warmUnifiedExerciseCatalogue;
+const checkCategoryMatch = checkCatalogCategoryMatch;
+const persistCustomExercise = persistUnifiedCustomExercise;
 
 const extractVideoId = (urlOrId: string) => {
   if (!urlOrId) return '';
@@ -490,20 +240,56 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   onAdd: (ex: GymExerciseLog) => void;
+  onMultiAdd?: (exercises: GymExerciseLog[]) => void;
+  selectionMode?: 'single' | 'multi';
+  headerTitle?: string;
   planDay?: GymPlanDay;
   existingExerciseIds?: string[];
+  embedded?: boolean;
 }
 
-export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
-  const { colors, isDark } = useTheme();
+export function AddExerciseModal({
+  visible,
+  onClose,
+  onAdd,
+  onMultiAdd,
+  selectionMode = 'single',
+  headerTitle,
+  planDay,
+  embedded = false,
+}: Props) {
+  const { colors, isDark, tokens } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeAddExerciseStyles(colors, isDark), [colors, isDark]);
   const { userGymPlan, updateMasterPlan } = useGymPlan();
   const { gymLogs } = useGymLogs();
+  const [catalogTick, setCatalogTick] = useState(0);
+
+  // Sync merged custom exercises from both storage keys whenever sheet opens
+  useEffect(() => {
+    if (!visible) return;
+    let active = true;
+    loadMergedCustomExercises()
+      .then(() => {
+        if (active) setCatalogTick((t) => t + 1);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [visible]);
+
+  // Tier-1 History Index: Pre-indexes user sessions only when modal is open
+  const historyIndex = useMemo(() => {
+    if (!visible || !gymLogs || gymLogs.length === 0) return null;
+    return buildExerciseHistoryIndex(gymLogs);
+  }, [visible, gymLogs]);
 
   // Search and Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMuscle, setSelectedMuscle] = useState<string>('all');
   const [selectedEntry, setSelectedEntry] = useState<ExerciseCatalogEntry | null>(null);
+  const [multiSelected, setMultiSelected] = useState<Record<string, ExerciseCatalogEntry>>({});
   const [showCustomTuning, setShowCustomTuning] = useState(false);
 
   // Form states for custom tuning
@@ -515,7 +301,6 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
   const [savePermanently, setSavePermanently] = useState(false);
 
   // AI resolver state
-  const [aiSuggestion, setAiSuggestion] = useState<AIExerciseInfo | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
 
   // Debounced search query for butter-smooth 60fps typing
@@ -534,6 +319,7 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
 
   // Filtered Results Calculation
   const results = useMemo(() => {
+    if (!visible) return [];
     const catalogue = getExerciseCatalogue();
     const categoryMap = getCategoryMap();
     const q = debouncedQuery;
@@ -576,7 +362,9 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
     });
 
     return scored.map(s => s.item);
-  }, [debouncedQuery, selectedMuscle]);
+  }, [visible, debouncedQuery, selectedMuscle, catalogTick]);
+
+  const displayedResults = results;
 
   // 1-Tap Auto-Categorization for Instant Custom Exercise Creation
   const autoResolvedForQuery = useMemo(() => {
@@ -595,8 +383,7 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
   }, [searchQuery]);
 
   // Handle Card Click (Select & Open Quick Tuner)
-  const handleSelectEntry = (entry: ExerciseCatalogEntry) => {
-    triggerLayoutAnimation();
+  const handleSelectEntry = useCallback((entry: ExerciseCatalogEntry) => {
     setSelectedEntry(entry);
     setSets(String(entry.targetSets || 3));
     setReps(entry.targetReps || '8-12');
@@ -604,53 +391,90 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
     setMuscle(entry.muscle || 'None');
     setVideoLink(entry.videoId || '');
     setShowCustomTuning(true);
-  };
+  }, []);
 
-  // Direct 1-Tap Add Action from any Exercise Card
-  const handleDirectAdd = (entry: ExerciseCatalogEntry) => {
-    const lastSession = getPreviousExerciseSession(entry.name, gymLogs);
-    const lastSets = lastSession?.sets ?? null;
-    const parsedSets = entry.targetSets || 3;
-    const parsedRest = entry.restTimeSecs || 60;
-    const resolved = resolveExerciseTargetMuscle(entry.name, entry.muscle);
+  const buildExerciseLogFromEntry = useCallback(
+    (entry: ExerciseCatalogEntry): GymExerciseLog => {
+      const lastSession =
+        historyIndex?.get(normalizeExerciseKey(entry.name)) ??
+        getPreviousExerciseSession(entry.name, gymLogs);
+      const lastSets = lastSession?.sets ?? null;
+      const parsedSets = entry.targetSets || 3;
+      const parsedRest = entry.restTimeSecs || 60;
+      const resolved = resolveExerciseTargetMuscle(entry.name, entry.muscle);
 
-    let userVideoId = entry.videoId;
-    if (!userVideoId) {
-      const sanitized = sanitizeName(entry.name);
-      if (KNOWN_EXERCISE_VIDEOS[sanitized]) {
-        userVideoId = KNOWN_EXERCISE_VIDEOS[sanitized];
+      let userVideoId = entry.videoId;
+      if (!userVideoId) {
+        const sanitized = sanitizeName(entry.name);
+        if (KNOWN_EXERCISE_VIDEOS[sanitized]) {
+          userVideoId = KNOWN_EXERCISE_VIDEOS[sanitized];
+        }
       }
+
+      return {
+        exerciseId: entry.id || `custom_${Date.now()}`,
+        name: entry.name,
+        muscle: resolved.targetMuscle || entry.muscle,
+        targetSets: parsedSets,
+        targetReps: entry.targetReps || '8–12',
+        videoId: userVideoId || '',
+        restTimeSecs: parsedRest,
+        lastSessionSets: lastSets ?? undefined,
+        setsLog: Array.from({ length: parsedSets }, (_, i) => {
+          const prev = lastSets?.[i];
+          return {
+            setNumber: i + 1,
+            reps: prev?.reps ?? null,
+            weight: prev?.weight ?? null,
+            completed: false,
+          };
+        }),
+        isCustom: Boolean(entry.id?.startsWith('custom_')),
+      };
+    },
+    [gymLogs]
+  );
+
+  // Direct 1-Tap Add (single mode) or Multi-Select Toggle (multi mode)
+  const handleDirectAdd = useCallback(
+    (entry: ExerciseCatalogEntry) => {
+      if (selectionMode === 'multi') {
+        hapticSelection();
+        const key = (entry.id || entry.name).toLowerCase();
+        setMultiSelected((prev) => {
+          const next = { ...prev };
+          if (next[key]) {
+            delete next[key];
+          } else {
+            next[key] = entry;
+          }
+          return next;
+        });
+        return;
+      }
+
+      onAdd(buildExerciseLogFromEntry(entry));
+      resetAndClose();
+    },
+    [selectionMode, buildExerciseLogFromEntry, onAdd]
+  );
+
+  const handleConfirmMultiAdd = useCallback(() => {
+    const picked = Object.values(multiSelected);
+    if (picked.length === 0) return;
+    hapticSuccess();
+    const built = picked.map(buildExerciseLogFromEntry);
+    if (onMultiAdd) {
+      onMultiAdd(built);
+    } else {
+      built.forEach(onAdd);
     }
-
-    const newEx: GymExerciseLog = {
-      exerciseId: entry.id || `custom_${Date.now()}`,
-      name: entry.name,
-      muscle: resolved.targetMuscle || entry.muscle,
-      targetSets: parsedSets,
-      targetReps: entry.targetReps || '8–12',
-      videoId: userVideoId || '',
-      restTimeSecs: parsedRest,
-      lastSessionSets: lastSets ?? undefined,
-      setsLog: Array.from({ length: parsedSets }, (_, i) => {
-        const prev = lastSets?.[i];
-        return {
-          setNumber: i + 1,
-          reps: prev?.reps ?? null,
-          weight: prev?.weight ?? null,
-          completed: false,
-        };
-      }),
-      isCustom: Boolean(entry.id?.startsWith('custom_')),
-    };
-
-    onAdd(newEx);
     resetAndClose();
-  };
+  }, [multiSelected, buildExerciseLogFromEntry, onMultiAdd, onAdd]);
 
   // Instant 1-Tap Create Custom Exercise on 0 Results
   const handleInstantCreateCustom = () => {
     if (!autoResolvedForQuery) return;
-    hapticSuccess();
 
     const exId = `custom_${Date.now()}`;
     const entry: ExerciseCatalogEntry = {
@@ -705,7 +529,9 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
     }
 
     const exId = selectedEntry?.id || `custom_${Date.now()}`;
-    const lastSession = getPreviousExerciseSession(exerciseName, gymLogs);
+    const lastSession =
+      historyIndex?.get(normalizeExerciseKey(exerciseName)) ??
+      getPreviousExerciseSession(exerciseName, gymLogs);
     const lastSets = lastSession?.sets ?? null;
     const rawMuscle = muscle === 'None' ? '' : muscle.trim();
     const resolved = resolveExerciseTargetMuscle(exerciseName, rawMuscle);
@@ -759,6 +585,7 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
     setDebouncedQuery('');
     setSelectedMuscle('all');
     setSelectedEntry(null);
+    setMultiSelected({});
     setShowCustomTuning(false);
     setSets('3');
     setReps('8-12');
@@ -766,86 +593,83 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
     setMuscle('None');
     setVideoLink('');
     setSavePermanently(false);
-    setAiSuggestion(null);
     setAiLoading(false);
     onClose();
   };
 
+  const multiCount = Object.keys(multiSelected).length;
+
   // Render individual card item
   const renderExerciseCard = useCallback(({ item }: { item: ExerciseCatalogEntry }) => {
+    const itemKey = (item.id || item.name).toLowerCase();
     return (
       <ExerciseCardItem
         item={item}
         onSelect={handleSelectEntry}
         onQuickAdd={handleDirectAdd}
-        gymLogs={gymLogs}
+        historyMap={historyIndex}
         colors={colors}
         styles={styles}
         isDark={isDark}
         isSelected={selectedEntry?.id === item.id}
-        searchQuery={searchQuery}
+        multiSelectMode={selectionMode === 'multi'}
+        isMultiSelected={Boolean(multiSelected[itemKey])}
       />
     );
-  }, [colors, styles, isDark, selectedEntry, gymLogs, searchQuery]);
+  }, [colors, styles, isDark, selectedEntry, historyIndex, selectionMode, multiSelected, handleSelectEntry, handleDirectAdd]);
 
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent
-      statusBarTranslucent
-      onRequestClose={resetAndClose}
-    >
-      <View style={styles.modalBg}>
-        {/* Backdrop tap to dismiss */}
-        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={resetAndClose} />
-
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalContent}
-        >
-          {/* Grab handle */}
-          <View style={styles.dragHandle} />
-
-          {showCustomTuning ? (
-            /* ══════════════════════════════════════════════════════════════════
-               DEDICATED CUSTOMIZE EXERCISE VIEW
-               ══════════════════════════════════════════════════════════════════ */
+  const innerContent = (
+      <View
+        style={[
+          styles.modalContent,
+          {
+            height: '100%',
+            maxHeight: '100%',
+            borderTopLeftRadius: 0,
+            borderTopRightRadius: 0,
+            borderWidth: 0,
+            backgroundColor: 'transparent',
+            paddingBottom: Math.max(insets.bottom, SPACE.lg),
+          },
+        ]}
+      >
+        {showCustomTuning ? (
             <Animated.View entering={FadeInDown.duration(200)} style={{ flex: 1 }}>
               {/* Header with Back to Catalogue + Close */}
               <View style={styles.header}>
-                <TouchableOpacity
-                  onPress={() => {
-                    triggerLayoutAnimation();
-                    setShowCustomTuning(false);
-                  }}
+                <TactileButton
+                  variant="custom"
+                  onPress={() => setShowCustomTuning(false)}
                   style={styles.backBtn}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  hitSlop={TOUCH.hitSlop}
                 >
-                  <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
+                  <ChevronLeft size={ICON.md} strokeWidth={ICON.strokeWidth} color={tokens.text.primary} />
                   <Text style={styles.backBtnText}>Catalogue</Text>
-                </TouchableOpacity>
+                </TactileButton>
 
                 <Text style={styles.title} numberOfLines={1}>
                   Customize
                 </Text>
 
-                <TouchableOpacity
+                <TactileButton
+                  variant="custom"
                   onPress={resetAndClose}
                   style={styles.closeBtn}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  hitSlop={TOUCH.hitSlop}
+                  accessibilityLabel="Close exercise modal"
                 >
-                  <Ionicons name="close" size={19} color={colors.textSecondary} />
-                </TouchableOpacity>
+                  <X size={16} strokeWidth={ICON.strokeWidth} color={tokens.text.secondary} />
+                </TactileButton>
               </View>
 
               <ScrollView
                 style={styles.tuningFullScroll}
                 contentContainerStyle={styles.tuningFullContent}
                 keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
                 showsVerticalScrollIndicator={false}
+                nestedScrollEnabled
               >
-                {/* Hero Info Card for Exercise */}
                 <View style={styles.customizeHeroCard}>
                   <Text style={styles.customizeHeroTitle} numberOfLines={2}>
                     {selectedEntry?.name || searchQuery}
@@ -867,17 +691,15 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                   </View>
                 </View>
 
-                {/* Looping Form Animation GIF */}
                 <ExerciseAnimationCard
-                  exerciseName={selectedEntry?.name || searchQuery}
+                  exerciseName={selectedEntry?.id || selectedEntry?.name || searchQuery}
                   showInstructions={false}
                   showBadges={false}
                   isEmbedded={true}
-                  animationHeight={210}
-                  style={{ marginBottom: 14, borderRadius: 14 }}
+                  animationHeight={220}
+                  style={{ marginBottom: SPACE.md + 2 }}
                 />
 
-                {/* Custom Sets / Reps / Video Fields */}
                 <ExerciseCustomFields
                   sets={sets}
                   setSets={setSets}
@@ -895,38 +717,53 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                   isDark={isDark}
                 />
 
-                {/* Confirm Action Button */}
-                <TouchableOpacity
-                  style={[styles.submitBtn, { borderRadius: 999, paddingVertical: 14 }]}
+                <TactileButton
+                  variant="custom"
+                  haptic="success"
+                  size="lg"
+                  style={styles.submitBtn}
                   onPress={handleConfirmAddTuned}
-                  activeOpacity={0.8}
                 >
-                  <Ionicons name="checkmark-sharp" size={17} color={isDark ? '#000000' : '#FFFFFF'} style={{ marginRight: 6 }} />
+                  <Check size={16} strokeWidth={ICON.strokeWidth} color={tokens.accent.onPrimary} style={{ marginRight: 6 }} />
                   <Text style={styles.submitBtnText}>Add to Workout</Text>
-                </TouchableOpacity>
+                </TactileButton>
               </ScrollView>
             </Animated.View>
           ) : (
-            /* ══════════════════════════════════════════════════════════════════
-               CATALOGUE SEARCH & FILTER VIEW (Matching Customize Design)
-               ══════════════════════════════════════════════════════════════════ */
-            <Animated.View entering={FadeIn.duration(180)} style={{ flex: 1 }}>
-              {/* Header with Centered Title */}
+            <View style={{ flex: 1 }}>
               <View style={styles.header}>
-                <View style={{ width: 32 }} />
-                <Text style={styles.title}>Add Exercise</Text>
-                <TouchableOpacity onPress={resetAndClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <Ionicons name="close" size={19} color={colors.textSecondary} />
-                </TouchableOpacity>
+                {embedded ? (
+                  <TactileButton
+                    variant="custom"
+                    onPress={resetAndClose}
+                    style={styles.backBtn}
+                    hitSlop={TOUCH.hitSlop}
+                    accessibilityLabel="Back to routine"
+                  >
+                    <ChevronLeft size={ICON.md} strokeWidth={ICON.strokeWidth} color={tokens.text.primary} />
+                    <Text style={styles.backBtnText}>Routine</Text>
+                  </TactileButton>
+                ) : (
+                  <View style={{ width: 32 }} />
+                )}
+                <Text style={styles.title}>{headerTitle || 'Add Exercise'}</Text>
+                <TactileButton
+                  variant="custom"
+                  onPress={resetAndClose}
+                  style={styles.closeBtn}
+                  hitSlop={TOUCH.hitSlop}
+                  accessibilityLabel="Close exercise modal"
+                >
+                  <X size={16} strokeWidth={ICON.strokeWidth} color={tokens.text.secondary} />
+                </TactileButton>
               </View>
 
-              {/* Search Input Bar */}
               <View style={styles.searchRow}>
-                <Ionicons name="search-outline" size={17} color={colors.textTertiary} style={{ marginRight: 8 }} />
+                <Search size={ICON.sm + 1} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} style={{ marginRight: SPACE.sm }} />
                 <TextInput
                   style={styles.searchInput}
                   placeholder="Search exercise catalogue (e.g. Incline Bench)..."
-                  placeholderTextColor={colors.textTertiary}
+                  placeholderTextColor={tokens.text.muted}
                   value={searchQuery}
                   onChangeText={text => {
                     setSearchQuery(text);
@@ -937,20 +774,21 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                   returnKeyType="search"
                 />
                 {searchQuery.length > 0 && (
-                  <TouchableOpacity
+                  <TactileButton
+                    variant="custom"
                     onPress={() => {
                       setSearchQuery('');
                       setSelectedEntry(null);
                     }}
                     style={styles.clearBtn}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    hitSlop={TOUCH.hitSlop}
+                    accessibilityLabel="Clear search"
                   >
-                    <Ionicons name="close-circle" size={17} color={colors.textTertiary} />
-                  </TouchableOpacity>
+                    <X size={ICON.sm + 1} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} />
+                  </TactileButton>
                 )}
               </View>
 
-              {/* Muscle Filter Bar (Same pill + dot design as Customize) */}
               <View style={styles.filterBarContainer}>
                 <ScrollView
                   horizontal
@@ -960,25 +798,23 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                   {MUSCLE_FILTER_CHIPS.map(chip => {
                     const isActive = selectedMuscle === chip.id;
                     return (
-                      <TouchableOpacity
+                      <TactileButton
                         key={chip.id}
+                        variant="custom"
                         style={[styles.filterChip, isActive && styles.filterChipActive]}
                         onPress={() => {
-                          hapticLight();
                           setSelectedMuscle(prev => (prev === chip.id ? 'all' : chip.id));
                         }}
-                        activeOpacity={0.7}
                       >
                         <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
                           {chip.label}
                         </Text>
-                      </TouchableOpacity>
+                      </TactileButton>
                     );
                   })}
                 </ScrollView>
               </View>
 
-              {/* Database Notice Header */}
               <View style={styles.statusNotice}>
                 <Text style={styles.statusNoticeText}>
                   {selectedMuscle && selectedMuscle !== 'all'
@@ -989,28 +825,43 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                 </Text>
               </View>
 
-              {/* Card Results List or 0-Results Instant Creation */}
               {results.length > 0 ? (
                 <FlatList
-                  data={results}
-                  keyExtractor={(item, idx) => `${item.id || item.name}_${idx}`}
+                  data={displayedResults}
+                  keyExtractor={(item) => `${item.id || item.name}_${item.isCustom ? 'c' : 's'}`}
                   renderItem={renderExerciseCard}
-                  contentContainerStyle={[styles.cardList, { paddingBottom: 60 }]}
+                  contentContainerStyle={[
+                    styles.cardList,
+                    {
+                      paddingBottom:
+                        selectionMode === 'multi'
+                          ? Math.max(insets.bottom + 84, 88)
+                          : Math.max(insets.bottom + SPACE.lg, 60),
+                    },
+                  ]}
                   showsVerticalScrollIndicator={true}
                   keyboardShouldPersistTaps="handled"
-                  initialNumToRender={20}
-                  maxToRenderPerBatch={20}
-                  windowSize={11}
+                  keyboardDismissMode="on-drag"
+                  nestedScrollEnabled
+                  initialNumToRender={10}
+                  maxToRenderPerBatch={10}
+                  updateCellsBatchingPeriod={30}
+                  windowSize={5}
+                  removeClippedSubviews={Platform.OS === 'android'}
                   style={{ flex: 1 }}
                 />
               ) : (
-                /* Instant "Create Custom Exercise" Card */
-                <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+                <ScrollView
+                  style={{ flex: 1 }}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                  nestedScrollEnabled
+                >
                   {autoResolvedForQuery && (
                     <View style={styles.createCustomCard}>
                       <View style={styles.createCustomHeader}>
                         <View style={styles.createCustomIconWrap}>
-                          <Ionicons name="barbell-outline" size={24} color="#A599FF" />
+                          <Dumbbell size={ICON.lg} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
                         </View>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.createCustomTitle} numberOfLines={1}>
@@ -1025,18 +876,20 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                         </View>
                       </View>
 
-                      <TouchableOpacity
+                      <TactileButton
+                        variant="custom"
+                        haptic="success"
                         style={styles.createCustomCtaBtn}
-                        activeOpacity={0.8}
                         onPress={handleInstantCreateCustom}
                       >
-                        <Ionicons name="add" size={18} color="#000" />
+                        <Plus size={ICON.md - 2} strokeWidth={ICON.strokeWidth} color={tokens.accent.onPrimary} />
                         <Text style={styles.createCustomCtaText}>
                           Create "{autoResolvedForQuery.canonicalName}" Exercise
                         </Text>
-                      </TouchableOpacity>
+                      </TactileButton>
 
-                      <TouchableOpacity
+                      <TactileButton
+                        variant="custom"
                         style={styles.createCustomSecondaryLink}
                         onPress={() => {
                           setMuscle(autoResolvedForQuery.targetMuscle);
@@ -1044,26 +897,56 @@ export function AddExerciseModal({ visible, onClose, onAdd, planDay }: Props) {
                         }}
                       >
                         <Text style={styles.createCustomSecondaryText}>
-                          Customize sets, reps & video link ⚙
+                          Customize sets, reps & video link
                         </Text>
-                      </TouchableOpacity>
+                      </TactileButton>
                     </View>
                   )}
 
-                  {/* Empty state prompt */}
                   <View style={styles.emptyState}>
-                    <Ionicons name="search-outline" size={24} color={colors.textTertiary} />
+                    <Search size={ICON.lg} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} />
                     <Text style={styles.emptyStateText}>
                       Not in standard catalogue? Tap create above or configure custom details below.
                     </Text>
                   </View>
                 </ScrollView>
               )}
-            </Animated.View>
+              {selectionMode === 'multi' && (
+                <View style={styles.multiFooter}>
+                  <TactileButton
+                    variant="primary"
+                    size="lg"
+                    haptic="success"
+                    disabled={multiCount === 0}
+                    onPress={handleConfirmMultiAdd}
+                    label={
+                      multiCount === 0
+                        ? 'Select Exercises Above'
+                        : `Add ${multiCount} Exercise${multiCount === 1 ? '' : 's'}`
+                    }
+                  />
+                </View>
+              )}
+            </View>
           )}
-        </KeyboardAvoidingView>
       </View>
-    </Modal>
+  );
+
+  if (embedded) {
+    return innerContent;
+  }
+
+  return (
+    <BottomSheet
+      visible={visible}
+      onClose={resetAndClose}
+      fullHeight={true}
+      noPadding={true}
+      avoidKeyboard={true}
+      sheetBackgroundColor={isDark ? '#0B0C10' : '#F8F8FA'}
+    >
+      {innerContent}
+    </BottomSheet>
   );
 }
 

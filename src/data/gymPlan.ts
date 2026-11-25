@@ -1,5 +1,6 @@
 import type { GymPlanDay } from '../types/gym.types';
 import { getCanonicalExerciseName, resolveExerciseTargetMuscle } from '../utils/gymUtils';
+import { CURATED_SPLITS_BY_ID, REST_DAY_TEMPLATE } from './curatedSplits';
 
 // Day of week → plan day index
 // Sunday=0→7(rest), Mon=1→1, Tue=2→2, Wed=3→3, Thu=4→4, Fri=5→5, Sat=6→6
@@ -16,7 +17,7 @@ export const GYM_PLAN_ARNOLD: GymPlanDay[] = [
     exercises: [
       { id: 'd1_e1', name: 'Incline Bench Press (Dumbbell)', targetSets: 3, targetReps: '10–12', muscle: 'Upper Chest', videoId: '8fXfwG4ftaQ' },
       { id: 'd1_e2', name: 'Butterfly (Pec Deck)', targetSets: 3, targetReps: '10–12', muscle: 'Mid Chest', videoId: 'fgXSA2-o0NM' },
-      { id: 'd1_e3', name: 'Decline Cable Fly Crossovers', targetSets: 3, targetReps: '10–15', muscle: 'Lower Chest', videoId: '8Um35Es-ROE' },
+      { id: 'd1_e3', name: 'Cable Fly Crossovers', targetSets: 3, targetReps: '10–15', muscle: 'Lower Chest', videoId: '8Um35Es-ROE' },
       { id: 'd1_e4', name: 'Lat Pulldown - Close Grip (Cable)', targetSets: 3, targetReps: '8–10', muscle: 'Lat Width', videoId: 'SALxEARiMkw' },
       { id: 'd1_e5', name: 'Lat Pulldown (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Lat Width', videoId: 'SALxEARiMkw' },
       { id: 'd1_e6', name: 'T Bar Row', targetSets: 3, targetReps: '8–10', muscle: 'Mid-Back', videoId: 'TyLoy3n_a10' },
@@ -36,7 +37,7 @@ export const GYM_PLAN_ARNOLD: GymPlanDay[] = [
       { id: 'd2_e4', name: 'Shrug (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Upper Traps', videoId: 'rFsSeClGnNA' },
       { id: 'd2_e5', name: 'Triceps Extension (Barbell)', targetSets: 3, targetReps: '8–12', muscle: 'Long Tricep', videoId: 'd_KZxkY_0cM' },
       { id: 'd2_e6', name: 'Triceps Rope Pushdown', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: 'NvZKjiZ8NYc' },
-      { id: 'd2_e7', name: 'Triceps Rope Pushdown', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: 'NvZKjiZ8NYc' },
+      { id: 'd2_e7', name: 'Cross-Body Triceps Extension (Cable)', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: 'hp9IQlVcNW0' },
       { id: 'd2_e8', name: 'EZ Bar Biceps Curl', targetSets: 3, targetReps: '8–12', muscle: 'Short Bicep', videoId: 'kwG2ipFRgfo' },
       { id: 'd2_e9', name: 'Seated Incline Curl (Dumbbell)', targetSets: 3, targetReps: '10–12', muscle: 'Long Bicep', videoId: 'DCe8f6vMe9A' },
     ],
@@ -53,7 +54,7 @@ export const GYM_PLAN_ARNOLD: GymPlanDay[] = [
       { id: 'd3_e4', name: 'Standing Calf Raise (Machine)', targetSets: 4, targetReps: '12–15', muscle: 'Gastrocnemius', videoId: 'SVtg-1loH4c' },
       { id: 'd3_e5', name: 'Cable Crunch', targetSets: 3, targetReps: '10–15', muscle: 'Upper Abs', videoId: 'mnRhbUB3Fjs' },
       { id: 'd3_e6', name: 'Hanging Leg Raise', targetSets: 3, targetReps: '12–15', muscle: 'Lower Abs', videoId: '2n4UqRIJyk4' },
-      { id: 'd3_e7', name: 'Woodchopper', targetSets: 3, targetReps: '10–12', muscle: 'Obliques', videoId: 'gcGNypjIQDo' },
+      { id: 'd3_e7', name: 'Cable Twist (Up to down)', targetSets: 3, targetReps: '10–12', muscle: 'Obliques', videoId: 'gcGNypjIQDo' },
       { id: 'd3_e8', name: 'Behind the Back Wrist Curl (Barbell)', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Flexors', videoId: 'yz2eCSWoY4E' },
       { id: 'd3_e9', name: 'Seated Palms Up Wrist Curl', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Flexors', videoId: 'eL777V8a-6E' },
       { id: 'd3_e10', name: 'Reverse Wrist Curl (Dumbbell)', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Extensors', videoId: 'sKXqNO2KQp8' },
@@ -83,11 +84,11 @@ export const GYM_PLAN_ARNOLD: GymPlanDay[] = [
       { id: 'd5_e1', name: 'Seated Shoulder Press (Machine)', targetSets: 3, targetReps: '8–10', muscle: 'Front Delts', videoId: '6v4nrRVySj0' },
       { id: 'd5_e2', name: 'Lateral Raise (Dumbbell)', targetSets: 3, targetReps: '12–15', muscle: 'Side Delts', videoId: 'Kl3LEzQ5Zqs' },
       { id: 'd5_e3', name: 'Face Pull', targetSets: 3, targetReps: '12–15', muscle: 'Rear Delts', videoId: 'ljgqer1ZpXg' },
-      { id: 'd5_e4', name: 'Overhead Cable Triceps Extension', targetSets: 3, targetReps: '10–12', muscle: 'Long Tricep', videoId: 'b5le--KkyH0' },
+      { id: 'd5_e4', name: 'Overhead Triceps Extension (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Long Tricep', videoId: 'b5le--KkyH0' },
       { id: 'd5_e5', name: 'Katana Triceps Extension (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Long Tricep', videoId: 'b5le--KkyH0' },
-      { id: 'd5_e6', name: 'Crossbody Triceps Extension (Cable)', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: 'hp9IQlVcNW0' },
+      { id: 'd5_e6', name: 'Cross-Body Triceps Extension (Cable)', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: 'hp9IQlVcNW0' },
       { id: 'd5_e7', name: 'Bicep Curl (Dumbbell)', targetSets: 3, targetReps: '10–12', muscle: 'Short Bicep', videoId: 'iui51E31sX8' },
-      { id: 'd5_e8', name: 'Bayesian Curl (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Long Bicep', videoId: 'kwG2ipFRgfo' },
+      { id: 'd5_e8', name: 'Behind the Back Curl (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Long Bicep', videoId: 'kwG2ipFRgfo' },
       { id: 'd5_e9', name: 'Cross Body Hammer Curl', targetSets: 3, targetReps: '10–12', muscle: 'Brachialis', videoId: '5FAuyZuvJFg' },
     ],
   },
@@ -101,10 +102,10 @@ export const GYM_PLAN_ARNOLD: GymPlanDay[] = [
       { id: 'd6_e2', name: 'Seated Leg Curl (Machine)', targetSets: 3, targetReps: '12–15', muscle: 'Hamstrings', videoId: '_lgE0gPvbik' },
       { id: 'd6_e3', name: 'Walking Lunge', targetSets: 3, targetReps: '8–10', muscle: 'Glutes/Quads', videoId: '3Xy4_P86v2E' },
       { id: 'd6_e4', name: 'Hip Abduction (Machine)', targetSets: 3, targetReps: '15–20', muscle: 'Glutes/Abductors', videoId: '01HilwRf8m8' },
-      { id: 'd6_e5', name: 'Seated Calf Raise (Plate Loaded)', targetSets: 4, targetReps: '12–15', muscle: 'Soleus', videoId: '6O5hh1rBtx8' },
+      { id: 'd6_e5', name: 'Seated Calf Raise', targetSets: 4, targetReps: '12–15', muscle: 'Soleus', videoId: '6O5hh1rBtx8' },
       { id: 'd6_e6', name: 'Crunch (Machine)', targetSets: 3, targetReps: '10–12', muscle: 'Upper Abs', videoId: 'mnRhbUB3Fjs' },
-      { id: 'd6_e7', name: 'Decline Reverse Crunch', targetSets: 3, targetReps: '12–15', muscle: 'Lower Abs', videoId: 'JonqVgFNiqE' },
-      { id: 'd6_e8', name: 'Pallof Press (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Transverse Abs', videoId: 'gcGNypjIQDo' },
+      { id: 'd6_e7', name: 'Reverse Crunch', targetSets: 3, targetReps: '12–15', muscle: 'Lower Abs', videoId: 'JonqVgFNiqE' },
+      { id: 'd6_e8', name: 'Cable Core Pallof Press', targetSets: 3, targetReps: '10–12', muscle: 'Transverse Abs', videoId: 'gcGNypjIQDo' },
       { id: 'd6_e9', name: 'Reverse Curl (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Brachioradialis', videoId: 'jjnJHhzZUUM' },
     ],
   },
@@ -127,11 +128,11 @@ export const GYM_PLAN_PPL: GymPlanDay[] = [
     exercises: [
       { id: 'ppl_d1_e1', name: 'Bench Press (Barbell)', targetSets: 3, targetReps: '8–10', muscle: 'Mid Chest', videoId: 'vENMjPI-piM' },
       { id: 'ppl_d1_e2', name: 'Incline Chest Press (Machine)', targetSets: 3, targetReps: '10–12', muscle: 'Upper Chest', videoId: 'WxrKIPbeQP8' },
-      { id: 'ppl_d1_e3', name: 'Decline Cable Fly Crossovers', targetSets: 3, targetReps: '12–15', muscle: 'Lower Chest', videoId: 'jFx0mOgNSsc' },
+      { id: 'ppl_d1_e3', name: 'Cable Fly Crossovers', targetSets: 3, targetReps: '12–15', muscle: 'Lower Chest', videoId: 'jFx0mOgNSsc' },
       { id: 'ppl_d1_e4', name: 'Seated Shoulder Press (Machine)', targetSets: 3, targetReps: '8–12', muscle: 'Front Delts', videoId: 'TFayqrepbXE' },
       { id: 'ppl_d1_e5', name: 'Lateral Raise (Cable)', targetSets: 3, targetReps: '12–15', muscle: 'Side Delts', videoId: 'xrBcuPNTxLg' },
       { id: 'ppl_d1_e6', name: 'Triceps Rope Pushdown', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: 'i5I7RGyWwo8' },
-      { id: 'ppl_d1_e7', name: 'Overhead Cable Triceps Extension', targetSets: 3, targetReps: '10–12', muscle: 'Long Tricep', videoId: 'b5le--KkyH0' },
+      { id: 'ppl_d1_e7', name: 'Overhead Triceps Extension (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Long Tricep', videoId: 'b5le--KkyH0' },
     ],
   },
   {
@@ -158,9 +159,9 @@ export const GYM_PLAN_PPL: GymPlanDay[] = [
       { id: 'ppl_d3_e1', name: 'Hack Squat (Machine)', targetSets: 3, targetReps: '8–10', muscle: 'Quads', videoId: 'xMzqkzmrKTM' },
       { id: 'ppl_d3_e2', name: 'Hip Abduction (Machine)', targetSets: 3, targetReps: '15–20', muscle: 'Glutes/Abductors', videoId: '01HilwRf8m8' },
       { id: 'ppl_d3_e3', name: 'Seated Leg Curl (Machine)', targetSets: 3, targetReps: '12–15', muscle: 'Hamstrings', videoId: 'eKGgmvTVHDg' },
-      { id: 'ppl_d3_e4', name: 'Seated Calf Raise (Plate Loaded)', targetSets: 3, targetReps: '12–15', muscle: 'Soleus', videoId: '60XGTGOjdXA' },
+      { id: 'ppl_d3_e4', name: 'Seated Calf Raise', targetSets: 3, targetReps: '12–15', muscle: 'Soleus', videoId: '60XGTGOjdXA' },
       { id: 'ppl_d3_e5', name: 'Crunch (Machine)', targetSets: 3, targetReps: '10–15', muscle: 'Upper Abs', videoId: '7T0ZUEt1m8s' },
-      { id: 'ppl_d3_e6', name: 'Woodchopper', targetSets: 3, targetReps: '10–15', muscle: 'Obliques', videoId: 'YIU0U_B57rU' },
+      { id: 'ppl_d3_e6', name: 'Cable Twist (Up to down)', targetSets: 3, targetReps: '10–15', muscle: 'Obliques', videoId: 'YIU0U_B57rU' },
       { id: 'ppl_d3_e7', name: 'Seated Palms Up Wrist Curl', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Flexors', videoId: '3VLTzIrnb5g' },
     ],
   },
@@ -174,7 +175,7 @@ export const GYM_PLAN_PPL: GymPlanDay[] = [
       { id: 'ppl_d4_e2', name: 'Butterfly (Pec Deck)', targetSets: 3, targetReps: '10–15', muscle: 'Mid Chest', videoId: 'fgXSA2-o0NM' },
       { id: 'ppl_d4_e3', name: 'Incline Bench Press (Dumbbell)', targetSets: 3, targetReps: '8–10', muscle: 'Upper Chest', videoId: '8fXfwG4ftaQ' },
       { id: 'ppl_d4_e4', name: 'Lateral Raise (Cable)', targetSets: 3, targetReps: '12–15', muscle: 'Side Delts', videoId: 'xrBcuPNTxLg' },
-      { id: 'ppl_d4_e5', name: 'Crossbody Triceps Extension (Cable)', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: '0rAlOwNPJno' },
+      { id: 'ppl_d4_e5', name: 'Cross-Body Triceps Extension (Cable)', targetSets: 3, targetReps: '10–15', muscle: 'Lat/Med Tricep', videoId: '0rAlOwNPJno' },
       { id: 'ppl_d4_e6', name: 'Incline Skullcrusher (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Long Tricep', videoId: 'q-mZQep-LMI' },
     ],
   },
@@ -204,7 +205,7 @@ export const GYM_PLAN_PPL: GymPlanDay[] = [
       { id: 'ppl_d6_e3', name: 'Leg Extension (Machine)', targetSets: 3, targetReps: '12–15', muscle: 'Quads', videoId: '2zZ3vkPsExQ' },
       { id: 'ppl_d6_e4', name: 'Standing Calf Raise (Machine)', targetSets: 3, targetReps: '12–15', muscle: 'Gastrocnemius', videoId: 'n-5T_oYc1oU' },
       { id: 'ppl_d6_e5', name: 'Hanging Leg Raise', targetSets: 3, targetReps: '12–15', muscle: 'Lower Abs', videoId: 'Fl8rJJ7mZJM' },
-      { id: 'ppl_d6_e6', name: 'Pallof Press (Cable)', targetSets: 3, targetReps: '10–12', muscle: 'Transverse Abs', videoId: '5aZ0IhJS8O8' },
+      { id: 'ppl_d6_e6', name: 'Cable Core Pallof Press', targetSets: 3, targetReps: '10–12', muscle: 'Transverse Abs', videoId: '5aZ0IhJS8O8' },
       { id: 'ppl_d6_e7', name: 'Behind the Back Wrist Curl (Barbell)', targetSets: 3, targetReps: '15–20', muscle: 'Forearm Flexors', videoId: 'Cj9RNAYD7iY' },
     ],
   },
@@ -258,10 +259,49 @@ export function getCustomPlanDay(customDays: any, planIdx: number): GymPlanDay |
   return customDays[planIdx] || customDays[String(planIdx)] || null;
 }
 
+export function getCuratedSplitById(id?: string) {
+  if (!id) return null;
+  if (CURATED_SPLITS_BY_ID[id]) return CURATED_SPLITS_BY_ID[id];
+  if (id === 'ppl_6day') return CURATED_SPLITS_BY_ID['ppl'];
+  if (id === 'arnold_6day') return CURATED_SPLITS_BY_ID['arnold'];
+  if (id === 'upper_lower_4day') return CURATED_SPLITS_BY_ID['upper_lower'];
+  if (id === 'full_body_3day') return CURATED_SPLITS_BY_ID['full_body'];
+  if (id === 'bro_split_5day') return CURATED_SPLITS_BY_ID['bro_split'];
+  return null;
+}
+
+const MAX_PLAN_DAY_CACHE = 64;
+const _planDayCache = new Map<string, GymPlanDay>();
+
+export function clearPlanDayCache(): void {
+  _planDayCache.clear();
+}
+
+function buildCustomDaySignature(rawCustom: any): string {
+  if (!rawCustom || (!rawCustom.isRest && !Array.isArray(rawCustom.exercises))) {
+    return 'base';
+  }
+  const exSig = Array.isArray(rawCustom.exercises)
+    ? rawCustom.exercises
+        .map((e: any) => `${e?.id || ''}|${e?.name || ''}|${e?.muscle || ''}|${e?.targetSets || ''}|${e?.targetReps || ''}`)
+        .join(';')
+    : '';
+  return `c|${rawCustom.isRest ? 1 : 0}|${rawCustom.name || ''}|${exSig}`;
+}
+
 export function resolvePlanDay(userGymPlan: any, planIdx: number): GymPlanDay {
   const rawCustom = getCustomPlanDay(userGymPlan?.customDays, planIdx);
+  const cacheKey = `${userGymPlan?.updatedAt ?? ''}|${userGymPlan?.templateId || 'default'}|${planIdx}|${buildCustomDaySignature(rawCustom)}`;
+  const cached = _planDayCache.get(cacheKey);
+  if (cached) {
+    _planDayCache.delete(cacheKey);
+    _planDayCache.set(cacheKey, cached);
+    return cached;
+  }
+
+  let resolved: GymPlanDay;
   if (rawCustom && (rawCustom.isRest || Array.isArray(rawCustom.exercises))) {
-    return {
+    resolved = {
       ...rawCustom,
       exercises: Array.isArray(rawCustom.exercises)
         ? rawCustom.exercises.map(ex => {
@@ -274,22 +314,69 @@ export function resolvePlanDay(userGymPlan: any, planIdx: number): GymPlanDay {
           })
         : [],
     };
-  }
-  const basePlan = userGymPlan?.templateId === 'arnold' ? GYM_PLAN_ARNOLD : GYM_PLAN;
-  const day = basePlan.find((d: GymPlanDay) => d.dayIndex === planIdx) || GYM_PLAN_ARNOLD.find((d: GymPlanDay) => d.dayIndex === planIdx) || GYM_PLAN[0];
-  return {
-    ...day,
-    exercises: Array.isArray(day.exercises)
-      ? day.exercises.map(ex => {
-          const canonicalName = getCanonicalExerciseName(ex.name);
-          return {
-            ...ex,
-            name: canonicalName,
-            muscle: resolveExerciseTargetMuscle(canonicalName, ex.muscle).targetMuscle,
+  } else {
+    // Look up curated split dynamically if templateId is specified
+    const curatedSplit = getCuratedSplitById(userGymPlan?.templateId);
+    if (curatedSplit) {
+      const workoutId = curatedSplit.defaultDayMap?.[planIdx];
+      if (workoutId && workoutId !== 'rest') {
+        const workout = curatedSplit.workouts.find(w => w.id === workoutId);
+        if (workout) {
+          resolved = {
+            dayIndex: planIdx,
+            routineId: workout.id,
+            name: workout.name,
+            subtitle: workout.subtitle,
+            focus: workout.focus,
+            isRest: false,
+            exercises: Array.isArray(workout.exercises)
+              ? workout.exercises.map(ex => {
+                  const canonicalName = getCanonicalExerciseName(ex.name);
+                  return {
+                    ...ex,
+                    name: canonicalName,
+                    muscle: resolveExerciseTargetMuscle(canonicalName, ex.muscle).targetMuscle,
+                  };
+                })
+              : [],
           };
-        })
-      : [],
-  };
+        } else {
+          resolved = {
+            ...REST_DAY_TEMPLATE,
+            dayIndex: planIdx,
+          };
+        }
+      } else {
+        resolved = {
+          ...REST_DAY_TEMPLATE,
+          dayIndex: planIdx,
+        };
+      }
+    } else {
+      const basePlan = userGymPlan?.templateId === 'arnold' ? GYM_PLAN_ARNOLD : GYM_PLAN;
+      const day = basePlan.find((d: GymPlanDay) => d.dayIndex === planIdx) || GYM_PLAN_ARNOLD.find((d: GymPlanDay) => d.dayIndex === planIdx) || GYM_PLAN[0];
+      resolved = {
+        ...day,
+        exercises: Array.isArray(day.exercises)
+          ? day.exercises.map(ex => {
+              const canonicalName = getCanonicalExerciseName(ex.name);
+              return {
+                ...ex,
+                name: canonicalName,
+                muscle: resolveExerciseTargetMuscle(canonicalName, ex.muscle).targetMuscle,
+              };
+            })
+          : [],
+      };
+    }
+  }
+
+  if (_planDayCache.size >= MAX_PLAN_DAY_CACHE) {
+    const oldest = _planDayCache.keys().next().value;
+    if (oldest !== undefined) _planDayCache.delete(oldest);
+  }
+  _planDayCache.set(cacheKey, resolved);
+  return resolved;
 }
 
 // Curated 8 best distinct alternatives ranked by Biomechanical Hypertrophy Tiers (S Tier -> A+ Tier -> A Tier -> B Tier).

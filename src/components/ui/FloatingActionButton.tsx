@@ -1,67 +1,71 @@
-import React, { useEffect, useRef, useMemo } from 'react';
-import { TouchableOpacity, Animated, StyleSheet, ViewStyle } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { RADIUS, SHADOW } from '../../theme/tokens';
-import { getPressHandlers } from '../../theme/animations';
-import { useTheme } from "../../contexts/ThemeContext";
+import React from 'react';
+import { StyleSheet, ViewStyle } from 'react-native';
+import { Plus, LucideIcon } from 'lucide-react-native';
+import { useTheme } from '../../contexts/ThemeContext';
+import { SHADOW } from '../../theme/tokens';
+import { TactileButton } from './TactileButton';
+import { AppIcon } from './AppIcon';
 
 interface FABProps {
-  icon?: keyof typeof Ionicons.glyphMap;
+  icon?: LucideIcon;
   onPress: () => void;
   color?: string;
   style?: ViewStyle;
   size?: number;
+  accessibilityLabel?: string;
 }
 
 /**
- * FloatingActionButton — the glassmorphic + button used in Tasks, Notes, Calendar.
+ * FloatingActionButton — Reanimated UI-thread tactile FAB with Lucide strokeWidth=2.
  */
 export default function FloatingActionButton({
-  icon = 'add',
+  icon = Plus,
   onPress,
   color,
   style,
   size = 56,
+  accessibilityLabel = 'Action button',
 }: FABProps) {
-    const { colors, isDark } = useTheme();
-    const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
-    const resolvedColor = color ?? colors.accentPrimary;
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const { onPressIn, onPressOut } = getPressHandlers(scaleAnim);
+  const { tokens } = useTheme();
+  const resolvedSize = Math.max(tokens.touch.minTarget, size);
+  const resolvedBg = color ?? tokens.accent.primary;
+  const resolvedIconColor =
+    resolvedBg === tokens.accent.primary
+      ? tokens.accent.onPrimary
+      : tokens.text.primary;
 
   return (
-    <Animated.View
+    <TactileButton
+      variant="custom"
+      onPress={onPress}
+      haptic="medium"
+      accessibilityLabel={accessibilityLabel}
       style={[
         styles.container,
-        { width: size, height: size, borderRadius: size / 2 },
-        SHADOW.accent(resolvedColor),
-        { transform: [{ scale: scaleAnim }] },
+        {
+          width: resolvedSize,
+          height: resolvedSize,
+          borderRadius: resolvedSize / 2,
+          backgroundColor: resolvedBg,
+          borderColor: tokens.border.subtle,
+        },
+        SHADOW.accent(resolvedBg),
         style,
       ]}
     >
-      
-      <TouchableOpacity
-        onPress={onPress}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
-        activeOpacity={1}
-        style={[styles.button, { width: size, height: size, borderRadius: size / 2 }]}
-      >
-        <Ionicons name={icon} size={size * 0.45} color={resolvedColor} />
-      </TouchableOpacity>
-    </Animated.View>
+      <AppIcon
+        icon={icon}
+        size={Math.round(resolvedSize * 0.44)}
+        color={resolvedIconColor}
+      />
+    </TactileButton>
   );
 }
 
-const makeStyles = (colors: any, isDark: boolean = true) => StyleSheet.create({
-      container: {
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: isDark ? 'rgba(255,255,255,0.12)' : colors.border,
-        backgroundColor: isDark ? '#1C1C1E' : colors.surface,
-      },
-      button: {
-        alignItems: 'center',
-        justifyContent: 'center',
-      },
-    });
+const styles = StyleSheet.create({
+  container: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+});

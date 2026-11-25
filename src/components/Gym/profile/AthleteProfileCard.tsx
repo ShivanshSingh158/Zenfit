@@ -1,51 +1,56 @@
 /**
  * AthleteProfileCard.tsx — ZenFit
  *
- * Ultra-clean Apple iOS Settings Profile Row:
- * - Flawless flexbox layout with guaranteed zero-overlap
- * - Auto-truncating name and checkmark with protected action pill
- * - Clean physical stats (weight, height, lifter tier) with no awkward cutoffs
- * - 1-tap opens the Full-Screen Official Athlete Card
+ * Clean Athlete Settings Profile Row with Obsidian surface alignment & unit sync.
  */
 
 import React, { useMemo } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View, Text, StyleSheet, useWindowDimensions } from 'react-native';
+import { CheckCircle2, ChevronRight, Flame } from 'lucide-react-native';
 import { UserAvatar } from '../../ui/UserAvatar';
-import { FONT_FAMILY } from '../../../theme/tokens';
+import { NumericText, TactileButton } from '../../ui';
+import { FONT_FAMILY, ICON, RADIUS, SPACE, TOUCH, ThemeTokens } from '../../../theme/tokens';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { AthleteCardStats, LifterTier } from '../../../services/athleteCardService';
-import { hapticLight } from '../../../utils/haptics';
+import { useWeightUnit, formatWeight } from '../../../utils/weightUnit';
 
 interface AthleteProfileCardProps {
   stats: AthleteCardStats;
+  uid?: string | null;
   onOpenCard: () => void;
   onOpenSetup: () => void;
 }
 
-const TIER_BORDER_COLORS: Record<LifterTier, string> = {
-  elite: '#00F0FF',
-  diamond: '#0A84FF',
-  platinum: '#BF5AF2',
-  gold: '#FFD700',
-  silver: '#E5E5EA',
-  bronze: '#F59E0B',
-};
+function getTierBorderColor(tier: LifterTier | undefined, tokens: ThemeTokens): string {
+  switch (tier) {
+    case 'elite':
+      return tokens.accent.primary;
+    case 'diamond':
+      return tokens.status.info;
+    case 'platinum':
+      return tokens.accent.secondary;
+    case 'gold':
+      return tokens.status.gold;
+    case 'silver':
+      return tokens.text.secondary;
+    case 'bronze':
+    default:
+      return tokens.status.warning;
+  }
+}
 
-export const AthleteProfileCard: React.FC<AthleteProfileCardProps> = ({
+export const AthleteProfileCard: React.FC<AthleteProfileCardProps> = React.memo(({
   stats,
+  uid,
   onOpenCard,
   onOpenSetup,
 }) => {
-  const { isDark } = useTheme();
+  const { tokens, isDark } = useTheme();
+  const unitIsLbs = useWeightUnit();
+  const { width } = useWindowDimensions();
+  const styles = useMemo(() => makeStyles(tokens, isDark), [tokens, isDark]);
 
   const handlePress = () => {
-    hapticLight();
     if (stats.hasPhysicalStats) {
       onOpenCard();
     } else {
@@ -54,11 +59,11 @@ export const AthleteProfileCard: React.FC<AthleteProfileCardProps> = ({
   };
 
   const tierBorderColor = useMemo(() => {
-    if (stats.hasPhysicalStats && stats.tier && TIER_BORDER_COLORS[stats.tier]) {
-      return TIER_BORDER_COLORS[stats.tier];
+    if (stats.hasPhysicalStats && stats.tier) {
+      return getTierBorderColor(stats.tier, tokens);
     }
-    return '#0A84FF';
-  }, [stats.hasPhysicalStats, stats.tier]);
+    return tokens.accent.primary;
+  }, [stats.hasPhysicalStats, stats.tier, tokens]);
 
   const formattedTier = useMemo(() => {
     if (!stats.tier) return '';
@@ -67,133 +72,152 @@ export const AthleteProfileCard: React.FC<AthleteProfileCardProps> = ({
 
   const subtitleText = useMemo(() => {
     if (!stats.hasPhysicalStats) {
-      return 'Tap to complete physical stats & unlock card';
+      return 'Add height & weight to unlock Performance Card';
     }
     const parts: string[] = [];
-    if (stats.weightKg) parts.push(`${stats.weightKg} kg`);
-    if (stats.heightCm) parts.push(`${stats.heightCm} cm`);
-    if (formattedTier) parts.push(formattedTier);
-    if (stats.streakDays > 0) parts.push(`🔥 ${stats.streakDays}d`);
+    if (stats.weightKg) parts.push(formatWeight(stats.weightKg, unitIsLbs, 1));
+    if (stats.heightCm) parts.push(`${Math.round(stats.heightCm)} cm`);
+    if (formattedTier) parts.push(`${formattedTier} Tier`);
     return parts.join(' · ');
-  }, [stats.hasPhysicalStats, stats.weightKg, stats.heightCm, formattedTier, stats.streakDays]);
+  }, [stats.hasPhysicalStats, stats.weightKg, stats.heightCm, formattedTier, unitIsLbs]);
+
+  const actionLabel = stats.hasPhysicalStats
+    ? (width < 360 ? 'Card' : 'Performance Card')
+    : 'Set Up';
 
   return (
-    <TouchableOpacity
+    <TactileButton
+      variant="custom"
       onPress={handlePress}
-      style={[
-        styles.profileRow,
-        {
-          backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
-          borderColor: isDark ? '#2C2C2E' : '#E5E5EA',
-        },
-      ]}
-      activeOpacity={0.8}
+      style={styles.profileRow}
     >
-      {/* Gmail Profile Picture with Lifter Tier Ring */}
       <View style={[styles.avatarWrap, { borderColor: tierBorderColor }]}>
         <UserAvatar
           size={46}
+          uid={uid ?? (stats as any)?.uid}
           photoURL={stats.photoURL}
           fallbackLetter={stats.displayName ? stats.displayName.slice(0, 1).toUpperCase() : 'A'}
         />
       </View>
 
-      {/* Name & Basic Info (Guaranteed Zero Overlap) */}
       <View style={styles.infoCol}>
         <View style={styles.nameRow}>
           <Text
-            style={[styles.nameText, { color: isDark ? '#FFFFFF' : '#000000' }]}
+            style={styles.nameText}
             numberOfLines={1}
             ellipsizeMode="tail"
           >
             {stats.displayName || 'Athlete'}
           </Text>
-          <Ionicons
-            name="checkmark-circle"
-            size={15}
-            color="#30D158"
+          <CheckCircle2
+            size={ICON.sm - 1}
+            strokeWidth={ICON.strokeWidth}
+            color={tokens.status.success}
             style={styles.checkIcon}
           />
         </View>
 
-        <Text
-          style={styles.subText}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
-          {subtitleText}
-        </Text>
+        <View style={styles.subRow}>
+          <NumericText
+            style={styles.subText}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {subtitleText}
+          </NumericText>
+          {stats.hasPhysicalStats && stats.streakDays > 0 && (
+            <View style={styles.streakInline}>
+              <Flame size={ICON.xs - 2} strokeWidth={ICON.strokeWidth} color={tokens.status.warning} />
+              <NumericText style={styles.streakInlineText}>{stats.streakDays}d</NumericText>
+            </View>
+          )}
+        </View>
       </View>
 
-      {/* View Card Action Badge (Protected Width, No Overlap) */}
-      <View style={styles.actionBadge}>
-        <Text style={styles.actionText} numberOfLines={1}>
-          {stats.hasPhysicalStats ? 'View Card' : 'Unlock'}
+      <View style={styles.actionRow}>
+        <Text style={styles.actionText} numberOfLines={1} maxFontSizeMultiplier={1.2}>
+          {actionLabel}
         </Text>
-        <Ionicons name="chevron-forward" size={12} color="#0A84FF" />
+        <ChevronRight size={15} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
       </View>
-    </TouchableOpacity>
+    </TactileButton>
   );
-};
+});
 
-const styles = StyleSheet.create({
+const makeStyles = (tokens: ThemeTokens, isDark: boolean) => StyleSheet.create({
   profileRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 0,
-    marginBottom: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    borderWidth: 1,
+    marginBottom: SPACE.sm,
+    paddingVertical: SPACE.md,
+    paddingHorizontal: SPACE.md + 2,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : tokens.border.subtle,
+    backgroundColor: isDark ? '#0F1015' : tokens.bg.surface,
+    minHeight: TOUCH.minTarget,
   },
   avatarWrap: {
     padding: 1.5,
-    borderRadius: 26,
+    borderRadius: RADIUS.full,
     borderWidth: 1.5,
     flexShrink: 0,
   },
   infoCol: {
     flex: 1,
     minWidth: 0,
-    marginLeft: 12,
-    marginRight: 10,
+    marginLeft: SPACE.md,
+    marginRight: SPACE.sm,
     justifyContent: 'center',
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: SPACE.xs + 1,
     minWidth: 0,
   },
   nameText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 16,
+    fontSize: tokens.fontSize.base,
+    color: tokens.text.primary,
     letterSpacing: -0.2,
     flexShrink: 1,
   },
   checkIcon: {
     flexShrink: 0,
   },
-  subText: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 12,
-    color: '#8E8E93',
-    marginTop: 2.5,
-  },
-  actionBadge: {
+  subRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    backgroundColor: 'rgba(10, 132, 255, 0.12)',
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 10,
+    gap: SPACE.xs + 2,
+    marginTop: 2.5,
+  },
+  subText: {
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: tokens.fontSize.xs,
+    color: tokens.text.secondary,
+    flexShrink: 1,
+  },
+  streakInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    flexShrink: 0,
+  },
+  streakInlineText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: tokens.fontSize.xs,
+    color: tokens.status.warning,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
     flexShrink: 0,
   },
   actionText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11.5,
-    color: '#0A84FF',
+    fontFamily: FONT_FAMILY.semibold,
+    fontSize: 12.5,
+    color: tokens.accent.primary,
   },
 });

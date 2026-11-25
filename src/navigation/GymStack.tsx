@@ -1,59 +1,60 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { InteractionManager } from 'react-native';
+import React, { useCallback } from 'react';
+import { useIsFocused } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
-// ─── Frame-0 Screens (Statically imported for instant tab switching) ──────────────
+// ─── Frame-0 Screens ───────────────────────────────────────────────────────────
+import GymDashboardScreen from '../screens/gym/GymDashboardScreen';
 import GymHomeScreen from '../screens/gym/GymHomeScreen';
 import GymSplitsScreen from '../screens/gym/GymSplitsScreen';
 import GymHistoryScreen from '../screens/gym/GymHistoryScreen';
 import GymProgressScreen from '../screens/gym/GymProgressScreen';
 import ActiveLoggingScreen from '../screens/gym/ActiveLoggingScreen';
 import WorkoutSummaryScreen from '../screens/gym/WorkoutSummaryScreen';
-import CardioLogScreen from '../screens/gym/CardioLogScreen';
 import ExerciseSwapScreen from '../screens/gym/ExerciseSwapScreen';
 import ExerciseDetailScreen from '../screens/gym/ExerciseDetailScreen';
 import ExerciseLibraryScreen from '../screens/gym/ExerciseLibraryScreen';
 import GymProfileScreen from '../screens/gym/GymProfileScreen';
 
 import { TelegramTabBar } from '../components/Navigation/TelegramTabBar';
+import { MainTabsFocusProvider } from './MainTabsFocusContext';
 import { useTheme } from '../contexts/ThemeContext';
 
 const Tab = createBottomTabNavigator<any>();
 const Stack = createNativeStackNavigator<any>();
 
 /**
- * MainTabs: 4-Tab Architecture powered by Telegram-style gliding pill bottom navigation.
- * Matches the gold standard of Hevy & Strong:
- * 1. Today     (🔥 Zero-friction active workout hub & scan zone)
- * 2. Plan      (📋 PPL vs Arnold routine switcher & 7-day pattern editor)
- * 3. Analytics (📜 18-week activity heatmap, past logs & telemetry)
- * 4. Body      (🧬 Anatomical vector muscle map, bodyweight & settings)
+ * MainTabs: 5-Tab Instagram-style zero-latency switching powered by native containers,
+ * lazy first-visit mounting, and Telegram-style gliding pill bottom navigation.
  */
 function MainTabs() {
   const { colors } = useTheme();
+  const isMainTabsFocused = useIsFocused();
   const renderTabBar = useCallback((props: any) => <TelegramTabBar {...props} />, []);
 
   return (
-    <Tab.Navigator
-      id="ZenFitMainTabs"
-      initialRouteName="Today"
-      tabBar={renderTabBar}
-      detachInactiveScreens={false}
-      screenOptions={{
-        headerShown: false,
-        animation: 'none',
-        sceneStyle: { backgroundColor: colors.background },
-        freezeOnBlur: true,
-        lazy: true,
-      }}
-      backBehavior="history"
-    >
-      <Tab.Screen name="Today" component={GymHomeScreen} />
-      <Tab.Screen name="Plan" component={GymSplitsScreen} />
-      <Tab.Screen name="Analytics" component={GymHistoryScreen} />
-      <Tab.Screen name="Body" component={GymProgressScreen} />
-    </Tab.Navigator>
+    <MainTabsFocusProvider focused={isMainTabsFocused}>
+      <Tab.Navigator
+        id="ZenFitMainTabs"
+        initialRouteName="Home"
+        tabBar={renderTabBar}
+        detachInactiveScreens={false}
+        screenOptions={{
+          headerShown: false,
+          animation: 'none',
+          sceneStyle: { backgroundColor: colors.background },
+          freezeOnBlur: true,
+          lazy: true,
+        }}
+        backBehavior="history"
+      >
+        <Tab.Screen name="Home" component={GymDashboardScreen} />
+        <Tab.Screen name="Plan" component={GymSplitsScreen} />
+        <Tab.Screen name="Today" component={GymHomeScreen} options={{ title: 'Train', tabBarLabel: 'Train' }} />
+        <Tab.Screen name="Analytics" component={GymHistoryScreen} />
+        <Tab.Screen name="Body" component={GymProgressScreen} />
+      </Tab.Navigator>
+    </MainTabsFocusProvider>
   );
 }
 
@@ -75,11 +76,12 @@ export default function GymStack() {
         name="ActiveLogging"
         component={ActiveLoggingScreen}
         options={{
+          presentation: 'fullScreenModal',
           animation: 'slide_from_bottom',
           animationDuration: 200,
           gestureDirection: 'vertical',
           gestureEnabled: true,
-          fullScreenGestureEnabled: true,
+          contentStyle: { backgroundColor: colors.background },
         }}
       />
       <Stack.Screen
@@ -94,16 +96,6 @@ export default function GymStack() {
       <Stack.Screen name="ExerciseDetail" component={ExerciseDetailScreen} />
       <Stack.Screen name="ExerciseLibrary" component={ExerciseLibraryScreen} />
       <Stack.Screen name="GymProfile" component={GymProfileScreen} />
-      <Stack.Screen
-        name="CardioLog"
-        component={CardioLogScreen}
-        options={{
-          animation: 'slide_from_bottom',
-          animationDuration: 200,
-          gestureDirection: 'vertical',
-          gestureEnabled: true,
-        }}
-      />
       <Stack.Screen
         name="ExerciseSwap"
         component={ExerciseSwapScreen}

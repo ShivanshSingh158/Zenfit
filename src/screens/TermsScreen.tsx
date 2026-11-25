@@ -1,13 +1,18 @@
 import React, { useMemo } from 'react';
 import {
-  View, Text, StyleSheet, Modal, ScrollView, TouchableOpacity,
-  Platform, StatusBar
+  View, Text, StyleSheet, ScrollView,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  X, ShieldCheck, FileText, Lock, Sparkles, Dumbbell,
+  AlertTriangle, Code2, Shield, WifiOff, AlertCircle, Mail,
+} from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { hapticLight } from '../utils/haptics';
 import { useTheme } from '../contexts/ThemeContext';
-import { FONT_FAMILY, FONT_SIZE, RADIUS, SPACE, SHADOW } from '../theme/tokens';
+import { FONT_FAMILY, ICON, RADIUS, SPACE, TOUCH, ThemeTokens } from '../theme/tokens';
+import BottomSheet from '../components/ui/BottomSheet';
+import { TactileButton } from '../components/ui';
 
 interface TermsScreenProps {
   visible: boolean;
@@ -15,8 +20,9 @@ interface TermsScreenProps {
 }
 
 export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
-  const { colors, isDark } = useTheme();
-  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const { tokens } = useTheme();
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(() => makeStyles(tokens), [tokens]);
 
   const handleClose = () => {
     hapticLight();
@@ -24,40 +30,36 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
   };
 
   return (
-    <Modal
+    <BottomSheet
       visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={handleClose}
+      onClose={handleClose}
+      fullHeight={true}
+      noPadding={true}
+      sheetBackgroundColor={tokens.bg.canvas}
     >
-      <View style={styles.container}>
-        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
-
-        {/* ── Native iOS Sheet Grabber Handle ───────────────────────── */}
-        <View style={styles.sheetHandleContainer}>
-          <View style={styles.sheetHandle} />
-        </View>
-
+      <View style={[styles.container, { backgroundColor: 'transparent' }]}>
         {/* ── Top Header Bar ────────────────────────────────────────── */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.headerTitle}>Terms of Service & Privacy</Text>
-            <Text style={styles.headerSubtitle}>ZenFit · Version 2.4.0</Text>
+          <View style={{ flex: 1, minWidth: 0, paddingRight: SPACE.sm }}>
+            <Text style={styles.headerTitle} numberOfLines={2}>Terms of Service & Privacy</Text>
+            <Text style={styles.headerSubtitle}>ZenFit · Version 1.0.0</Text>
           </View>
-          <TouchableOpacity
+          <TactileButton
+            variant="custom"
             onPress={handleClose}
             style={styles.closeBtn}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            activeOpacity={0.7}
+            accessibilityLabel="Close terms of service"
           >
-            <Ionicons name="close" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
+            <X size={ICON.md} color={tokens.text.primary} strokeWidth={ICON.strokeWidth} />
+          </TactileButton>
         </View>
 
         {/* ── Scrollable Legal Body ─────────────────────────────────── */}
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          style={{ flex: 1 }}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
           showsVerticalScrollIndicator={true}
+          nestedScrollEnabled
         >
           {/* Metadata Badge Row */}
           <View style={styles.metaRow}>
@@ -71,12 +73,12 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
           {/* Privacy Pledge Hero Card */}
           <View style={styles.calloutBox}>
             <View style={styles.calloutIconBox}>
-              <Ionicons name="shield-checkmark" size={20} color={colors.accentPrimary} />
+              <ShieldCheck size={ICON.md} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.calloutTitle}>Our Core Privacy Pledge</Text>
               <Text style={styles.calloutBody}>
-                ZenFit is built on a <Text style={styles.boldText}>100% Local-First Architecture</Text>. Your daily tasks, habit streaks, attendance records, gym weights, and personal vault notes belong strictly to you. We do not sell your personal telemetry or monetize your private life routines.
+                ZenFit is built on a <Text style={styles.boldText}>100% Local-First Architecture</Text>. Your gym workouts, training logs, body metrics, and personal athletic plans belong strictly to you. We do not sell your personal telemetry or monetize your training routines.
               </Text>
             </View>
           </View>
@@ -85,7 +87,7 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionIconBadge}>
-                <Ionicons name="document-text-outline" size={16} color={colors.accentPrimary} />
+                <FileText size={ICON.sm} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
               </View>
               <Text style={styles.sectionTitle}>1. Agreement to Terms</Text>
             </View>
@@ -104,7 +106,7 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionIconBadge}>
-                <Ionicons name="lock-closed-outline" size={16} color={colors.accentPrimary} />
+                <Lock size={ICON.sm} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
               </View>
               <Text style={styles.sectionTitle}>2. Account Registration & Data Security</Text>
             </View>
@@ -122,17 +124,16 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionIconBadge}>
-                <Ionicons name="sparkles-outline" size={16} color={colors.accentPrimary} />
+                <Sparkles size={ICON.sm} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
               </View>
-              <Text style={styles.sectionTitle}>3. S.A.R.A Autonomous AI & Voice Assistant</Text>
+              <Text style={styles.sectionTitle}>3. AI Exercise Intelligence & Coaching</Text>
             </View>
             <Text style={styles.paragraph}>
-              ZenFit features S.A.R.A (Synthesized Artificial Reality Assistant), an autonomous life intelligence engine designed to process natural language voice inputs, extract task parameters, schedule timetable alerts, and deliver proactive behavioral nudges.
+              ZenFit utilizes generative machine learning and biomechanical intelligence models to analyze workout volume, suggest exercise variations, compute progressive overload recommendations, and generate athletic routines.
             </Text>
             <View style={styles.bulletList}>
-              <Text style={styles.bulletItem}>• <Text style={styles.boldText}>Voice Data Lifecycle:</Text> Voice audio recorded during mic activation is transcribed in real-time. Raw audio streams are never stored permanently on remote servers; only parsed structured actions (e.g. "DSA Lab at 10 AM") are retained on your device.</Text>
-              <Text style={styles.bulletItem}>• <Text style={styles.boldText}>AI Non-Reliance:</Text> S.A.R.A provides behavioral assistance and automated workflows. S.A.R.A is not a certified financial advisor, attorney, psychotherapist, or medical practitioner. Critical life decisions must never rely solely on AI-generated outputs.</Text>
-              <Text style={styles.bulletItem}>• <Text style={styles.boldText}>Prompt Acceptability:</Text> You agree not to transmit hate speech, harassment, sexually explicit content, or copyrighted third-party material through the S.A.R.A conversation engine.</Text>
+              <Text style={styles.bulletItem}>• <Text style={styles.boldText}>AI Non-Reliance:</Text> AI workout suggestions are for general athletic guidance only and do not replace personalized coaching from licensed professionals.</Text>
+              <Text style={styles.bulletItem}>• <Text style={styles.boldText}>Telemetry Safety:</Text> Your biometric data and workout metrics are processed locally or through secure tokenized gateways without permanent server retention.</Text>
             </View>
           </View>
 
@@ -140,63 +141,44 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionIconBadge}>
-                <Ionicons name="school-outline" size={16} color={colors.accentPrimary} />
+                <Dumbbell size={ICON.sm} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
               </View>
-              <Text style={styles.sectionTitle}>4. Academic & Timetable Radar Disclaimers</Text>
+              <Text style={styles.sectionTitle}>4. Fitness, Gym & Wellness Disclaimer</Text>
             </View>
             <Text style={styles.paragraph}>
-              ZenFit offers an automated Attendance Radar and Bunk Calculator designed to assist students in tracking class compliance against institutional percentage thresholds (e.g., 75% or 80% criteria).
-            </Text>
-            <Text style={styles.paragraph}>
-              <Text style={styles.boldText}>4.1 Informational Nature:</Text> The calculated "Safe Bunks", attendance forecasts, and scheduled lecture timings are generated based on user-supplied parameters and schedule imports.
-            </Text>
-            <Text style={styles.paragraph}>
-              <Text style={styles.boldText}>4.2 Institutional Authority:</Text> Your educational institution's official ERP, professor roll calls, and departmental registries remain the sole authoritative record of your academic standing. ZenFit accepts no liability for disciplinary actions, exam disbarment, or attendance discrepancies arising from user reliance on estimated metrics.
-            </Text>
-          </View>
-
-          {/* ── SECTION 5 ──────────────────────────────────────────────── */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <View style={styles.sectionIconBadge}>
-                <Ionicons name="barbell-outline" size={16} color={colors.accentPrimary} />
-              </View>
-              <Text style={styles.sectionTitle}>5. Fitness, Gym & Wellness Disclaimer</Text>
-            </View>
-            <Text style={styles.paragraph}>
-              The gym workout tracker, 1RM calculators, progressive overload matrices, hydration meters, and dietary suggestions provided by ZenFit are for educational and personal organization purposes only.
+              The gym workout tracker, 1RM calculators, progressive overload matrices, hydration meters, and recovery suggestions provided by ZenFit are for educational and personal athletic organization purposes only.
             </Text>
             <View style={styles.warningBox}>
-              <Ionicons name="warning-outline" size={18} color="#FF9F4D" style={{ marginRight: 10, marginTop: 1 }} />
+              <AlertTriangle size={18} color={tokens.status.warning} strokeWidth={ICON.strokeWidth} style={{ marginRight: SPACE[12], marginTop: 1 }} />
               <Text style={styles.warningText}>
                 Consult a qualified physician or certified personal trainer before attempting high-intensity weight training or dietary changes. You assume 100% of physical risks associated with exercise routines logged in ZenFit.
               </Text>
             </View>
           </View>
 
+          {/* ── SECTION 5 ──────────────────────────────────────────────── */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionIconBadge}>
+                <Code2 size={ICON.sm} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+              </View>
+              <Text style={styles.sectionTitle}>5. Intellectual Property & Ownership</Text>
+            </View>
+            <Text style={styles.paragraph}>
+              <Text style={styles.boldText}>5.1 Your Content:</Text> You retain complete, unencumbered ownership of all data, tasks, notes, habits, routines, and telemetry generated by your account on the Platform. ZenFit claims no intellectual property rights over your personal life logs.
+            </Text>
+            <Text style={styles.paragraph}>
+              <Text style={styles.boldText}>5.2 ZenFit IP:</Text> The ZenFit name, brand mark, visual design tokens, custom user interface components, sound design, animations, backend API algorithms, and proprietary machine learning orchestration engines are the exclusive property of ZenFit Inc. and are protected by international copyright and trademark laws.
+            </Text>
+          </View>
+
           {/* ── SECTION 6 ──────────────────────────────────────────────── */}
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionIconBadge}>
-                <Ionicons name="code-slash-outline" size={16} color={colors.accentPrimary} />
+                <Shield size={ICON.sm} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
               </View>
-              <Text style={styles.sectionTitle}>6. Intellectual Property & Ownership</Text>
-            </View>
-            <Text style={styles.paragraph}>
-              <Text style={styles.boldText}>6.1 Your Content:</Text> You retain complete, unencumbered ownership of all data, tasks, notes, habits, routines, and telemetry generated by your account on the Platform. ZenFit claims no intellectual property rights over your personal life logs.
-            </Text>
-            <Text style={styles.paragraph}>
-              <Text style={styles.boldText}>6.2 ZenFit IP:</Text> The ZenFit name, brand mark, visual design tokens, custom user interface components, sound design, animations, backend API algorithms, and proprietary machine learning orchestration engines are the exclusive property of ZenFit Inc. and are protected by international copyright and trademark laws.
-            </Text>
-          </View>
-
-          {/* ── SECTION 7 ──────────────────────────────────────────────── */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <View style={styles.sectionIconBadge}>
-                <Ionicons name="shield-outline" size={16} color={colors.accentPrimary} />
-              </View>
-              <Text style={styles.sectionTitle}>7. Prohibited Uses & Community Conduct</Text>
+              <Text style={styles.sectionTitle}>6. Prohibited Uses & Community Conduct</Text>
             </View>
             <Text style={styles.paragraph}>You expressly agree not to:</Text>
             <View style={styles.bulletList}>
@@ -207,13 +189,13 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
             </View>
           </View>
 
-          {/* ── SECTION 8 ──────────────────────────────────────────────── */}
+          {/* ── SECTION 7 ──────────────────────────────────────────────── */}
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionIconBadge}>
-                <Ionicons name="cloud-offline-outline" size={16} color={colors.accentPrimary} />
+                <WifiOff size={ICON.sm} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
               </View>
-              <Text style={styles.sectionTitle}>8. Service Availability & Modifications</Text>
+              <Text style={styles.sectionTitle}>7. Service Availability & Modifications</Text>
             </View>
             <Text style={styles.paragraph}>
               ZenFit is provided on an "AS IS" and "AS AVAILABLE" basis. While our local-first offline architecture allows full platform operation without an active internet connection, cloud backup synchronization and AI transcription services require network connectivity.
@@ -223,161 +205,156 @@ export default function TermsScreen({ visible, onClose }: TermsScreenProps) {
             </Text>
           </View>
 
-          {/* ── SECTION 9 ──────────────────────────────────────────────── */}
+          {/* ── SECTION 8 ──────────────────────────────────────────────── */}
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionIconBadge}>
-                <Ionicons name="alert-circle-outline" size={16} color={colors.accentPrimary} />
+                <AlertCircle size={ICON.sm} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
               </View>
-              <Text style={styles.sectionTitle}>9. Limitation of Liability</Text>
+              <Text style={styles.sectionTitle}>8. Limitation of Liability</Text>
             </View>
             <Text style={styles.paragraph}>
               To the maximum extent permitted by applicable law, in no event shall ZenFit Inc., its officers, directors, employees, or affiliates be liable for any indirect, incidental, special, consequential, or punitive damages, including loss of profits, data corruption, academic penalties, hardware malfunctions, or personal injury resulting from your use of or inability to use the Platform.
             </Text>
           </View>
 
-          {/* ── SECTION 10 ─────────────────────────────────────────────── */}
+          {/* ── SECTION 9 ─────────────────────────────────────────────── */}
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionIconBadge}>
-                <Ionicons name="mail-outline" size={16} color={colors.accentPrimary} />
+                <Mail size={ICON.sm} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
               </View>
-              <Text style={styles.sectionTitle}>10. Contact Information & Inquiries</Text>
+              <Text style={styles.sectionTitle}>9. Contact Information & Inquiries</Text>
             </View>
             <Text style={styles.paragraph}>
               If you have questions regarding these Terms, privacy practices, data deletion requests under GDPR/CCPA, or security reports, please reach out to our legal team:
             </Text>
             <View style={styles.contactCard}>
-              <Text style={styles.contactItem}><Text style={styles.boldText}>Legal Department:</Text> legal@zentrack.app</Text>
-              <Text style={styles.contactItem}><Text style={styles.boldText}>Privacy Officer:</Text> privacy@zentrack.app</Text>
-              <Text style={styles.contactItem}><Text style={styles.boldText}>Security Desk:</Text> security@zentrack.app</Text>
+              <Text style={styles.contactItem}><Text style={styles.boldText}>Support:</Text> support@zenfit.app</Text>
+              <Text style={styles.contactItem}><Text style={styles.boldText}>Privacy:</Text> privacy@zenfit.app</Text>
             </View>
           </View>
 
           {/* Bottom Acknowledgment Action */}
           <View style={styles.bottomActionBlock}>
-            <TouchableOpacity style={styles.agreeBtn} onPress={handleClose} activeOpacity={0.88}>
+            <TactileButton
+              variant="primary"
+              size="lg"
+              style={styles.agreeBtn}
+              onPress={handleClose}
+              haptic="medium"
+            >
               <Text style={styles.agreeBtnText}>I Understand & Agree</Text>
-            </TouchableOpacity>
+            </TactileButton>
           </View>
 
-          <View style={{ height: 40 }} />
+          <View style={{ height: SPACE[32] }} />
         </ScrollView>
 
         {/* Bottom Fade Gradient */}
         <LinearGradient
-          colors={['rgba(0,0,0,0)', isDark ? 'rgba(8,8,12,0.95)' : 'rgba(249,249,251,0.95)']}
+          colors={['transparent', tokens.bg.canvas]}
           style={styles.bottomGradient}
           pointerEvents="none"
         />
       </View>
-    </Modal>
+    </BottomSheet>
   );
 }
 
-const makeStyles = (colors: any, isDark: boolean = true) => StyleSheet.create({
+const makeStyles = (tokens: ThemeTokens) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: isDark ? '#0A0B10' : '#F9F9FB',
-  },
-  sheetHandleContainer: {
-    alignItems: 'center',
-    paddingVertical: 10,
-  },
-  sheetHandle: {
-    width: 36,
-    height: 4.5,
-    borderRadius: 3,
-    backgroundColor: isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)',
+    backgroundColor: tokens.bg.canvas,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-    backgroundColor: isDark ? '#0A0B10' : '#F9F9FB',
+    paddingHorizontal: SPACE[16],
+    paddingTop: SPACE[8],
+    paddingBottom: SPACE[12],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: tokens.border.subtle,
+    backgroundColor: tokens.bg.canvas,
     zIndex: 10,
   },
   headerTitle: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 17,
-    color: colors.textPrimary,
+    color: tokens.text.primary,
     letterSpacing: -0.2,
   },
   headerSubtitle: {
     fontFamily: FONT_FAMILY.body,
     fontSize: 11,
-    color: colors.textMuted,
+    color: tokens.text.muted,
     marginTop: 2,
     letterSpacing: 0.2,
   },
   closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+    width: 32,
+    height: 32,
+    borderRadius: RADIUS.inner,
+    backgroundColor: tokens.bg.elevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 18,
+    paddingHorizontal: SPACE[16],
+    paddingTop: SPACE[16],
     paddingBottom: 80,
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    marginBottom: SPACE[16],
   },
   badgePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: isDark ? 'rgba(165,153,255,0.10)' : 'rgba(108,92,231,0.08)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: RADIUS.full,
+    backgroundColor: tokens.accent.primaryDim,
+    paddingHorizontal: SPACE[10],
+    paddingVertical: SPACE[4],
+    borderRadius: RADIUS.sm,
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(165,153,255,0.22)' : 'rgba(108,92,231,0.18)',
-    gap: 6,
+    borderColor: tokens.border.focus,
+    gap: SPACE[8],
   },
   badgeDot: {
     width: 5,
     height: 5,
     borderRadius: 2.5,
-    backgroundColor: colors.accentPrimary,
+    backgroundColor: tokens.accent.primary,
   },
   badgePillText: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 9.5,
-    color: colors.accentPrimary,
+    color: tokens.accent.primary,
     letterSpacing: 0.8,
   },
   lastUpdated: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 10.5,
-    color: colors.textMuted,
+    color: tokens.text.muted,
     letterSpacing: 0.8,
   },
   calloutBox: {
     flexDirection: 'row',
-    backgroundColor: isDark ? 'rgba(165,153,255,0.07)' : 'rgba(108,92,231,0.05)',
-    borderRadius: 20,
+    backgroundColor: tokens.accent.primaryDim,
+    borderRadius: RADIUS.card,
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(165,153,255,0.20)' : 'rgba(108,92,231,0.15)',
-    padding: 16,
-    marginBottom: 26,
-    gap: 12,
+    borderColor: tokens.border.focus,
+    padding: SPACE[16],
+    marginBottom: SPACE[24],
+    gap: SPACE[12],
   },
   calloutIconBox: {
     width: 36,
     height: 36,
-    borderRadius: 12,
-    backgroundColor: isDark ? 'rgba(165,153,255,0.15)' : 'rgba(108,92,231,0.10)',
+    borderRadius: RADIUS.inner,
+    backgroundColor: tokens.bg.elevated,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 2,
@@ -385,107 +362,102 @@ const makeStyles = (colors: any, isDark: boolean = true) => StyleSheet.create({
   calloutTitle: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 14,
-    color: colors.textPrimary,
-    marginBottom: 4,
+    color: tokens.text.primary,
+    marginBottom: SPACE[4],
   },
   calloutBody: {
     fontFamily: FONT_FAMILY.body,
     fontSize: 12.5,
-    color: colors.textSecondary,
+    color: tokens.text.secondary,
     lineHeight: 18.5,
   },
   section: {
-    marginBottom: 26,
+    marginBottom: SPACE[24],
   },
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
-    gap: 10,
+    marginBottom: SPACE[8],
+    gap: SPACE[12],
   },
   sectionIconBadge: {
     width: 28,
     height: 28,
-    borderRadius: 8,
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+    borderRadius: RADIUS.sm,
+    backgroundColor: tokens.bg.elevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sectionTitle: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 15,
-    color: colors.textPrimary,
+    color: tokens.text.primary,
     letterSpacing: -0.1,
   },
   paragraph: {
     fontFamily: FONT_FAMILY.body,
     fontSize: 13,
-    color: isDark ? 'rgba(255,255,255,0.72)' : 'rgba(0,0,0,0.72)',
+    color: tokens.text.secondary,
     lineHeight: 20,
-    marginBottom: 10,
+    marginBottom: SPACE[8],
   },
   boldText: {
     fontFamily: FONT_FAMILY.bold,
-    color: colors.textPrimary,
+    color: tokens.text.primary,
   },
   bulletList: {
-    marginTop: 4,
-    gap: 8,
+    marginTop: SPACE[4],
+    gap: SPACE[8],
   },
   bulletItem: {
     fontFamily: FONT_FAMILY.body,
     fontSize: 12.5,
-    color: isDark ? 'rgba(255,255,255,0.70)' : 'rgba(0,0,0,0.70)',
+    color: tokens.text.secondary,
     lineHeight: 19,
-    paddingLeft: 4,
+    paddingLeft: SPACE[4],
   },
   warningBox: {
     flexDirection: 'row',
-    backgroundColor: isDark ? 'rgba(255,159,77,0.08)' : 'rgba(255,159,77,0.06)',
-    borderRadius: 14,
+    backgroundColor: tokens.status.warningDim,
+    borderRadius: RADIUS.card,
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,159,77,0.22)' : 'rgba(255,159,77,0.18)',
-    padding: 14,
-    marginTop: 6,
+    borderColor: tokens.status.warning,
+    padding: SPACE[12],
+    marginTop: SPACE[8],
   },
   warningText: {
     fontFamily: FONT_FAMILY.body,
     fontSize: 12,
-    color: isDark ? '#FFB067' : '#D97706',
+    color: tokens.status.warning,
     lineHeight: 18,
     flex: 1,
   },
   contactCard: {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.025)',
-    borderRadius: 16,
+    backgroundColor: tokens.bg.surface,
+    borderRadius: RADIUS.card,
     borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
-    padding: 14,
-    marginTop: 8,
-    gap: 6,
+    borderColor: tokens.border.subtle,
+    padding: SPACE[12],
+    marginTop: SPACE[8],
+    gap: SPACE[8],
   },
   contactItem: {
     fontFamily: FONT_FAMILY.body,
     fontSize: 12.5,
-    color: colors.textSecondary,
+    color: tokens.text.secondary,
   },
   bottomActionBlock: {
-    marginTop: 18,
+    marginTop: SPACE[16],
     alignItems: 'center',
   },
   agreeBtn: {
-    backgroundColor: isDark ? '#FFFFFF' : '#0A0A0E',
-    borderRadius: 22,
-    height: 54,
     width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...SHADOW.sm,
+    minHeight: 54,
   },
   agreeBtnText: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 15,
-    color: isDark ? '#0A0A0E' : '#FFFFFF',
+    color: tokens.accent.onPrimary,
     letterSpacing: 0.2,
   },
   bottomGradient: {

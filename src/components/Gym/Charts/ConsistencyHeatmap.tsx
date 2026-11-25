@@ -1,28 +1,35 @@
-import React, { useMemo, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { FONT_FAMILY, FONT_SIZE, RADIUS, SPACE, COLORS } from '../../../theme/tokens';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { Pressable, View, Text, StyleSheet, ScrollView } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  cancelAnimation,
+} from 'react-native-reanimated';
+import { Calendar } from 'lucide-react-native';
+import { FONT_FAMILY, ICON, RADIUS, SPACE, ThemeTokens } from '../../../theme/tokens';
+import { iosEasing } from '../../../theme/motion';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { hapticLight } from '../../../utils/haptics';
+import { NumericText } from '../../ui';
+import { useWeightUnit, formatVolumeParts } from '../../../utils/weightUnit';
 
 interface ConsistencyHeatmapProps {
   data: { date: string; volume: number }[];
+  replayKey?: number | string;
 }
 
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-const NUM_WEEKS = 18; // 18 weeks = 126 days (fills horizontal card width cleanly)
+const NUM_WEEKS = 18;
 
 function getRecentWeeksDates(numWeeks: number = 18): string[] {
   const dates: string[] = [];
   const today = new Date();
-  const todayDay = today.getDay(); // 0 is Sunday
+  const todayDay = today.getDay();
   const daysFromMonday = todayDay === 0 ? 6 : todayDay - 1;
 
-  // Find Monday of the current week
   const currentMonday = new Date(today);
   currentMonday.setDate(today.getDate() - daysFromMonday);
 
-  // Start (numWeeks - 1) weeks before current Monday
   const startMonday = new Date(currentMonday);
   startMonday.setDate(currentMonday.getDate() - (numWeeks - 1) * 7);
 
@@ -39,14 +46,23 @@ function getRecentWeeksDates(numWeeks: number = 18): string[] {
 }
 
 function formatDateShort(dateStr: string): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
+  const [, m, d] = dateStr.split('-').map(Number);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return `${months[m - 1]} ${d}`;
 }
 
-export const ConsistencyHeatmap: React.FC<ConsistencyHeatmapProps> = React.memo(function ConsistencyHeatmap({ data }: ConsistencyHeatmapProps) {
-  const { colors, isDark } = useTheme();
-  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+function getVolumeTier(volume: number): 0 | 1 | 2 | 3 | 4 {
+  if (volume <= 0) return 0;
+  if (volume < 5000) return 1;
+  if (volume < 12000) return 2;
+  if (volume < 22000) return 3;
+  return 4;
+}
+
+export const ConsistencyHeatmap: React.FC<ConsistencyHeatmapProps> = React.memo(function ConsistencyHeatmap({ data, replayKey = 0 }: ConsistencyHeatmapProps) {
+  const { tokens } = useTheme();
+  const unitIsLbs = useWeightUnit();
+  const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const scrollRef = useRef<ScrollView>(null);
 
   const [selected, setSelected] = useState<{ date: string; volume: number } | null>(null);
@@ -54,20 +70,19 @@ export const ConsistencyHeatmap: React.FC<ConsistencyHeatmapProps> = React.memo(
   const { grid, totalWorkouts, volumeMap } = useMemo(() => {
     const dateStrings = getRecentWeeksDates(NUM_WEEKS);
     const dateSet = new Set(dateStrings);
-    const volumeMap = new Map<string, number>();
+    const map = new Map<string, number>();
 
     data.forEach(d => {
       if (d.volume > 0) {
-        volumeMap.set(d.date, (volumeMap.get(d.date) || 0) + d.volume);
+        map.set(d.date, (map.get(d.date) || 0) + d.volume);
       }
     });
 
     let workoutCount = 0;
     dateSet.forEach(dateStr => {
-      if ((volumeMap.get(dateStr) || 0) > 0) workoutCount++;
+      if ((map.get(dateStr) || 0) > 0) workoutCount++;
     });
 
-    // Group into columns of 7 (Mon–Sun)
     const chunks: string[][] = [];
     for (let i = 0; i < dateStrings.length; i += 7) {
       chunks.push(dateStrings.slice(i, i + 7));
@@ -76,7 +91,7 @@ export const ConsistencyHeatmap: React.FC<ConsistencyHeatmapProps> = React.memo(
     return {
       grid: chunks,
       totalWorkouts: workoutCount,
-      volumeMap,
+      volumeMap: map,
     };
   }, [data]);
 
@@ -89,23 +104,45 @@ export const ConsistencyHeatmap: React.FC<ConsistencyHeatmapProps> = React.memo(
     return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
   }, []);
 
+  const getTooltipColor = (volume: number) => {
+    if (volume >= 12000) return tokens.status.success;
+    if (volume > 0) return tokens.accent.primary;
+    return tokens.text.secondary;
+  };
+
+  const gridOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    cancelAnimation(gridOpacity);
+    gridOpacity.value = 0;
+    gridOpacity.value = withTiming(1, { duration: 280, easing: iosEasing.decel });
+  }, [replayKey, gridOpacity]);
+
+  const gridAnimStyle = useAnimatedStyle(() => ({
+    opacity: gridOpacity.value,
+  }));
+
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View style={styles.headerIcon}>
-            <Ionicons name="calendar-outline" size={13} color="#5eda9e" />
+            <Calendar size={ICON.xs} strokeWidth={ICON.strokeWidth} color={tokens.status.success} />
           </View>
           <View>
             <Text style={styles.title}>CONSISTENCY GRID</Text>
-            <Text style={styles.subtitle}>
-              {totalWorkouts} {totalWorkouts === 1 ? 'workout' : 'workouts'} logged across {NUM_WEEKS} weeks
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 1 }}>
+              <NumericText style={[styles.subtitle, { fontFamily: FONT_FAMILY.bold, color: tokens.text.primary }]}>
+                {totalWorkouts}
+              </NumericText>
+              <Text style={styles.subtitle}>
+                {' '}{totalWorkouts === 1 ? 'workout' : 'workouts'} logged across {NUM_WEEKS} weeks
+              </Text>
+            </View>
           </View>
         </View>
 
-        {/* Active Badge */}
         <View style={styles.activeTag}>
           <View style={styles.activeDot} />
           <Text style={styles.activeTagText}>Logged</Text>
@@ -114,14 +151,12 @@ export const ConsistencyHeatmap: React.FC<ConsistencyHeatmapProps> = React.memo(
 
       {/* Day labels + Full-Width Grid */}
       <View style={styles.heatmapRow}>
-        {/* Mon–Sun row labels */}
         <View style={styles.dayLabelsCol}>
           {DAY_LABELS.map((label, i) => (
-            <Text key={i} style={styles.dayLabelText}>{label}</Text>
+            <Text key={i} maxFontSizeMultiplier={1.15} style={styles.dayLabelText}>{label}</Text>
           ))}
         </View>
 
-        {/* Full-width scrollable grid (auto-scrolled to latest) */}
         <ScrollView
           ref={scrollRef}
           horizontal
@@ -131,211 +166,280 @@ export const ConsistencyHeatmap: React.FC<ConsistencyHeatmapProps> = React.memo(
           contentContainerStyle={styles.scrollContent}
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
         >
-          <View style={styles.grid}>
+          <Animated.View style={[styles.grid, gridAnimStyle]}>
             {grid.map((col, colIndex) => (
               <View key={`col-${colIndex}`} style={styles.column}>
                 {col.map((dateStr) => {
                   const vol = volumeForDate(dateStr);
                   const isLogged = vol > 0;
+                  const tier = getVolumeTier(vol);
                   const isToday = dateStr === todayStr;
                   const isSelected = selected?.date === dateStr;
 
+                  const tierStyle =
+                    tier === 4
+                      ? styles.cellTier4
+                      : tier === 3
+                      ? styles.cellTier3
+                      : tier === 2
+                      ? styles.cellTier2
+                      : tier === 1
+                      ? styles.cellTier1
+                      : styles.cellEmpty;
+
                   return (
-                    <TouchableOpacity
+                    <Pressable
                       key={dateStr}
                       onPress={() => {
-                        hapticLight();
                         setSelected(prev => (prev?.date === dateStr ? null : { date: dateStr, volume: vol }));
                       }}
-                      activeOpacity={0.75}
-                      style={styles.cellWrapper}
+                      style={({ pressed }) => [styles.cellWrapper, pressed && { opacity: 0.7 }]}
+                      hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                     >
                       <View
                         style={[
                           styles.cell,
-                          isLogged ? styles.cellLogged : styles.cellEmpty,
+                          tierStyle,
                           isToday && !isLogged && styles.cellToday,
                           isSelected && styles.cellSelected,
                         ]}
                       />
-                    </TouchableOpacity>
+                    </Pressable>
                   );
                 })}
               </View>
             ))}
-          </View>
+          </Animated.View>
         </ScrollView>
       </View>
 
-      {/* Selected cell tooltip */}
-      {selected && (
-        <View style={styles.tooltip}>
-          <View style={[styles.tooltipDot, { backgroundColor: selected.volume > 0 ? '#5eda9e' : '#8e8e93' }]} />
-          <Text style={styles.tooltipDate}>{formatDateShort(selected.date)}</Text>
-          <Text style={styles.tooltipVol}>
-            {selected.volume > 0
-              ? `${selected.volume >= 1000 ? (selected.volume / 1000).toFixed(1) + 'k' : selected.volume} kg volume`
-              : 'Rest day / No log'}
-          </Text>
+      {/* Footer: Tooltip or 4-Tier Volume Legend */}
+      <View style={styles.footerRow}>
+        {selected ? (
+          <View style={styles.tooltip}>
+            <View
+              style={[
+                styles.tooltipDot,
+                { backgroundColor: getTooltipColor(selected.volume) },
+              ]}
+            />
+            <NumericText style={styles.tooltipDate}>{formatDateShort(selected.date)}</NumericText>
+            <NumericText style={styles.tooltipVol}>
+              {selected.volume > 0
+                ? `${formatVolumeParts(selected.volume, unitIsLbs).full} vol`
+                : 'Rest day'}
+            </NumericText>
+          </View>
+        ) : (
+          <View />
+        )}
+
+        <View style={styles.legendRow}>
+          <Text style={styles.legendLabel}>Less</Text>
+          <View style={styles.legendCells}>
+            <View style={[styles.legendCell, styles.cellEmpty]} />
+            <View style={[styles.legendCell, styles.cellTier1]} />
+            <View style={[styles.legendCell, styles.cellTier2]} />
+            <View style={[styles.legendCell, styles.cellTier3]} />
+            <View style={[styles.legendCell, styles.cellTier4]} />
+          </View>
+          <Text style={styles.legendLabel}>More</Text>
         </View>
-      )}
+      </View>
     </View>
   );
 });
 
 export default ConsistencyHeatmap;
 
-const makeStyles = (colors: any, isDark: boolean = true) => StyleSheet.create({
+const makeStyles = (tokens: ThemeTokens) => StyleSheet.create({
   container: {
-    backgroundColor: isDark ? '#0d0d10' : colors.surface,
-    borderRadius: RADIUS.xl,
-    padding: 16,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: isDark ? '#1f1f26' : colors.border,
+    backgroundColor: tokens.bg.surface,
+    borderRadius: RADIUS.card,
+    padding: SPACE.lg,
+    marginBottom: SPACE.md,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: SPACE.md,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACE.sm,
   },
   headerIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: 7,
-    backgroundColor: 'rgba(94, 218, 158, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(94, 218, 158, 0.25)',
+    width: 28,
+    height: 28,
+    borderRadius: RADIUS.sm,
+    backgroundColor: tokens.status.successDim,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.status.success,
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-    color: isDark ? '#ffffff' : colors.textPrimary,
+    fontSize: tokens.fontSize.xs,
+    color: tokens.text.primary,
     letterSpacing: 0.8,
   },
   subtitle: {
     fontFamily: FONT_FAMILY.regular,
-    fontSize: 11,
-    color: '#8e8e93',
+    fontSize: tokens.fontSize.xs,
+    color: tokens.text.secondary,
     marginTop: 1,
   },
   activeTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(94, 218, 158, 0.10)',
-    borderColor: 'rgba(94, 218, 158, 0.25)',
-    borderWidth: 1,
-    paddingHorizontal: 8,
+    gap: SPACE.xs + 1,
+    backgroundColor: tokens.status.successDim,
+    borderColor: tokens.border.subtle,
+    borderWidth: tokens.border.hairlineWidth,
+    paddingHorizontal: SPACE.sm,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: RADIUS.sm,
   },
   activeDot: {
     width: 6,
     height: 6,
-    borderRadius: 3,
-    backgroundColor: '#5eda9e',
+    borderRadius: RADIUS.full,
+    backgroundColor: tokens.status.success,
   },
   activeTagText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#5eda9e',
+    fontSize: tokens.fontSize.xs,
+    color: tokens.status.success,
   },
   heatmapRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
   dayLabelsCol: {
-    justifyContent: 'space-between',
-    height: 7 * 19, // 7 rows × 19px each
-    paddingRight: 8,
-    paddingVertical: 1,
+    flexDirection: 'column',
+    gap: SPACE.xs,
+    height: 7 * 22 - 4,
+    paddingRight: SPACE.sm,
   },
   dayLabelText: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 9,
-    color: '#636366',
-    lineHeight: 15,
+    fontSize: tokens.fontSize.xs,
+    color: tokens.text.muted,
+    height: 18,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   scrollArea: {
     flex: 1,
   },
   scrollContent: {
-    paddingRight: 4,
+    paddingRight: SPACE.xs,
   },
   grid: {
     flexDirection: 'row',
-    gap: 4.5,
+    gap: SPACE.xs,
   },
   column: {
     flexDirection: 'column',
-    gap: 4.5,
+    gap: SPACE.xs,
   },
   cellWrapper: {
     padding: 0,
   },
   cell: {
-    width: 15.5,
-    height: 15.5,
-    borderRadius: 3.5,
+    width: 18,
+    height: 18,
+    borderRadius: RADIUS.xs,
   },
   cellEmpty: {
-    backgroundColor: isDark ? '#17171c' : '#EAE9F2',
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)',
+    backgroundColor: tokens.bg.elevated,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
   },
-  cellLogged: {
-    backgroundColor: '#5eda9e',
+  cellTier1: {
+    backgroundColor: tokens.status.successDim,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.status.success,
+  },
+  cellTier2: {
+    backgroundColor: tokens.accent.primaryDim,
     borderWidth: 1,
-    borderColor: '#7feebe',
-    shadowColor: '#5eda9e',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.45,
-    shadowRadius: 3,
-    elevation: 2,
+    borderColor: tokens.accent.primary,
+  },
+  cellTier3: {
+    backgroundColor: tokens.status.success,
+    opacity: 0.78,
+  },
+  cellTier4: {
+    backgroundColor: tokens.status.success,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.text.primary,
   },
   cellToday: {
-    borderColor: 'rgba(94, 218, 158, 0.4)',
+    borderColor: tokens.accent.primary,
     borderWidth: 1,
   },
   cellSelected: {
-    borderWidth: 1.8,
-    borderColor: '#ffffff',
+    borderWidth: 2,
+    borderColor: tokens.text.primary,
   },
-  tooltip: {
-    marginTop: 12,
-    backgroundColor: isDark ? '#17171c' : colors.surface2,
-    borderRadius: RADIUS.md,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+  footerRow: {
+    marginTop: SPACE.md,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: isDark ? 'rgba(94, 218, 158, 0.25)' : 'rgba(94, 218, 158, 0.3)',
+    justifyContent: 'space-between',
+    minHeight: 28,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACE.xs + 1,
+    marginLeft: 'auto',
+  },
+  legendLabel: {
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: tokens.fontSize.xs,
+    color: tokens.text.secondary,
+  },
+  legendCells: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  legendCell: {
+    width: 10,
+    height: 10,
+    borderRadius: 2,
+  },
+  tooltip: {
+    backgroundColor: tokens.bg.elevated,
+    borderRadius: RADIUS.inner,
+    paddingHorizontal: SPACE.sm + 2,
+    paddingVertical: SPACE.xs + 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACE.xs + 2,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
   },
   tooltipDot: {
     width: 6,
     height: 6,
-    borderRadius: 3,
+    borderRadius: RADIUS.full,
   },
   tooltipDate: {
-    fontSize: 11,
+    fontSize: tokens.fontSize.xs,
     fontFamily: FONT_FAMILY.bold,
-    color: isDark ? '#ffffff' : colors.textPrimary,
+    color: tokens.text.primary,
   },
   tooltipVol: {
-    fontSize: 11,
+    fontSize: tokens.fontSize.xs,
     fontFamily: FONT_FAMILY.medium,
-    color: '#5eda9e',
+    color: tokens.status.success,
   },
 });

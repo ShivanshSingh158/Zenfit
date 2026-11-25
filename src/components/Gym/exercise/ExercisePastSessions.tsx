@@ -1,7 +1,10 @@
 import React from 'react';
 import { View, Text } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Clock } from 'lucide-react-native';
+import { ICON } from '../../../theme/tokens';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { formatDateShort } from '../../../utils/dateUtils';
+import { formatWeight, useWeightUnit } from '../../../utils/weightUnit';
 
 export interface ExercisePastSessionsProps {
   history: Array<{
@@ -17,6 +20,9 @@ export const ExercisePastSessions: React.FC<ExercisePastSessionsProps> = React.m
   colors,
   styles,
 }) => {
+  const { tokens } = useTheme();
+  const unitIsLbs = useWeightUnit();
+
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '';
     const cleanDate = dateStr.slice(0, 10);
@@ -26,7 +32,7 @@ export const ExercisePastSessions: React.FC<ExercisePastSessionsProps> = React.m
   if (history.length === 0) {
     return (
       <View style={styles.emptyState}>
-        <Ionicons name="time-outline" size={32} color={colors.textMuted} />
+        <Clock size={32} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />
         <Text style={styles.emptyText}>No previous logs found for this exercise.</Text>
       </View>
     );
@@ -50,8 +56,8 @@ export const ExercisePastSessions: React.FC<ExercisePastSessionsProps> = React.m
           <View key={index} style={styles.historyItem}>
             <View style={styles.historyHeader}>
               <Text style={styles.historyDate}>{formatDate(item.date)}</Text>
-              <Text style={styles.historySummary}>
-                {completedSets} sets {maxWeight > 0 ? `· Max ${maxWeight}kg` : ''}
+              <Text style={styles.historySummary} maxFontSizeMultiplier={1.25}>
+                {completedSets} sets {maxWeight > 0 ? `· Max ${formatWeight(maxWeight, unitIsLbs, 1)}` : ''}
               </Text>
             </View>
             <View style={styles.setsList}>
@@ -63,8 +69,11 @@ export const ExercisePastSessions: React.FC<ExercisePastSessionsProps> = React.m
                     s.completed ? styles.setBubbleCompleted : styles.setBubbleMissed,
                   ]}
                 >
-                  <Text style={[styles.setBubbleText, !s.completed && { opacity: 0.5 }]}>
-                    {s.reps || '--'} {s.weight ? `@ ${s.weight}` : ''}
+                  <Text
+                    style={[styles.setBubbleText, !s.completed && { opacity: 0.5 }]}
+                    maxFontSizeMultiplier={1.25}
+                  >
+                    {s.reps || '--'} {s.weight ? `@ ${formatWeight(Number(s.weight), unitIsLbs, 1)}` : ''}
                   </Text>
                 </View>
               ))}

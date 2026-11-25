@@ -1,17 +1,29 @@
 /**
- * StrengthProgressionChart.tsx — ZenTrack Mobile (Obsidian Cosmos Edition)
+ * StrengthProgressionChart.tsx — ZenTrack Mobile
  *
  * Visualizes 1RM progression over 4 weeks using smooth cubic Bezier curves,
  * gradient aura fills, and muscle-coded telemetry pods.
  */
 
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
-import Svg, { Path, Circle, Defs, LinearGradient, Stop, Line } from 'react-native-svg';
-import { Ionicons } from '@expo/vector-icons';
-import { COLORS, FONT_FAMILY, RADIUS, SPACE } from '../../../theme/tokens';
+import React, { useEffect, useMemo, useId } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import Svg, { Defs, LinearGradient, Stop, Line } from 'react-native-svg';
+import {
+  useSharedValue,
+  useAnimatedProps,
+  withTiming,
+  withDelay,
+  cancelAnimation,
+} from 'react-native-reanimated';
+import { Dumbbell, Sparkles, TrendingDown, TrendingUp } from 'lucide-react-native';
+import { FONT_FAMILY, ICON, RADIUS, SPACE, ThemeTokens } from '../../../theme/tokens';
+import { iosEasing } from '../../../theme/motion';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { hapticLight } from '../../../utils/haptics';
+import { NumericText, TactileButton } from '../../ui';
+import { RollingNumber } from '../../ui/RollingNumber';
+import { AnimatedSvgPath, AnimatedSvgCircle } from '../../ui/AnimatedSvgCharts';
+import { buildSmoothBezierCurve } from './chartMath';
+import { useWeightUnit, kgToDisplay, unitLabel } from '../../../utils/weightUnit';
 
 interface ExerciseSpark {
   name: string;
@@ -26,6 +38,7 @@ interface ExerciseSpark {
 interface StrengthProgressionChartProps {
   exercises: ExerciseSpark[];
   onSelectExercise?: (name: string) => void;
+  replayKey?: number | string;
 }
 
 export type { ExerciseSpark };
@@ -33,9 +46,13 @@ export type { ExerciseSpark };
 const SPARK_W = 110;
 const SPARK_H = 46;
 
-// ─── Pure Helper: Generate Smooth Cubic Bezier Curves for SVG ──────────────────
-function generateSmoothSparkline(values: number[], w: number, h: number): { linePath: string; areaPath: string; points: Array<{ x: number; y: number }> } {
-  if (values.length === 0) return { linePath: '', areaPath: '', points: [] };
+function generateSmoothSparkline(values: number[], w: number, h: number): {
+  linePath: string;
+  areaPath: string;
+  pathLength: number;
+  points: Array<{ x: number; y: number }>;
+} {
+  if (values.length === 0) return { linePath: '', areaPath: '', pathLength: 0, points: [] };
 
   const maxV = Math.max(...values, 1);
   const minV = Math.min(...values, 0);
@@ -51,33 +68,25 @@ function generateSmoothSparkline(values: number[], w: number, h: number): { line
     return { x, y };
   });
 
-  if (points.length === 1) {
-    const y = points[0].y;
-    return {
-      linePath: `M 0,${y} L ${w},${y}`,
-      areaPath: `M 0,${y} L ${w},${y} L ${w},${h} L 0,${h} Z`,
-      points,
-    };
-  }
-
-  let linePath = `M ${points[0].x},${points[0].y}`;
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i];
-    const p1 = points[i + 1];
-    const midX = (p0.x + p1.x) / 2;
-    linePath += ` C ${midX},${p0.y} ${midX},${p1.y} ${p1.x},${p1.y}`;
-  }
-
-  const lastPt = points[points.length - 1];
-  const areaPath = `${linePath} L ${lastPt.x},${h} L ${points[0].x},${h} Z`;
-
-  return { linePath, areaPath, points };
+  const { linePath, areaPath, pathLength } = buildSmoothBezierCurve(points, h);
+  return { linePath, areaPath, pathLength: Math.max(1, pathLength), points };
 }
 
-const SparkCard = React.memo(function SparkCard({ ex, onPress }: { ex: ExerciseSpark; onPress?: () => void }) {
-  const { colors, isDark } = useTheme();
-
-  // Normalize historical points & generate plot values with stable memoization
+const SparkCard = React.memo(function SparkCard({
+  ex,
+  index,
+  replayKey,
+  onPress,
+  tokens,
+  styles,
+}: {
+  ex: ExerciseSpark;
+  index: number;
+  replayKey: number | string;
+  onPress?: () => void;
+  tokens: ThemeTokens;
+  styles: ReturnType<typeof makeStyles>;
+}) {
   const { plotValues, isFirstTimeBaseline } = useMemo(() => {
     const rawValues = ex.weeks.map(w => w.est1RM);
     const nonZeroValues = rawValues.filter(v => v > 0);
@@ -95,86 +104,124 @@ const SparkCard = React.memo(function SparkCard({ ex, onPress }: { ex: ExerciseS
     };
   }, [ex.weeks, ex.currentRM]);
 
-  const { linePath, areaPath, points } = useMemo(
+  const { linePath, areaPath, pathLength, points } = useMemo(
     () => generateSmoothSparkline(plotValues, SPARK_W, SPARK_H),
     [plotValues]
   );
 
-  const delta = ex.prevRM > 0 && ex.prevRM !== ex.currentRM ? ex.currentRM - ex.prevRM : 0;
+  const drawProgress = useSharedValue(0);
+  const areaOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    cancelAnimation(drawProgress);
+    cancelAnimation(areaOpacity);
+    drawProgress.value = 0;
+    areaOpacity.value = 0;
+    const cardDelay = Math.min(index, 5) * 60;
+
+    drawProgress.value = withDelay(
+      cardDelay,
+      withTiming(1, { duration: 540, easing: iosEasing.decel })
+    );
+    areaOpacity.value = withDelay(
+      cardDelay + 120,
+      withTiming(1, { duration: 400, easing: iosEasing.decel })
+    );
+  }, [replayKey, linePath, index, drawProgress, areaOpacity]);
+
+  const animatedLineProps = useAnimatedProps(() => ({
+    strokeDashoffset: pathLength * (1 - drawProgress.value),
+  }));
+
+  const animatedAreaProps = useAnimatedProps(() => ({
+    opacity: areaOpacity.value,
+  }));
+
+  const animatedPointProps = useAnimatedProps(() => ({
+    opacity: drawProgress.value > 0.7 ? (drawProgress.value - 0.7) / 0.3 : 0,
+  }));
+
+  const unitIsLbs = useWeightUnit();
+  const uLabel = unitLabel(unitIsLbs);
+  const shownCurrentRM = kgToDisplay(ex.currentRM, unitIsLbs);
+  const shownPrevRM = kgToDisplay(ex.prevRM, unitIsLbs);
+  const delta =
+    ex.prevRM > 0 && ex.prevRM !== ex.currentRM
+      ? Math.round((shownCurrentRM - shownPrevRM) * 10) / 10
+      : 0;
   const isUp = delta > 0;
   const isDown = delta < 0;
 
-  const gradId = `spark_grad_${ex.name.replace(/[^a-zA-Z0-9]/g, '_')}_${ex.currentRM}`;
+  const reactId = useId().replace(/[^a-zA-Z0-9_]/g, '');
+  const gradId = `spark_grad_${reactId}`;
   const lastPoint = points.length > 0 ? points[points.length - 1] : null;
 
   return (
-    <TouchableOpacity
-      activeOpacity={0.78}
-      onPress={() => {
-        if (onPress) {
-          hapticLight();
-          onPress();
-        }
-      }}
-      style={[
-        localStyles.card,
-        {
-          borderColor: isDark ? 'rgba(255,255,255,0.07)' : colors.border,
-        },
-      ]}
+    <TactileButton
+      variant="custom"
+      onPress={onPress}
+      disabled={!onPress}
+      style={styles.card}
     >
-      {/* ── Card Top Row: Muscle Chip + Exercise Name + Delta Pill ────────── */}
-      <View style={localStyles.cardTopRow}>
-        <View style={localStyles.nameContainer}>
-          <View style={[localStyles.musclePill, { backgroundColor: `${ex.color}15`, borderColor: `${ex.color}35` }]}>
-            <Text style={[localStyles.musclePillText, { color: ex.color }]}>
+      {/* Card Top Row */}
+      <View style={styles.cardTopRow}>
+        <View style={styles.nameContainer}>
+          <View style={[styles.musclePill, { backgroundColor: `${ex.color}15`, borderColor: `${ex.color}35` }]}>
+            <Text style={[styles.musclePillText, { color: ex.color }]}>
               {ex.muscle}
             </Text>
           </View>
-          <Text style={localStyles.exerciseTitle} numberOfLines={1}>
+          <Text style={styles.exerciseTitle} numberOfLines={1}>
             {ex.name}
           </Text>
         </View>
 
-        {/* Delta / Status Badge */}
         {isFirstTimeBaseline ? (
-          <View style={localStyles.baselineBadge}>
-            <Ionicons name="sparkles" size={10} color="#a599ff" />
-            <Text style={localStyles.baselineBadgeText}>New Baseline</Text>
+          <View style={styles.baselineBadge}>
+            <Sparkles size={ICON.xs - 3} strokeWidth={ICON.strokeWidth} color={tokens.accent.secondary} />
+            <Text style={styles.baselineBadgeText}>New Baseline</Text>
           </View>
         ) : isUp ? (
-          <View style={[localStyles.deltaBadge, localStyles.deltaUp]}>
-            <Ionicons name="trending-up" size={11} color="#5eda9e" />
-            <Text style={[localStyles.deltaText, { color: '#5eda9e' }]}>+{delta} kg</Text>
+          <View style={[styles.deltaBadge, styles.deltaUp]}>
+            <TrendingUp size={ICON.xs - 2} strokeWidth={ICON.strokeWidth} color={tokens.status.success} />
+            <NumericText style={[styles.deltaText, { color: tokens.status.success }]}>
+              +{delta} {uLabel}
+            </NumericText>
           </View>
         ) : isDown ? (
-          <View style={[localStyles.deltaBadge, localStyles.deltaDown]}>
-            <Ionicons name="trending-down" size={11} color="#ff6961" />
-            <Text style={[localStyles.deltaText, { color: '#ff6961' }]}>{delta} kg</Text>
+          <View style={[styles.deltaBadge, styles.deltaDown]}>
+            <TrendingDown size={ICON.xs - 2} strokeWidth={ICON.strokeWidth} color={tokens.status.danger} />
+            <NumericText style={[styles.deltaText, { color: tokens.status.danger }]}>
+              {delta} {uLabel}
+            </NumericText>
           </View>
         ) : (
-          <View style={[localStyles.deltaBadge, localStyles.deltaFlat]}>
-            <Text style={[localStyles.deltaText, { color: '#8e8e93' }]}>Solid</Text>
+          <View style={[styles.deltaBadge, styles.deltaFlat]}>
+            <Text style={[styles.deltaText, { color: tokens.text.secondary }]}>Solid</Text>
           </View>
         )}
       </View>
 
-      {/* ── Card Bottom Row: Big 1RM Stat + Smooth Bezier Sparkline ───────── */}
-      <View style={localStyles.cardBottomRow}>
-        {/* Left: 1RM Weight Numbers */}
-        <View style={localStyles.statColumn}>
-          <View style={localStyles.weightRow}>
-            <Text style={localStyles.weightValue}>{ex.currentRM}</Text>
-            <Text style={localStyles.weightUnit}>kg</Text>
+      {/* Card Bottom Row */}
+      <View style={styles.cardBottomRow}>
+        <View style={styles.statColumn}>
+          <View style={styles.weightRow}>
+            <RollingNumber
+              value={shownCurrentRM}
+              replayKey={replayKey}
+              cycles={0}
+              durationMs={480}
+              style={styles.weightValue}
+            />
+            <Text style={styles.weightUnit}>{uLabel}</Text>
           </View>
-          <View style={localStyles.subLabelRow}>
-            <Ionicons name="barbell-outline" size={11} color="#8e8e93" />
-            <Text style={localStyles.subLabelText}>Est. 1RM</Text>
+          <View style={styles.subLabelRow}>
+            <Dumbbell size={ICON.xs - 2} strokeWidth={ICON.strokeWidth} color={tokens.text.secondary} />
+            <Text style={styles.subLabelText}>Est. 1RM</Text>
           </View>
         </View>
 
-        {/* Right: Smooth Bezier Sparkline Curve */}
-        <View style={localStyles.chartColumn}>
+        <View style={styles.chartColumn}>
           <Svg width={SPARK_W} height={SPARK_H} style={{ overflow: 'visible' }}>
             <Defs>
               <LinearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
@@ -183,83 +230,83 @@ const SparkCard = React.memo(function SparkCard({ ex, onPress }: { ex: ExerciseS
               </LinearGradient>
             </Defs>
 
-            {/* Gradient Area Fill */}
-            <Path d={areaPath} fill={`url(#${gradId})`} />
-
-            {/* Glowing Accent Curve */}
-            <Path
+            <AnimatedSvgPath d={areaPath} fill={`url(#${gradId})`} animatedProps={animatedAreaProps} />
+            <AnimatedSvgPath
               d={linePath}
               fill="none"
               stroke={ex.color}
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
+              strokeDasharray={`${pathLength}, ${pathLength}`}
+              animatedProps={animatedLineProps}
             />
-
-            {/* Subtle Baseline Grid Track */}
             <Line
               x1={0}
               y1={SPARK_H - 6}
               x2={SPARK_W}
               y2={SPARK_H - 6}
-              stroke="rgba(255,255,255,0.04)"
+              stroke={tokens.charts.gridLine}
               strokeWidth="1"
               strokeDasharray="3 3"
             />
-
-            {/* Neon Glowing End Point */}
             {lastPoint && (
-              <>
-                <Circle cx={lastPoint.x} cy={lastPoint.y} r={4.5} fill={ex.color} />
-                <Circle
-                  cx={lastPoint.x}
-                  cy={lastPoint.y}
-                  r={2}
-                  fill="#ffffff"
-                />
-              </>
+              <AnimatedSvgCircle
+                cx={lastPoint.x}
+                cy={lastPoint.y}
+                r={4}
+                fill={tokens.bg.surface}
+                stroke={ex.color}
+                strokeWidth={2.5}
+                animatedProps={animatedPointProps}
+              />
             )}
           </Svg>
 
-          {/* Timeframe Axis (-3w -2w -1w Now) */}
-          <View style={localStyles.axisRow}>
+          <View style={styles.axisRow}>
             {ex.weeks.map((w, i) => (
-              <Text key={i} style={[localStyles.axisText, i === ex.weeks.length - 1 && localStyles.axisTextActive]}>
+              <NumericText
+                key={i}
+                style={[styles.axisText, i === ex.weeks.length - 1 && styles.axisTextActive]}
+              >
                 {w.label}
-              </Text>
+              </NumericText>
             ))}
           </View>
         </View>
       </View>
-    </TouchableOpacity>
+    </TactileButton>
   );
 });
 
-export const StrengthProgressionChart: React.FC<StrengthProgressionChartProps> = React.memo(function StrengthProgressionChart({ exercises, onSelectExercise }: StrengthProgressionChartProps) {
-  const { colors, isDark } = useTheme();
+export const StrengthProgressionChart: React.FC<StrengthProgressionChartProps> = React.memo(function StrengthProgressionChart({ exercises, onSelectExercise, replayKey = 0 }: StrengthProgressionChartProps) {
+  const { tokens } = useTheme();
+  const styles = useMemo(() => makeStyles(tokens), [tokens]);
 
   if (!exercises || exercises.length === 0) return null;
 
   return (
-    <View style={localStyles.container}>
-      {/* Section Header */}
-      <View style={localStyles.header}>
-        <View style={localStyles.headerIcon}>
-          <Ionicons name="trending-up" size={14} color="#5eda9e" />
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <View style={styles.headerIcon}>
+          <TrendingUp size={ICON.xs} strokeWidth={ICON.strokeWidth} color={tokens.status.success} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={localStyles.sectionLabel}>STRENGTH TELEMETRY</Text>
-          <Text style={localStyles.sectionSub}>4-week estimated 1RM trajectory & progressive overload</Text>
+          <Text style={styles.sectionLabel}>STRENGTH TELEMETRY</Text>
+          <Text style={styles.sectionSub}>4-week estimated 1RM trajectory & progressive overload</Text>
         </View>
       </View>
 
-      {/* Cards List */}
-      <View style={localStyles.list}>
-        {exercises.map(ex => (
+      <View style={styles.list}>
+        {exercises.map((ex, idx) => (
           <SparkCard
             key={ex.name}
             ex={ex}
-            onPress={() => onSelectExercise && onSelectExercise(ex.name)}
+            index={idx}
+            replayKey={replayKey}
+            tokens={tokens}
+            styles={styles}
+            onPress={onSelectExercise ? () => onSelectExercise(ex.name) : undefined}
           />
         ))}
       </View>
@@ -269,81 +316,82 @@ export const StrengthProgressionChart: React.FC<StrengthProgressionChartProps> =
 
 export default StrengthProgressionChart;
 
-const localStyles = StyleSheet.create({
+const makeStyles = (tokens: ThemeTokens) => StyleSheet.create({
   container: {
-    backgroundColor: '#0d0d10',
-    borderRadius: RADIUS.xl,
-    padding: 16,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#1f1f26',
+    backgroundColor: tokens.bg.surface,
+    borderRadius: RADIUS.card,
+    padding: SPACE.lg,
+    marginBottom: SPACE.md,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 14,
+    gap: SPACE.sm + 2,
+    marginBottom: SPACE.md,
   },
   headerIcon: {
     width: 28,
     height: 28,
-    borderRadius: 8,
-    backgroundColor: 'rgba(94, 218, 158, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(94, 218, 158, 0.25)',
+    borderRadius: RADIUS.sm,
+    backgroundColor: tokens.status.successDim,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.status.success,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sectionLabel: {
-    fontSize: 11,
+    fontSize: tokens.fontSize.xs,
     fontFamily: FONT_FAMILY.bold,
-    color: '#ffffff',
+    color: tokens.text.primary,
     letterSpacing: 0.8,
   },
   sectionSub: {
-    fontSize: 11,
-    color: '#8e8e93',
+    fontSize: tokens.fontSize.xs,
+    color: tokens.text.secondary,
     fontFamily: FONT_FAMILY.regular,
     marginTop: 1,
   },
   list: {
-    gap: 10,
+    gap: SPACE.sm + 2,
   },
   card: {
-    backgroundColor: '#141418',
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
+    backgroundColor: tokens.bg.elevated,
+    borderRadius: RADIUS.inner,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
+    padding: SPACE.md,
   },
   cardTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
-    gap: 8,
+    marginBottom: SPACE.sm + 2,
+    gap: SPACE.sm,
   },
   nameContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACE.sm,
     flex: 1,
   },
   musclePill: {
-    paddingHorizontal: 6,
+    paddingHorizontal: SPACE.xs + 2,
     paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
+    borderRadius: RADIUS.sm - 2,
+    borderWidth: tokens.border.hairlineWidth,
   },
   musclePillText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
+    fontSize: tokens.fontSize.xs - 1,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
   exerciseTitle: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 14.5,
-    color: '#ffffff',
+    fontSize: tokens.fontSize.md,
+    color: tokens.text.primary,
     letterSpacing: -0.2,
     flex: 1,
   },
@@ -351,42 +399,42 @@ const localStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    paddingHorizontal: 7,
+    paddingHorizontal: SPACE.sm - 1,
     paddingVertical: 2.5,
-    borderRadius: 6,
-    borderWidth: 1,
+    borderRadius: RADIUS.sm - 2,
+    borderWidth: tokens.border.hairlineWidth,
   },
   deltaUp: {
-    backgroundColor: 'rgba(94, 218, 158, 0.12)',
-    borderColor: 'rgba(94, 218, 158, 0.28)',
+    backgroundColor: tokens.status.successDim,
+    borderColor: tokens.status.success,
   },
   deltaDown: {
-    backgroundColor: 'rgba(255, 105, 97, 0.12)',
-    borderColor: 'rgba(255, 105, 97, 0.28)',
+    backgroundColor: tokens.status.dangerDim,
+    borderColor: tokens.status.danger,
   },
   deltaFlat: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: tokens.bg.surface,
+    borderColor: tokens.border.subtle,
   },
   deltaText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 10.5,
+    fontSize: tokens.fontSize.xs,
   },
   baselineBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(165, 153, 255, 0.12)',
-    borderColor: 'rgba(165, 153, 255, 0.28)',
-    borderWidth: 1,
-    paddingHorizontal: 7,
+    gap: SPACE.xs,
+    backgroundColor: tokens.accent.secondaryDim,
+    borderColor: tokens.accent.secondary,
+    borderWidth: tokens.border.hairlineWidth,
+    paddingHorizontal: SPACE.sm - 1,
     paddingVertical: 2.5,
-    borderRadius: 6,
+    borderRadius: RADIUS.sm - 2,
   },
   baselineBadgeText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#a599ff',
+    fontSize: tokens.fontSize.xs,
+    color: tokens.accent.secondary,
   },
   cardBottomRow: {
     flexDirection: 'row',
@@ -403,25 +451,25 @@ const localStyles = StyleSheet.create({
   },
   weightValue: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 22,
-    color: '#ffffff',
+    fontSize: tokens.fontSize.xl,
+    color: tokens.text.primary,
     letterSpacing: -0.5,
   },
   weightUnit: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 12,
-    color: '#8e8e93',
+    fontSize: tokens.fontSize.sm,
+    color: tokens.text.secondary,
   },
   subLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACE.xs,
     marginTop: 2,
   },
   subLabelText: {
     fontFamily: FONT_FAMILY.regular,
-    fontSize: 11,
-    color: '#8e8e93',
+    fontSize: tokens.fontSize.xs,
+    color: tokens.text.secondary,
   },
   chartColumn: {
     alignItems: 'flex-end',
@@ -430,16 +478,16 @@ const localStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: SPARK_W,
-    marginTop: 4,
+    marginTop: SPACE.xs,
     paddingHorizontal: 2,
   },
   axisText: {
     fontFamily: FONT_FAMILY.regular,
-    fontSize: 8.5,
-    color: '#636366',
+    fontSize: tokens.fontSize.xs - 2,
+    color: tokens.text.muted,
   },
   axisTextActive: {
-    color: '#a599ff',
+    color: tokens.accent.secondary,
     fontFamily: FONT_FAMILY.bold,
   },
 });

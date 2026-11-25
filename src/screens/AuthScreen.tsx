@@ -1,11 +1,21 @@
-import { SafeAreaView } from 'react-native-safe-area-context';
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Animated, Platform,
+  View, Text, StyleSheet,
+  Platform, ScrollView,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
+import {
+  ShieldCheck,
+  EyeOff,
+  Cloud,
+  ArrowLeft,
+  AlertCircle,
+  CheckCircle2,
+  ArrowRight,
+} from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { ScreenWrapper, TactileButton } from '../components/ui';
 let AppleAuthentication: any = null;
 try {
   AppleAuthentication = require('expo-apple-authentication');
@@ -13,47 +23,30 @@ try {
 import { OAuthProvider, signInWithCredential } from 'firebase/auth';
 import { auth } from '../services/firebase';
 import { hapticLight, hapticMedium } from '../utils/haptics';
-import * as SplashScreen from 'expo-splash-screen';
-import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
-import { PlayfairDisplay_600SemiBold, PlayfairDisplay_600SemiBold_Italic } from '@expo-google-fonts/playfair-display';
-import { RADIUS, FONT_FAMILY, SHADOW } from '../theme/tokens';
+import { RADIUS, FONT_FAMILY, SHADOW, ICON } from '../theme/tokens';
 import { useTheme } from '../contexts/ThemeContext';
+import { useResponsiveMetrics } from '../theme/responsive';
 import { useCoreData } from '../contexts/domains/CoreDataContext';
 import TermsScreen from './TermsScreen';
 
 const GUARANTEES = [
   {
-    icon: 'shield-checkmark-outline' as const,
+    icon: ShieldCheck,
     title: '100% Local-First',
     desc: 'Works offline with instant startup and encrypted storage',
-    colorDark: '#5EDA9E',
-    colorLight: '#059669',
-    bgDark: 'rgba(94,218,158,0.12)',
-    bgLight: 'rgba(5,150,105,0.08)',
-    borderDark: 'rgba(94,218,158,0.22)',
-    borderLight: 'rgba(5,150,105,0.16)',
+    tone: 'success' as const,
   },
   {
-    icon: 'eye-off-outline' as const,
+    icon: EyeOff,
     title: 'Zero Telemetry',
     desc: 'Zero ad tracking, zero telemetry, your logs are private',
-    colorDark: '#A599FF',
-    colorLight: '#6C5CE7',
-    bgDark: 'rgba(165,153,255,0.12)',
-    bgLight: 'rgba(108,92,231,0.08)',
-    borderDark: 'rgba(165,153,255,0.22)',
-    borderLight: 'rgba(108,92,231,0.16)',
+    tone: 'primary' as const,
   },
   {
-    icon: 'cloud-done-outline' as const,
+    icon: Cloud,
     title: 'Seamless Sync',
     desc: 'Automatic backup across all your devices seamlessly',
-    colorDark: '#38BDF8',
-    colorLight: '#0284C7',
-    bgDark: 'rgba(56,189,248,0.12)',
-    bgLight: 'rgba(2,132,199,0.08)',
-    borderDark: 'rgba(56,189,248,0.22)',
-    borderLight: 'rgba(2,132,199,0.16)',
+    tone: 'info' as const,
   },
 ];
 
@@ -64,35 +57,13 @@ interface AuthScreenProps {
 }
 
 export default function AuthScreen({ onBack }: AuthScreenProps) {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, tokens } = useTheme();
+  const { isCompactH, isNarrow, maxContentWidth } = useResponsiveMetrics();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
-  const { performGoogleSignIn, continueAsGuest } = useCoreData();
+  const { performGoogleSignIn, completeExternalSignIn, continueAsGuest } = useCoreData();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showTerms, setShowTerms] = useState(false);
-
-  // Animations
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(16)).current;
-  const btnScale = useRef(new Animated.Value(1)).current;
-  const skipBtnScale = useRef(new Animated.Value(1)).current;
-
-  useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-    PlayfairDisplay_600SemiBold,
-    PlayfairDisplay_600SemiBold_Italic,
-  });
-
-  useEffect(() => {
-    SplashScreen.hideAsync().catch(() => {});
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
-      Animated.spring(slideAnim, { toValue: 0, tension: 70, friction: 9, useNativeDriver: true }),
-    ]).start();
-  }, []);
 
   const handleSignIn = async () => {
     hapticLight();
@@ -124,50 +95,75 @@ export default function AuthScreen({ onBack }: AuthScreenProps) {
     }
   };
 
-  const pressIn = () => Animated.spring(btnScale, { toValue: 0.97, useNativeDriver: true, tension: 100, friction: 8 }).start();
-  const pressOut = () => Animated.spring(btnScale, { toValue: 1, useNativeDriver: true, tension: 100, friction: 8 }).start();
-
-  const skipPressIn = () => Animated.spring(skipBtnScale, { toValue: 0.97, useNativeDriver: true, tension: 100, friction: 8 }).start();
-  const skipPressOut = () => Animated.spring(skipBtnScale, { toValue: 1, useNativeDriver: true, tension: 100, friction: 8 }).start();
-
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]}>
-      {/* Subtle Ambient Cosmic Violet Aura */}
+    <ScreenWrapper edges={['top', 'bottom', 'left', 'right']} keyboardAvoiding={false}>
+      {/* Subtle Ambient Aura */}
       <LinearGradient
-        colors={isDark ? ['rgba(165,153,255,0.07)', 'rgba(0,0,0,0)'] : ['rgba(108,92,231,0.05)', 'rgba(255,255,255,0)']}
+        colors={tokens.gradients.canvasGlow}
         style={StyleSheet.absoluteFillObject}
-        locations={[0, 0.45]}
+        locations={[0, 0.35, 1]}
         pointerEvents="none"
       />
 
-      <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+        contentContainerStyle={{
+          flexGrow: 1,
+          justifyContent: 'space-between',
+          maxWidth: maxContentWidth,
+          width: '100%',
+          alignSelf: 'center',
+        }}
+      >
+        <Animated.View entering={FadeInDown.duration(360)} style={styles.content}>
 
-        {/* ── Top Header (Matching Step 02 in ZenTrack) ─────────── */}
-        <View style={styles.topHeader}>
-          {onBack ? (
-            <TouchableOpacity
-              onPress={() => {
-                hapticLight();
-                onBack();
-              }}
-              style={styles.backBtn}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            >
-              <Ionicons name="arrow-back" size={18} color={colors.textPrimary} />
-              <Text style={[styles.brand, { color: colors.textPrimary, marginLeft: 6 }]}>ZENFIT</Text>
-            </TouchableOpacity>
-          ) : (
-            <Text style={[styles.brand, { color: colors.textPrimary }]}>ZENFIT</Text>
-          )}
-          <Text style={[styles.step, { color: colors.textMuted }]}>02 / sign in</Text>
-        </View>
-
-        {/* ── Main Editorial Hero Block ───────────────────────────────── */}
-        <View style={styles.mainBlock}>
-          <View style={styles.heroTextContainer}>
-            <Text style={[styles.heroTitleItalic, { color: colors.accentPrimary }]}>Let's get you</Text>
-            <Text style={[styles.heroTitleBold, { color: colors.textPrimary }]}>set up.</Text>
+          {/* Top Header */}
+          <View style={styles.topHeader}>
+            {onBack ? (
+              <TactileButton
+                variant="ghost"
+                onPress={onBack}
+                style={styles.backBtn}
+                hitSlop={tokens.touch.hitSlop}
+              >
+                <ArrowLeft size={18} strokeWidth={ICON.strokeWidth} color={colors.textPrimary} />
+                <Text style={[styles.brand, { color: colors.textPrimary, marginLeft: 6 }]}>ZENFIT</Text>
+              </TactileButton>
+            ) : (
+              <Text style={[styles.brand, { color: colors.textPrimary }]}>ZENFIT</Text>
+            )}
+            <Text style={[styles.step, { color: colors.textMuted }]}>02 / sign in</Text>
           </View>
+
+          {/* ── Main Editorial Hero Block ───────────────────────────────── */}
+          <View style={styles.mainBlock}>
+            <View style={styles.heroTextContainer}>
+              <Text
+                style={[
+                  styles.heroTitleItalic,
+                  {
+                    color: colors.accentPrimary,
+                    fontSize: isCompactH || isNarrow ? 34 : 44,
+                    lineHeight: isCompactH || isNarrow ? 40 : 52,
+                  },
+                ]}
+              >
+                Let's get you
+              </Text>
+              <Text
+                style={[
+                  styles.heroTitleBold,
+                  {
+                    color: colors.textPrimary,
+                    fontSize: isCompactH || isNarrow ? 27 : 34,
+                    lineHeight: isCompactH || isNarrow ? 31 : 38,
+                  },
+                ]}
+              >
+                set up.
+              </Text>
+            </View>
 
           <Text style={[styles.sub, { color: colors.textSecondary }]}>
             Connect your account to enable encrypted cross-device continuity, offline persistence, and seamless sync.
@@ -176,38 +172,49 @@ export default function AuthScreen({ onBack }: AuthScreenProps) {
           {/* Error Banner */}
           {error ? (
             <View style={styles.errorBox}>
-              <Ionicons name="alert-circle" size={16} color={colors.error} style={{ marginRight: 8 }} />
+              <AlertCircle size={16} strokeWidth={ICON.strokeWidth} color={colors.error} style={{ marginRight: 8 }} />
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
 
-          {/* Clean Apple-Style Feature Highlight Card */}
+          {/* Clean OLED Feature Highlight Card */}
           <View
             style={[
               styles.specCard,
               {
-                borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-                backgroundColor: isDark ? '#10121A' : '#FFFFFF',
+                borderColor: tokens.border.subtle,
+                backgroundColor: tokens.bg.surface,
               },
             ]}
           >
             {GUARANTEES.map((item, index) => {
-              const iconColor = isDark ? item.colorDark : item.colorLight;
-              const iconBg = isDark ? item.bgDark : item.bgLight;
+              const IconComp = item.icon;
+              const iconColor =
+                item.tone === 'success'
+                  ? tokens.status.success
+                  : item.tone === 'info'
+                  ? tokens.status.info
+                  : tokens.accent.primary;
+              const iconBg =
+                item.tone === 'success'
+                  ? tokens.status.successDim
+                  : item.tone === 'info'
+                  ? tokens.status.infoDim
+                  : tokens.accent.primaryDim;
 
               return (
                 <View key={item.title}>
                   <View style={styles.specRow}>
-                    <View style={[styles.specIconBox, { backgroundColor: iconBg, borderColor: isDark ? item.borderDark : item.borderLight }]}>
-                      <Ionicons name={item.icon} size={18} color={iconColor} />
+                    <View style={[styles.specIconBox, { backgroundColor: iconBg, borderColor: tokens.border.subtle }]}>
+                      <IconComp size={18} strokeWidth={ICON.strokeWidth} color={iconColor} />
                     </View>
                     <View style={styles.specTextCol}>
                       <Text style={[styles.specLabel, { color: colors.textPrimary }]}>{item.title}</Text>
                       <Text style={[styles.specValue, { color: colors.textSecondary }]}>{item.desc}</Text>
                     </View>
-                    <Ionicons
-                      name="checkmark-circle"
+                    <CheckCircle2
                       size={18}
+                      strokeWidth={ICON.strokeWidth}
                       color={iconColor}
                       style={styles.checkIcon}
                     />
@@ -216,7 +223,7 @@ export default function AuthScreen({ onBack }: AuthScreenProps) {
                     <View
                       style={[
                         styles.specDivider,
-                        { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' },
+                        { backgroundColor: tokens.border.subtle },
                       ]}
                     />
                   )}
@@ -226,44 +233,32 @@ export default function AuthScreen({ onBack }: AuthScreenProps) {
           </View>
         </View>
 
-        {/* ── Bottom Actions (Matching ZenTrack Primary Layout) ──── */}
+        {/* Bottom Actions */}
         <View style={styles.bottomBlock}>
-          
-          {/* Primary Google Auth Button */}
-          <TouchableOpacity
-            onPressIn={pressIn}
-            onPressOut={pressOut}
+          <TactileButton
+            variant="primary"
+            size="lg"
+            loading={loading}
             onPress={handleSignIn}
-            disabled={loading}
-            activeOpacity={0.9}
             style={styles.btnContainer}
           >
-            <Animated.View style={[
-              styles.googleBtn,
-              {
-                backgroundColor: isDark ? '#FFFFFF' : '#0A0A0E',
-                borderColor: isDark ? '#FFFFFF' : '#0A0A0E',
-                transform: [{ scale: btnScale }]
-              },
-              loading && { opacity: 0.6 }
-            ]}>
-              {loading ? (
-                <ActivityIndicator color={isDark ? '#0A0A0E' : '#FFFFFF'} />
-              ) : (
-                <View style={styles.btnInnerRow}>
-                  <Ionicons name="logo-google" size={17} color={isDark ? '#0A0A0E' : '#FFFFFF'} style={{ marginRight: 8 }} />
-                  <Text style={[styles.googleBtnText, { color: isDark ? '#0A0A0E' : '#FFFFFF' }]}>Continue with Google</Text>
-                </View>
-              )}
-            </Animated.View>
-          </TouchableOpacity>
+            <View style={styles.btnInnerRow}>
+              <Svg width={16} height={16} viewBox="0 0 24 24" style={{ marginRight: 8 }}>
+                <Path
+                  fill={tokens.accent.onPrimary}
+                  d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"
+                />
+              </Svg>
+              <Text style={[styles.googleBtnText, { color: tokens.accent.onPrimary }]}>Continue with Google</Text>
+            </View>
+          </TactileButton>
 
           {/* Apple Sign-In (iOS only) */}
           {Platform.OS === 'ios' && AppleAuthentication && (
             <AppleAuthentication.AppleAuthenticationButton
               buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
               buttonStyle={isDark ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-              cornerRadius={22}
+              cornerRadius={12}
               style={styles.appleBtn}
               onPress={async () => {
                 setError('');
@@ -284,7 +279,11 @@ export default function AuthScreen({ onBack }: AuthScreenProps) {
                   const oauthCredential = provider.credential({
                     idToken: appleCredential.identityToken,
                   });
-                  await signInWithCredential(auth, oauthCredential);
+                  const userCred = await signInWithCredential(auth, oauthCredential);
+                  if (userCred.user) {
+                    await completeExternalSignIn(userCred.user);
+                  }
+                  setLoading(false);
                 } catch (e: any) {
                   if (e?.code !== 'ERR_REQUEST_CANCELED') {
                     setError('Apple sign-in failed. Please try again.');
@@ -296,41 +295,26 @@ export default function AuthScreen({ onBack }: AuthScreenProps) {
           )}
 
           {/* Skip for Now Button */}
-          <TouchableOpacity
-            onPressIn={skipPressIn}
-            onPressOut={skipPressOut}
+          <TactileButton
+            variant="secondary"
+            size="lg"
+            haptic="medium"
+            loading={loading}
             style={styles.skipBtnContainer}
             onPress={handleSkipNow}
-            disabled={loading}
-            activeOpacity={0.88}
           >
-            <Animated.View
-              style={[
-                styles.skipBtn,
-                {
-                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.09)' : 'rgba(0, 0, 0, 0.08)',
-                  transform: [{ scale: skipBtnScale }],
-                },
-              ]}
-            >
-              {loading ? (
-                <ActivityIndicator size="small" color={colors.textSecondary} />
-              ) : (
-                <View style={styles.skipBtnInner}>
-                  <Text style={[styles.skipBtnText, { color: colors.textPrimary }]}>
-                    Skip for now
-                  </Text>
-                  <Ionicons
-                    name="arrow-forward"
-                    size={14}
-                    color={colors.textSecondary}
-                    style={{ marginLeft: 6 }}
-                  />
-                </View>
-              )}
-            </Animated.View>
-          </TouchableOpacity>
+            <View style={styles.skipBtnInner}>
+              <Text style={[styles.skipBtnText, { color: colors.textPrimary }]}>
+                Skip for now
+              </Text>
+              <ArrowRight
+                size={14}
+                strokeWidth={ICON.strokeWidth}
+                color={colors.textSecondary}
+                style={{ marginLeft: 6 }}
+              />
+            </View>
+          </TactileButton>
 
           {/* Terms & Privacy Footnote */}
           <Text style={[styles.legalText, { color: colors.textMuted }]}>
@@ -342,10 +326,11 @@ export default function AuthScreen({ onBack }: AuthScreenProps) {
 
         </View>
 
-      </Animated.View>
+        </Animated.View>
+      </ScrollView>
 
       <TermsScreen visible={showTerms} onClose={() => setShowTerms(false)} />
-    </SafeAreaView>
+    </ScreenWrapper>
   );
 }
 
@@ -354,11 +339,12 @@ const makeStyles = (colors: any, isDark: boolean = true) => StyleSheet.create({
     flex: 1,
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
     paddingHorizontal: HORIZONTAL_MARGIN,
     justifyContent: 'space-between',
     paddingTop: 8,
     paddingBottom: 20,
+    gap: 16,
   },
   topHeader: {
     marginTop: 6,
@@ -420,7 +406,7 @@ const makeStyles = (colors: any, isDark: boolean = true) => StyleSheet.create({
   errorText: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 12,
-    color: '#ff6961',
+    color: colors.error,
     flex: 1,
   },
   specCard: {

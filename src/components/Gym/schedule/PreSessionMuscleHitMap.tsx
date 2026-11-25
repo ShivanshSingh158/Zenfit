@@ -11,17 +11,32 @@
  * - Interactive tap sheet displaying full muscle-by-exercise attribution.
  */
 
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  cancelAnimation,
+} from 'react-native-reanimated';
 import Svg, { Path, G } from 'react-native-svg';
-import { Ionicons } from '@expo/vector-icons';
+import { ChevronRight, Moon, X } from 'lucide-react-native';
+import BottomSheet from '../../ui/BottomSheet';
+import { TactileButton } from '../../ui/TactileButton';
+import { NumericText } from '../../ui/NumericText';
+import { iosEasing } from '../../../theme/motion';
 
-import { FONT_FAMILY, IOS_DARK } from '../../../theme/tokens';
+import { COLORS, DARK_TOKENS, FONT_FAMILY, ICON, LIGHT_TOKENS, RADIUS, SPACE, TOUCH } from '../../../theme/tokens';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { hapticSelection, hapticLight } from '../../../utils/haptics';
+import { useGymProfile } from '../../../hooks/useGymProfile';
+import { hapticSelection } from '../../../utils/haptics';
 import { canonicalizeMuscle, resolveMuscleColor, resolveExerciseTargetMuscle } from '../../../utils/gymUtils';
-import { BODY_PATHS, getMergedInertPath, getMergedMusclePath } from '../metrics/bodyPaths';
-import { MuscleSlug, INERT } from '../../../services/muscleRecoveryService';
+import {
+  STATIC_BODY_SVG,
+  SVG_SLUG_TO_GROUP,
+  CachedBodyView,
+  resolveMuscleSlugsForGroup,
+} from '../metrics/muscleMapSvgCache';
 
 export interface PreSessionMuscleHitMapProps {
   exercises: Array<{ name: string; muscle?: string; targetSets?: number | string }>;
@@ -32,41 +47,9 @@ export interface PreSessionMuscleHitMapProps {
   exerciseCount?: number;
   totalSets?: number;
   estimatedMinutes?: number;
+  disableModal?: boolean;
+  replayKey?: number | string;
 }
-
-// Mapping from canonical muscle group name to MuscleSlug in bodyPaths
-const GROUP_TO_SLUGS: Record<string, MuscleSlug[]> = {
-  Chest: ['chest'],
-  Back: ['upper-back', 'lower-back', 'trapezius'],
-  Shoulders: ['deltoids'],
-  Biceps: ['biceps'],
-  Triceps: ['triceps'],
-  Quads: ['quadriceps'],
-  Hamstrings: ['hamstring'],
-  Calves: ['calves'],
-  Abs: ['abs', 'obliques'],
-  Forearms: ['forearm'],
-  Glutes: ['gluteal'],
-  Traps: ['trapezius'],
-  Lats: ['upper-back'],
-};
-
-const SLUG_TO_GROUP: Record<string, string> = {
-  chest: 'Chest',
-  'upper-back': 'Back',
-  'lower-back': 'Back',
-  deltoids: 'Shoulders',
-  biceps: 'Biceps',
-  triceps: 'Triceps',
-  quadriceps: 'Quads',
-  hamstring: 'Hamstrings',
-  calves: 'Calves',
-  abs: 'Abs',
-  obliques: 'Abs',
-  forearm: 'Forearms',
-  gluteal: 'Glutes',
-  trapezius: 'Traps',
-};
 
 export const PreSessionMuscleHitMap: React.FC<PreSessionMuscleHitMapProps> = React.memo(({
   exercises,
@@ -77,9 +60,14 @@ export const PreSessionMuscleHitMap: React.FC<PreSessionMuscleHitMapProps> = Rea
   exerciseCount,
   totalSets,
   estimatedMinutes,
+  disableModal = false,
+  replayKey = 0,
 }) => {
-  const { colors, isDark } = useTheme();
+  const { isDark, tokens } = useTheme();
+  const { gymProfile } = useGymProfile();
+  const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const barScaleX = useSharedValue(0);
 
   // ── Compute Muscle Volume Breakdown ────────────────────────────────────────
   const analysis = useMemo(() => {
@@ -115,9 +103,10 @@ export const PreSessionMuscleHitMap: React.FC<PreSessionMuscleHitMapProps> = Rea
         muscleMap[group].exercises.push(ex.name);
       }
 
-      // Map to body slugs for SVG rendering
-      const slugs = GROUP_TO_SLUGS[group] || [];
-      for (const s of slugs) {
+      // Map to shared anatomical body slugs (includes Core, Abs, Lower Back, Adductors)
+      const slugs = resolveMuscleSlugsForGroup(group);
+      const rawSlugs = slugs.length > 0 ? slugs : resolveMuscleSlugsForGroup(res.targetMuscle);
+      for (const s of rawSlugs) {
         activeSlugs.add(s);
       }
     }
@@ -138,11 +127,22 @@ export const PreSessionMuscleHitMap: React.FC<PreSessionMuscleHitMapProps> = Rea
   const effectiveTotalSets = totalSets ?? analysis.totalSets;
   const effectiveMinutes = estimatedMinutes ?? Math.max(20, Math.round(effectiveTotalSets * 2.5));
 
+  useEffect(() => {
+    if (isRest || analysis.topMuscles.length === 0) return;
+    cancelAnimation(barScaleX);
+    barScaleX.value = 0;
+    barScaleX.value = withTiming(1, { duration: 480, easing: iosEasing.decel });
+  }, [isRest, replayKey, effectiveTotalSets, title, analysis.topMuscles.length, barScaleX]);
+
+  const barRevealStyle = useAnimatedStyle(() => ({
+    transform: [{ scaleX: barScaleX.value }],
+  }));
+
   if (isRest) {
     return (
       <View style={styles.restWrap}>
-        <Ionicons name="moon" size={12} color="#30D158" />
-        <Text style={[styles.restText, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}>
+        <Moon size={12} color={tokens.status.success} strokeWidth={ICON.strokeWidth} />
+        <Text style={[styles.restText, { color: tokens.text.secondary }]}>
           Muscle recovery & systemic rest day
         </Text>
       </View>
@@ -151,43 +151,43 @@ export const PreSessionMuscleHitMap: React.FC<PreSessionMuscleHitMapProps> = Rea
 
   if (analysis.topMuscles.length === 0) return null;
 
-  // Mini SVGs setup
-  const frontGeo = BODY_PATHS.male.front;
-  const backGeo = BODY_PATHS.male.back;
-  const frontInertD = getMergedInertPath(frontGeo, INERT);
-  const backInertD = getMergedInertPath(backGeo, INERT);
+  // Pre-cached static anatomical SVGs (0ms path joins in render)
+  const genderSvg = STATIC_BODY_SVG[gymProfile?.gender === 'female' ? 'female' : 'male'] || STATIC_BODY_SVG.male;
+  const frontView = genderSvg.front;
+  const backView = genderSvg.back;
 
   const inertFill = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
   const inertStroke = isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.09)';
 
   const renderMusclePath = (
-    geo: any,
+    view: CachedBodyView,
     slug: string,
     isActive: boolean,
-    canonicalGroup: string,
     isDarkTheme: boolean
   ) => {
-    const pathD = getMergedMusclePath(geo, slug);
+    const pathD = view.paths[slug];
     if (!pathD) return null;
-    const activeColor = analysis.muscleMap[canonicalGroup]?.color || resolveMuscleColor(canonicalGroup);
 
     return (
       <Path
         key={slug}
         d={pathD}
-        fill={isActive ? activeColor : (isDarkTheme ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)')}
-        stroke={isActive ? 'rgba(255, 255, 255, 0.4)' : (isDarkTheme ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.09)')}
-        strokeWidth={isActive ? 1.5 : 0.8}
+        fill={isActive ? tokens.accent.primary : (isDarkTheme ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)')}
+        stroke={isActive ? 'rgba(255, 255, 255, 0.35)' : (isDarkTheme ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.09)')}
+        strokeWidth={isActive ? 1.4 : 0.8}
       />
     );
   };
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity
+      <TactileButton
+        variant="custom"
+        haptic="none"
         style={[styles.hitMapRow, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)' }]}
-        activeOpacity={0.7}
+        disabled={disableModal}
         onPress={() => {
+          if (disableModal) return;
           hapticSelection();
           setDetailModalVisible(true);
         }}
@@ -197,28 +197,24 @@ export const PreSessionMuscleHitMap: React.FC<PreSessionMuscleHitMapProps> = Rea
           <View style={styles.avatarWrap}>
             {/* Front silhouette */}
             <View style={styles.svgSilhouetteBox}>
-              <Svg viewBox={frontGeo.vb} width="32" height="68">
+              <Svg viewBox={frontView.vb} width="32" height="68">
                 <G>
-                  <Path d={frontInertD} fill={inertFill} stroke={inertStroke} strokeWidth={0.8} />
-                  {Object.keys(frontGeo.p).map(slug => {
-                    const isActive = analysis.activeSlugs.has(slug);
-                    const group = SLUG_TO_GROUP[slug] || 'Other';
-                    return renderMusclePath(frontGeo, slug, isActive, group, isDark);
-                  })}
+                  <Path d={frontView.inertD} fill={inertFill} stroke={inertStroke} strokeWidth={0.8} />
+                  {frontView.slugs.map((slug) =>
+                    renderMusclePath(frontView, slug, analysis.activeSlugs.has(slug), isDark)
+                  )}
                 </G>
               </Svg>
             </View>
 
             {/* Back silhouette */}
             <View style={styles.svgSilhouetteBox}>
-              <Svg viewBox={backGeo.vb} width="32" height="68">
+              <Svg viewBox={backView.vb} width="32" height="68">
                 <G>
-                  <Path d={backInertD} fill={inertFill} stroke={inertStroke} strokeWidth={0.8} />
-                  {Object.keys(backGeo.p).map(slug => {
-                    const isActive = analysis.activeSlugs.has(slug);
-                    const group = SLUG_TO_GROUP[slug] || 'Other';
-                    return renderMusclePath(backGeo, slug, isActive, group, isDark);
-                  })}
+                  <Path d={backView.inertD} fill={inertFill} stroke={inertStroke} strokeWidth={0.8} />
+                  {backView.slugs.map((slug) =>
+                    renderMusclePath(backView, slug, analysis.activeSlugs.has(slug), isDark)
+                  )}
                 </G>
               </Svg>
             </View>
@@ -229,37 +225,49 @@ export const PreSessionMuscleHitMap: React.FC<PreSessionMuscleHitMapProps> = Rea
         <View style={styles.dataWrap}>
           {/* Row 1: Session Metrics (Clean, shown ONCE) */}
           <View style={styles.metricsRow}>
-            <Text style={[styles.metricsText, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}>
+            <NumericText style={[styles.metricsText, { color: tokens.text.secondary }]} numberOfLines={1}>
               {effectiveExerciseCount} exercises  ·  {effectiveTotalSets} sets  ·  ~{effectiveMinutes} min
-            </Text>
-            <Ionicons
-              name="chevron-forward"
+            </NumericText>
+            <ChevronRight
               size={13}
-              color={isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)'}
+              color={tokens.text.muted}
+              strokeWidth={ICON.strokeWidth}
             />
           </View>
 
-          {/* Row 2: Proportional Load Distribution Bar */}
+          {/* Row 2: Proportional Load Distribution Bar (GPU scaleX sweep) */}
           <View style={styles.proportionalBarContainer}>
-            {analysis.topMuscles.map((item, idx) => {
-              const pct = analysis.totalSets > 0 ? (item.sets / analysis.totalSets) * 100 : 0;
-              return (
-                <View
-                  key={item.name}
-                  style={[
-                    styles.proportionalBarSegment,
-                    {
-                      width: `${pct}%`,
-                      backgroundColor: item.color,
-                      borderTopLeftRadius: idx === 0 ? 3 : 0,
-                      borderBottomLeftRadius: idx === 0 ? 3 : 0,
-                      borderTopRightRadius: idx === analysis.topMuscles.length - 1 ? 3 : 0,
-                      borderBottomRightRadius: idx === analysis.topMuscles.length - 1 ? 3 : 0,
-                    },
-                  ]}
-                />
-              );
-            })}
+            <Animated.View
+              style={[
+                {
+                  flex: 1,
+                  flexDirection: 'row',
+                  height: '100%',
+                  transformOrigin: 'left',
+                },
+                barRevealStyle,
+              ]}
+            >
+              {analysis.topMuscles.map((item, idx) => {
+                const pct = analysis.totalSets > 0 ? (item.sets / analysis.totalSets) * 100 : 0;
+                return (
+                  <View
+                    key={item.name}
+                    style={[
+                      styles.proportionalBarSegment,
+                      {
+                        flex: Math.max(0.02, pct),
+                        backgroundColor: item.color,
+                        borderTopLeftRadius: idx === 0 ? 3 : 0,
+                        borderBottomLeftRadius: idx === 0 ? 3 : 0,
+                        borderTopRightRadius: idx === analysis.topMuscles.length - 1 ? 3 : 0,
+                        borderBottomRightRadius: idx === analysis.topMuscles.length - 1 ? 3 : 0,
+                      },
+                    ]}
+                  />
+                );
+              })}
+            </Animated.View>
           </View>
 
           {/* Row 3: Clean Muscle Legend (No bulky pill soup) */}
@@ -267,155 +275,166 @@ export const PreSessionMuscleHitMap: React.FC<PreSessionMuscleHitMapProps> = Rea
             {analysis.topMuscles.slice(0, 3).map(item => (
               <View key={item.name} style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-                <Text style={[styles.legendName, { color: isDark ? '#FFFFFF' : colors.textPrimary }]}>
+                <Text style={[styles.legendName, { color: tokens.text.primary }]}>
                   {item.name}
                 </Text>
-                <Text style={[styles.legendSets, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}>
+                <NumericText style={[styles.legendSets, { color: tokens.text.secondary }]}>
                   {item.sets}s
-                </Text>
+                </NumericText>
               </View>
             ))}
             {analysis.topMuscles.length > 3 && (
-              <Text style={[styles.legendMore, { color: isDark ? IOS_DARK.labelTertiary : colors.textTertiary }]}>
+              <NumericText style={[styles.legendMore, { color: tokens.text.muted }]}>
                 +{analysis.topMuscles.length - 3}
-              </Text>
+              </NumericText>
             )}
           </View>
         </View>
-      </TouchableOpacity>
+      </TactileButton>
 
-      {/* ── Interactive Muscle Hit Map Modal Sheet ── */}
-      <Modal
-        visible={detailModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setDetailModalVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setDetailModalVisible(false)}
+      {/* ── Interactive Muscle Hit Map Obsidian Sheet ── */}
+      {!disableModal && (
+        <BottomSheet
+          visible={detailModalVisible}
+          onClose={() => setDetailModalVisible(false)}
+          scrollable={true}
+          avoidKeyboard={false}
         >
-          <TouchableOpacity
+          <View style={styles.sheetHeader}>
+            <View style={{ flex: 1, paddingRight: SPACE.sm }}>
+              <Text style={[styles.sheetTitle, { color: tokens.text.primary }]}>
+                Target Muscle Load
+              </Text>
+              <NumericText style={[styles.sheetSubtitle, { color: tokens.text.secondary }]} numberOfLines={1}>
+                {title || 'Session Preview'} · {analysis.topMuscles.length} muscles · {analysis.totalSets} sets
+              </NumericText>
+            </View>
+            <TactileButton
+              variant="custom"
+              haptic="light"
+              onPress={() => setDetailModalVisible(false)}
+              style={[
+                styles.closeBtn,
+                {
+                  backgroundColor: isDark ? '#14161D' : tokens.bg.elevated,
+                  borderColor: tokens.border.subtle,
+                },
+              ]}
+              hitSlop={TOUCH.hitSlop}
+              accessibilityLabel="Close target muscle load"
+            >
+              <X size={16} color={tokens.text.secondary} strokeWidth={ICON.strokeWidth} />
+            </TactileButton>
+          </View>
+
+          {/* Compact Obsidian Silhouette Showcase */}
+          <View
             style={[
-              styles.modalSheet,
-              { backgroundColor: isDark ? IOS_DARK.bgGroupedCard : colors.surface },
+              styles.modalAvatarRow,
+              {
+                backgroundColor: isDark ? '#14161D' : tokens.bg.surface,
+                borderColor: tokens.border.subtle,
+              },
             ]}
-            activeOpacity={1}
           >
-            <View style={styles.sheetHandle} />
-
-            <View style={styles.sheetHeader}>
-              <View>
-                <Text style={[styles.sheetTitle, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-                  Target Muscle Load
-                </Text>
-                <Text style={[styles.sheetSubtitle, { color: isDark ? IOS_DARK.labelSecondary : colors.textMuted }]}>
-                  {title || 'Session Analysis'} · {analysis.totalSets} total planned sets
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setDetailModalVisible(false)}
-                style={styles.closeBtn}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="close" size={20} color={isDark ? '#FFFFFF' : '#000000'} />
-              </TouchableOpacity>
+            <View style={styles.modalAvatarBox}>
+              <Svg viewBox={frontView.vb} width="54" height="110">
+                <G>
+                  <Path d={frontView.inertD} fill={inertFill} stroke={inertStroke} strokeWidth={0.8} />
+                  {frontView.slugs.map((slug) =>
+                    renderMusclePath(frontView, slug, analysis.activeSlugs.has(slug), isDark)
+                  )}
+                </G>
+              </Svg>
+              <Text style={styles.viewAngleLabel}>FRONT</Text>
             </View>
 
-            {/* Large SVG Body Silhouette Showcase */}
-            <View style={styles.modalAvatarRow}>
-              <View style={styles.modalAvatarBox}>
-                <Svg viewBox={frontGeo.vb} width="72" height="148">
-                  <G>
-                    <Path d={frontInertD} fill={inertFill} stroke={inertStroke} strokeWidth={0.8} />
-                    {Object.keys(frontGeo.p).map(slug => {
-                      const isActive = analysis.activeSlugs.has(slug);
-                      const group = SLUG_TO_GROUP[slug] || 'Other';
-                      return renderMusclePath(frontGeo, slug, isActive, group, isDark);
-                    })}
-                  </G>
-                </Svg>
-                <View style={styles.viewAnglePill}>
-                  <Text style={styles.viewAngleLabel}>FRONT VIEW</Text>
-                </View>
-              </View>
+            <View
+              style={[
+                styles.avatarCenterDivider,
+                { backgroundColor: tokens.border.subtle },
+              ]}
+            />
 
-              <View style={styles.modalAvatarBox}>
-                <Svg viewBox={backGeo.vb} width="72" height="148">
-                  <G>
-                    <Path d={backInertD} fill={inertFill} stroke={inertStroke} strokeWidth={0.8} />
-                    {Object.keys(backGeo.p).map(slug => {
-                      const isActive = analysis.activeSlugs.has(slug);
-                      const group = SLUG_TO_GROUP[slug] || 'Other';
-                      return renderMusclePath(backGeo, slug, isActive, group, isDark);
-                    })}
-                  </G>
-                </Svg>
-                <View style={styles.viewAnglePill}>
-                  <Text style={styles.viewAngleLabel}>BACK VIEW</Text>
-                </View>
-              </View>
+            <View style={styles.modalAvatarBox}>
+              <Svg viewBox={backView.vb} width="54" height="110">
+                <G>
+                  <Path d={backView.inertD} fill={inertFill} stroke={inertStroke} strokeWidth={0.8} />
+                  {backView.slugs.map((slug) =>
+                    renderMusclePath(backView, slug, analysis.activeSlugs.has(slug), isDark)
+                  )}
+                </G>
+              </Svg>
+              <Text style={styles.viewAngleLabel}>BACK</Text>
             </View>
+          </View>
 
-            {/* Muscle Breakdown Rows */}
-            <View style={styles.breakdownList}>
-              {analysis.topMuscles.map(item => {
-                const data = analysis.muscleMap[item.name];
-                return (
-                  <View
-                    key={item.name}
-                    style={[
-                      styles.breakdownRow,
-                      {
-                        borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-                      },
-                    ]}
-                  >
-                    <View style={styles.breakdownLeft}>
-                      <View style={[styles.breakdownDot, { backgroundColor: item.color }]} />
-                      <View style={{ flex: 1, paddingRight: 8 }}>
-                        <Text style={[styles.breakdownName, { color: isDark ? '#FFFFFF' : '#000000' }]}>
-                          {item.name}
-                        </Text>
-                        <Text
-                          style={[styles.breakdownExercises, { color: isDark ? IOS_DARK.labelSecondary : '#636366' }]}
-                          numberOfLines={1}
-                        >
-                          {data?.exercises.join(', ')}
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={[styles.breakdownBadge, { backgroundColor: `${item.color}22` }]}>
-                      <Text style={[styles.breakdownSets, { color: item.color }]}>
-                        {item.sets} sets
+          {/* Grouped Hairline-Divided Muscle Breakdown Ledger */}
+          <Text style={[styles.breakdownSectionKicker, { color: tokens.text.secondary }]}>
+            MUSCLES TARGETED
+          </Text>
+          <View
+            style={[
+              styles.breakdownCard,
+              {
+                backgroundColor: isDark ? '#14161D' : tokens.bg.surface,
+                borderColor: tokens.border.subtle,
+              },
+            ]}
+          >
+            {analysis.topMuscles.map((item, idx) => {
+              const data = analysis.muscleMap[item.name];
+              const pct = analysis.totalSets > 0
+                ? Math.round((item.sets / analysis.totalSets) * 100)
+                : 0;
+              return (
+                <View
+                  key={item.name}
+                  style={[
+                    styles.breakdownRow,
+                    idx > 0 && {
+                      borderTopWidth: StyleSheet.hairlineWidth,
+                      borderTopColor: tokens.border.subtle,
+                    },
+                  ]}
+                >
+                  <View style={styles.breakdownLeft}>
+                    <View style={[styles.breakdownDot, { backgroundColor: item.color }]} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={[styles.breakdownName, { color: tokens.text.primary }]} numberOfLines={1}>
+                        {item.name}
                       </Text>
+                      {Boolean(data?.exercises?.length) && (
+                        <Text
+                          style={[styles.breakdownExercises, { color: tokens.text.secondary }]}
+                          numberOfLines={2}
+                        >
+                          {data.exercises.join(' · ')}
+                        </Text>
+                      )}
                     </View>
                   </View>
-                );
-              })}
-            </View>
-
-            <TouchableOpacity
-              style={styles.doneBtn}
-              onPress={() => {
-                hapticLight();
-                setDetailModalVisible(false);
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.doneBtnText}>Close Preview</Text>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+                  <View style={styles.breakdownRightCol}>
+                    <NumericText style={[styles.breakdownSets, { color: tokens.text.primary }]}>
+                      {item.sets} sets
+                    </NumericText>
+                    <NumericText style={[styles.breakdownPct, { color: tokens.text.muted }]}>
+                      {pct}%
+                    </NumericText>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </BottomSheet>
+      )}
     </View>
   );
 });
 
 export default PreSessionMuscleHitMap;
 
-const styles = StyleSheet.create({
+const makeStyles = (tokens: typeof DARK_TOKENS) => StyleSheet.create({
   container: {
     width: '100%',
     marginTop: 6,
@@ -424,7 +443,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 4,
+    paddingVertical: SPACE.xs,
   },
   restText: {
     fontSize: 11.5,
@@ -434,8 +453,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 10,
-    borderRadius: 14,
-    gap: 12,
+    borderRadius: RADIUS.lg,
+    gap: SPACE.md,
   },
   avatarWrap: {
     flexDirection: 'row',
@@ -443,7 +462,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingRight: 10,
     borderRightWidth: StyleSheet.hairlineWidth,
-    borderRightColor: 'rgba(255,255,255,0.1)',
+    borderRightColor: tokens.border.subtle,
   },
   svgSilhouetteBox: {
     width: 32,
@@ -469,7 +488,7 @@ const styles = StyleSheet.create({
   proportionalBarContainer: {
     height: 5,
     borderRadius: 2.5,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: tokens.border.subtle,
     flexDirection: 'row',
     overflow: 'hidden',
     width: '100%',
@@ -481,12 +500,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: SPACE.sm,
   },
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: SPACE.xs,
   },
   legendDot: {
     width: 5,
@@ -506,47 +525,30 @@ const styles = StyleSheet.create({
     fontFamily: FONT_FAMILY.medium,
   },
 
-  // Modal styles
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-    maxHeight: '85%',
-  },
-  sheetHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
+  // Sheet Styles
   sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   sheetTitle: {
-    fontSize: 17,
+    fontSize: 18,
     fontFamily: FONT_FAMILY.bold,
-    letterSpacing: -0.3,
+    letterSpacing: -0.35,
+    includeFontPadding: false,
   },
   sheetSubtitle: {
     fontSize: 12,
-    fontFamily: FONT_FAMILY.regular,
-    marginTop: 2,
+    fontFamily: FONT_FAMILY.medium,
+    marginTop: 3,
+    includeFontPadding: false,
   },
   closeBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -554,82 +556,85 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 40,
-    paddingVertical: 18,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    marginBottom: 18,
+    gap: 28,
+    paddingVertical: 12,
+    borderRadius: RADIUS.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 14,
   },
   modalAvatarBox: {
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
-  viewAnglePill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+  avatarCenterDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 92,
   },
   viewAngleLabel: {
     fontSize: 9.5,
     fontFamily: FONT_FAMILY.bold,
-    color: 'rgba(255,255,255,0.5)',
-    letterSpacing: 0.8,
+    color: tokens.text.muted,
+    letterSpacing: 0.9,
+    includeFontPadding: false,
   },
-  breakdownList: {
-    gap: 2,
-    marginBottom: 20,
+  breakdownSectionKicker: {
+    fontSize: 10.5,
+    fontFamily: FONT_FAMILY.bold,
+    letterSpacing: 0.7,
+    marginBottom: 6,
+    paddingHorizontal: 2,
+  },
+  breakdownCard: {
+    borderRadius: RADIUS.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
   },
   breakdownRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 10,
   },
   breakdownLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     flex: 1,
-    paddingRight: 10,
+    minWidth: 0,
   },
   breakdownDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    flexShrink: 0,
   },
   breakdownName: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontFamily: FONT_FAMILY.bold,
+    letterSpacing: -0.2,
+    includeFontPadding: false,
   },
   breakdownExercises: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontFamily: FONT_FAMILY.regular,
     marginTop: 2,
+    lineHeight: 15,
   },
-  breakdownBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+  breakdownRightCol: {
+    alignItems: 'flex-end',
+    flexShrink: 0,
   },
   breakdownSets: {
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: FONT_FAMILY.bold,
+    includeFontPadding: false,
   },
-  doneBtn: {
-    backgroundColor: '#30D158',
-    borderRadius: 14,
-    paddingVertical: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  doneBtnText: {
-    fontSize: 15,
-    fontFamily: FONT_FAMILY.bold,
-    color: '#000000',
+  breakdownPct: {
+    fontSize: 10.5,
+    fontFamily: FONT_FAMILY.medium,
+    marginTop: 2,
+    includeFontPadding: false,
   },
 });

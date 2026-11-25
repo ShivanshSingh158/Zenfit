@@ -1,207 +1,130 @@
 import { StyleSheet } from 'react-native';
-import { FONT_FAMILY } from '../../../theme/tokens';
+import { DARK_TOKENS, FONT_FAMILY, LIGHT_TOKENS, RADIUS, SPACE, TOUCH } from '../../../theme/tokens';
 
-export const makeSwapRoutineStyles = (colors: any, isDark: boolean = true) =>
-  StyleSheet.create({
-    modalBg: {
-      flex: 1,
-      backgroundColor: 'rgba(0, 0, 0, 0.72)',
-      justifyContent: 'flex-end',
-    },
-    sheet: {
-      backgroundColor: isDark ? '#161618' : colors.surface,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
-      paddingTop: 10,
-      paddingHorizontal: 16,
-      maxHeight: '88%',
-      borderTopWidth: 1,
-      borderTopColor: isDark ? '#2C2C2E' : colors.border,
-    },
-    sheetHandleWrap: {
-      alignItems: 'center',
-      paddingBottom: 10,
-    },
-    sheetHandle: {
-      width: 36,
-      height: 4.5,
-      borderRadius: 2.5,
-      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(0, 0, 0, 0.2)',
-    },
+export const makeSwapRoutineStyles = (_colors: any, isDark: boolean = true) => {
+  const tokens = isDark ? DARK_TOKENS : LIGHT_TOKENS;
+  const cardBg = isDark ? '#14161D' : '#FFFFFF';
+  const hairline = isDark ? 'rgba(255, 255, 255, 0.08)' : tokens.border.subtle;
+
+  return StyleSheet.create({
     header: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 14,
-      paddingHorizontal: 4,
+      alignItems: 'flex-start',
+      marginBottom: SPACE.md,
     },
     headerTextCol: {
       flex: 1,
-      paddingRight: 12,
+      minWidth: 0,
+      paddingRight: SPACE.md,
     },
     title: {
       fontFamily: FONT_FAMILY.bold,
       fontSize: 18,
-      color: colors.textPrimary,
+      color: tokens.text.primary,
       letterSpacing: -0.3,
     },
     subtitle: {
       fontFamily: FONT_FAMILY.regular,
       fontSize: 12.5,
-      color: colors.textMuted,
+      color: tokens.text.secondary,
       marginTop: 2,
+      lineHeight: 17,
     },
     closeBtn: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      backgroundColor: isDark ? '#262629' : '#E5E5EA',
+      width: 34,
+      height: 34,
+      borderRadius: RADIUS.full,
+      backgroundColor: cardBg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: hairline,
       alignItems: 'center',
       justifyContent: 'center',
-    },
-    scrollArea: {
-      paddingBottom: 20,
-    },
-    dayCard: {
-      backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
-      borderRadius: 16,
-      padding: 14,
-      marginBottom: 10,
-      borderWidth: 1,
-      borderColor: isDark ? '#2C2C2E' : '#E5E5EA',
-    },
-    dayCardActive: {
-      backgroundColor: isDark ? 'rgba(10, 132, 255, 0.08)' : 'rgba(10, 132, 255, 0.05)',
-      borderColor: '#0A84FF',
-    },
-    cardHeaderRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: 6,
-    },
-    badgeRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-    },
-    dayTag: {
-      paddingHorizontal: 7,
-      paddingVertical: 2.5,
-      borderRadius: 6,
-      backgroundColor: isDark ? 'rgba(10, 132, 255, 0.14)' : 'rgba(0, 122, 255, 0.1)',
-    },
-    dayTagText: {
-      fontFamily: FONT_FAMILY.bold,
-      fontSize: 10.5,
-      color: '#0A84FF',
-      letterSpacing: 0.6,
-    },
-    restTag: {
-      paddingHorizontal: 7,
-      paddingVertical: 2.5,
-      borderRadius: 6,
-      backgroundColor: isDark ? 'rgba(255, 159, 10, 0.14)' : 'rgba(255, 149, 0, 0.1)',
-    },
-    restTagText: {
-      fontFamily: FONT_FAMILY.bold,
-      fontSize: 10.5,
-      color: '#FF9F0A',
-      letterSpacing: 0.6,
-    },
-    upNextTag: {
-      paddingHorizontal: 6,
-      paddingVertical: 2,
-      borderRadius: 5,
-      backgroundColor: 'rgba(48, 209, 88, 0.16)',
-    },
-    upNextText: {
-      fontFamily: FONT_FAMILY.bold,
-      fontSize: 9.5,
-      color: '#30D158',
-      letterSpacing: 0.5,
-    },
-    actionPill: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-      paddingHorizontal: 9,
-      paddingVertical: 3.5,
-      borderRadius: 8,
-      backgroundColor: isDark ? '#262629' : '#ECECF0',
-    },
-    actionPillText: {
-      fontFamily: FONT_FAMILY.bold,
-      fontSize: 10.5,
-      color: isDark ? '#AEAEB2' : '#636366',
-    },
-    activeBadge: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-      paddingHorizontal: 9,
-      paddingVertical: 3.5,
-      borderRadius: 8,
-      backgroundColor: 'rgba(48, 209, 88, 0.16)',
-    },
-    activeBadgeText: {
-      fontFamily: FONT_FAMILY.bold,
-      fontSize: 10.5,
-      color: '#30D158',
-    },
-    dayTitle: {
-      fontFamily: FONT_FAMILY.bold,
-      fontSize: 16.5,
-      color: colors.textPrimary,
-      letterSpacing: -0.2,
-    },
-    daySubtitle: {
-      fontFamily: FONT_FAMILY.regular,
-      fontSize: 12.5,
-      color: colors.textMuted,
-      marginTop: 2,
-    },
-    hairlineDivider: {
-      height: StyleSheet.hairlineWidth,
-      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
-      marginVertical: 9,
-    },
-    cardFooterRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 10,
-    },
-    footerStatsText: {
-      fontFamily: FONT_FAMILY.medium,
-      fontSize: 12,
-      color: colors.textMuted,
       flexShrink: 0,
     },
-    musclesSummaryRow: {
+    ledgerCard: {
+      backgroundColor: cardBg,
+      borderRadius: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: hairline,
+      overflow: 'hidden',
+      marginBottom: SPACE.sm,
+    },
+    dayRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 13,
+      paddingHorizontal: 15,
+      minHeight: TOUCH.minTarget + 14,
+      gap: 12,
+    },
+    dayRowActive: {
+      backgroundColor: isDark ? 'rgba(10, 132, 255, 0.10)' : tokens.accent.primaryDim,
+    },
+    rowDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: hairline,
+      marginHorizontal: 15,
+    },
+    rowMain: {
+      flex: 1,
+      minWidth: 0,
+    },
+    rowMetaTop: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
-      flexShrink: 1,
-      minWidth: 0,
-      justifyContent: 'flex-end',
+      marginBottom: 2,
     },
-    muscleItem: {
+    dayLabelPlain: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 10.5,
+      color: tokens.accent.primary,
+      letterSpacing: 0.6,
+      textTransform: 'uppercase',
+    },
+    upNextPlain: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 10.5,
+      color: tokens.status.success,
+    },
+    activeDotRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 3.5,
-      flexShrink: 1,
+      gap: 4,
     },
-    muscleDot: {
-      width: 5,
-      height: 5,
-      borderRadius: 2.5,
+    activeGreenDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: tokens.status.success,
+    },
+    activeBadgeText: {
+      fontFamily: FONT_FAMILY.semibold,
+      fontSize: 11,
+      color: tokens.status.success,
+    },
+    dayTitle: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 15.5,
+      color: tokens.text.primary,
+      letterSpacing: -0.2,
+    },
+    daySubLine: {
+      fontFamily: FONT_FAMILY.regular,
+      fontSize: 12,
+      color: tokens.text.secondary,
+      marginTop: 2,
+    },
+    checkCircle: {
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      backgroundColor: tokens.accent.primaryDim,
+      alignItems: 'center',
+      justifyContent: 'center',
       flexShrink: 0,
     },
-    muscleText: {
-      fontFamily: FONT_FAMILY.regular,
-      fontSize: 11.5,
-      color: colors.textSecondary,
-      flexShrink: 1,
-    },
   });
+};

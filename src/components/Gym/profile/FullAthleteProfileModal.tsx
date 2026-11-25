@@ -1,195 +1,217 @@
 /**
  * FullAthleteProfileModal.tsx — ZenFit
  *
- * Flagship Athlete Performance Dossier & Interactive Showcase:
- * - High-craft Cyber-Athletic & Apple Fitness+ aesthetics
- * - Dual-Streak Engine (Active Streak & All-Time Best Highest Streak)
- * - Interactive Big 3 & OHP Strength Benchmarks with touch affordance
- *   (Tapping opens ExerciseDeepDiveModal with interactive 1RM & trajectory charts)
- * - Biometric & Anthropometric profile with verified Gmail identity
- * - Clean, spacious layout with flawless alignment and zero overflow
+ * Flagship Obsidian Performance Card Dossier:
+ * Zero static filler, zero emojis, unit-aware telemetry (KG/LBS),
+ * tier rank ladder, muscle focus breakdown, and verified strength profile.
  */
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  Modal,
-  TouchableOpacity,
   ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import {
+  Activity,
+  Award,
+  CheckCircle2,
+  ChevronRight,
+  Dumbbell,
+  Flame,
+  Pencil,
+  Settings,
+  ShieldCheck,
+  TrendingUp,
+  Trophy,
+  X,
+  type LucideIcon,
+} from 'lucide-react-native';
 import { UserAvatar } from '../../ui/UserAvatar';
-import { FONT_FAMILY } from '../../../theme/tokens';
+import { NumericText, TactileButton, AnimatedProgressBar } from '../../ui';
+import BottomSheet from '../../ui/BottomSheet';
+import { useTheme } from '../../../contexts/ThemeContext';
+import { FONT_FAMILY, ICON, RADIUS, SPACE, TOUCH, ThemeTokens } from '../../../theme/tokens';
 import { AthleteCardStats, LifterTier, StrengthBenchmark } from '../../../services/athleteCardService';
 import { ExerciseDeepDiveModal } from '../exercise/ExerciseDeepDiveModal';
 import { GymDayLog } from '../../../types/gym.types';
-import { hapticLight, hapticSelection } from '../../../utils/haptics';
+import { useWeightUnit, formatWeight, formatVolumeParts, kgToDisplay, unitLabel } from '../../../utils/weightUnit';
+import { resolveMuscleColor } from '../../../utils/gymUtils';
 
 interface FullAthleteProfileModalProps {
   visible: boolean;
   onClose: () => void;
-  stats: AthleteCardStats;
+  stats: AthleteCardStats | null;
   onOpenSetup: () => void;
+  onOpenSettings?: () => void;
+  onOpenExerciseDeepDive?: (exerciseName: string) => void;
   gymLogs?: GymDayLog[];
 }
 
-interface TierTheme {
-  primary: string;
-  secondary: string;
-  gradient: [string, string];
-  pillBg: string;
-  pillBorder: string;
-  glowColor: string;
-  icon: string;
+function getTierAccent(tier: LifterTier, tokens: ThemeTokens): string {
+  switch (tier) {
+    case 'elite':
+      return tokens.accent.primary;
+    case 'diamond':
+      return tokens.status.info;
+    case 'platinum':
+      return tokens.accent.secondary;
+    case 'gold':
+      return tokens.status.gold;
+    case 'silver':
+      return tokens.text.secondary;
+    case 'bronze':
+    default:
+      return tokens.status.warning;
+  }
 }
 
-const TIER_THEMES: Record<LifterTier, TierTheme> = {
-  elite: {
-    primary: '#00F0FF',
-    secondary: '#7000FF',
-    gradient: ['#00F0FF', '#7000FF'],
-    pillBg: 'rgba(0, 240, 255, 0.12)',
-    pillBorder: 'rgba(0, 240, 255, 0.35)',
-    glowColor: 'rgba(0, 240, 255, 0.25)',
-    icon: '👑',
-  },
-  diamond: {
-    primary: '#0A84FF',
-    secondary: '#5AC8FA',
-    gradient: ['#0A84FF', '#5AC8FA'],
-    pillBg: 'rgba(10, 132, 255, 0.12)',
-    pillBorder: 'rgba(10, 132, 255, 0.35)',
-    glowColor: 'rgba(10, 132, 255, 0.25)',
-    icon: '💎',
-  },
-  platinum: {
-    primary: '#BF5AF2',
-    secondary: '#5E5CE6',
-    gradient: ['#BF5AF2', '#5E5CE6'],
-    pillBg: 'rgba(191, 90, 242, 0.12)',
-    pillBorder: 'rgba(191, 90, 242, 0.35)',
-    glowColor: 'rgba(191, 90, 242, 0.25)',
-    icon: '⚡',
-  },
-  gold: {
-    primary: '#FFD700',
-    secondary: '#FF9F0A',
-    gradient: ['#FFD700', '#FF9F0A'],
-    pillBg: 'rgba(255, 215, 0, 0.12)',
-    pillBorder: 'rgba(255, 215, 0, 0.35)',
-    glowColor: 'rgba(255, 215, 0, 0.25)',
-    icon: '🥇',
-  },
-  silver: {
-    primary: '#E5E5EA',
-    secondary: '#8E8E93',
-    gradient: ['#E5E5EA', '#8E8E93'],
-    pillBg: 'rgba(229, 229, 234, 0.12)',
-    pillBorder: 'rgba(229, 229, 234, 0.35)',
-    glowColor: 'rgba(229, 229, 234, 0.20)',
-    icon: '🥈',
-  },
-  bronze: {
-    primary: '#F59E0B',
-    secondary: '#D97706',
-    gradient: ['#F59E0B', '#D97706'],
-    pillBg: 'rgba(245, 158, 11, 0.12)',
-    pillBorder: 'rgba(245, 158, 11, 0.35)',
-    glowColor: 'rgba(245, 158, 11, 0.20)',
-    icon: '🥉',
-  },
-};
-
-const BENCHMARK_COLORS: Record<string, { accent: string; bg: string; icon: keyof typeof Ionicons.glyphMap }> = {
-  Bench: { accent: '#00F0FF', bg: 'rgba(0, 240, 255, 0.12)', icon: 'barbell' },
-  Squat: { accent: '#BF5AF2', bg: 'rgba(191, 90, 242, 0.12)', icon: 'body' },
-  Deadlift: { accent: '#FF9F0A', bg: 'rgba(255, 159, 10, 0.12)', icon: 'fitness' },
-  OHP: { accent: '#30D158', bg: 'rgba(48, 209, 88, 0.12)', icon: 'trending-up' },
-};
+function getBenchmarkStyle(
+  category: string,
+  tokens: ThemeTokens
+): { accent: string; bg: string; Icon: LucideIcon } {
+  switch (category) {
+    case 'Squat':
+      return { accent: tokens.accent.secondary, bg: tokens.accent.secondaryDim, Icon: Activity };
+    case 'Deadlift':
+      return { accent: tokens.status.warning, bg: tokens.status.warningDim, Icon: Flame };
+    case 'OHP':
+      return { accent: tokens.status.success, bg: tokens.status.successDim, Icon: TrendingUp };
+    case 'Bench':
+    default:
+      return { accent: tokens.accent.primary, bg: tokens.accent.primaryDim, Icon: Dumbbell };
+  }
+}
 
 export const FullAthleteProfileModal: React.FC<FullAthleteProfileModalProps> = ({
   visible,
   onClose,
   stats,
   onOpenSetup,
+  onOpenSettings,
+  onOpenExerciseDeepDive,
   gymLogs = [],
 }) => {
+  const { tokens, isDark } = useTheme();
+  const unitIsLbs = useWeightUnit();
+  const uLabel = unitLabel(unitIsLbs);
+  const styles = useMemo(() => makeStyles(tokens, isDark), [tokens, isDark]);
   const insets = useSafeAreaInsets();
-  const theme = TIER_THEMES[stats.tier] || TIER_THEMES.bronze;
+  const tierAccent = stats ? getTierAccent(stats.tier, tokens) : tokens.accent.primary;
 
-  // Selected benchmark exercise to deep dive
   const [selectedExerciseName, setSelectedExerciseName] = useState<string | null>(null);
 
+  const loggedBenchmarks = useMemo(
+    () => (stats?.benchmarks || []).filter((b) => b.hasHistory && b.est1RMKg > 0),
+    [stats?.benchmarks]
+  );
+
+  const volumeParts = useMemo(
+    () => formatVolumeParts(stats?.totalLifetimeVolumeKg || 0, unitIsLbs),
+    [stats?.totalLifetimeVolumeKg, unitIsLbs]
+  );
+
   const handleBenchmarkPress = (benchmark: StrengthBenchmark) => {
-    hapticSelection();
+    if (onOpenExerciseDeepDive) {
+      onOpenExerciseDeepDive(benchmark.exerciseName);
+      return;
+    }
     setSelectedExerciseName(benchmark.exerciseName);
   };
 
+  const formattedTierTitle = useMemo(() => {
+    const clean = (stats?.tierLabel || 'BRONZE').trim();
+    return clean.charAt(0) + clean.slice(1).toLowerCase() + ' Tier';
+  }, [stats?.tierLabel]);
+
+  if (!stats) return null;
+
   return (
-    <Modal
+    <BottomSheet
       visible={visible}
-      animationType="slide"
-      transparent={false}
-      statusBarTranslucent
-      onRequestClose={onClose}
+      onClose={onClose}
+      fullHeight={true}
+      noPadding={true}
+      avoidKeyboard={false}
+      sheetBackgroundColor={isDark ? '#0B0C10' : '#F8F8FA'}
     >
-      <View style={[styles.screen, { paddingTop: Math.max(insets.top, 16), paddingBottom: Math.max(insets.bottom, 16) }]}>
-        {/* Top Header Bar */}
+      <View style={styles.screen}>
+        {/* Sticky Obsidian Nav Bar */}
         <View style={styles.navBar}>
-          <TouchableOpacity
-            onPress={() => {
-              hapticLight();
-              onClose();
-            }}
+          <TactileButton
+            variant="custom"
+            onPress={onClose}
             style={styles.closeBtn}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            activeOpacity={0.7}
+            hitSlop={TOUCH.hitSlop}
+            accessibilityLabel="Close performance card"
           >
-            <Ionicons name="close" size={20} color="#FFFFFF" />
-          </TouchableOpacity>
+            <X size={16} strokeWidth={ICON.strokeWidth} color={tokens.text.primary} />
+          </TactileButton>
 
           <View style={styles.navTitlesCol}>
             <Text style={styles.navPreTitle}>ATHLETE DOSSIER</Text>
             <Text style={styles.navTitle}>Performance Card</Text>
           </View>
 
-          <TouchableOpacity
-            onPress={() => {
-              hapticLight();
-              onOpenSetup();
-            }}
-            style={styles.editBtn}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="pencil" size={13} color="#0A84FF" />
-            <Text style={styles.editBtnText}>Edit</Text>
-          </TouchableOpacity>
+          <View style={styles.navRightGroup}>
+            {onOpenSettings ? (
+              <TactileButton
+                variant="custom"
+                onPress={onOpenSettings}
+                style={styles.closeBtn}
+                hitSlop={TOUCH.hitSlop}
+                accessibilityLabel="Open preferences"
+              >
+                <Settings size={15} strokeWidth={ICON.strokeWidth} color={tokens.text.primary} />
+              </TactileButton>
+            ) : null}
+            <TactileButton
+              variant="custom"
+              onPress={onOpenSetup}
+              style={styles.editBtn}
+              hitSlop={TOUCH.hitSlop}
+            >
+              <Pencil size={12} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
+              <Text style={styles.editBtnText}>Edit</Text>
+            </TactileButton>
+          </View>
         </View>
 
         <ScrollView
+          style={{ flex: 1 }}
           showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingBottom: Math.max(insets.bottom + 28, 48) },
+            { paddingBottom: Math.max(insets.bottom + SPACE.xl, SPACE.xxl + SPACE.md) },
           ]}
         >
-          {/* ══════════════════════════════════════════════════════════
-              1. HERO ATHLETE DOSSIER CARD (Spacious Apple OLED, Zero Truncation)
-          ══════════════════════════════════════════════════════════ */}
+          {/* 1. HERO CREST & TIER PROGRESSION */}
           <View style={styles.heroCard}>
-            {/* Identity Row */}
+            <LinearGradient
+              pointerEvents="none"
+              colors={[`${tierAccent}1C`, 'transparent']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.heroTopGlow}
+            />
+
             <View style={styles.heroIdentityRow}>
-              <View style={[styles.avatarGlowRing, { borderColor: theme.primary }]}>
-                <UserAvatar
-                  size={64}
-                  photoURL={stats.photoURL}
-                  fallbackLetter={stats.displayName ? stats.displayName.slice(0, 1).toUpperCase() : 'A'}
-                />
+              <View style={styles.avatarWrap}>
+                <View style={[styles.avatarRing, { borderColor: tierAccent }]}>
+                  <UserAvatar
+                    size={62}
+                    uid={(stats as any).uid}
+                    photoURL={stats.photoURL}
+                    fallbackLetter={stats.displayName ? stats.displayName.slice(0, 1).toUpperCase() : 'A'}
+                  />
+                </View>
+                <View style={[styles.crestCornerBadge, { backgroundColor: isDark ? '#0B0C10' : '#FFFFFF', borderColor: tierAccent }]}>
+                  <ShieldCheck size={11} color={tierAccent} strokeWidth={2.3} />
+                </View>
               </View>
 
               <View style={styles.identityTextCol}>
@@ -197,298 +219,289 @@ export const FullAthleteProfileModal: React.FC<FullAthleteProfileModalProps> = (
                   <Text style={styles.athleteName} numberOfLines={1} ellipsizeMode="tail">
                     {stats.displayName}
                   </Text>
-                  <Ionicons name="checkmark-circle" size={17} color="#30D158" style={{ flexShrink: 0 }} />
+                  <CheckCircle2 size={15} strokeWidth={ICON.strokeWidth} color={tokens.status.success} style={{ flexShrink: 0 }} />
                 </View>
 
-                {/* Line 2: Weight & Height (Spacious, Never Truncates) */}
-                <Text style={styles.physicalStatsText} numberOfLines={1}>
-                  {stats.weightKg ? (stats.weightKg + ' kg  ·  ') : ''}{stats.heightFormatted}
-                </Text>
+                <NumericText style={styles.physicalStatsText} numberOfLines={1}>
+                  {stats.weightKg > 0 ? `${formatWeight(stats.weightKg, unitIsLbs, 1)}  ·  ` : ''}
+                  {stats.heightFormatted}
+                </NumericText>
 
-                {/* Line 3: Rank, BMI & Archetype */}
-                <View style={styles.rankSubRow}>
-                  <View style={[styles.tierDot, { backgroundColor: theme.primary }]} />
-                  <Text style={[styles.tierRankText, { color: theme.primary }]}>
-                    {stats.tierLabel.replace(' TIER', '')} Tier
+                <View style={styles.rankMetaRow}>
+                  <View style={[styles.tierDot, { backgroundColor: tierAccent }]} />
+                  <Text style={[styles.tierLabelText, { color: tierAccent }]}>
+                    {formattedTierTitle}
                   </Text>
-                  <Text style={styles.rankDotDivider}>·</Text>
+                  <Text style={styles.metaSep}>·</Text>
                   <Text style={styles.archetypeText} numberOfLines={1}>
-                    BMI {stats.bmi}
+                    {stats.archetype}
                   </Text>
+                  {stats.bmi > 0 && (
+                    <>
+                      <Text style={styles.metaSep}>·</Text>
+                      <NumericText style={styles.archetypeText}>BMI {stats.bmi}</NumericText>
+                    </>
+                  )}
                 </View>
               </View>
             </View>
 
-            {/* Vital Performance Metrics (Spacious 2-Row Layout, No Truncation) */}
-            <View style={styles.heroMetricsCard}>
-              <View style={styles.heroMetricsTopRow}>
-                <View style={styles.heroMetricBox}>
-                  <Text style={styles.heroMetricLabel}>TRAINING FOCUS</Text>
-                  <Text style={styles.heroMetricValue} numberOfLines={1}>
-                    {stats.goalLabel.replace(' & Growth', '').replace(' Training', '')}
-                  </Text>
-                </View>
-
-                <View style={styles.heroMetricDivider} />
-
-                <View style={styles.heroMetricBox}>
-                  <Text style={styles.heroMetricLabel}>TOP TARGET</Text>
-                  <Text style={styles.heroMetricValue} numberOfLines={1}>
-                    {stats.topMuscleGroup}
-                  </Text>
-                </View>
+            {/* Rank Ladder Bar */}
+            <View style={styles.tierProgressBox}>
+              <View style={styles.tierProgressHeader}>
+                <NumericText style={styles.tierProgressLeft}>
+                  {stats.tierNextName ? `Progress to ${stats.tierNextName}` : 'Maximum Rank'}
+                </NumericText>
+                <NumericText style={[styles.tierProgressRight, { color: tierAccent }]}>
+                  {stats.tierProgressPct}%
+                </NumericText>
               </View>
-
-              <View style={styles.heroSignatureRow}>
-                <View style={styles.heroSignatureIconWrap}>
-                  <Ionicons name="trophy-outline" size={13} color="#FFD700" />
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.heroSignatureLabel}>TOP RECORDED LIFT</Text>
-                  <Text style={styles.heroSignatureValue} numberOfLines={1} ellipsizeMode="tail">
-                    {stats.signatureExercise}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* ══════════════════════════════════════════════════════════
-              2. CONSISTENCY & DUAL-STREAK ARENA
-          ══════════════════════════════════════════════════════════ */}
-          <View style={styles.sectionContainer}>
-            <View style={styles.sectionHeaderRow}>
-              <View style={styles.sectionTitleCol}>
-                <View style={styles.sectionTitleRow}>
-                  <Text style={{ fontSize: 14 }}>🔥</Text>
-                  <Text style={styles.sectionTitle} numberOfLines={1} ellipsizeMode="tail">
-                    CONSISTENCY & STREAKS
-                  </Text>
-                </View>
-                <Text style={styles.sectionSubtitle} numberOfLines={1} ellipsizeMode="tail">
-                  Active momentum & records
-                </Text>
-              </View>
-              <View style={styles.adherenceScorePill}>
-                <Text style={styles.adherenceScoreText}>
-                  {stats.consistencyScorePct}% Consistency
-                </Text>
-              </View>
+              <AnimatedProgressBar
+                progress={stats.tierProgressPct > 0 ? Math.max(4, stats.tierProgressPct) / 100 : 0}
+                height={5}
+                borderRadius={3}
+                durationMs={520}
+                replayKey={visible ? 1 : 0}
+                color={tierAccent}
+                trackColor={isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}
+              />
+              <Text style={styles.tierReqText}>{stats.tierRequirementText}</Text>
             </View>
 
-            {/* Dual-Streak Showcase Cards (Current vs All-Time Highest) */}
-            <View style={styles.dualStreakGrid}>
-              {/* CURRENT ACTIVE STREAK */}
-              <View style={styles.streakHeroCard}>
-                <LinearGradient
-                  colors={['rgba(255, 107, 0, 0.12)', 'rgba(255, 107, 0, 0.02)']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.streakCardGradient}
-                >
-                  <View style={styles.streakCardTop}>
-                    <Text style={{ fontSize: 20 }}>🔥</Text>
-                    <View style={styles.activeStreakTag}>
-                      <Text style={styles.activeStreakTagText}>ACTIVE</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.streakNumberRow}>
-                    <Text style={styles.streakNumberText}>{stats.streakDays}</Text>
-                    <Text style={styles.streakUnitText}>DAYS</Text>
-                  </View>
-
-                  <Text style={styles.streakCaption}>Current Streak</Text>
-                  <Text style={styles.streakSubcaption}>
-                    {stats.streakDays > 0 ? 'Momentum running strong' : 'Log a session to ignite'}
-                  </Text>
-                </LinearGradient>
+            {/* 3-Column Real Identity Strip (Zero Nested Box Soup) */}
+            <View style={styles.heroStripRow}>
+              <View style={styles.heroStripCol}>
+                <Text style={styles.stripLabel}>FOCUS</Text>
+                <Text style={styles.stripValue} numberOfLines={1}>{stats.goalLabel}</Text>
               </View>
-
-              {/* ALL-TIME HIGHEST STREAK */}
-              <View style={styles.streakHeroCard}>
-                <LinearGradient
-                  colors={['rgba(255, 215, 0, 0.12)', 'rgba(255, 215, 0, 0.02)']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.streakCardGradient}
-                >
-                  <View style={styles.streakCardTop}>
-                    <Text style={{ fontSize: 20 }}>🏆</Text>
-                    <View style={styles.recordStreakTag}>
-                      <Text style={styles.recordStreakTagText}>RECORD</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.streakNumberRow}>
-                    <Text style={styles.highestStreakNumberText}>{stats.highestStreakDays}</Text>
-                    <Text style={styles.streakUnitText}>DAYS</Text>
-                  </View>
-
-                  <Text style={styles.streakCaption}>All-Time Highest</Text>
-                  <Text style={styles.streakSubcaption}>
-                    Peak historical dedication
-                  </Text>
-                </LinearGradient>
+              <View style={styles.heroStripDivider} />
+              <View style={styles.heroStripCol}>
+                <Text style={styles.stripLabel}>TOP MUSCLE</Text>
+                <Text style={styles.stripValue} numberOfLines={1}>{stats.topMuscleGroup}</Text>
               </View>
-            </View>
-
-            {/* Performance KPI Pills (Sessions, Weekly, Tonnage) */}
-            <View style={styles.kpiRow}>
-              <View style={styles.kpiItem}>
-                <Ionicons name="barbell-outline" size={15} color="#0A84FF" />
-                <View style={{ marginLeft: 8, flex: 1, minWidth: 0 }}>
-                  <Text style={styles.kpiValueText} numberOfLines={1}>{stats.totalWorkouts}</Text>
-                  <Text style={styles.kpiLabelText}>SESSIONS</Text>
-                </View>
-              </View>
-
-              <View style={styles.kpiDivider} />
-
-              <View style={styles.kpiItem}>
-                <Ionicons name="speedometer-outline" size={15} color="#30D158" />
-                <View style={{ marginLeft: 8, flex: 1, minWidth: 0 }}>
-                  <Text style={styles.kpiValueText} numberOfLines={1}>{stats.weeklyFrequency}x</Text>
-                  <Text style={styles.kpiLabelText}>PER WEEK</Text>
-                </View>
-              </View>
-
-              <View style={styles.kpiDivider} />
-
-              <View style={styles.kpiItem}>
-                <Ionicons name="cube-outline" size={15} color="#BF5AF2" />
-                <View style={{ marginLeft: 8, flex: 1, minWidth: 0 }}>
-                  <Text style={styles.kpiValueText} numberOfLines={1}>{stats.totalLifetimeVolumeFormatted}</Text>
-                  <Text style={styles.kpiLabelText}>TONNAGE</Text>
-                </View>
+              <View style={styles.heroStripDivider} />
+              <View style={styles.heroStripCol}>
+                <Text style={styles.stripLabel}>TOP LIFT</Text>
+                <Text style={styles.stripValue} numberOfLines={1}>{stats.signatureExercise}</Text>
               </View>
             </View>
           </View>
 
-          {/* ══════════════════════════════════════════════════════════
-              3. INTERACTIVE STRENGTH BENCHMARKS (TAP FOR GRAPH)
-          ══════════════════════════════════════════════════════════ */}
-          <View style={styles.sectionContainer}>
+          {/* 2. CONSISTENCY & OUTPUT */}
+          <View style={styles.sectionBlock}>
             <View style={styles.sectionHeaderRow}>
-              <View style={styles.sectionTitleCol}>
-                <Text style={styles.sectionTitle} numberOfLines={1} ellipsizeMode="tail">
-                  STRENGTH BENCHMARKS
-                </Text>
-                <Text style={styles.sectionSubtitle} numberOfLines={1} ellipsizeMode="tail">
-                  Tap any lift to view progression charts ↗
+              <Text style={styles.sectionEyebrow}>CONSISTENCY & OUTPUT</Text>
+              <NumericText style={styles.sectionMetaRight}>
+                {stats.consistencyScorePct}% weekly goal
+              </NumericText>
+            </View>
+
+            <View style={styles.dualStreakRow}>
+              <View style={styles.streakCard}>
+                <View style={styles.streakTop}>
+                  <View style={[styles.streakIconWrap, { backgroundColor: tokens.status.warningDim }]}>
+                    <Flame size={15} strokeWidth={ICON.strokeWidth} color={tokens.status.warning} />
+                  </View>
+                  <Text style={styles.streakTagText}>CURRENT</Text>
+                </View>
+                <View style={styles.streakValRow}>
+                  <NumericText style={[styles.streakNumber, { color: tokens.status.warning }]}>
+                    {stats.streakDays}
+                  </NumericText>
+                  <Text style={styles.streakUnit}>days</Text>
+                </View>
+                <Text style={styles.streakHint}>
+                  {stats.streakDays > 0 ? 'Active workout streak' : 'Log a workout to start'}
                 </Text>
               </View>
-              <View style={styles.strengthScorePill}>
-                <Text style={styles.strengthScoreText}>
-                  Score {stats.overallStrengthScore}/100
-                </Text>
+
+              <View style={styles.streakCard}>
+                <View style={styles.streakTop}>
+                  <View style={[styles.streakIconWrap, { backgroundColor: tokens.status.goldDim }]}>
+                    <Trophy size={15} strokeWidth={ICON.strokeWidth} color={tokens.status.gold} />
+                  </View>
+                  <Text style={styles.streakTagText}>BEST RUN</Text>
+                </View>
+                <View style={styles.streakValRow}>
+                  <NumericText style={[styles.streakNumber, { color: tokens.status.gold }]}>
+                    {stats.highestStreakDays}
+                  </NumericText>
+                  <Text style={styles.streakUnit}>days</Text>
+                </View>
+                <Text style={styles.streakHint}>All-time longest streak</Text>
               </View>
             </View>
 
-            {/* 4 Interactive Benchmark Cards */}
-            <View style={styles.benchmarksList}>
-              {stats.benchmarks.map((b) => {
-                const conf = BENCHMARK_COLORS[b.category] || BENCHMARK_COLORS.Bench;
-                return (
-                  <TouchableOpacity
-                    key={b.category}
-                    style={styles.benchmarkCard}
-                    onPress={() => handleBenchmarkPress(b)}
-                    activeOpacity={0.75}
-                  >
-                    <View style={styles.bmCardHeader}>
-                      <View style={[styles.bmIconWrap, { backgroundColor: conf.bg }]}>
-                        <Ionicons name={conf.icon} size={17} color={conf.accent} />
-                      </View>
+            {/* 4-Metric Lifetime Telemetry Strip */}
+            <View style={styles.lifetimeStrip}>
+              <View style={styles.lifetimeCell}>
+                <NumericText style={styles.lifetimeVal}>{stats.totalWorkouts}</NumericText>
+                <Text style={styles.lifetimeLabel}>SESSIONS</Text>
+              </View>
+              <View style={styles.lifetimeDivider} />
+              <View style={styles.lifetimeCell}>
+                <NumericText style={styles.lifetimeVal}>{stats.weeklyFrequency}x</NumericText>
+                <Text style={styles.lifetimeLabel}>PER WEEK</Text>
+              </View>
+              <View style={styles.lifetimeDivider} />
+              <View style={styles.lifetimeCell}>
+                <NumericText style={styles.lifetimeVal}>{stats.totalWorkingSets}</NumericText>
+                <Text style={styles.lifetimeLabel}>SETS</Text>
+              </View>
+              <View style={styles.lifetimeDivider} />
+              <View style={styles.lifetimeCell}>
+                <NumericText style={styles.lifetimeVal} numberOfLines={1}>
+                  {volumeParts.numStr} {volumeParts.suffix}
+                </NumericText>
+                <Text style={styles.lifetimeLabel}>VOLUME</Text>
+              </View>
+            </View>
+          </View>
 
-                      <View style={styles.bmTitleCol}>
-                        <Text style={styles.bmExerciseName} numberOfLines={1} ellipsizeMode="tail">
-                          {b.exerciseName}
-                        </Text>
-                        <Text style={styles.bmSubtitle}>
-                          {b.categoryLabel} {b.bwRatio > 0 ? `· ${b.bwRatio}x BW` : '· Active Plan'}
-                        </Text>
-                      </View>
+          {/* 3. TRAINING DISTRIBUTION (Only when real sets exist) */}
+          {stats.muscleDistribution && stats.muscleDistribution.length > 0 && (
+            <View style={styles.sectionBlock}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionEyebrow}>MUSCLE FOCUS</Text>
+                <NumericText style={styles.sectionMetaRight}>
+                  {stats.totalWorkingSets} lifetime sets
+                </NumericText>
+              </View>
 
-                      {b.est1RMKg > 0 ? (
-                        <View style={styles.bmScoreCol}>
-                          <Text style={styles.bmScoreValue}>
-                            {b.est1RMKg} <Text style={styles.bmScoreUnit}>kg</Text>
-                          </Text>
-                          <Text style={[styles.bmScoreLevel, { color: conf.accent }]}>{b.level}</Text>
-                        </View>
-                      ) : (
-                        <View style={styles.bmUntrackedCol}>
-                          <Text style={styles.bmUntrackedText}>View</Text>
-                          <Ionicons name="chevron-forward" size={14} color="#8E8E93" />
-                        </View>
-                      )}
+              <View style={styles.distCard}>
+                <View style={styles.distBarTrack}>
+                  {stats.muscleDistribution.map((item, idx) => (
+                    <View
+                      key={item.group}
+                      style={[
+                        styles.distBarSeg,
+                        {
+                          flex: Math.max(0.05, item.pct),
+                          backgroundColor: resolveMuscleColor(item.group),
+                          borderTopLeftRadius: idx === 0 ? 4 : 0,
+                          borderBottomLeftRadius: idx === 0 ? 4 : 0,
+                          borderTopRightRadius: idx === stats.muscleDistribution.length - 1 ? 4 : 0,
+                          borderBottomRightRadius: idx === stats.muscleDistribution.length - 1 ? 4 : 0,
+                        },
+                      ]}
+                    />
+                  ))}
+                </View>
+
+                <View style={styles.distLegendRow}>
+                  {stats.muscleDistribution.map((item) => (
+                    <View key={item.group} style={styles.distLegendItem}>
+                      <View
+                        style={[
+                          styles.distLegendDot,
+                          { backgroundColor: resolveMuscleColor(item.group) },
+                        ]}
+                      />
+                      <Text style={styles.distLegendName}>{item.group}</Text>
+                      <NumericText style={styles.distLegendPct}>{item.pct}%</NumericText>
                     </View>
+                  ))}
+                </View>
+              </View>
+            </View>
+          )}
 
-                    {b.est1RMKg > 0 ? (
-                      <View style={styles.bmProgressSection}>
-                        <View style={styles.bmProgressTrack}>
-                          <View
-                            style={[
-                              styles.bmProgressBar,
-                              {
-                                width: `${Math.min(100, Math.max(10, b.progressPct))}%`,
-                                backgroundColor: conf.accent,
-                              },
-                            ]}
+          {/* 4. STRENGTH PROFILE (Verified Real Lifts Only — Hairline Ledger) */}
+          <View style={styles.sectionBlock}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionEyebrow}>STRENGTH PROFILE</Text>
+              <NumericText style={styles.sectionMetaRight}>
+                Score {stats.overallStrengthScore}/100
+              </NumericText>
+            </View>
+
+            {loggedBenchmarks.length > 0 ? (
+              <View style={styles.ledgerCard}>
+                {loggedBenchmarks.map((b, idx) => {
+                  const conf = getBenchmarkStyle(b.category, tokens);
+                  const LiftIcon = conf.Icon;
+                  const shown1RM = kgToDisplay(b.est1RMKg, unitIsLbs, 0);
+                  const shownNext = kgToDisplay(b.nextMilestoneKg, unitIsLbs, 0);
+                  const shownDiff = kgToDisplay(b.kgToNextTier, unitIsLbs, 0);
+
+                  return (
+                    <View key={`${b.category}-${b.exerciseName}`}>
+                      <TactileButton
+                        variant="custom"
+                        haptic="selection"
+                        style={styles.bmRow}
+                        onPress={() => handleBenchmarkPress(b)}
+                      >
+                        <View style={styles.bmTopRow}>
+                          <View style={[styles.bmIconWrap, { backgroundColor: conf.bg }]}>
+                            <LiftIcon size={16} strokeWidth={ICON.strokeWidth} color={conf.accent} />
+                          </View>
+
+                          <View style={styles.bmTitleCol}>
+                            <Text style={styles.bmExerciseName} numberOfLines={1} ellipsizeMode="tail">
+                              {b.exerciseName}
+                            </Text>
+                            <NumericText style={styles.bmSubtitle}>
+                              {b.categoryLabel} · {b.bwRatio}x BW
+                            </NumericText>
+                          </View>
+
+                          <View style={styles.bmRightCol}>
+                            <NumericText style={styles.bmScoreValue}>
+                              {shown1RM} <Text style={styles.bmScoreUnit}>{uLabel}</Text>
+                            </NumericText>
+                            <Text style={[styles.bmLevelText, { color: conf.accent }]}>{b.level}</Text>
+                          </View>
+
+                          <ChevronRight size={15} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} />
+                        </View>
+
+                        <View style={styles.bmBarWrap}>
+                          <AnimatedProgressBar
+                            progress={b.progressPct > 0 ? Math.min(100, Math.max(8, b.progressPct)) / 100 : 0}
+                            height={4}
+                            borderRadius={3}
+                            durationMs={480}
+                            replayKey={visible ? 1 : 0}
+                            color={conf.accent}
+                            trackColor={isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}
                           />
+                          <View style={styles.bmMilestoneRow}>
+                            {b.nextTierName === 'Mastery' ? (
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <Award size={12} strokeWidth={ICON.strokeWidth} color={tokens.status.gold} />
+                                <Text style={styles.bmMilestoneText}>Elite peak standard</Text>
+                              </View>
+                            ) : (
+                              <NumericText style={styles.bmMilestoneText}>
+                                Next: {b.nextTierName} at {shownNext} {uLabel} (+{shownDiff} {uLabel})
+                              </NumericText>
+                            )}
+                          </View>
                         </View>
-                        <View style={styles.bmMilestoneRow}>
-                          <Text style={styles.bmMilestoneText} numberOfLines={1} ellipsizeMode="tail">
-                            {b.nextTierName === 'Mastery'
-                              ? '👑 Elite Tier Achieved · Peak Load'
-                              : `Next: ${b.nextTierName} at ${b.nextMilestoneKg} kg (+${b.kgToNextTier} kg)`}
-                          </Text>
-                          <Ionicons name="trending-up" size={12} color={conf.accent} />
-                        </View>
-                      </View>
-                    ) : (
-                      <View style={styles.bmUntrackedFooter}>
-                        <Text style={styles.bmUntrackedFooterText} numberOfLines={1}>
-                          Tap to view technique guide, load trajectories & personal records ↗
-                        </Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
+                      </TactileButton>
 
-          {/* ══════════════════════════════════════════════════════════
-              4. AUTHENTICITY SEAL & ACTIONS
-          ══════════════════════════════════════════════════════════ */}
-          <View style={styles.authenticityBox}>
-            <View style={styles.authHeader}>
-              <Ionicons name="shield-checkmark" size={17} color="#30D158" />
-              <Text style={styles.authTitle}>ZENFIT ATHLETE ID · VERIFIED PERFORMANCE</Text>
-            </View>
-            <Text style={styles.authSubtitle}>
-              Benchmarked dynamically against bodyweight, progressive overload volume, and verified set logs.
-            </Text>
-
-            <TouchableOpacity
-              onPress={() => {
-                hapticLight();
-                onOpenSetup();
-              }}
-              style={styles.updateStatsBtn}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="options-outline" size={15} color="#FFFFFF" style={{ marginRight: 6 }} />
-              <Text style={styles.updateStatsBtnText}>Update Physical Stats & Focus</Text>
-            </TouchableOpacity>
+                      {idx < loggedBenchmarks.length - 1 && <View style={styles.rowDivider} />}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={styles.emptyBenchmarksCard}>
+                <View style={styles.emptyBenchmarksIcon}>
+                  <Dumbbell size={18} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.emptyBenchmarksTitle}>No strength logs recorded yet</Text>
+                  <Text style={styles.emptyBenchmarksSub}>
+                    Complete your first workout with sets and weights to unlock 1RM estimates and lift rankings.
+                  </Text>
+                </View>
+              </View>
+            )}
           </View>
         </ScrollView>
 
-        {/* ══════════════════════════════════════════════════════════
-            5. EXERCISE DEEP DIVE MODAL (INTERACTIVE TRAJECTORY GRAPH)
-        ══════════════════════════════════════════════════════════ */}
         {selectedExerciseName && (
           <ExerciseDeepDiveModal
             visible={!!selectedExerciseName}
@@ -499,563 +512,505 @@ export const FullAthleteProfileModal: React.FC<FullAthleteProfileModalProps> = (
           />
         )}
       </View>
-    </Modal>
+    </BottomSheet>
   );
 };
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-  navBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  closeBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#1C1C1E',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  navTitlesCol: {
-    alignItems: 'center',
-    flex: 1,
-    marginHorizontal: 8,
-  },
-  navPreTitle: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10,
-    color: '#8E8E93',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-  },
-  navTitle: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 17,
-    color: '#FFFFFF',
-    letterSpacing: -0.3,
-  },
-  editBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 14,
-    backgroundColor: '#2C2C2E',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    flexShrink: 0,
-  },
-  editBtnText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-    color: '#0A84FF',
-  },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-  },
+const makeStyles = (tokens: ThemeTokens, isDark: boolean) => {
+  const cardBg = isDark ? '#14161D' : '#FFFFFF';
+  const heroBg = isDark ? '#11131A' : '#FFFFFF';
+  const hairline = isDark ? 'rgba(255, 255, 255, 0.08)' : tokens.border.subtle;
 
-  /* ── Hero Dossier Card (Spacious Apple OLED, Zero Truncation) ── */
-  heroCard: {
-    backgroundColor: '#1C1C1E',
-    borderRadius: 20,
-    padding: 18,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#2C2C2E',
-  },
-  heroIdentityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  avatarGlowRing: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#18181B',
-    flexShrink: 0,
-  },
-  identityTextCol: {
-    flex: 1,
-    marginLeft: 14,
-    minWidth: 0,
-    justifyContent: 'center',
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 2,
-    minWidth: 0,
-  },
-  athleteName: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 20,
-    color: '#FFFFFF',
-    letterSpacing: -0.3,
-    flexShrink: 1,
-  },
-  physicalStatsText: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 13,
-    color: '#D1D1D6',
-    marginBottom: 4,
-  },
-  rankSubRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  tierDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  tierRankText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    letterSpacing: 0.2,
-  },
-  rankDotDivider: {
-    fontSize: 12,
-    color: '#636366',
-  },
-  archetypeText: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 12,
-    color: '#AEAEB2',
-  },
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: 'transparent',
+    },
+    navBar: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: SPACE.lg,
+      paddingTop: SPACE.xs + 2,
+      paddingBottom: SPACE.md,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: hairline,
+    },
+    closeBtn: {
+      width: 34,
+      height: 34,
+      borderRadius: RADIUS.full,
+      backgroundColor: cardBg,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: hairline,
+    },
+    navTitlesCol: {
+      alignItems: 'center',
+      flex: 1,
+      marginHorizontal: SPACE.sm,
+    },
+    navPreTitle: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 9.5,
+      color: tokens.text.secondary,
+      letterSpacing: 1.2,
+    },
+    navTitle: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 17,
+      color: tokens.text.primary,
+      letterSpacing: -0.3,
+    },
+    navRightGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      flexShrink: 0,
+    },
+    editBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 12,
+      height: 34,
+      borderRadius: RADIUS.full,
+      backgroundColor: cardBg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: hairline,
+      flexShrink: 0,
+    },
+    editBtnText: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 12.5,
+      color: tokens.accent.primary,
+    },
+    scrollContent: {
+      paddingHorizontal: SPACE.lg,
+      paddingTop: SPACE.md,
+      gap: SPACE.lg,
+    },
 
-  /* ── Hero Metrics (2-Row Spacious Grid, Zero Truncation) ── */
-  heroMetricsCard: {
-    backgroundColor: '#242426',
-    borderRadius: 14,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.04)',
-    gap: 10,
-  },
-  heroMetricsTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  heroMetricBox: {
-    flex: 1,
-    paddingHorizontal: 4,
-  },
-  heroMetricDivider: {
-    width: StyleSheet.hairlineWidth,
-    height: 28,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    marginHorizontal: 8,
-  },
-  heroMetricLabel: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 9.5,
-    color: '#8E8E93',
-    letterSpacing: 0.8,
-    marginBottom: 3,
-    textTransform: 'uppercase',
-  },
-  heroMetricValue: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13.5,
-    color: '#FFFFFF',
-  },
-  heroSignatureRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  heroSignatureIconWrap: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 215, 0, 0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  heroSignatureLabel: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 9,
-    color: '#8E8E93',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-  },
-  heroSignatureValue: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-    color: '#FFFFFF',
-    marginTop: 1,
-  },
+    // Hero Card
+    heroCard: {
+      backgroundColor: heroBg,
+      borderRadius: 20,
+      padding: SPACE.md + 2,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: hairline,
+      overflow: 'hidden',
+      gap: SPACE.md,
+    },
+    heroTopGlow: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 110,
+    },
+    heroIdentityRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    avatarWrap: {
+      position: 'relative',
+      flexShrink: 0,
+    },
+    avatarRing: {
+      width: 68,
+      height: 68,
+      borderRadius: RADIUS.full,
+      borderWidth: 2,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    crestCornerBadge: {
+      position: 'absolute',
+      right: -2,
+      bottom: -2,
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      borderWidth: 1.5,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    identityTextCol: {
+      flex: 1,
+      marginLeft: SPACE.md,
+      minWidth: 0,
+    },
+    nameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      minWidth: 0,
+    },
+    athleteName: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 20,
+      color: tokens.text.primary,
+      letterSpacing: -0.35,
+      flexShrink: 1,
+    },
+    physicalStatsText: {
+      fontFamily: FONT_FAMILY.medium,
+      fontSize: 12.5,
+      color: tokens.text.secondary,
+      marginTop: 2,
+    },
+    rankMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 5,
+      marginTop: 5,
+    },
+    tierDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+    },
+    tierLabelText: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 12,
+      letterSpacing: 0.15,
+    },
+    metaSep: {
+      fontSize: 12,
+      color: tokens.text.muted,
+    },
+    archetypeText: {
+      fontFamily: FONT_FAMILY.medium,
+      fontSize: 12,
+      color: tokens.text.secondary,
+    },
 
-  /* ── Section Header ── */
-  sectionContainer: {
-    marginBottom: 22,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sectionTitleCol: {
-    flex: 1,
-    minWidth: 0,
-    marginRight: 12,
-    justifyContent: 'center',
-  },
-  sectionTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    minWidth: 0,
-  },
-  sectionTitle: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-    color: '#E4E4E7',
-    letterSpacing: 0.5,
-    flexShrink: 1,
-    minWidth: 0,
-  },
-  sectionSubtitle: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11,
-    color: '#71717A',
-    marginTop: 2,
-  },
-  adherenceScorePill: {
-    backgroundColor: 'rgba(255, 107, 0, 0.12)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 0, 0.3)',
-    flexShrink: 0,
-    alignSelf: 'center',
-  },
-  adherenceScoreText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-    color: '#FF9F0A',
-    letterSpacing: 0.3,
-  },
+    tierProgressBox: {
+      gap: 6,
+      paddingTop: SPACE.xs,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: hairline,
+    },
+    tierProgressHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    tierProgressLeft: {
+      fontFamily: FONT_FAMILY.semibold,
+      fontSize: 11.5,
+      color: tokens.text.primary,
+    },
+    tierProgressRight: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 11.5,
+    },
+    tierReqText: {
+      fontFamily: FONT_FAMILY.regular,
+      fontSize: 11,
+      color: tokens.text.secondary,
+    },
 
-  /* ── Dual-Streak Grid ── */
-  dualStreakGrid: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 12,
-  },
-  streakHeroCard: {
-    flex: 1,
-    borderRadius: 18,
-    overflow: 'hidden',
-    backgroundColor: '#151518',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.07)',
-  },
-  streakCardGradient: {
-    padding: 14,
-  },
-  streakCardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  activeStreakTag: {
-    backgroundColor: 'rgba(255, 107, 0, 0.18)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  activeStreakTagText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 9,
-    color: '#FF6B00',
-    letterSpacing: 0.6,
-  },
-  recordStreakTag: {
-    backgroundColor: 'rgba(255, 215, 0, 0.18)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  recordStreakTagText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 9,
-    color: '#FFD700',
-    letterSpacing: 0.6,
-  },
-  streakNumberRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
-    marginBottom: 2,
-  },
-  streakNumberText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 30,
-    color: '#FF6B00',
-    lineHeight: 36,
-    flexShrink: 1,
-  },
-  highestStreakNumberText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 30,
-    color: '#FFD700',
-    lineHeight: 36,
-    flexShrink: 1,
-  },
-  streakUnitText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 12,
-    color: '#71717A',
-    letterSpacing: 0.5,
-  },
-  streakCaption: {
-    fontFamily: FONT_FAMILY.semibold,
-    fontSize: 13,
-    color: '#FFFFFF',
-    marginTop: 2,
-  },
-  streakSubcaption: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 10,
-    color: '#71717A',
-    marginTop: 2,
-  },
+    heroStripRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingTop: SPACE.sm + 2,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: hairline,
+    },
+    heroStripCol: {
+      flex: 1,
+      minWidth: 0,
+      paddingHorizontal: 4,
+    },
+    heroStripDivider: {
+      width: StyleSheet.hairlineWidth,
+      height: 26,
+      backgroundColor: hairline,
+    },
+    stripLabel: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 9.5,
+      color: tokens.text.muted,
+      letterSpacing: 0.7,
+      marginBottom: 2,
+    },
+    stripValue: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 12.5,
+      color: tokens.text.primary,
+    },
 
-  /* ── KPI Row ── */
-  kpiRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#151518',
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  kpiItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    minWidth: 0,
-  },
-  kpiDivider: {
-    width: 1,
-    height: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    marginHorizontal: 6,
-  },
-  kpiValueText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-    color: '#FFFFFF',
-  },
-  kpiLabelText: {
-    fontFamily: FONT_FAMILY.semibold,
-    fontSize: 9,
-    color: '#71717A',
-    letterSpacing: 0.5,
-  },
+    // Sections
+    sectionBlock: {
+      gap: SPACE.sm,
+    },
+    sectionHeaderRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 2,
+    },
+    sectionEyebrow: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 11,
+      color: tokens.text.secondary,
+      letterSpacing: 0.8,
+    },
+    sectionMetaRight: {
+      fontFamily: FONT_FAMILY.semibold,
+      fontSize: 11.5,
+      color: tokens.text.muted,
+      flexShrink: 0,
+    },
 
-  /* ── Benchmarks ── */
-  strengthScorePill: {
-    backgroundColor: 'rgba(0, 240, 255, 0.12)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 240, 255, 0.3)',
-    flexShrink: 0,
-    alignSelf: 'center',
-  },
-  strengthScoreText: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-    color: '#00F0FF',
-    letterSpacing: 0.3,
-  },
-  benchmarksList: {
-    gap: 10,
-  },
-  benchmarkCard: {
-    backgroundColor: '#1C1C1E',
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#2C2C2E',
-  },
-  bmCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  bmIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-    flexShrink: 0,
-  },
-  bmTitleCol: {
-    flex: 1,
-    minWidth: 0,
-    marginRight: 10,
-  },
-  bmExerciseName: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 15,
-    color: '#FFFFFF',
-    letterSpacing: -0.2,
-  },
-  bmSubtitle: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 11.5,
-    color: '#8E8E93',
-    marginTop: 2,
-  },
-  bmScoreCol: {
-    alignItems: 'flex-end',
-    flexShrink: 0,
-  },
-  bmScoreValue: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 17,
-    color: '#FFFFFF',
-  },
-  bmScoreUnit: {
-    fontSize: 11,
-    color: '#8E8E93',
-    fontFamily: FONT_FAMILY.regular,
-  },
-  bmScoreLevel: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 10.5,
-    letterSpacing: 0.3,
-    marginTop: 1,
-  },
-  bmUntrackedCol: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    flexShrink: 0,
-  },
-  bmUntrackedText: {
-    fontFamily: FONT_FAMILY.semibold,
-    fontSize: 12,
-    color: '#8E8E93',
-  },
-  bmProgressSection: {
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  bmProgressTrack: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    overflow: 'hidden',
-    marginBottom: 6,
-  },
-  bmProgressBar: {
-    height: '100%',
-    borderRadius: 2,
-  },
-  bmMilestoneRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  bmMilestoneText: {
-    fontFamily: FONT_FAMILY.medium,
-    fontSize: 11,
-    color: '#8E8E93',
-    flex: 1,
-    marginRight: 6,
-  },
-  bmUntrackedFooter: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255, 255, 255, 0.04)',
-  },
-  bmUntrackedFooterText: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11,
-    color: '#636366',
-  },
+    // Streaks
+    dualStreakRow: {
+      flexDirection: 'row',
+      gap: SPACE.sm + 2,
+    },
+    streakCard: {
+      flex: 1,
+      backgroundColor: cardBg,
+      borderRadius: 16,
+      padding: SPACE.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: hairline,
+      gap: 4,
+    },
+    streakTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 4,
+    },
+    streakIconWrap: {
+      width: 28,
+      height: 28,
+      borderRadius: 9,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    streakTagText: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 9.5,
+      color: tokens.text.muted,
+      letterSpacing: 0.8,
+    },
+    streakValRow: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      gap: 4,
+    },
+    streakNumber: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 28,
+      letterSpacing: -0.8,
+    },
+    streakUnit: {
+      fontFamily: FONT_FAMILY.medium,
+      fontSize: 12,
+      color: tokens.text.secondary,
+    },
+    streakHint: {
+      fontFamily: FONT_FAMILY.regular,
+      fontSize: 11.5,
+      color: tokens.text.secondary,
+    },
 
-  /* ── Authenticity Box ── */
-  authenticityBox: {
-    backgroundColor: '#121215',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-    alignItems: 'center',
-  },
-  authHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
-  },
-  authTitle: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 11,
-    color: '#30D158',
-    letterSpacing: 0.8,
-  },
-  authSubtitle: {
-    fontFamily: FONT_FAMILY.regular,
-    fontSize: 11,
-    color: '#71717A',
-    textAlign: 'center',
-    marginBottom: 14,
-    lineHeight: 16,
-  },
-  updateStatsBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    backgroundColor: '#1F1F24',
-    paddingVertical: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  updateStatsBtnText: {
-    fontFamily: FONT_FAMILY.semibold,
-    fontSize: 13,
-    color: '#FFFFFF',
-  },
-});
+    // Lifetime Strip
+    lifetimeStrip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: cardBg,
+      borderRadius: 16,
+      paddingVertical: 13,
+      paddingHorizontal: 8,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: hairline,
+    },
+    lifetimeCell: {
+      flex: 1,
+      alignItems: 'center',
+      minWidth: 0,
+      paddingHorizontal: 2,
+    },
+    lifetimeDivider: {
+      width: StyleSheet.hairlineWidth,
+      height: 26,
+      backgroundColor: hairline,
+    },
+    lifetimeVal: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 15,
+      color: tokens.text.primary,
+      letterSpacing: -0.2,
+    },
+    lifetimeLabel: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 9.5,
+      color: tokens.text.muted,
+      letterSpacing: 0.6,
+      marginTop: 2,
+    },
+
+    // Muscle Focus Distribution
+    distCard: {
+      backgroundColor: cardBg,
+      borderRadius: 16,
+      padding: SPACE.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: hairline,
+      gap: 10,
+    },
+    distBarTrack: {
+      flexDirection: 'row',
+      height: 8,
+      borderRadius: 4,
+      overflow: 'hidden',
+      gap: 2,
+    },
+    distBarSeg: {
+      height: '100%',
+    },
+    distLegendRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 12,
+    },
+    distLegendItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+    },
+    distLegendDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 3.5,
+    },
+    distLegendName: {
+      fontFamily: FONT_FAMILY.medium,
+      fontSize: 12,
+      color: tokens.text.primary,
+    },
+    distLegendPct: {
+      fontFamily: FONT_FAMILY.semibold,
+      fontSize: 11.5,
+      color: tokens.text.secondary,
+    },
+
+    // Strength Ledger
+    ledgerCard: {
+      backgroundColor: cardBg,
+      borderRadius: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: hairline,
+      overflow: 'hidden',
+    },
+    bmRow: {
+      paddingVertical: 13,
+      paddingHorizontal: 15,
+      gap: 9,
+    },
+    rowDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: hairline,
+      marginHorizontal: 15,
+    },
+    bmTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    bmIconWrap: {
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+    },
+    bmTitleCol: {
+      flex: 1,
+      minWidth: 0,
+    },
+    bmExerciseName: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 14.5,
+      color: tokens.text.primary,
+      letterSpacing: -0.2,
+    },
+    bmSubtitle: {
+      fontFamily: FONT_FAMILY.regular,
+      fontSize: 12,
+      color: tokens.text.secondary,
+      marginTop: 1,
+    },
+    bmRightCol: {
+      alignItems: 'flex-end',
+      flexShrink: 0,
+    },
+    bmScoreValue: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 15,
+      color: tokens.text.primary,
+    },
+    bmScoreUnit: {
+      fontFamily: FONT_FAMILY.medium,
+      fontSize: 11.5,
+      color: tokens.text.secondary,
+    },
+    bmLevelText: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 10.5,
+      marginTop: 1,
+    },
+    bmBarWrap: {
+      gap: 5,
+    },
+    bmMilestoneRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    bmMilestoneText: {
+      fontFamily: FONT_FAMILY.regular,
+      fontSize: 11.5,
+      color: tokens.text.secondary,
+    },
+
+    emptyBenchmarksCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      backgroundColor: cardBg,
+      borderRadius: 16,
+      padding: SPACE.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: hairline,
+    },
+    emptyBenchmarksIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      backgroundColor: tokens.accent.primaryDim,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+    },
+    emptyBenchmarksTitle: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: 14,
+      color: tokens.text.primary,
+      marginBottom: 2,
+    },
+    emptyBenchmarksSub: {
+      fontFamily: FONT_FAMILY.regular,
+      fontSize: 12,
+      color: tokens.text.secondary,
+      lineHeight: 17,
+    },
+  });
+};

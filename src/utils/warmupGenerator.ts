@@ -23,24 +23,33 @@ export interface WarmupConfig {
   category?: MovementCategory;
   priorSetsForMuscleGroup?: number;
   barTare?: number;
+  weightStep?: number;
+  isLbs?: boolean;
 }
 
-const snap2_5 = (val: number) => Math.max(2.5, Math.round(val / 2.5) * 2.5);
+const snapWeightStep = (val: number, step: number) =>
+  Math.max(step, Math.round(val / step) * step);
 
 export function generateWarmupLadder(
   workingWeightOrConfig: number | WarmupConfig,
-  legacyBarTare = 20
+  legacyBarTare?: number
 ): GymSet[] {
-  let targetW = 40;
   let category: MovementCategory = 'STANDARD_COMPOUND';
   let priorSets = 0;
-  let barTare = legacyBarTare;
+  const isConfigObj = typeof workingWeightOrConfig === 'object' && workingWeightOrConfig !== null;
+  const isLbs = isConfigObj ? Boolean(workingWeightOrConfig.isLbs) : false;
+  const step = isConfigObj && workingWeightOrConfig.weightStep && workingWeightOrConfig.weightStep > 0
+    ? workingWeightOrConfig.weightStep
+    : (isLbs ? 5 : 2.5);
+  let barTare = isConfigObj
+    ? (workingWeightOrConfig.barTare ?? (isLbs ? 45 : 20))
+    : (legacyBarTare ?? 20);
 
-  if (typeof workingWeightOrConfig === 'number') {
-    targetW = Math.max(10, workingWeightOrConfig || 40);
-  } else if (workingWeightOrConfig && typeof workingWeightOrConfig === 'object') {
-    targetW = Math.max(10, workingWeightOrConfig.workingWeight || 40);
-    barTare = workingWeightOrConfig.barTare ?? 20;
+  const rawW = typeof workingWeightOrConfig === 'number'
+    ? workingWeightOrConfig
+    : workingWeightOrConfig?.workingWeight ?? (isLbs ? 95 : 40);
+
+  if (isConfigObj) {
     priorSets = workingWeightOrConfig.priorSetsForMuscleGroup ?? 0;
     if (workingWeightOrConfig.category) {
       category = workingWeightOrConfig.category;
@@ -50,14 +59,30 @@ export function generateWarmupLadder(
     }
   }
 
-  // ── 1. Check Prior Warmth: Acclimation set only if muscle is already warm ──
-  if (priorSets >= 2) {
-    const acclimationWeight = snap2_5(Math.max(barTare, targetW * 0.75));
-    const safeW = Math.min(targetW - 2.5, acclimationWeight);
+  if (rawW <= step * 2) {
     return [
       {
         setNumber: 1,
-        weight: safeW > 0 ? safeW : targetW,
+        weight: 0,
+        reps: 10,
+        completed: false,
+        isWarmup: true,
+        warmupLabel: 'W1',
+      },
+    ];
+  }
+
+  const targetW = rawW;
+  const effectiveTare = Math.min(barTare, Math.max(0, targetW - step));
+
+  // ── 1. Check Prior Warmth: Acclimation set only if muscle is already warm ──
+  if (priorSets >= 2) {
+    const acclimationWeight = snapWeightStep(Math.max(effectiveTare, targetW * 0.75), step);
+    const safeW = Math.min(targetW - step, acclimationWeight);
+    return [
+      {
+        setNumber: 1,
+        weight: safeW > 0 ? safeW : Math.max(0, targetW - step),
         reps: 3,
         completed: false,
         isWarmup: true,
@@ -67,9 +92,10 @@ export function generateWarmupLadder(
   }
 
   // ── 2. Check Exercise Category: Isolations require 1 pump set max ───────────
-  if (category === 'ISOLATION' || targetW <= 25) {
-    const w1 = snap2_5(targetW * 0.6);
-    const safeW1 = Math.min(targetW - 2.5, Math.max(2.5, w1));
+  const isolationThreshold = isLbs ? 55 : 25;
+  if (category === 'ISOLATION' || targetW <= isolationThreshold) {
+    const w1 = snapWeightStep(targetW * 0.6, step);
+    const safeW1 = Math.min(targetW - step, Math.max(step, w1));
     return [
       {
         setNumber: 1,
@@ -83,25 +109,27 @@ export function generateWarmupLadder(
   }
 
   // ── 3. Fresh Compounds: Dynamic Step Count by Absolute Bar Load ───────────
-  const isHeavyBarbell = category === 'HEAVY_COMPOUND' || targetW >= 60;
-  const wBase = isHeavyBarbell ? Math.min(barTare, targetW * 0.5) : snap2_5(targetW * 0.35);
-  const deltaW = Math.max(10, targetW - wBase);
+  const heavyThreshold = isLbs ? 135 : 60;
+  const isHeavyBarbell = category === 'HEAVY_COMPOUND' || targetW >= heavyThreshold;
+  const wBase = isHeavyBarbell ? Math.min(barTare, targetW * 0.5) : snapWeightStep(targetW * 0.35, step);
+  const deltaStepSpan = isLbs ? 70 : 32.5;
+  const deltaW = Math.max(step * 4, targetW - wBase);
 
   // Scale warmup sets count from 2 to 6 sets based on load delta:
   // 60kg Bench (deltaW = 40kg) -> 3 sets
   // 100kg Bench (deltaW = 80kg) -> 4 sets
   // 180kg Squat (deltaW = 160kg) -> 6 sets
-  const numWarmupSets = Math.min(6, Math.max(2, Math.ceil(deltaW / 32.5) + 1));
+  const numWarmupSets = Math.min(6, Math.max(2, Math.ceil(deltaW / deltaStepSpan) + 1));
 
   const warmupSets: GymSet[] = [];
 
   for (let k = 1; k <= numWarmupSets; k++) {
-    // Neural potentiation curve: 0.85 exponent front-loads bigger jumps early
-    const progress = (k - 1) / (numWarmupSets - 1);
+    // Neural potentiation curve: 0.85 exponent front-loads bigger jumps early (Issue #95: guard division by 0)
+    const progress = (k - 1) / Math.max(1, numWarmupSets - 1);
     const pct = (wBase / targetW) + (0.88 - (wBase / targetW)) * Math.pow(progress, 0.85);
 
-    const rawWeight = snap2_5(targetW * pct);
-    const weight = Math.min(targetW - 2.5, Math.max(wBase, rawWeight));
+    const rawWeight = snapWeightStep(targetW * pct, step);
+    const weight = Math.min(targetW - step, Math.max(wBase, rawWeight));
 
     // Physiological rep decay: 8-10 reps on light sets, tapering to 3-5 on acclimation sets, 1-2 on final potentiation
     const reps =
@@ -130,7 +158,7 @@ export function generateWarmupLadder(
   return warmupSets.length > 0 ? warmupSets : [
     {
       setNumber: 1,
-      weight: snap2_5(targetW * 0.5),
+      weight: snapWeightStep(targetW * 0.5, step),
       reps: 8,
       completed: false,
       isWarmup: true,
@@ -138,7 +166,7 @@ export function generateWarmupLadder(
     },
     {
       setNumber: 2,
-      weight: snap2_5(targetW * 0.75),
+      weight: snapWeightStep(targetW * 0.75, step),
       reps: 4,
       completed: false,
       isWarmup: true,
@@ -153,20 +181,18 @@ export function generateWarmupLadder(
 export function insertWarmupLadder(
   existingSets: GymSet[],
   workingWeightOrConfig: number | WarmupConfig,
-  barTare = 20
+  barTare?: number
 ): GymSet[] {
   // Filter out any existing warmups
   const workingSetsOnly = existingSets.filter(s => !s.isWarmup);
 
   const warmups = generateWarmupLadder(workingWeightOrConfig, barTare);
 
-  // Renumber working sets sequentially starting from 1
-  const reindexedWorkingSets = workingSetsOnly.map((s, i) => ({
+  // Renumber all sets sequentially so setNumber is unique and strictly monotonic
+  const merged = [...warmups, ...workingSetsOnly];
+  return merged.map((s, i) => ({
     ...s,
     setNumber: i + 1,
-    isWarmup: false,
-    warmupLabel: undefined,
+    warmupLabel: s.isWarmup ? s.warmupLabel || `W${i + 1}` : undefined,
   }));
-
-  return [...warmups, ...reindexedWorkingSets];
 }

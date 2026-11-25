@@ -15,16 +15,27 @@ const getSyncMetaKey = (uid?: string | null) =>
 let _memorySyncTimestamps: Record<string, number> = {};
 let _touchTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function clearSyncMeta(uid?: string): void {
+export async function clearSyncMeta(uid?: string): Promise<void> {
   if (_touchTimer) {
     clearTimeout(_touchTimer);
     _touchTimer = null;
   }
   if (uid) {
     delete _memorySyncTimestamps[uid];
-    AsyncStorage.removeItem(getSyncMetaKey(uid)).catch(() => {});
-  } else {
-    _memorySyncTimestamps = {};
+    await AsyncStorage.removeItem(getSyncMetaKey(uid)).catch(() => {});
+    return;
+  }
+  _memorySyncTimestamps = {};
+  try {
+    const allKeys = await AsyncStorage.getAllKeys();
+    const metaKeys = allKeys.filter(k => k.startsWith('@zentrack_last_sync_meta_v1'));
+    if (metaKeys.length > 0) {
+      await AsyncStorage.multiRemove(metaKeys);
+    } else {
+      await AsyncStorage.removeItem(getSyncMetaKey());
+    }
+  } catch {
+    await AsyncStorage.removeItem(getSyncMetaKey()).catch(() => {});
   }
 }
 

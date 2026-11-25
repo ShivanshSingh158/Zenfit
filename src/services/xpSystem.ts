@@ -1,37 +1,17 @@
-/**
- * ZenTrack Mobile — XP & Rewards System
- *
- * Psychology: Operant conditioning with VARIABLE reward schedules.
- * Variable rewards are 3× more habit-forming than fixed rewards because
- * the unpredictability creates anticipation (Skinner's slot machine effect).
- *
- * Reward sources:
- *  - Task complete:    10–50 XP (variable)
- *  - Habit logged:     15 XP flat + streak bonus
- *  - Goal milestone:   200 XP
- *  - Perfect day:      500 XP
- *  - Surprise bonus:   10% random trigger (50–200 XP extra)
- */
+// src/services/xpSystem.ts
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DeviceEventEmitter, AppState } from 'react-native';
 import { doc, getDoc, setDoc, increment } from 'firebase/firestore';
 import { db, auth } from './firebase';
-import { updateL1Cache, getBootManifestSync } from '../utils/bootManifest';
+import { updateL1Cache, getBootManifestSync, getL1Sync, setL1Sync } from '../utils/bootManifest';
 import { safeWrite } from '../utils/safeWrite';
 import { COLLECTION } from '../config/constants';
 
-// Automatically flush pending XP cloud sync when app backgrounds
-AppState.addEventListener('change', nextState => {
-  if (nextState === 'background' || nextState === 'inactive') {
-    flushPendingXPCloudSync();
-  }
-});
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const XP_KEY     = 'zentrack_xp_v1';
-const STREAK_KEY = 'zentrack_xp_streak';
+const XP_KEY            = 'zentrack_xp_v1';
+const STREAK_KEY        = 'zentrack_xp_streak';
+const REWARDED_KEYS_KEY = '@zentrack_xp_rewarded_keys_v1';
+const MAX_REWARDED_KEYS = 500;
 
 export const LEVEL_THRESHOLDS = [
   0,        //  0 — Seeker
@@ -40,7 +20,7 @@ export const LEVEL_THRESHOLDS = [
   7000,     //  3 — Guardian
   14000,    //  4 — Vanguard
   27000,    //  5 — Luminary
-  59500,    //  6 — Legend         ← user anchor point
+  59500,    //  6 — Legend
   110000,   //  7 — Mythic
   180000,   //  8 — Paragon
   270000,   //  9 — Titan
@@ -57,88 +37,98 @@ export const LEVEL_THRESHOLDS = [
 ];
 
 export const LEVEL_TITLES = [
-  'Seeker',       // 0
-  'Warden',       // 500
-  'Sentinel',     // 1200
-  'Guardian',     // 2500
-  'Vanguard',     // 4200
-  'Luminary',     // 6500
-  'Legend',       // 9500
-  'Mythic',       // 13500
-  'Paragon',      // 18000
-  'Titan',        // 23000
-  'Ascendant',    // 29000
-  'Exalted',      // 36000
-  'Sovereign',    // 44000
-  'Archon',       // 53000
-  'Celestial',    // 63500
-  'Ethereal',     // 75500
-  'Empyrean',     // 89000
-  'Astral',       // 104000
-  'Zenith',       // 121000
-  'Apex',         // 140000
+  'Seeker',
+  'Warden',
+  'Sentinel',
+  'Guardian',
+  'Vanguard',
+  'Luminary',
+  'Legend',
+  'Mythic',
+  'Paragon',
+  'Titan',
+  'Ascendant',
+  'Exalted',
+  'Sovereign',
+  'Archon',
+  'Celestial',
+  'Ethereal',
+  'Empyrean',
+  'Astral',
+  'Zenith',
+  'Apex',
 ];
 
-// ─── XP Sources — Base amounts before variable modifier ──────────────────────
-
 export const XP_SOURCES = {
-  TASK_COMPLETE:    { base: 50, range: 50 },    // 50–100 XP (variable)
-  HABIT_LOG:        { base: 50, range: 0  },    // 50 flat
-  HABIT_STREAK_7:   { base: 300, range: 0  },   // 7-day streak bonus
-  HABIT_STREAK_30:  { base: 1500, range: 0 },   // 30-day streak bonus
-  ATTENDANCE_LOG:   { base: 35, range: 15 },    // 35–50 XP per class/lab attended
-  GOAL_MILESTONE:   { base: 1000, range: 0 },   // Goal marked complete
-  PERFECT_DAY:      { base: 1000, range: 0 },   // All tasks + habits done
-  GYM_SET:          { base: 10, range: 5  },    // 10–15 XP per logged set
-  GYM_SESSION:      { base: 150, range: 50 },   // 150–200 XP for workout completion
-  GYM_PR:           { base: 300, range: 200 },  // 300–500 XP for a new PR 🏆
-  ONBOARDING:       { base: 500, range: 0 },    // First-run bonus
-  LECTURE_COMPLETE: { base: 25, range: 0 },     // +25 XP per completed lecture chapter
-  QUIZ_PERFECT:     { base: 50, range: 0 },     // +50 XP for scoring 3/3 on lecture quiz
-  FLASHCARD_REVIEW: { base: 10, range: 0 },     // +10 XP for daily flashcard review session
-  STEP_GOAL_HIT:    { base: 100, range: 50 },   // +100-150 XP for reaching daily step goal
-  POMODORO_SESSION: { base: 60, range: 40 },    // +60-100 XP for completed Pomodoro focus session
+  GYM_SET:          { base: 10, range: 5  },
+  GYM_SESSION:      { base: 150, range: 50 },
+  GYM_PR:           { base: 300, range: 200 },
+  ONBOARDING:       { base: 500, range: 0 },
+  STEP_GOAL_HIT:    { base: 100, range: 50 },
 };
 
-
-// Surprise bonus: 10% chance, adds 150–400 XP on top of base reward
-const SURPRISE_CHANCE   = 0.10;
-const SURPRISE_MIN      = 150;
-const SURPRISE_MAX      = 400;
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+const SURPRISE_CHANCE = 0.10;
+const SURPRISE_MIN    = 150;
+const SURPRISE_MAX    = 400;
 
 export interface XPResult {
-  totalXP:    number;   // New cumulative XP
-  added:      number;   // XP added this action
-  bonus:      boolean;  // Was a surprise bonus triggered?
-  bonusXP:    number;   // How much the bonus added (0 if no bonus)
-  leveledUp:  boolean;  // Did the user level up?
-  newLevel:   number;   // Current level after this action
-  newTitle:   string;   // Level title
+  totalXP:   number;
+  added:     number;
+  bonus:     boolean;
+  bonusXP:   number;
+  leveledUp: boolean;
+  newLevel:  number;
+  newTitle:  string;
 }
 
 export interface XPState {
-  xp:    number;
-  level: number;
-  title: string;
+  xp:            number;
+  level:         number;
+  title:         string;
   nextThreshold: number;
-  progress: number;  // 0.0 → 1.0 progress to next level
+  progress:      number;
 }
 
-// ── In-Memory & Resilient Remote Sync ────────────────────────────────────────
 let _inMemoryXP: number | null = null;
+let _rewardedKeysSet: Set<string> | null = null;
+let _xpFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingXPToSync: { uid: string; xp: number } | null = null;
+let _pendingXPDelta = 0;
+
+function cancelPendingXPCloudFlush(): void {
+  if (_xpFlushTimer) {
+    clearTimeout(_xpFlushTimer);
+    _xpFlushTimer = null;
+  }
+  _pendingXPToSync = null;
+  _pendingXPDelta = 0;
+}
 
 export function clearXPMemory(): void {
+  cancelPendingXPCloudFlush();
   _inMemoryXP = null;
+  _rewardedKeysSet = null;
 }
 
-/**
- * Reconciles incoming Firestore XP with local in-memory/AsyncStorage cache.
- * Always takes the highest cumulative XP to ensure zero progress loss across devices.
- */
+async function getRewardedKeysSet(): Promise<Set<string>> {
+  if (_rewardedKeysSet) return _rewardedKeysSet;
+  const cached = getL1Sync<string[] | null>(REWARDED_KEYS_KEY, null);
+  if (Array.isArray(cached)) {
+    _rewardedKeysSet = new Set(cached);
+    return _rewardedKeysSet;
+  }
+  try {
+    const raw = await AsyncStorage.getItem(REWARDED_KEYS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    _rewardedKeysSet = new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    _rewardedKeysSet = new Set();
+  }
+  return _rewardedKeysSet;
+}
+
 export async function syncXPWithFirestore(firestoreXP: number): Promise<void> {
-  if (typeof firestoreXP !== 'number' || isNaN(firestoreXP)) return;
+  if (typeof firestoreXP !== 'number' || !Number.isFinite(firestoreXP)) return;
 
   if (_inMemoryXP === null) {
     const bootXp = getBootManifestSync()?.xp;
@@ -150,9 +140,11 @@ export async function syncXPWithFirestore(firestoreXP: number): Promise<void> {
     }
   }
 
-  const currentLocal = _inMemoryXP ?? 0;
+  const currentLocal = Math.max(0, _inMemoryXP ?? 0);
 
   if (firestoreXP >= currentLocal) {
+    // If Firestore is already ahead of or equal to local, clear any pending delta that was already folded in
+    cancelPendingXPCloudFlush();
     _inMemoryXP = firestoreXP;
     updateL1Cache('xp', firestoreXP);
     AsyncStorage.setItem(XP_KEY, String(firestoreXP)).catch(() => {});
@@ -164,7 +156,8 @@ export async function syncXPWithFirestore(firestoreXP: number): Promise<void> {
       });
     } catch {}
   } else if (currentLocal > firestoreXP && auth.currentUser?.uid) {
-    // Local offline progress was ahead of Firestore — push local value to Firestore!
+    // Fix #29: Cancel pending relative increment before pushing absolute currentLocal so delta is never double-counted!
+    cancelPendingXPCloudFlush();
     const uid = auth.currentUser.uid;
     safeWrite(
       () => setDoc(doc(db, COLLECTION.USER_PROFILES, uid), { xp: currentLocal }, { merge: true }),
@@ -176,11 +169,8 @@ export async function syncXPWithFirestore(firestoreXP: number): Promise<void> {
   }
 }
 
-// ─── Core Functions ───────────────────────────────────────────────────────────
-
-/** Get current total XP — in-memory first, local cache second, Firestore fallback */
 export async function getXP(): Promise<number> {
-  if (_inMemoryXP !== null) return _inMemoryXP;
+  if (_inMemoryXP !== null) return Math.max(0, _inMemoryXP);
 
   const bootManifest = getBootManifestSync();
   if (bootManifest && typeof bootManifest.xp === 'number' && bootManifest.xp > 0) {
@@ -191,20 +181,18 @@ export async function getXP(): Promise<number> {
   try {
     const stored = await AsyncStorage.getItem(XP_KEY);
     if (stored !== null) {
-      _inMemoryXP = parseInt(stored, 10) || 0;
+      _inMemoryXP = Math.max(0, parseInt(stored, 10) || 0);
       updateL1Cache('xp', _inMemoryXP);
       return _inMemoryXP;
     }
 
-    // No local cache (fresh install or reinstall) — load from Firestore
     const uid = auth.currentUser?.uid;
     if (uid) {
       const snap = await getDoc(doc(db, COLLECTION.USER_PROFILES, uid));
       if (snap.exists()) {
-        const firestoreXP = snap.data()?.xp ?? 0;
+        const firestoreXP = Math.max(0, Number(snap.data()?.xp) || 0);
         _inMemoryXP = firestoreXP;
         updateL1Cache('xp', firestoreXP);
-        // Seed local cache so future reads are instant
         await AsyncStorage.setItem(XP_KEY, String(firestoreXP));
         return firestoreXP;
       }
@@ -218,8 +206,8 @@ export async function getXP(): Promise<number> {
   }
 }
 
-/** Calculate level and title from raw XP number */
-export function getLevel(xp: number): XPState {
+export function getLevel(rawXp: number): XPState {
+  const xp = Math.max(0, Number.isFinite(rawXp) ? rawXp : 0);
   let level = 0;
   for (let i = LEVEL_THRESHOLDS.length - 1; i >= 0; i--) {
     if (xp >= LEVEL_THRESHOLDS[i]) {
@@ -230,32 +218,23 @@ export function getLevel(xp: number): XPState {
 
   const currentThreshold = LEVEL_THRESHOLDS[level];
   const nextThreshold    = LEVEL_THRESHOLDS[level + 1] ?? LEVEL_THRESHOLDS[level] * 2;
-  const rangeSize        = nextThreshold - currentThreshold;
-  const progress         = Math.min((xp - currentThreshold) / rangeSize, 1);
+  const rangeSize        = Math.max(1, nextThreshold - currentThreshold);
+  const progress         = Math.max(0, Math.min((xp - currentThreshold) / rangeSize, 1));
 
   return {
     xp,
     level,
-    title:         LEVEL_TITLES[level] ?? 'Apex',
+    title: LEVEL_TITLES[level] ?? 'Apex',
     nextThreshold,
     progress,
   };
 }
 
-let _xpFlushTimer: ReturnType<typeof setTimeout> | null = null;
-let _pendingXPToSync: { uid: string; xp: number } | null = null;
-let _pendingXPDelta = 0;
-
 export function flushPendingXPCloudSync(): void {
   if (!_pendingXPToSync || _pendingXPDelta <= 0) return;
-  if (_xpFlushTimer) {
-    clearTimeout(_xpFlushTimer);
-    _xpFlushTimer = null;
-  }
   const { uid } = _pendingXPToSync;
   const deltaToFlush = _pendingXPDelta;
-  _pendingXPToSync = null;
-  _pendingXPDelta = 0;
+  cancelPendingXPCloudFlush();
 
   safeWrite(
     () => setDoc(doc(db, COLLECTION.USER_PROFILES, uid), {
@@ -283,38 +262,53 @@ function scheduleXPCloudFlush(uid: string, xpToSync: number, delta: number): voi
 }
 
 /**
- * Award XP for a given source.
- * 1. Updates in-memory and local cache for 0ms UI reactivity.
- * 2. Emits live device event for instant visual feedback.
- * 3. Persists directly to Firestore via safeWrite (debounced/coalesced).
+ * Awards XP with optional deterministic `idempotencyKey` to prevent duplicate farming (#29).
  */
 export async function awardXP(
   source: keyof typeof XP_SOURCES,
+  idempotencyKey?: string
 ): Promise<XPResult> {
-  const config = XP_SOURCES[source] || { base: 30, range: 10 };
+  const currentXP = await getXP();
+  const currentState = getLevel(currentXP);
 
-  // Variable reward: base + random range
+  if (idempotencyKey) {
+    const rewardedSet = await getRewardedKeysSet();
+    if (rewardedSet.has(idempotencyKey)) {
+      return {
+        totalXP: currentXP,
+        added: 0,
+        bonus: false,
+        bonusXP: 0,
+        leveledUp: false,
+        newLevel: currentState.level,
+        newTitle: currentState.title,
+      };
+    }
+    rewardedSet.add(idempotencyKey);
+    if (rewardedSet.size > MAX_REWARDED_KEYS) {
+      const oldest = rewardedSet.values().next().value;
+      if (oldest) rewardedSet.delete(oldest);
+    }
+    setL1Sync(REWARDED_KEYS_KEY, Array.from(rewardedSet));
+  }
+
+  const config = XP_SOURCES[source] || { base: 30, range: 10 };
   const baseAwarded = config.base + Math.floor(Math.random() * (config.range + 1));
 
-  // Surprise bonus (10% chance)
   const surpriseTriggered = Math.random() < SURPRISE_CHANCE;
   const bonusXP = surpriseTriggered
     ? SURPRISE_MIN + Math.floor(Math.random() * (SURPRISE_MAX - SURPRISE_MIN))
     : 0;
 
   const totalAdded = baseAwarded + bonusXP;
-
-  const currentXP = await getXP();
-  const previousLevel = getLevel(currentXP).level;
+  const previousLevel = currentState.level;
 
   const newXP = currentXP + totalAdded;
   _inMemoryXP = newXP;
   updateL1Cache('xp', newXP);
 
-  // 1. Instant local write (0ms UI latency)
   AsyncStorage.setItem(XP_KEY, String(newXP)).catch(() => {});
 
-  // 2. Broadcast reactive event to all mounted screens
   try {
     DeviceEventEmitter.emit('zentrack_xp_updated', {
       xp: newXP,
@@ -325,7 +319,6 @@ export async function awardXP(
     });
   } catch {}
 
-  // 3. Reliable Firestore Database write (debounced/coalesced to prevent write amplification)
   const uid = auth.currentUser?.uid;
   if (uid) {
     scheduleXPCloudFlush(uid, newXP, totalAdded);
@@ -344,23 +337,27 @@ export async function awardXP(
   };
 }
 
-/** Directly read the full XP state (for display) */
 export async function getXPState(): Promise<XPState> {
   const xp = await getXP();
   return getLevel(xp);
 }
 
-/** Subscribe to live XP updates across the app */
 export function subscribeXPChanges(callback: (data: { xp: number; added: number; source?: string }) => void): () => void {
   const sub = DeviceEventEmitter.addListener('zentrack_xp_updated', callback);
   return () => sub.remove();
 }
 
-/** Reset XP (for testing / account linking) */
-export async function resetXP(): Promise<void> {
+export async function resetAllXP(clearRemote = false): Promise<void> {
+  cancelPendingXPCloudFlush();
   _inMemoryXP = 0;
+  _rewardedKeysSet = new Set();
   updateL1Cache('xp', 0);
-  await AsyncStorage.setItem(XP_KEY, '0');
+  setL1Sync(REWARDED_KEYS_KEY, [], true);
+  await AsyncStorage.multiSet([
+    [XP_KEY, '0'],
+    [STREAK_KEY, '0'],
+    [REWARDED_KEYS_KEY, '[]'],
+  ]);
   try {
     DeviceEventEmitter.emit('zentrack_xp_updated', {
       xp: 0,
@@ -368,14 +365,26 @@ export async function resetXP(): Promise<void> {
       source: 'reset',
     });
   } catch {}
-  const uid = auth.currentUser?.uid;
-  if (uid) {
-    safeWrite(
-      () => setDoc(doc(db, COLLECTION.USER_PROFILES, uid), { xp: 0 }, { merge: true }),
-      COLLECTION.USER_PROFILES,
-      'set',
-      { xp: 0 },
-      uid
-    ).catch(e => console.warn('[XP] Firestore reset failed:', e?.message));
+  if (clearRemote) {
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      safeWrite(
+        () => setDoc(doc(db, COLLECTION.USER_PROFILES, uid), { xp: 0 }, { merge: true }),
+        COLLECTION.USER_PROFILES,
+        'set',
+        { xp: 0 },
+        uid
+      ).catch(e => console.warn('[XP] Firestore reset failed:', e?.message));
+    }
   }
 }
+
+export async function resetXP(): Promise<void> {
+  return resetAllXP(true);
+}
+
+AppState.addEventListener('change', nextState => {
+  if (nextState === 'background' || nextState === 'inactive') {
+    flushPendingXPCloudSync();
+  }
+});

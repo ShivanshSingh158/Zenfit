@@ -29,22 +29,24 @@ export interface SetLike {
  * Normalizes effort input to RIR value (0 to 10)
  */
 export function toRIR(value: number | null | undefined, scale: EffortScale = 'rir'): number | null {
-  if (value === null || value === undefined) return null;
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return null;
+  const num = Number(value);
   if (scale === 'rpe') {
-    return Math.max(0, Math.min(10, Math.round((10 - value) * 10) / 10));
+    return Math.max(0, Math.min(10, Math.round((10 - num) * 10) / 10));
   }
-  return Math.max(0, Math.min(10, Math.round(value * 10) / 10));
+  return Math.max(0, Math.min(10, Math.round(num * 10) / 10));
 }
 
 /**
  * Converts internal RIR to display scale value
  */
 export function fromRIR(rir: number | null | undefined, scale: EffortScale = 'rir'): number | null {
-  if (rir === null || rir === undefined) return null;
+  if (rir === null || rir === undefined || !Number.isFinite(Number(rir))) return null;
+  const num = Number(rir);
   if (scale === 'rpe') {
-    return Math.max(6, Math.min(10, Math.round((10 - rir) * 10) / 10));
+    return Math.max(6, Math.min(10, Math.round((10 - num) * 10) / 10));
   }
-  return Math.max(0, Math.min(10, Math.round(rir * 10) / 10));
+  return Math.max(0, Math.min(10, Math.round(num * 10) / 10));
 }
 
 /**
@@ -108,7 +110,7 @@ export function inferAutomaticRIR(
   }
 
   // Step 2: Check intra-session set sequence, rest duration, and ATP-PCr kinetics
-  const currentIdx = validSets.findIndex(s => s === currentSet);
+  const currentIdx = validSets.findIndex(s => s === currentSet || (s.setNumber != null && currentSet.setNumber != null && s.setNumber === currentSet.setNumber));
   if (currentIdx > 0) {
     const prevSet = validSets[currentIdx - 1];
     const prevWeight = Number(prevSet.weight) || 0;
@@ -177,7 +179,8 @@ export function isHardSet(
     const rir = inferAutomaticRIR(setOrRir, exerciseSets, historicalMax1RM, restDurationSeconds);
     return rir <= HARD_RIR_THRESHOLD;
   }
-  return true;
+  // Issue #102: Return false for null, undefined, or invalid set input
+  return false;
 }
 
 /**

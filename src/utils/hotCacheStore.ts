@@ -1,97 +1,115 @@
-/**
- * hotCacheStore.ts — ZenTrack Mobile
- *
- * High-Performance Persistent In-Memory Hot Cache Store (Survives Screen Unmounts).
- *
- * Implements the ViewModel / Hot-State pattern in React Native:
- * 1. Holds precomputed analytical models in RAM (0ms access on tab switch).
- * 2. Automatic invalidation: Cache keys bind to dataset references & timestamps.
- *    If logs/tasks change (optimistic write or Firestore sync), fresh math executes.
- * 3. True LRU bounded capacity (MAX_CACHE_ENTRIES = 60) — accessed entries are
- *    promoted to MRU position so frequently-used analytics survive eviction.
- * 4. Order-stable fingerprinting — sorts item IDs before hashing so Firestore
- *    reordering on reconnect does not generate spurious cache misses.
- * 5. Cleared on user logout.
- */
+// src/utils/hotCacheStore.ts
 
 interface CacheEntry<T> {
   data: T;
   timestamp: number;
 }
 
-const MAX_CACHE_ENTRIES = 60;
+const MAX_CACHE_ENTRIES = 80;
 const _HOT_CACHE = new Map<string, CacheEntry<any>>();
+const _fingerprintCache = new WeakMap<any[], string>();
 
-/**
- * Fast, ORDER-STABLE string hash for composite objects/arrays.
- *
- * FIX (Bug #2): Items are sorted by their stable ID/date key BEFORE fingerprinting.
- * Firestore onSnapshot does NOT guarantee consistent ordering across snapshots.
- * Without sorting, the same 142 gym logs arriving in a different order after
- * a network reconnect would generate a different fingerprint → cache miss →
- * all hot analytics recalculate from scratch on every relaunch.
- */
-export function generateDatasetFingerprint(items: Array<any> | null | undefined, extraTag: string = ''): string {
-  if (!items || items.length === 0) return `empty_${extraTag}`;
-  const len = items.length;
-  // Order-independent commutative hash (XOR + modular sum) so Firestore order never matters!
-  let xorHash = len;
-  let sumHash = 0;
-  for (let i = 0; i < len; i++) {
-    const it = items[i];
-    if (!it) continue;
-    const rev = Number(it.updatedAt || it.lastUpdated || it.timestamp || 0);
-    const exLen = Array.isArray(it.exercises) ? it.exercises.length : 0;
-    let setsCount = 0;
-    let completedSets = 0;
-    if (Array.isArray(it.exercises)) {
-      for (let e = 0; e < it.exercises.length; e++) {
-        const sLog = it.exercises[e]?.setsLog;
-        if (Array.isArray(sLog)) {
-          setsCount += sLog.length;
-          for (let s = 0; s < sLog.length; s++) {
-            if (sLog[s]?.completed) completedSets++;
-          }
-        }
-      }
-    }
-    const cardioLen = Array.isArray(it.cardio) ? it.cardio.length : 0;
-    const itemMix = ((rev ^ (exLen << 7) ^ (setsCount << 12) ^ (completedSets << 17) ^ (cardioLen << 22) ^ (it.completed ? 0x9e3779b9 : 0)) >>> 0);
-    xorHash = (xorHash ^ itemMix) >>> 0;
-    sumHash = (sumHash + itemMix) >>> 0;
-  }
-  return `${len}_${xorHash}_${sumHash}_${extraTag}`;
+function extractEpochMs(val: any): number {
+  if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
+  if (!val || typeof val !== 'object') return 0;
+  if (typeof val.toMillis === 'function') return val.toMillis();
+  if (typeof val.seconds === 'number') return val.seconds * 1000;
+  return 0;
 }
 
 /**
- * Retrieves a cached calculation.
- *
- * FIX (Risk A — True LRU): Promotes the accessed entry to the END of the Map
- * (most-recently-used position). Map iterates in insertion order, so the FIRST key
- * is always the LRU entry eligible for eviction. Frequently accessed analytics
- * (e.g. 30d gym stats the user is actively viewing) survive eviction correctly.
+ * Fast, ORDER-STABLE 32-bit FNV-1a + Murmur3 commutative dataset fingerprint.
+ * Sensitive to any weight (down to 0.1kg), rep, RIR, completion flag, or timestamp change.
+ * Memoized via WeakMap for 0ms instant retrieval on identical array references.
  */
+export function generateDatasetFingerprint(items: Array<any> | null | undefined, extraTag: string = ''): string {
+  if (!items || items.length === 0) return `empty_${extraTag}`;
+
+  let baseHash = _fingerprintCache.get(items);
+  if (!baseHash) {
+    const len = items.length;
+    let xorHash = len >>> 0;
+    let sumHash = 0;
+
+    for (let i = 0; i < len; i++) {
+      const it = items[i];
+      if (!it) continue;
+
+      const rev = extractEpochMs(it.updatedAt) || extractEpochMs(it.lastUpdated) || extractEpochMs(it.timestamp);
+      const exLen = Array.isArray(it.exercises) ? it.exercises.length : 0;
+      let setsCount = 0;
+      let completedSets = 0;
+      let setFnv = 2166136261;
+
+      if (Array.isArray(it.exercises)) {
+        for (let e = 0; e < exLen; e++) {
+          const ex = it.exercises[e];
+          if (!ex) continue;
+          const exSkippedBit = ex.skipped ? 1 : 0;
+          const sLog = ex.setsLog;
+          if (Array.isArray(sLog)) {
+            setsCount += sLog.length;
+            for (let s = 0; s < sLog.length; s++) {
+              const sl = sLog[s];
+              if (!sl) continue;
+              if (sl.completed) completedSets++;
+              const w = Math.round((Number(sl.weight ?? sl.weightKg) || 0) * 100);
+              const r = Number(sl.reps) || 0;
+              const rir = sl.rir != null ? Number(sl.rir) : 2;
+              const warmBit = sl.isWarmup ? 1 : 0;
+              setFnv ^= w ^ (r << 14) ^ (rir << 24) ^ (warmBit << 28) ^ (sl.completed ? 0x5bd1e995 : 0) ^ (exSkippedBit << 31);
+              setFnv = Math.imul(setFnv, 16777619) >>> 0;
+            }
+          }
+        }
+      }
+
+      const cardioLen = Array.isArray(it.cardio) ? it.cardio.length : 0;
+      let cardioFnv = 2166136261;
+      if (Array.isArray(it.cardio)) {
+        for (let c = 0; c < cardioLen; c++) {
+          const cd = it.cardio[c];
+          if (!cd) continue;
+          const cCompleted = cd.completed ? 1 : 0;
+          const cDur = Math.round((Number(cd.durationMinutes) || 0) * 10);
+          const cCal = Number(cd.calories) || 0;
+          const cDist = Math.round((Number(cd.distanceKm) || 0) * 100);
+          cardioFnv ^= (cCompleted << 1) ^ (cDur << 4) ^ (cCal << 12) ^ (cDist << 20);
+          cardioFnv = Math.imul(cardioFnv, 16777619) >>> 0;
+        }
+      }
+      const wStartTime = it.workoutStartTime ? extractEpochMs(it.workoutStartTime) : 0;
+      const wDuration = Number(it.workoutDurationMinutes) || 0;
+      const notesLen = typeof it.notes === 'string' ? it.notes.length : 0;
+
+      let itemMix = (rev & 0xffffffff) ^ Math.imul(exLen + 1, 374761393) ^ Math.imul(setsCount + 1, 668265263);
+      itemMix = (itemMix ^ Math.imul(completedSets + 1, 2147483647) ^ setFnv ^ (cardioLen << 19) ^ cardioFnv ^ (it.completed ? 0x9e3779b9 : 0) ^ (wStartTime & 0xffffffff) ^ (wDuration << 8) ^ (notesLen << 16)) >>> 0;
+
+      xorHash = (xorHash ^ itemMix) >>> 0;
+      sumHash = (sumHash + itemMix) >>> 0;
+    }
+
+    baseHash = `${len}_${xorHash}_${sumHash}`;
+    _fingerprintCache.set(items, baseHash);
+  }
+
+  return extraTag ? `${baseHash}_${extraTag}` : baseHash;
+}
+
 export function getCachedAnalytics<T>(cacheKey: string): T | null {
   const entry = _HOT_CACHE.get(cacheKey);
   if (!entry) return null;
-  // Promote to MRU: delete + re-insert at end of Map
   _HOT_CACHE.delete(cacheKey);
   _HOT_CACHE.set(cacheKey, entry);
   return entry.data as T;
 }
 
-/**
- * Stores a precalculated analytical object in memory with true LRU eviction.
- * Evicts the Least Recently Used entry (first key = oldest accessed after MRU promotions).
- */
 export function setCachedAnalytics<T>(cacheKey: string, data: T): void {
-  // If key already exists, delete first to re-insert at MRU position
   if (_HOT_CACHE.has(cacheKey)) {
     _HOT_CACHE.delete(cacheKey);
   } else if (_HOT_CACHE.size >= MAX_CACHE_ENTRIES) {
-    // Evict true LRU entry (first key in Map = least recently accessed)
     const lruKey = _HOT_CACHE.keys().next().value;
-    if (lruKey) _HOT_CACHE.delete(lruKey);
+    if (lruKey !== undefined) _HOT_CACHE.delete(lruKey);
   }
   _HOT_CACHE.set(cacheKey, {
     data,
@@ -99,9 +117,6 @@ export function setCachedAnalytics<T>(cacheKey: string, data: T): void {
   });
 }
 
-/**
- * Computes a value if not present in the hot cache, otherwise returns the cached instance.
- */
 export function computeOrGetHotCache<T>(cacheKey: string, computation: () => T): T {
   const cached = getCachedAnalytics<T>(cacheKey);
   if (cached !== null && cached !== undefined) {
@@ -112,25 +127,18 @@ export function computeOrGetHotCache<T>(cacheKey: string, computation: () => T):
   return result;
 }
 
-/**
- * Explicitly invalidates all cache entries with a given prefix (e.g. 'gym_', 'dash_').
- * If no prefix is given, clears the entire cache.
- */
 export function invalidateDomainHotCache(prefix?: string): void {
   if (!prefix) {
     _HOT_CACHE.clear();
     return;
   }
-  for (const key of Array.from(_HOT_CACHE.keys())) {
+  for (const key of _HOT_CACHE.keys()) {
     if (key.startsWith(prefix)) {
       _HOT_CACHE.delete(key);
     }
   }
 }
 
-/**
- * Clears all hot cache entries (called on user sign-out).
- */
 export function clearDomainHotCache(): void {
   _HOT_CACHE.clear();
 }

@@ -1,10 +1,14 @@
+let _cachedNotifPermGranted: boolean | null = null;
 import * as Notifications from 'expo-notifications';
 import { Platform, DeviceEventEmitter } from 'react-native';
 import { requestNotificationPermissions } from './notificationChannels';
+import { getGymProfileSync } from '../hooks/useGymProfile';
+import { formatWeight } from '../utils/weightUnit';
 
 export const WORKOUT_NOTIFICATION_ID = 'zentrack_active_workout_hud';
 export const WORKOUT_IN_PROGRESS_NOTIF_ID = 'zenfit_workout_in_progress';
 export const WORKOUT_COMPLETED_NOTIF_ID = 'zenfit_workout_completed';
+export const WORKOUT_AUTO_FINISH_NOTIF_ID = 'zenfit_workout_autofinish_120m';
 
 export interface ActiveWorkoutNotificationPayload {
   exerciseName: string;
@@ -43,26 +47,42 @@ export async function showWorkoutInProgressNotification(params: {
   dateStr?: string;
   weight?: number;
   reps?: number;
+  isResting?: boolean;
+  restSecondsRemaining?: number;
+  nextExerciseName?: string;
 }): Promise<void> {
   try {
-    const { status } = await Notifications.getPermissionsAsync();
-    if (status !== 'granted') {
-      const ok = await requestNotificationPermissions();
-      if (!ok) return;
+    if (_cachedNotifPermGranted !== true) {
+      const { status } = await Notifications.getPermissionsAsync();
+      if (status !== 'granted') {
+        const ok = await requestNotificationPermissions();
+        _cachedNotifPermGranted = ok;
+        if (!ok) return;
+      } else {
+        _cachedNotifPermGranted = true;
+      }
     }
 
     const name = params.workoutName || 'Workout';
     const completedCount = params.completedSets ?? 0;
     const totalCount = params.totalSets ? `/${params.totalSets}` : '';
+    const unitIsLbs = Boolean(getGymProfileSync()?.unitIsLbs);
     const weightRepStr = (params.weight !== undefined && params.reps !== undefined && params.weight > 0)
-      ? ` · ${params.weight}kg × ${params.reps}`
+      ? ` · ${formatWeight(params.weight, unitIsLbs, 1)} × ${params.reps}`
       : (params.reps ? ` · ${params.reps} reps` : '');
-    const body = `${name} · Set ${completedCount}${totalCount}${weightRepStr} · Tap to resume`;
+    
+    let restStr = '';
+    if (params.isResting && params.restSecondsRemaining !== undefined && params.restSecondsRemaining > 0) {
+      restStr = ` · Rest: ${formatRestTime(params.restSecondsRemaining)}`;
+    }
+    const nextStr = params.nextExerciseName ? ` · Up: ${params.nextExerciseName}` : '';
+
+    const body = `${name} · Set ${completedCount}${totalCount}${weightRepStr}${restStr}${nextStr} · Tap to resume`;
 
     await Notifications.scheduleNotificationAsync({
       identifier: WORKOUT_IN_PROGRESS_NOTIF_ID,
       content: {
-        title: '🏋️ Workout in Progress',
+        title: 'Workout in Progress',
         body,
         sound: undefined,
         sticky: true,       // Persistent ongoing notification on Android (cannot be dismissed by swipe or Clear All)
@@ -74,8 +94,9 @@ export async function showWorkoutInProgressNotification(params: {
           type: 'ACTIVE_WORKOUT_IN_PROGRESS',
           date: params.dateStr,
         },
+        ...(Platform.OS === 'android' ? { channelId: WORKOUT_IN_PROGRESS_CHANNEL_ID } : {}),
       },
-      trigger: Platform.OS === 'android' ? ({ channelId: WORKOUT_IN_PROGRESS_CHANNEL_ID } as any) : null,
+      trigger: null,
     });
     isNotificationActive = true;
   } catch (err) {
@@ -97,8 +118,11 @@ export async function showWorkoutCompletedNotification(params: {
     // 1. Dismiss persistent ongoing notification
     await dismissActiveWorkoutNotification();
 
-    const { status } = await Notifications.getPermissionsAsync();
-    if (status !== 'granted') return;
+    if (_cachedNotifPermGranted !== true) {
+      const { status } = await Notifications.getPermissionsAsync();
+      _cachedNotifPermGranted = status === 'granted';
+      if (!_cachedNotifPermGranted) return;
+    }
 
     const name = params.workoutName || 'Workout';
     const completedCount = params.completedSets ?? 0;
@@ -118,8 +142,9 @@ export async function showWorkoutCompletedNotification(params: {
           type: 'WORKOUT_COMPLETED',
           date: params.dateStr,
         },
+        ...(Platform.OS === 'android' ? { channelId: 'gym_reminders' } : {}),
       },
-      trigger: Platform.OS === 'android' ? ({ channelId: 'gym_reminders' } as any) : null,
+      trigger: null,
     });
   } catch (err) {
     console.warn('[Notification] Failed to present workout completed notification:', err);
@@ -132,6 +157,20 @@ export async function showWorkoutCompletedNotification(params: {
 export async function updateActiveWorkoutNotification(
   payload: ActiveWorkoutNotificationPayload
 ): Promise<void> {
+  if (
+    lastNotificationState &&
+    lastNotificationState.exerciseName === payload.exerciseName &&
+    lastNotificationState.currentSet === payload.currentSet &&
+    lastNotificationState.totalSets === payload.totalSets &&
+    lastNotificationState.weight === payload.weight &&
+    lastNotificationState.reps === payload.reps &&
+    lastNotificationState.isResting === payload.isResting &&
+    lastNotificationState.restSecondsRemaining === payload.restSecondsRemaining &&
+    lastNotificationState.nextExerciseName === payload.nextExerciseName
+  ) {
+    return;
+  }
+
   if (_hudUpdateDebounceTimer) {
     clearTimeout(_hudUpdateDebounceTimer);
   }
@@ -139,15 +178,74 @@ export async function updateActiveWorkoutNotification(
   _hudUpdateDebounceTimer = setTimeout(() => {
     _hudUpdateDebounceTimer = null;
     if (_pendingHudPayload) {
+      lastNotificationState = { ..._pendingHudPayload };
       showWorkoutInProgressNotification({
         workoutName: _pendingHudPayload.exerciseName,
         completedSets: _pendingHudPayload.currentSet,
         totalSets: _pendingHudPayload.totalSets,
         weight: _pendingHudPayload.weight,
         reps: _pendingHudPayload.reps,
-      });
+        isResting: _pendingHudPayload.isResting,
+        restSecondsRemaining: _pendingHudPayload.restSecondsRemaining,
+        nextExerciseName: _pendingHudPayload.nextExerciseName,
+      }).catch(() => {});
     }
   }, 1200);
+}
+
+/**
+ * Reconciles any orphaned persistent notification left over from force-kills or reboots
+ */
+export async function reconcileOrphanedWorkoutNotification(isWorkoutCurrentlyActive: boolean): Promise<void> {
+  if (!isWorkoutCurrentlyActive) {
+    await dismissActiveWorkoutNotification();
+  }
+}
+
+/**
+ * Schedules a notification to fire at exactly the 120-minute limit
+ * if the user left the workout running in the background.
+ */
+export async function scheduleWorkoutAutoFinishNotification(params: {
+  workoutName?: string;
+  workoutStartTime: number;
+  dateStr?: string;
+}): Promise<void> {
+  try {
+    const elapsedMs = Math.max(0, Date.now() - params.workoutStartTime);
+    const maxDurationMs = 120 * 60 * 1000; // 120 minutes
+    const remainingMs = Math.max(0, maxDurationMs - elapsedMs);
+    const remainingSecs = Math.max(1, Math.round(remainingMs / 1000));
+
+    await Notifications.cancelScheduledNotificationAsync(WORKOUT_AUTO_FINISH_NOTIF_ID).catch(() => {});
+
+    await Notifications.scheduleNotificationAsync({
+      identifier: WORKOUT_AUTO_FINISH_NOTIF_ID,
+      content: {
+        title: 'Workout Autocompleted',
+        body: `${params.workoutName || 'Workout'} reached the 120-minute limit and was automatically saved.`,
+        sound: 'default',
+        priority: Notifications.AndroidNotificationPriority.HIGH,
+        data: {
+          type: 'WORKOUT_COMPLETED',
+          date: params.dateStr,
+        },
+        ...(Platform.OS === 'android' ? { channelId: 'gym_reminders' } : {}),
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: remainingSecs,
+      } as any,
+    });
+  } catch (err) {
+    console.warn('[Notification] Failed to schedule auto-finish notification:', err);
+  }
+}
+
+export async function cancelWorkoutAutoFinishNotification(): Promise<void> {
+  try {
+    await Notifications.cancelScheduledNotificationAsync(WORKOUT_AUTO_FINISH_NOTIF_ID).catch(() => {});
+  } catch {}
 }
 
 /**
@@ -156,6 +254,7 @@ export async function updateActiveWorkoutNotification(
 export async function dismissActiveWorkoutNotification(): Promise<void> {
   isNotificationActive = false;
   lastNotificationState = null;
+  cancelWorkoutAutoFinishNotification().catch(() => {});
   if (_hudUpdateDebounceTimer) {
     clearTimeout(_hudUpdateDebounceTimer);
     _hudUpdateDebounceTimer = null;
@@ -185,8 +284,15 @@ export async function dismissWeeklyReportFollowUp(dateStr: string): Promise<void
 }
 
 // ─── Notification Action Handler Listener ────────────────────────────────────
+let _notifResponseSub: Notifications.EventSubscription | null = null;
+
 export function registerActiveWorkoutNotificationListeners() {
-  const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+  if (_notifResponseSub) {
+    _notifResponseSub.remove();
+    _notifResponseSub = null;
+  }
+
+  _notifResponseSub = Notifications.addNotificationResponseReceivedListener((response) => {
     const actionId = response.actionIdentifier;
     const notificationData = response.notification.request.content.data as any;
 
@@ -214,20 +320,37 @@ export function registerActiveWorkoutNotificationListeners() {
       return;
     }
 
-    // 0c. Snooze 15m Action
-    if (actionId === 'SNOOZE_15M') {
+    // 0c. Snooze Action (15m or 1h)
+    if (actionId === 'SNOOZE_15M' || actionId === 'SNOOZE_1H' || actionId === 'SNOOZE') {
+      const snoozeSecs = actionId === 'SNOOZE_1H' ? 60 * 60 : 15 * 60;
       Notifications.scheduleNotificationAsync({
         content: {
           title: 'Workout Reminder (Snoozed)',
           body: 'Ready to train? Your session is waiting for you.',
           sound: 'default',
-          data: { type: 'gym_workout' },
+          data: { type: 'gym_workout', dateStr: notificationData?.dateStr },
+          ...(Platform.OS === 'android' ? { channelId: 'gym_reminders' } : {}),
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-          seconds: 15 * 60,
+          seconds: snoozeSecs,
         } as any,
       }).catch(() => {});
+      return;
+    }
+
+    // 0d. Split Actions (PUSH_SPLIT, REST_TODAY, LOG_LATE, VIEW_BLUEPRINT, VIEW_RECOVERY)
+    if (
+      actionId === 'PUSH_SPLIT' ||
+      actionId === 'REST_TODAY' ||
+      actionId === 'LOG_LATE' ||
+      actionId === 'VIEW_BLUEPRINT' ||
+      actionId === 'VIEW_RECOVERY'
+    ) {
+      DeviceEventEmitter.emit('NOTIFICATION_SPLIT_ACTION', {
+        action: actionId,
+        dateStr: notificationData?.dateStr || notificationData?.date,
+      });
       return;
     }
 
@@ -293,6 +416,11 @@ export function registerActiveWorkoutNotificationListeners() {
     }
   });
 
-  return () => subscription.remove();
+  return () => {
+    if (_notifResponseSub) {
+      _notifResponseSub.remove();
+      _notifResponseSub = null;
+    }
+  };
 }
 

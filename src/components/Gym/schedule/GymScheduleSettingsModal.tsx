@@ -6,18 +6,22 @@
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  View, Text, Modal, TouchableOpacity, ScrollView,
-  Platform, Alert, StyleSheet,
+  View, Text, ScrollView, StyleSheet,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { ChevronLeft, Dumbbell, Moon, X } from 'lucide-react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import BottomSheet from '../../ui/BottomSheet';
+import { TactileButton } from '../../ui/TactileButton';
+import { NumericText } from '../../ui/NumericText';
+import { IOSSegmentedControl } from '../../ui/IOSSegmentedControl';
 
-import { FONT_SIZE, FONT_FAMILY } from '../../../theme/tokens';
+import { COLORS, FONT_FAMILY, ICON, RADIUS, SPACE, TOUCH } from '../../../theme/tokens';
 import { hapticMedium, hapticLight } from '../../../utils/haptics';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { UserGymPlanDoc, GymPlanDay } from '../../../types/gym.types';
-import { GYM_PLAN } from '../../../data/gymPlan';
+import { resolvePlanDay } from '../../../data/gymPlan';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   GYM_NOTIF_ENABLED_KEY,
@@ -27,7 +31,7 @@ import {
   requestNotificationPermissions,
 } from '../../../services/notifications';
 
-import { makeGymScheduleStyles } from './gymScheduleStyles';
+import { SHEET_BG_DARK, SHEET_BG_LIGHT, makeGymScheduleStyles } from './gymScheduleStyles';
 import GymScheduleDayCard from './GymScheduleDayCard';
 import GymScheduleReminderTab from './GymScheduleReminderTab';
 
@@ -59,7 +63,7 @@ export function GymScheduleSettingsModal({
   onNotifSaved,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, tokens } = useTheme();
   const s = useMemo(() => makeGymScheduleStyles(colors, isDark), [colors, isDark]);
 
   // --- WEEKLY SCHEDULE STATE ---
@@ -75,18 +79,11 @@ export function GymScheduleSettingsModal({
 
   useEffect(() => {
     if (visible) {
-      // Init Weekly (immutable shallow copy)
+      // Init Weekly across all supported split templates (immutable shallow copy)
       const initDays: Record<number, GymPlanDay> = {};
       for (let i = 1; i <= 7; i++) {
-        const customDay = userGymPlan?.customDays?.[i];
-        if (customDay) {
-          initDays[i] = { ...customDay, exercises: [...(customDay.exercises || [])] };
-        } else {
-          const templateDay = GYM_PLAN.find(d => d.dayIndex === i);
-          if (templateDay) {
-            initDays[i] = { ...templateDay, exercises: [...(templateDay.exercises || [])] };
-          }
-        }
+        const resolved = resolvePlanDay(userGymPlan, i);
+        initDays[i] = { ...resolved, exercises: [...(resolved.exercises || [])] };
       }
       setLocalDays(initDays);
       setEditingDayIdx(null);
@@ -112,33 +109,34 @@ export function GymScheduleSettingsModal({
   const handleSaveWeekly = async () => {
     hapticMedium();
     await onSaveWeekly(localDays);
-    await AsyncStorage.setItem(GYM_NOTIF_ENABLED_KEY, 'true');
-    await requestNotificationPermissions();
     clearScheduleCache();
-    await scheduleGymNotifications({
-      userGymPlan: { ...(userGymPlan || {}), customDays: localDays } as any,
-    });
+    if (notifEnabled) {
+      await scheduleGymNotifications({
+        userGymPlan: { ...(userGymPlan || {}), customDays: localDays } as any,
+      });
+    }
     onNotifSaved?.();
-    Alert.alert('Schedule Saved', 'Weekly workout schedule updated and synced with alarms.');
+    onClose();
   };
 
   const handleSaveReminders = async () => {
     hapticMedium();
-    await AsyncStorage.setItem(GYM_NOTIF_ENABLED_KEY, notifEnabled ? 'true' : 'false');
+    let effectiveEnabled = notifEnabled;
+    if (effectiveEnabled) {
+      const granted = await requestNotificationPermissions();
+      if (!granted) {
+        effectiveEnabled = false;
+        setNotifEnabled(false);
+      }
+    }
+    await AsyncStorage.setItem(GYM_NOTIF_ENABLED_KEY, effectiveEnabled ? 'true' : 'false');
     const timeStr = `${notifTime.getHours().toString().padStart(2, '0')}:${notifTime.getMinutes().toString().padStart(2, '0')}`;
     await AsyncStorage.setItem(GYM_NOTIF_TIME_KEY, timeStr);
-    if (notifEnabled) {
-      await requestNotificationPermissions();
-    }
     clearScheduleCache();
     await scheduleGymNotifications({
       userGymPlan,
     });
     onNotifSaved?.();
-    Alert.alert(
-      'Reminders Saved',
-      notifEnabled ? `Workout reminders scheduled for ${formatTime(notifTime)}.` : 'Workout reminders disabled.'
-    );
     onClose();
   };
 
@@ -169,12 +167,15 @@ export function GymScheduleSettingsModal({
     hapticLight();
     const startMins = tempStartTimeWeekly.getHours() * 60 + tempStartTimeWeekly.getMinutes();
     let endMins = tempEndTimeWeekly.getHours() * 60 + tempEndTimeWeekly.getMinutes();
+    let effectiveEnd = new Date(tempEndTimeWeekly.getTime());
     if (endMins <= startMins) {
       endMins = Math.min(23 * 60 + 59, startMins + 60);
-      tempEndTimeWeekly.setHours(Math.floor(endMins / 60), endMins % 60, 0, 0);
+      effectiveEnd = new Date(tempStartTimeWeekly.getTime());
+      effectiveEnd.setHours(Math.floor(endMins / 60), endMins % 60, 0, 0);
+      setTempEndTimeWeekly(effectiveEnd);
     }
     const startStr = `${tempStartTimeWeekly.getHours().toString().padStart(2, '0')}:${tempStartTimeWeekly.getMinutes().toString().padStart(2, '0')}`;
-    const endStr = `${tempEndTimeWeekly.getHours().toString().padStart(2, '0')}:${tempEndTimeWeekly.getMinutes().toString().padStart(2, '0')}`;
+    const endStr = `${effectiveEnd.getHours().toString().padStart(2, '0')}:${effectiveEnd.getMinutes().toString().padStart(2, '0')}`;
     setLocalDays(prev => ({
       ...prev,
       [editingDayIdx]: { ...prev[editingDayIdx], startTime: startStr, endTime: endStr },
@@ -212,59 +213,47 @@ export function GymScheduleSettingsModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent hardwareAccelerated onRequestClose={onClose}>
-      <View style={s.overlay}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
-        <View style={s.card}>
-          <View style={{ flex: 1, paddingBottom: Math.max(insets.bottom, 16) }}>
-            {/* Header */}
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      fullHeight={true}
+      noPadding={true}
+      avoidKeyboard={true}
+      sheetBackgroundColor={isDark ? SHEET_BG_DARK : SHEET_BG_LIGHT}
+    >
+      <View style={[s.card, { height: '100%', maxHeight: '100%', borderTopLeftRadius: 0, borderTopRightRadius: 0, borderWidth: 0, backgroundColor: 'transparent' }]}>
+        <View style={{ flex: 1, paddingBottom: Math.max(insets.bottom, 16) }}>
+          {/* Header */}
             <View style={s.header}>
-              <View>
-                <Text style={s.title}>Workout Schedule</Text>
-                <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2, fontFamily: 'Inter_400Regular' }}>
-                  Weekly training windows & calendar slots
+              <View style={{ flex: 1, minWidth: 0, paddingRight: SPACE.sm }}>
+                <Text style={s.title} numberOfLines={1}>Schedule & Reminders</Text>
+                <Text style={{ fontSize: 12, color: tokens.text.secondary, marginTop: 2, fontFamily: FONT_FAMILY.regular }}>
+                  Training times and daily workout alerts
                 </Text>
               </View>
-              <TouchableOpacity
+              <TactileButton
+                variant="icon"
+                haptic="light"
                 onPress={onClose}
                 style={s.closeBtn}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                hitSlop={TOUCH.hitSlop}
                 accessibilityLabel="Close schedule modal"
               >
-                <Ionicons name="close" size={20} color={colors.textPrimary} />
-              </TouchableOpacity>
+                <X size={16} color={tokens.text.primary} strokeWidth={ICON.strokeWidth} />
+              </TactileButton>
             </View>
 
             {/* Tab Selector */}
-            <View style={{ flexDirection: 'row', backgroundColor: isDark ? '#2C2C2E' : '#E5E5EA', borderRadius: 999, padding: 3, marginHorizontal: 20, marginBottom: 16 }}>
-              <TouchableOpacity
-                onPress={() => setModalTab('schedule')}
-                style={{
-                  flex: 1,
-                  paddingVertical: 7,
-                  alignItems: 'center',
-                  borderRadius: 999,
-                  backgroundColor: modalTab === 'schedule' ? (isDark ? '#636366' : '#FFFFFF') : 'transparent',
-                }}
-              >
-                <Text style={{ fontSize: 13, fontWeight: '700', color: modalTab === 'schedule' ? '#FFFFFF' : colors.textTertiary }}>
-                  Days & Times
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setModalTab('reminders')}
-                style={{
-                  flex: 1,
-                  paddingVertical: 7,
-                  alignItems: 'center',
-                  borderRadius: 999,
-                  backgroundColor: modalTab === 'reminders' ? (isDark ? '#636366' : '#FFFFFF') : 'transparent',
-                }}
-              >
-                <Text style={{ fontSize: 13, fontWeight: '700', color: modalTab === 'reminders' ? '#FFFFFF' : colors.textTertiary }}>
-                  Reminders
-                </Text>
-              </TouchableOpacity>
+            <View style={{ paddingHorizontal: 20, marginTop: SPACE.sm, marginBottom: SPACE.sm }}>
+              <IOSSegmentedControl
+                segments={[
+                  { id: 'schedule', label: 'Training Times' },
+                  { id: 'reminders', label: 'Daily Alerts' },
+                ]}
+                activeId={modalTab}
+                onSelect={(id) => setModalTab(id as 'schedule' | 'reminders')}
+                height={34}
+              />
             </View>
 
             {/* Content Container */}
@@ -290,7 +279,7 @@ export function GymScheduleSettingsModal({
               ) : editingDayIdx === null ? (
                 <>
                   <Text style={s.description}>
-                    Set your regular workout times for each day of the week. ZenFit automatically registers alarms and reserves your calendar slots.
+                    Tap any training day to set your preferred workout time.
                   </Text>
 
                   {DAY_NAMES.map((dayName, idx) => {
@@ -314,22 +303,27 @@ export function GymScheduleSettingsModal({
                   })}
 
                   <View style={{ height: 10 }} />
-                  <TouchableOpacity style={s.saveBtn} onPress={handleSaveWeekly} activeOpacity={0.85}>
-                    <Text style={s.saveBtnText}>Save Weekly Schedule</Text>
-                  </TouchableOpacity>
+                  <TactileButton variant="custom" haptic="none" style={s.saveBtn} onPress={handleSaveWeekly}>
+                    <Text style={s.saveBtnText}>Save Schedule</Text>
+                  </TactileButton>
                 </>
               ) : (
                 <View style={s.editContainer}>
                   {/* Edit Header */}
                   <View style={s.editHeader}>
-                    <TouchableOpacity
+                    <TactileButton
+                      variant="icon"
+                      haptic="light"
                       onPress={() => setEditingDayIdx(null)}
                       style={s.closeBtn}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      hitSlop={TOUCH.hitSlop}
+                      accessibilityLabel="Back to schedule list"
                     >
-                      <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
-                    </TouchableOpacity>
-                    <Text style={[s.title, { fontSize: 17 }]}>{DAY_NAMES[editingDayIdx - 1]} Routine</Text>
+                      <ChevronLeft size={18} color={tokens.text.primary} strokeWidth={ICON.strokeWidth} />
+                    </TactileButton>
+                    <Text style={[s.title, { fontSize: 17, flex: 1, textAlign: 'center' }]} numberOfLines={1}>
+                      {DAY_NAMES[editingDayIdx - 1]} Routine
+                    </Text>
                     <View style={{ width: 32 }} />
                   </View>
 
@@ -337,22 +331,27 @@ export function GymScheduleSettingsModal({
                   <View
                     style={{
                       flexDirection: 'row',
-                      backgroundColor: isDark ? '#0D0D11' : '#F3F4F6',
-                      borderRadius: 14,
-                      padding: 4,
-                      marginBottom: 16,
-                      borderWidth: 1,
-                      borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#E5E7EB',
+                      backgroundColor: isDark ? '#14161D' : tokens.bg.elevated,
+                      borderRadius: RADIUS.lg,
+                      padding: SPACE.xs,
+                      marginBottom: SPACE.lg,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      borderColor: isDark ? 'rgba(255,255,255,0.08)' : tokens.border.subtle,
                     }}
                   >
-                    <TouchableOpacity
+                    <TactileButton
+                      variant="custom"
+                      haptic="none"
                       style={{
                         flex: 1,
-                        paddingVertical: 10,
+                        minHeight: 34,
+                        flexDirection: 'row',
+                        gap: 6,
+                        justifyContent: 'center',
                         alignItems: 'center',
-                        borderRadius: 10,
+                        borderRadius: RADIUS.inner,
                         backgroundColor: !localDays[editingDayIdx]?.isRest
-                          ? colors.accentPrimary
+                          ? tokens.accent.primary
                           : 'transparent',
                       }}
                       onPress={() => {
@@ -361,12 +360,18 @@ export function GymScheduleSettingsModal({
                           const currentDay = prev[editingDayIdx];
                           let defaultExercises = currentDay?.exercises || [];
                           if (!defaultExercises || defaultExercises.length === 0) {
-                            const templateDay = GYM_PLAN.find(d => d.dayIndex === editingDayIdx);
+                            const baseTemplatePlan = userGymPlan ? { ...userGymPlan, customDays: undefined } : null;
+                            const templateDay = resolvePlanDay(baseTemplatePlan, editingDayIdx);
                             if (templateDay && !templateDay.isRest && templateDay.exercises?.length > 0) {
                               defaultExercises = [...templateDay.exercises];
                             } else {
-                              const sampleDay = GYM_PLAN.find(d => !d.isRest && d.exercises?.length > 0);
-                              if (sampleDay) defaultExercises = [...sampleDay.exercises];
+                              for (let dIdx = 1; dIdx <= 7; dIdx++) {
+                                const sampleDay = resolvePlanDay(baseTemplatePlan, dIdx);
+                                if (!sampleDay.isRest && sampleDay.exercises?.length > 0) {
+                                  defaultExercises = [...sampleDay.exercises];
+                                  break;
+                                }
+                              }
                             }
                           }
                           return {
@@ -382,24 +387,34 @@ export function GymScheduleSettingsModal({
                         });
                       }}
                     >
+                      <Dumbbell
+                        size={14}
+                        color={!localDays[editingDayIdx]?.isRest ? tokens.accent.onPrimary : tokens.text.secondary}
+                        strokeWidth={ICON.strokeWidth}
+                      />
                       <Text
                         style={{
                           fontSize: 13,
-                          fontWeight: '700',
-                          color: !localDays[editingDayIdx]?.isRest ? '#000000' : colors.textSecondary,
+                          fontFamily: FONT_FAMILY.bold,
+                          color: !localDays[editingDayIdx]?.isRest ? tokens.accent.onPrimary : tokens.text.secondary,
                         }}
                       >
-                        🏋️ Workout Day
+                        Workout Day
                       </Text>
-                    </TouchableOpacity>
+                    </TactileButton>
 
-                    <TouchableOpacity
+                    <TactileButton
+                      variant="custom"
+                      haptic="none"
                       style={{
                         flex: 1,
-                        paddingVertical: 10,
+                        minHeight: 34,
+                        flexDirection: 'row',
+                        gap: 6,
+                        justifyContent: 'center',
                         alignItems: 'center',
-                        borderRadius: 10,
-                        backgroundColor: localDays[editingDayIdx]?.isRest ? '#FF9F4D' : 'transparent',
+                        borderRadius: RADIUS.inner,
+                        backgroundColor: localDays[editingDayIdx]?.isRest ? tokens.status.warning : 'transparent',
                       }}
                       onPress={() => {
                         hapticLight();
@@ -415,16 +430,21 @@ export function GymScheduleSettingsModal({
                         }));
                       }}
                     >
+                      <Moon
+                        size={14}
+                        color={localDays[editingDayIdx]?.isRest ? tokens.accent.onPrimary : tokens.text.secondary}
+                        strokeWidth={ICON.strokeWidth}
+                      />
                       <Text
                         style={{
                           fontSize: 13,
-                          fontWeight: '700',
-                          color: localDays[editingDayIdx]?.isRest ? '#000000' : colors.textSecondary,
+                          fontFamily: FONT_FAMILY.bold,
+                          color: localDays[editingDayIdx]?.isRest ? tokens.accent.onPrimary : tokens.text.secondary,
                         }}
                       >
-                        🧘 Rest Day
+                        Rest Day
                       </Text>
-                    </TouchableOpacity>
+                    </TactileButton>
                   </View>
 
                   {!localDays[editingDayIdx]?.isRest && (
@@ -433,27 +453,34 @@ export function GymScheduleSettingsModal({
                       <Text
                         style={{
                           fontSize: 11,
-                          fontWeight: '600',
-                          color: colors.textTertiary,
+                          fontFamily: FONT_FAMILY.bold,
+                          color: tokens.text.muted,
                           letterSpacing: 0.8,
-                          marginBottom: 8,
+                          marginBottom: SPACE.sm,
                           marginLeft: 2,
                         }}
                       >
                         QUICK TIME PRESETS
                       </Text>
-                      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, marginBottom: SPACE.lg }}>
                         {QUICK_PRESETS.map(p => (
-                          <TouchableOpacity
+                          <TactileButton
                             key={p.label}
+                            variant="custom"
+                            haptic="none"
                             style={{
-                              flex: 1,
-                              paddingVertical: 8,
-                              borderRadius: 10,
-                              backgroundColor: isDark ? '#0D0D11' : '#F3F4F6',
+                              flexGrow: 1,
+                              flexBasis: '46%',
+                              minWidth: 0,
+                              minHeight: TOUCH.minTarget,
+                              paddingVertical: SPACE.sm,
+                              paddingHorizontal: SPACE.sm,
+                              borderRadius: RADIUS.inner,
+                              backgroundColor: isDark ? '#14161D' : tokens.bg.surface,
                               alignItems: 'center',
-                              borderWidth: 1,
-                              borderColor: isDark ? 'rgba(255,255,255,0.07)' : '#E5E7EB',
+                              justifyContent: 'center',
+                              borderWidth: StyleSheet.hairlineWidth,
+                              borderColor: isDark ? 'rgba(255,255,255,0.08)' : tokens.border.subtle,
                             }}
                             onPress={() => {
                               hapticLight();
@@ -467,63 +494,69 @@ export function GymScheduleSettingsModal({
                               setTempEndTimeWeekly(eD);
                             }}
                           >
-                            <Text style={{ fontSize: 10, color: colors.textSecondary, fontWeight: '600' }}>
+                            <Text numberOfLines={1} style={{ fontSize: 10.5, color: tokens.text.secondary, fontFamily: FONT_FAMILY.medium }}>
                               {p.label}
                             </Text>
-                            <Text style={{ fontSize: 11, color: colors.accentPrimary, fontWeight: '700', marginTop: 2 }}>
+                            <NumericText numberOfLines={1} style={{ fontSize: 11.5, color: tokens.accent.secondary, fontFamily: FONT_FAMILY.bold, marginTop: 2 }}>
                               {formatTime(p.time)}
-                            </Text>
-                            <Text style={{ fontSize: 9.5, color: colors.textTertiary, marginTop: 1 }}>
+                            </NumericText>
+                            <NumericText numberOfLines={1} style={{ fontSize: 10, color: tokens.text.muted, marginTop: 1 }}>
                               to {formatTime(p.end)}
-                            </Text>
-                          </TouchableOpacity>
+                            </NumericText>
+                          </TactileButton>
                         ))}
                       </View>
 
                       {/* Start Time Row */}
                       <View style={s.settingRow}>
-                        <View>
+                        <View style={{ flex: 1, minWidth: 0, paddingRight: SPACE.sm }}>
                           <Text style={s.settingLabel}>Workout Start Time</Text>
                           <Text style={s.settingSub}>When you enter the gym</Text>
                         </View>
-                        <TouchableOpacity
+                        <TactileButton
+                          variant="custom"
+                          haptic="light"
                           onPress={() => setShowPickerWeekly('start')}
                           style={{
-                            backgroundColor: isDark ? 'rgba(165,153,255,0.12)' : 'rgba(108,92,231,0.08)',
+                            backgroundColor: tokens.accent.primaryDim,
+                            minHeight: 32,
                             paddingHorizontal: 12,
-                            paddingVertical: 7,
-                            borderRadius: 8,
+                            justifyContent: 'center',
+                            borderRadius: RADIUS.sm,
                             borderWidth: 1,
-                            borderColor: isDark ? 'rgba(165,153,255,0.25)' : 'rgba(108,92,231,0.18)',
+                            borderColor: isDark ? 'rgba(10, 132, 255, 0.28)' : 'rgba(10, 132, 255, 0.22)',
                           }}
                         >
-                          <Text style={{ color: colors.accentPrimary, fontWeight: '700', fontSize: 13 }}>
+                          <NumericText style={{ color: tokens.accent.primary, fontFamily: FONT_FAMILY.bold, fontSize: 13 }}>
                             {formatTime(tempStartTimeWeekly)}
-                          </Text>
-                        </TouchableOpacity>
+                          </NumericText>
+                        </TactileButton>
                       </View>
 
                       {/* End Time Row */}
                       <View style={s.settingRow}>
-                        <View>
+                        <View style={{ flex: 1, minWidth: 0, paddingRight: SPACE.sm }}>
                           <Text style={s.settingLabel}>Workout End Time</Text>
                           <Text style={s.settingSub}>Estimated finish time</Text>
                         </View>
-                        <TouchableOpacity
+                        <TactileButton
+                          variant="custom"
+                          haptic="light"
                           onPress={() => setShowPickerWeekly('end')}
                           style={{
-                            backgroundColor: isDark ? 'rgba(165,153,255,0.12)' : 'rgba(108,92,231,0.08)',
+                            backgroundColor: tokens.accent.primaryDim,
+                            minHeight: 32,
                             paddingHorizontal: 12,
-                            paddingVertical: 7,
-                            borderRadius: 8,
+                            justifyContent: 'center',
+                            borderRadius: RADIUS.sm,
                             borderWidth: 1,
-                            borderColor: isDark ? 'rgba(165,153,255,0.25)' : 'rgba(108,92,231,0.18)',
+                            borderColor: isDark ? 'rgba(10, 132, 255, 0.28)' : 'rgba(10, 132, 255, 0.22)',
                           }}
                         >
-                          <Text style={{ color: colors.accentPrimary, fontWeight: '700', fontSize: 13 }}>
+                          <NumericText style={{ color: tokens.accent.primary, fontFamily: FONT_FAMILY.bold, fontSize: 13 }}>
                             {formatTime(tempEndTimeWeekly)}
-                          </Text>
-                        </TouchableOpacity>
+                          </NumericText>
+                        </TactileButton>
                       </View>
 
                       {showPickerWeekly && (
@@ -548,12 +581,14 @@ export function GymScheduleSettingsModal({
                             }}
                           />
                           {Platform.OS === 'ios' && (
-                            <TouchableOpacity
+                            <TactileButton
+                              variant="custom"
+                              haptic="light"
                               onPress={() => setShowPickerWeekly(null)}
-                              style={{ alignSelf: 'flex-end', paddingVertical: 6, paddingHorizontal: 12 }}
+                              style={{ alignSelf: 'flex-end', minHeight: 32, justifyContent: 'center', paddingHorizontal: SPACE.md }}
                             >
-                              <Text style={{ color: colors.accentPrimary, fontFamily: FONT_FAMILY.bold, fontSize: 13 }}>Done</Text>
-                            </TouchableOpacity>
+                              <Text style={{ color: tokens.accent.secondary, fontFamily: FONT_FAMILY.bold, fontSize: 13 }}>Done</Text>
+                            </TactileButton>
                           )}
                         </>
                       )}
@@ -561,32 +596,31 @@ export function GymScheduleSettingsModal({
                   )}
 
                   <View style={{ height: 16 }} />
-                  <TouchableOpacity style={s.saveBtn} onPress={saveEditedDayWeekly} activeOpacity={0.85}>
-                    <Text style={s.saveBtnText}>Save Time For This Day</Text>
-                  </TouchableOpacity>
+                  <TactileButton variant="custom" haptic="none" style={s.saveBtn} onPress={saveEditedDayWeekly}>
+                    <Text style={s.saveBtnText}>Save Time</Text>
+                  </TactileButton>
 
-                  <TouchableOpacity
-                    style={[
-                      s.saveBtn,
-                      {
-                        backgroundColor: 'transparent',
-                        borderWidth: 1,
-                        borderColor: isDark ? 'rgba(255,255,255,0.1)' : colors.border,
-                        marginTop: 10,
-                      },
-                    ]}
+                  <TactileButton
+                    variant="custom"
+                    haptic="light"
+                    style={{
+                      minHeight: 38,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginTop: 8,
+                    }}
                     onPress={clearEditedDayWeekly}
-                    activeOpacity={0.7}
                   >
-                    <Text style={[s.saveBtnText, { color: colors.textSecondary }]}>Clear Time</Text>
-                  </TouchableOpacity>
+                    <Text style={{ fontFamily: FONT_FAMILY.medium, fontSize: 13.5, color: tokens.text.secondary }}>
+                      Remove Time
+                    </Text>
+                  </TactileButton>
                 </View>
               )}
             </ScrollView>
           </View>
         </View>
-      </View>
-    </Modal>
+    </BottomSheet>
   );
 }
 

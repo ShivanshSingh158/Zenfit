@@ -67,7 +67,7 @@ export const GYM_INACTIVITY_POOLS = (daysSinceLastWorkout: number): string[] => 
 
 export const GYM_REST_TIMER_POOLS = (exerciseName?: string): { title: string; body: string } => {
   return {
-    title: 'Rest Timer Complete ⏱️',
+    title: 'Rest Timer Complete',
     body: exerciseName
       ? `Time for your next set of ${exerciseName}! Lock in.`
       : 'Rest is over! Time for your next set.',
@@ -224,7 +224,7 @@ export function getWorkoutReminderCopy(
   const countStr = totalExercises && totalExercises > 0 ? ` ${totalExercises} exercises on deck.` : '';
 
   return {
-    title: `Time to Train: ${name} 🏋️`,
+    title: `Time to Train: ${name}`,
     body: `${preview}${countStr} Ready when you are.`.trim(),
   };
 }
@@ -262,7 +262,7 @@ export function getTomorrowBlueprintCopy(
   const musclePart = targetMusclesSummary ? `${targetMusclesSummary}. ` : '';
 
   return {
-    title: `Tomorrow: ${name} 📋`,
+    title: `Tomorrow: ${name}`,
     body: `${liftPart}${musclePart}Blueprint ready for tomorrow.`.trim(),
   };
 }
@@ -288,7 +288,7 @@ export function getRestDayInsightCopy(
       };
     case 'lagging_mev':
       return {
-        title: `Weekly Volume Check: ${data.muscleName || 'Key Muscle'} 🎯`,
+        title: `Weekly Volume Check: ${data.muscleName || 'Key Muscle'}`,
         body: `${data.muscleName || 'This muscle'} is at ${data.currentSets ?? 0}/${data.targetSets ?? 10} sets this week. Add 3 sets on your next session.`,
       };
     case 'cns_recovery': {
@@ -296,14 +296,14 @@ export function getRestDayInsightCopy(
         ? `${Math.round(data.totalVolumeKg)} kg `
         : '';
       return {
-        title: 'Active Recovery Protocol 🔋',
+        title: 'Active Recovery Protocol',
         body: `CNS & tissue recovering from yesterday\'s ${volText}volume. Prioritize protein, hydration and 8,000 steps today.`,
       };
     }
     case 'general':
     default:
       return {
-        title: 'Rest & Rebuild 🔋',
+        title: 'Rest & Rebuild',
         body: 'Muscles grow outside the gym. Prioritize sleep, nutrition, and active recovery today.',
       };
   }
@@ -322,7 +322,7 @@ export function getSundayBriefingCopy(
   const prText = prCount > 0 ? ` · ${prCount} PR${prCount > 1 ? 's' : ''} unlocked` : '';
 
   return {
-    title: 'Sunday Strength Briefing 📊',
+    title: 'Sunday Strength Briefing',
     body: `${completedSessions} workouts completed · ${volFormatted} moved${prText}. Tap for your weekly breakdown.`,
   };
 }

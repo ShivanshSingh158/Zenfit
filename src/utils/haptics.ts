@@ -12,47 +12,58 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isHapticsEnabledSync } from '../hooks/useGymProfile';
 
 let _isHapticsEnabled = true;
+let _hasUserMutatedHaptics = false;
 
 // 1. Instant sync initialization from memory
 try {
   _isHapticsEnabled = isHapticsEnabledSync();
 } catch (_) {}
 
-// 2. Initial async validation from persistent storage keys
-AsyncStorage.getItem('gym_profile_v1').then(raw => {
-  if (raw) {
+// 2. Deterministic async hydration guarded against clobbering user mutations
+Promise.all([
+  AsyncStorage.getItem('zentrack_gym_settings_prefs_v1'),
+  AsyncStorage.getItem('gym_profile_v1'),
+])
+  .then(([prefsRaw, profileRaw]) => {
+    if (_hasUserMutatedHaptics) return;
     try {
-      const p = JSON.parse(raw);
-      if (typeof p.hapticsEnabled === 'boolean') {
-        _isHapticsEnabled = p.hapticsEnabled;
+      if (prefsRaw) {
+        const prefs = JSON.parse(prefsRaw);
+        if (typeof prefs?.hapticsEnabled === 'boolean') {
+          _isHapticsEnabled = prefs.hapticsEnabled;
+          return;
+        }
+      }
+      if (profileRaw) {
+        const profile = JSON.parse(profileRaw);
+        if (typeof profile?.hapticsEnabled === 'boolean') {
+          _isHapticsEnabled = profile.hapticsEnabled;
+          return;
+        }
       }
     } catch (_) {}
-  }
-}).catch(() => {});
+  })
+  .catch(() => {});
 
-AsyncStorage.getItem('zentrack_gym_settings_prefs_v1').then(raw => {
-  if (raw) {
-    try {
-      const p = JSON.parse(raw);
-      if (typeof p.hapticsEnabled === 'boolean') {
-        _isHapticsEnabled = p.hapticsEnabled;
-      }
-    } catch (_) {}
-  }
-}).catch(() => {});
+// 3. Real-time broadcast listeners (Settings toggle updates in 0ms, guarded against Fast Refresh leaks)
+const g = globalThis as any;
+if (!g.__zenfitHapticsListenersAttached) {
+  g.__zenfitHapticsListenersAttached = true;
+  DeviceEventEmitter.addListener('gym_profile_updated', (profile: any) => {
+    if (profile && typeof profile.hapticsEnabled === 'boolean') {
+      _hasUserMutatedHaptics = true;
+      _isHapticsEnabled = profile.hapticsEnabled;
+    }
+  });
 
-// 3. Real-time broadcast listeners (Settings toggle updates in 0ms)
-DeviceEventEmitter.addListener('gym_profile_updated', (profile: any) => {
-  if (profile && typeof profile.hapticsEnabled === 'boolean') {
-    _isHapticsEnabled = profile.hapticsEnabled;
-  }
-});
-
-DeviceEventEmitter.addListener('haptics_setting_changed', (enabled: boolean) => {
-  _isHapticsEnabled = Boolean(enabled);
-});
+  DeviceEventEmitter.addListener('haptics_setting_changed', (enabled: boolean) => {
+    _hasUserMutatedHaptics = true;
+    _isHapticsEnabled = Boolean(enabled);
+  });
+}
 
 export function setHapticsEnabledGlobal(enabled: boolean): void {
+  _hasUserMutatedHaptics = true;
   _isHapticsEnabled = Boolean(enabled);
   DeviceEventEmitter.emit('haptics_setting_changed', enabled);
 }

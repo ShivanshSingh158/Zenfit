@@ -1,145 +1,194 @@
-import React, { useRef, useState } from 'react';
-import { View, Image, StyleSheet, PanResponder, Animated, useWindowDimensions, LayoutChangeEvent } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import React, { useMemo, useState } from 'react';
+import {
+  View,
+  StyleSheet,
+  LayoutChangeEvent,
+} from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  runOnJS,
+} from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Image as ExpoImage } from 'expo-image';
+import { ArrowLeftRight } from 'lucide-react-native';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { useResponsiveMetrics } from '../../../theme/responsive';
+import { hapticLight } from '../../../utils/haptics';
+import { AppIcon } from '../../ui/AppIcon';
 
-const SLIDER_HEIGHT = 400;
+const AnimatedExpoImage = Animated.createAnimatedComponent(ExpoImage);
 
 interface Props {
   beforeImage: string;
   afterImage: string;
 }
 
+/**
+ * BeforeAfterSlider — 120fps RNGH v2 + Reanimated GPU-composited split slider.
+ * Uses responsive viewport height, expo-image disk/memory caching, memoized PanGesture,
+ * and mirrored translateX clipping instead of animating layout `width`.
+ */
 export default function BeforeAfterSlider({ beforeImage, afterImage }: Props) {
-  const { colors } = useTheme();
-  const { width: windowWidth } = useWindowDimensions();
-  const [containerWidth, setContainerWidth] = useState(windowWidth - 40);
-  const sliderWidth = containerWidth > 0 ? containerWidth : windowWidth - 40;
+  const { tokens } = useTheme();
+  const { width: windowWidth, sliderHeight, clampChartWidth } = useResponsiveMetrics();
+  const fallbackWidth = clampChartWidth(40);
+  const [containerWidth, setContainerWidth] = useState(fallbackWidth);
+  const sliderWidth = containerWidth > 0 ? Math.min(containerWidth, windowWidth - 24) : fallbackWidth;
 
-  const sliderWidthRef = useRef(sliderWidth);
-  sliderWidthRef.current = sliderWidth;
-
-  const pan = useRef(new Animated.Value(sliderWidth / 2)).current;
-  const currentPosRef = useRef(sliderWidth / 2);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderTerminationRequest: () => false,
-      onPanResponderGrant: () => {
-        pan.setOffset(currentPosRef.current);
-        pan.setValue(0);
-      },
-      onPanResponderMove: (_, gestureState) => {
-        const sw = sliderWidthRef.current;
-        const clampedDx = Math.max(
-          -currentPosRef.current,
-          Math.min(sw - currentPosRef.current, gestureState.dx)
-        );
-        pan.setValue(clampedDx);
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        const sw = sliderWidthRef.current;
-        currentPosRef.current = Math.max(
-          0,
-          Math.min(sw, currentPosRef.current + gestureState.dx)
-        );
-        pan.flattenOffset();
-        pan.setValue(currentPosRef.current);
-      },
-      onPanResponderTerminate: () => {
-        pan.flattenOffset();
-      },
-    })
-  ).current;
-
-  const boundedPan = pan.interpolate({
-    inputRange: [0, sliderWidth],
-    outputRange: [0, sliderWidth],
-    extrapolate: 'clamp',
-  });
+  const panX = useSharedValue(sliderWidth / 2);
+  const startX = useSharedValue(sliderWidth / 2);
 
   const handleLayout = (e: LayoutChangeEvent) => {
     const w = Math.round(e.nativeEvent.layout.width);
     if (w > 50 && Math.abs(w - containerWidth) > 2) {
       setContainerWidth(w);
-      if (currentPosRef.current === 0 || currentPosRef.current === (windowWidth - 40) / 2) {
-        currentPosRef.current = w / 2;
-        pan.setValue(w / 2);
-      }
+      panX.value = w / 2;
     }
   };
 
+  const triggerHaptic = () => {
+    hapticLight();
+  };
+
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-3, 3])
+        .failOffsetY([-8, 8])
+        .onStart(() => {
+          'worklet';
+          startX.value = panX.value;
+          runOnJS(triggerHaptic)();
+        })
+        .onUpdate((evt) => {
+          'worklet';
+          const next = Math.max(0, Math.min(sliderWidth, startX.value + evt.translationX));
+          panX.value = next;
+        }),
+    [panX, startX, sliderWidth]
+  );
+
+  const clipStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: -(sliderWidth - panX.value) }],
+  }));
+
+  const innerImageCounterStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: sliderWidth - panX.value }],
+  }));
+
+  const handleStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: panX.value }],
+  }));
+
   return (
-    <View style={[styles.container, { width: sliderWidth }]} onLayout={handleLayout}>
-      {/* Background (After Image) */}
-      <Image source={{ uri: afterImage }} style={[styles.image, { width: sliderWidth }]} resizeMode="cover" />
-
-      {/* Foreground (Before Image) - Masked by width */}
-      <Animated.View style={[styles.overlay, { width: boundedPan }]}>
-        <Image source={{ uri: beforeImage }} style={[styles.image, { width: sliderWidth }]} resizeMode="cover" />
-      </Animated.View>
-
-      {/* Draggable handle */}
-      <Animated.View
-        style={[styles.handleContainer, { transform: [{ translateX: boundedPan }] }]}
-        {...panResponder.panHandlers}
+    <GestureDetector gesture={panGesture}>
+      <View
+        style={[
+          styles.container,
+          {
+            height: sliderHeight,
+            width: sliderWidth,
+            borderRadius: tokens.radius.card,
+            backgroundColor: tokens.bg.surface,
+          },
+        ]}
+        onLayout={handleLayout}
       >
-        <View style={styles.handleLine} />
-        <View style={styles.handleKnob}>
-          <Ionicons name="swap-horizontal" size={20} color="#fff" />
-        </View>
-      </Animated.View>
-    </View>
+        {/* Background (After Image) */}
+        <ExpoImage
+          source={{ uri: afterImage }}
+          style={[styles.image, { width: sliderWidth, height: sliderHeight }]}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          transition={0}
+        />
+
+        {/* Foreground (Before Image) — GPU-composited clip */}
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.overlay, { width: sliderWidth, height: sliderHeight }, clipStyle]}
+        >
+          <AnimatedExpoImage
+            source={{ uri: beforeImage }}
+            style={[styles.image, { width: sliderWidth, height: sliderHeight }, innerImageCounterStyle]}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={0}
+          />
+        </Animated.View>
+
+        {/* Draggable Handle (48dp touch hit region) */}
+        <Animated.View pointerEvents="none" style={[styles.handleContainer, handleStyle]}>
+          <View
+            style={[
+              styles.handleLine,
+              { backgroundColor: tokens.text.primary },
+            ]}
+          />
+          <View
+            style={[
+              styles.handleKnob,
+              {
+                backgroundColor: tokens.accent.primary,
+                shadowColor: tokens.bg.canvas,
+              },
+            ]}
+          >
+            <AppIcon
+              icon={ArrowLeftRight}
+              size={18}
+              color={tokens.accent.onPrimary}
+            />
+          </View>
+        </Animated.View>
+      </View>
+    </GestureDetector>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    height: SLIDER_HEIGHT,
-    borderRadius: 16,
     overflow: 'hidden',
     position: 'relative',
-    backgroundColor: '#111',
   },
   image: {
-    height: SLIDER_HEIGHT,
     position: 'absolute',
+    left: 0,
+    top: 0,
   },
   overlay: {
     position: 'absolute',
-    height: SLIDER_HEIGHT,
+    left: 0,
+    top: 0,
     overflow: 'hidden',
   },
   handleContainer: {
     position: 'absolute',
     top: 0,
     bottom: 0,
-    width: 40,
-    marginLeft: -20, // Center the handle over the exact pan position
+    left: -24,
+    width: 48,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
   },
   handleLine: {
     position: 'absolute',
-    width: 2,
-    backgroundColor: '#fff',
     top: 0,
     bottom: 0,
+    width: 2,
+    opacity: 0.9,
   },
   handleKnob: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#3BC9DB',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.5,
-    shadowRadius: 4,
-    elevation: 5,
+    elevation: 4,
   },
 });

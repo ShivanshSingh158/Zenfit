@@ -1,142 +1,154 @@
-import { StatusBar } from 'expo-status-bar';
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Dimensions,
-  ScrollView, NativeSyntheticEvent, NativeScrollEvent, Animated,
+  View, Text, StyleSheet, Pressable,
+  ScrollView, NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import {
+  Dumbbell, GitBranch, Activity, Timer, ShieldCheck, ArrowRight,
+} from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { hapticLight, hapticSelection } from '../utils/haptics';
 import Reanimated, {
   FadeInDown,
   FadeInUp,
 } from 'react-native-reanimated';
-import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
-import { PlayfairDisplay_600SemiBold, PlayfairDisplay_600SemiBold_Italic } from '@expo-google-fonts/playfair-display';
-import * as SplashScreen from 'expo-splash-screen';
+import { ScreenWrapper, TactileButton } from '../components/ui';
 import { useTheme } from '../contexts/ThemeContext';
-import { FONT_FAMILY, RADIUS, SHADOW } from '../theme/tokens';
+import { useResponsiveMetrics } from '../theme/responsive';
+import { FONT_FAMILY, ICON, RADIUS, SPACE, TOUCH, ThemeTokens } from '../theme/tokens';
+import { useWeightUnit, unitLabel, kgToDisplay } from '../utils/weightUnit';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const HORIZONTAL_MARGIN = 20;
-const CARD_WIDTH = SCREEN_WIDTH - (HORIZONTAL_MARGIN * 2);
-const CARD_SPACING = 12;
+const HORIZONTAL_MARGIN = SPACE[16];
+const CARD_SPACING = SPACE[12];
+
+type PillarTone = 'primary' | 'success' | 'info' | 'warning' | 'secondary';
 
 interface ModulePillar {
   id: string;
   category: string;
-  icon: string;
-  iconSet?: 'ionicons' | 'mci';
-  iconSize?: number;
+  iconKey: 'overload' | 'splits' | 'body' | 'timer' | 'offline';
   title: string;
   desc: string;
   preview: string;
-  accentColor: string;
+  tone: PillarTone;
 }
 
 const MODULE_PILLARS: ModulePillar[] = [
   {
     id: 'overload',
     category: 'PROGRESSIVE OVERLOAD',
-    icon: 'arm-flex',
-    iconSet: 'mci',
-    iconSize: 22,
+    iconKey: 'overload',
     title: 'Overload, tracked automatically.',
     desc: 'Dynamic targets, 1RM progression formulas, and auto-warmup suggestions calculated on every set.',
-    preview: '🏋️ Bench Press · 85kg × 8 reps (+5kg Overload)',
-    accentColor: '#A599FF',
+    preview: 'Bench Press · 85kg × 8 reps (+5kg Overload)',
+    tone: 'primary',
   },
   {
     id: 'splits',
     category: 'SMART SPLITS',
-    icon: 'git-merge',
-    iconSet: 'ionicons',
-    iconSize: 21,
+    iconKey: 'splits',
     title: 'Switch routines with one tap.',
     desc: 'Seamlessly glide between Arnold, Push / Pull / Legs, and custom splits with in-workout smart swaps.',
-    preview: '📋 Push Day · 6 Exercises · Arnold Split',
-    accentColor: '#5EDA9E',
+    preview: 'Push Day · 6 Exercises · Arnold Split',
+    tone: 'success',
   },
   {
     id: 'body',
     category: 'BODY HEATMAP',
-    icon: 'body',
-    iconSet: 'ionicons',
-    iconSize: 21,
+    iconKey: 'body',
     title: 'Visual muscle recovery map.',
     desc: 'Full 12-muscle anatomical volume tracking with real-time fatigue and symmetry diagnostics.',
-    preview: '🔥 Chest: 18 Sets · Back: 16 Sets · Legs: 20 Sets',
-    accentColor: '#38BDF8',
+    preview: 'Chest: 18 Sets · Back: 16 Sets · Legs: 20 Sets',
+    tone: 'info',
   },
   {
     id: 'timer',
     category: 'REST TIMER',
-    icon: 'timer-outline',
-    iconSet: 'ionicons',
-    iconSize: 21,
+    iconKey: 'timer',
     title: 'Rest intervals that breathe.',
     desc: 'Floating countdown ring with automated warm-up ramp calculations and audio-haptic pulses.',
-    preview: '⏱ 90s Rest · Warm-up Ramp Generated',
-    accentColor: '#FF9F4D',
+    preview: '90s Rest · Warm-up Ramp Generated',
+    tone: 'warning',
   },
   {
     id: 'offline',
     category: 'ZERO FRICTION',
-    icon: 'cloud-done-outline',
-    iconSet: 'ionicons',
-    iconSize: 21,
+    iconKey: 'offline',
     title: '100% offline gym logging.',
     desc: 'Local-first persistence with seamless Google Cloud sync. Never lose a set in basement gym floors.',
-    preview: '⚡ 0ms Lag · Encrypted Local Cache',
-    accentColor: '#B8AFFF',
+    preview: '0ms Lag · Encrypted Local Cache',
+    tone: 'secondary',
   },
 ];
+
+const resolvePillarColors = (tone: PillarTone, tokens: ThemeTokens) => {
+  switch (tone) {
+    case 'primary':
+      return { color: tokens.accent.primary, bg: tokens.accent.primaryDim };
+    case 'success':
+      return { color: tokens.status.success, bg: tokens.status.successDim };
+    case 'info':
+      return { color: tokens.status.info, bg: tokens.status.infoDim };
+    case 'warning':
+      return { color: tokens.status.warning, bg: tokens.status.warningDim };
+    case 'secondary':
+    default:
+      return { color: tokens.accent.secondary, bg: tokens.accent.secondaryDim };
+  }
+};
+
+const renderPillarIcon = (key: ModulePillar['iconKey'], color: string) => {
+  const props = { size: ICON.md, color, strokeWidth: ICON.strokeWidth };
+  switch (key) {
+    case 'overload':
+      return <Dumbbell {...props} />;
+    case 'splits':
+      return <GitBranch {...props} />;
+    case 'body':
+      return <Activity {...props} />;
+    case 'timer':
+      return <Timer {...props} />;
+    case 'offline':
+      return <ShieldCheck {...props} />;
+  }
+};
 
 interface LandingScreenProps {
   onGetStarted: () => void;
 }
 
 export default function LandingScreen({ onGetStarted }: LandingScreenProps) {
-  const { colors, isDark } = useTheme();
+  const { tokens } = useTheme();
+  const unitIsLbs = useWeightUnit();
+  const uLabel = unitLabel(unitIsLbs);
+  const { isNarrow, isCompactH, clampChartWidth, maxContentWidth, maxFontMultiplier } = useResponsiveMetrics();
+  const cardWidth = clampChartWidth(HORIZONTAL_MARGIN * 2);
+
   const [activeCardIndex, setActiveCardIndex] = useState(0);
+  const activeCardIndexRef = useRef(0);
+  activeCardIndexRef.current = activeCardIndex;
   const scrollRef = useRef<ScrollView>(null);
   const [isUserInteracting, setIsUserInteracting] = useState(false);
   const userInteractTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Button Spring Press Animation
-  const btnScale = useRef(new Animated.Value(1)).current;
-
-  const [fontsLoaded] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-    PlayfairDisplay_600SemiBold,
-    PlayfairDisplay_600SemiBold_Italic,
-  });
-
-  useEffect(() => {
-    SplashScreen.hideAsync().catch(() => {});
-  }, []);
+  const overloadPreviewText = `Bench Press · ${kgToDisplay(85, unitIsLbs)} ${uLabel} × 8 reps (+${kgToDisplay(5, unitIsLbs)} ${uLabel} Overload)`;
 
   // Smooth Auto-Scroll Carousel
   useEffect(() => {
     if (isUserInteracting) return;
 
     const timer = setInterval(() => {
-      setActiveCardIndex((prev) => {
-        const nextIndex = (prev + 1) % MODULE_PILLARS.length;
-        scrollRef.current?.scrollTo({
-          x: nextIndex * (CARD_WIDTH + CARD_SPACING),
-          animated: true,
-        });
-        return nextIndex;
+      const nextIndex = (activeCardIndexRef.current + 1) % MODULE_PILLARS.length;
+      activeCardIndexRef.current = nextIndex;
+      setActiveCardIndex(nextIndex);
+      scrollRef.current?.scrollTo({
+        x: nextIndex * (cardWidth + CARD_SPACING),
+        animated: true,
       });
     }, 4500);
 
     return () => clearInterval(timer);
-  }, [isUserInteracting]);
+  }, [isUserInteracting, cardWidth]);
 
   useEffect(() => {
     return () => {
@@ -154,7 +166,7 @@ export default function LandingScreen({ onGetStarted }: LandingScreenProps) {
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetX = event.nativeEvent.contentOffset.x;
-    const index = Math.round(offsetX / (CARD_WIDTH + CARD_SPACING));
+    const index = Math.round(offsetX / (cardWidth + CARD_SPACING));
     if (index !== activeCardIndex && index >= 0 && index < MODULE_PILLARS.length) {
       setActiveCardIndex(index);
       hapticSelection();
@@ -177,7 +189,7 @@ export default function LandingScreen({ onGetStarted }: LandingScreenProps) {
     hapticSelection();
     setActiveCardIndex(index);
     scrollRef.current?.scrollTo({
-      x: index * (CARD_WIDTH + CARD_SPACING),
+      x: index * (cardWidth + CARD_SPACING),
       animated: true,
     });
     setIsUserInteracting(true);
@@ -185,42 +197,63 @@ export default function LandingScreen({ onGetStarted }: LandingScreenProps) {
     userInteractTimeoutRef.current = setTimeout(() => setIsUserInteracting(false), 5000);
   };
 
-  const pressIn = () => {
-    Animated.spring(btnScale, { toValue: 0.97, useNativeDriver: true, tension: 100, friction: 8 }).start();
-  };
-
-  const pressOut = () => {
-    Animated.spring(btnScale, { toValue: 1, useNativeDriver: true, tension: 100, friction: 8 }).start();
-  };
+  const titleItalicSize = isCompactH || isNarrow ? 34 : 44;
+  const titleBoldSize = isCompactH || isNarrow ? 27 : 34;
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.background} />
-      {/* Subtle Ambient Cosmic Violet Aura */}
+    <ScreenWrapper edges={['top', 'bottom']} keyboardAvoiding={false}>
+      {/* Subtle Ambient Aura */}
       <LinearGradient
-        colors={isDark ? ['rgba(165,153,255,0.07)', 'rgba(0,0,0,0)'] : ['rgba(108,92,231,0.05)', 'rgba(255,255,255,0)']}
+        colors={[tokens.accent.primaryDim, 'transparent']}
         style={StyleSheet.absoluteFillObject}
         locations={[0, 0.45]}
         pointerEvents="none"
       />
 
-      <View style={styles.content}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { maxWidth: maxContentWidth, width: '100%', alignSelf: 'center' },
+        ]}
+      >
         {/* Top Header */}
         <Reanimated.View entering={FadeInDown.duration(500)} style={styles.topHeader}>
-          <Text style={[styles.brand, { color: colors.textPrimary }]}>ZENFIT</Text>
-          <Text style={[styles.step, { color: colors.textMuted }]}>01 / welcome</Text>
+          <Text style={[styles.brand, { color: tokens.text.primary }]}>ZENFIT</Text>
+          <Text style={[styles.step, { color: tokens.text.muted }]} maxFontSizeMultiplier={maxFontMultiplier}>01 / welcome</Text>
         </Reanimated.View>
 
         {/* Main Editorial Hero Block */}
         <Reanimated.View entering={FadeInDown.delay(100).duration(600)} style={styles.mainBlock}>
           <View style={styles.heroTextContainer}>
-            <Text style={[styles.heroTitleItalic, { color: colors.accentPrimary }]}>
+            <Text
+              style={[
+                styles.heroTitleItalic,
+                {
+                  color: tokens.accent.primary,
+                  fontSize: titleItalicSize,
+                  lineHeight: Math.round(titleItalicSize * 1.18),
+                },
+              ]}
+            >
               Quietly
             </Text>
-            <Text style={[styles.heroTitleBold, { color: colors.textPrimary }]}>orchestrated.</Text>
+            <Text
+              style={[
+                styles.heroTitleBold,
+                {
+                  color: tokens.text.primary,
+                  fontSize: titleBoldSize,
+                  lineHeight: Math.round(titleBoldSize * 1.12),
+                },
+              ]}
+            >
+              orchestrated.
+            </Text>
           </View>
 
-          <Text style={[styles.sub, { color: colors.textSecondary }]}>
+          <Text style={[styles.sub, { color: tokens.text.secondary }]}>
             Workouts, progressive overload, routines, and anatomical volume handled alongside you. Zero friction.
           </Text>
 
@@ -237,23 +270,23 @@ export default function LandingScreen({ onGetStarted }: LandingScreenProps) {
               onMomentumScrollEnd={handleScrollEndDrag}
               scrollEventThrottle={16}
               decelerationRate="fast"
-              snapToInterval={CARD_WIDTH + CARD_SPACING}
+              snapToInterval={cardWidth + CARD_SPACING}
               snapToAlignment="start"
               contentContainerStyle={styles.carouselContent}
             >
               {MODULE_PILLARS.map((item, index) => {
                 const isSelected = activeCardIndex === index;
+                const { color: toneColor, bg: toneBg } = resolvePillarColors(item.tone, tokens);
+                const previewLabel = item.id === 'overload' ? overloadPreviewText : item.preview;
                 return (
                   <View
                     key={item.id}
                     style={[
                       styles.showcaseCard,
                       {
-                        width: CARD_WIDTH,
-                        borderColor: isSelected
-                          ? isDark ? 'rgba(165, 153, 255, 0.28)' : 'rgba(108, 92, 231, 0.24)'
-                          : isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
-                        backgroundColor: isDark ? '#10121A' : '#FFFFFF',
+                        width: cardWidth,
+                        borderColor: isSelected ? tokens.border.focus : tokens.border.subtle,
+                        backgroundColor: tokens.bg.surface,
                       },
                     ]}
                   >
@@ -263,39 +296,35 @@ export default function LandingScreen({ onGetStarted }: LandingScreenProps) {
                         style={[
                           styles.iconBadge,
                           {
-                            backgroundColor: `${item.accentColor}18`,
-                            borderColor: `${item.accentColor}35`,
+                            backgroundColor: toneBg,
+                            borderColor: toneColor,
                           },
                         ]}
                       >
-                        {item.iconSet === 'mci' ? (
-                          <MaterialCommunityIcons name={item.icon as any} size={item.iconSize || 22} color={item.accentColor} />
-                        ) : (
-                          <Ionicons name={item.icon as any} size={item.iconSize || 21} color={item.accentColor} />
-                        )}
+                        {renderPillarIcon(item.iconKey, toneColor)}
                       </View>
                       <View
                         style={[
                           styles.categoryPill,
                           {
-                            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
+                            backgroundColor: tokens.bg.elevated,
                           },
                         ]}
                       >
-                        <View style={[styles.dotIndicator, { backgroundColor: item.accentColor }]} />
-                        <Text style={[styles.categoryPillText, { color: colors.textMuted }]}>
+                        <View style={[styles.dotIndicator, { backgroundColor: toneColor }]} />
+                        <Text style={[styles.categoryPillText, { color: tokens.text.secondary }]}>
                           {item.category}
                         </Text>
                       </View>
                     </View>
 
                     {/* Bold Punchy Title */}
-                    <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>
+                    <Text style={[styles.cardTitle, { color: tokens.text.primary }]}>
                       {item.title}
                     </Text>
 
                     {/* Friendly Description */}
-                    <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>
+                    <Text style={[styles.cardDesc, { color: tokens.text.secondary }]}>
                       {item.desc}
                     </Text>
 
@@ -304,13 +333,13 @@ export default function LandingScreen({ onGetStarted }: LandingScreenProps) {
                       style={[
                         styles.previewCapsule,
                         {
-                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.035)' : 'rgba(0, 0, 0, 0.03)',
-                          borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+                          backgroundColor: tokens.bg.elevated,
+                          borderColor: tokens.border.subtle,
                         },
                       ]}
                     >
-                      <Text style={[styles.previewText, { color: colors.textPrimary }]} numberOfLines={1}>
-                        {item.preview}
+                      <Text style={[styles.previewText, { color: tokens.text.primary }]} numberOfLines={1}>
+                        {previewLabel}
                       </Text>
                     </View>
                   </View>
@@ -318,29 +347,27 @@ export default function LandingScreen({ onGetStarted }: LandingScreenProps) {
               })}
             </ScrollView>
 
-            {/* iOS-Style Pagination Indicators */}
+            {/* Pagination Indicators */}
             <View style={styles.paginationRow}>
               {MODULE_PILLARS.map((_, idx) => {
                 const isActive = activeCardIndex === idx;
                 return (
-                  <TouchableOpacity
+                  <Pressable
                     key={idx}
                     onPress={() => handleDotPress(idx)}
-                    hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-                    activeOpacity={0.7}
+                    hitSlop={TOUCH.hitSlop}
+                    style={{ minHeight: 36, minWidth: 24, alignItems: 'center', justifyContent: 'center' }}
                   >
                     <View
                       style={[
                         styles.paginationDot,
                         {
-                          backgroundColor: isActive
-                            ? (isDark ? '#FFFFFF' : '#0A0A0E')
-                            : (isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.14)'),
+                          backgroundColor: isActive ? tokens.accent.primary : tokens.border.medium,
                           width: isActive ? 20 : 6,
                         },
                       ]}
                     />
-                  </TouchableOpacity>
+                  </Pressable>
                 );
               })}
             </View>
@@ -349,57 +376,43 @@ export default function LandingScreen({ onGetStarted }: LandingScreenProps) {
 
         {/* Bottom CTA Block */}
         <Reanimated.View entering={FadeInUp.delay(180).duration(600)} style={styles.bottomBlock}>
-          <TouchableOpacity
-            onPressIn={pressIn}
-            onPressOut={pressOut}
+          <TactileButton
+            variant="primary"
+            size="lg"
             onPress={handleGetStarted}
-            activeOpacity={0.9}
             style={styles.btnWrapper}
           >
-            <Animated.View
-              style={[
-                styles.primaryBtn,
-                {
-                  backgroundColor: isDark ? '#FFFFFF' : '#0A0A0E',
-                  borderColor: isDark ? '#FFFFFF' : '#0A0A0E',
-                  transform: [{ scale: btnScale }],
-                },
-              ]}
-            >
-              <Text style={[styles.primaryBtnText, { color: isDark ? '#0A0A0E' : '#FFFFFF' }]}>
-                Get Started
-              </Text>
-              <Ionicons
-                name="arrow-forward"
-                size={16}
-                color={isDark ? '#0A0A0E' : '#FFFFFF'}
-                style={{ marginLeft: 8 }}
-              />
-            </Animated.View>
-          </TouchableOpacity>
+            <Text style={[styles.primaryBtnText, { color: tokens.accent.onPrimary }]}>
+              Get Started
+            </Text>
+            <ArrowRight
+              size={ICON.sm}
+              color={tokens.accent.onPrimary}
+              strokeWidth={ICON.strokeWidth}
+              style={{ marginLeft: SPACE[8] }}
+            />
+          </TactileButton>
 
-          <Text style={[styles.trustText, { color: colors.textMuted }]}>
+          <Text style={[styles.trustText, { color: tokens.text.muted }]}>
             Private · 100% Local-First · Encrypted
           </Text>
         </Reanimated.View>
-      </View>
-    </SafeAreaView>
+      </ScrollView>
+    </ScreenWrapper>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
+  scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: HORIZONTAL_MARGIN,
     justifyContent: 'space-between',
-    paddingTop: 8,
-    paddingBottom: 20,
+    paddingTop: SPACE[8],
+    paddingBottom: SPACE[16],
+    gap: SPACE[12],
   },
   topHeader: {
-    marginTop: 6,
+    marginTop: SPACE[4],
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -408,36 +421,23 @@ const styles = StyleSheet.create({
     fontFamily: FONT_FAMILY.bold,
     fontSize: 13,
     letterSpacing: 1.2,
-    paddingRight: 6,
+    paddingRight: SPACE[8],
   },
   step: {
     fontFamily: FONT_FAMILY.body,
     fontSize: 11,
     letterSpacing: 1,
+    fontVariant: ['tabular-nums'],
   },
   mainBlock: {
     justifyContent: 'center',
-    marginVertical: 4,
+    marginVertical: SPACE[4],
   },
   heroTextContainer: {
-    marginBottom: 6,
+    marginBottom: SPACE[8],
     overflow: 'visible',
   },
-  heroTitleRow: {
-    fontSize: 44,
-    lineHeight: 52,
-  },
-  modernGeometricQ: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 46,
-    letterSpacing: 0.5,
-  },
   heroTitleItalic: {
-    fontFamily: 'PlayfairDisplay_600SemiBold_Italic',
-    fontSize: 44,
-    lineHeight: 52,
-  },
-  heroTitleRest: {
     fontFamily: 'PlayfairDisplay_600SemiBold_Italic',
     fontSize: 44,
     lineHeight: 52,
@@ -452,8 +452,8 @@ const styles = StyleSheet.create({
     fontFamily: FONT_FAMILY.body,
     fontSize: 13.5,
     lineHeight: 20,
-    marginBottom: 16,
-    opacity: 0.85,
+    marginBottom: SPACE[16],
+    opacity: 0.9,
   },
 
   // Showcase Cards
@@ -462,28 +462,23 @@ const styles = StyleSheet.create({
   },
   carouselContent: {
     gap: CARD_SPACING,
-    paddingVertical: 4,
+    paddingVertical: SPACE[4],
   },
   showcaseCard: {
-    borderRadius: 24,
+    borderRadius: RADIUS.card,
     borderWidth: 1,
-    padding: 18,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    elevation: 3,
+    padding: SPACE[16],
   },
   cardHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: SPACE[12],
   },
   iconBadge: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: RADIUS.inner,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -491,9 +486,9 @@ const styles = StyleSheet.create({
   categoryPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACE[10],
+    paddingVertical: SPACE[4],
+    borderRadius: RADIUS.sm,
     gap: 5,
   },
   dotIndicator: {
@@ -511,31 +506,31 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 24,
     letterSpacing: -0.2,
-    marginBottom: 6,
+    marginBottom: SPACE[8],
   },
   cardDesc: {
     fontFamily: FONT_FAMILY.body,
     fontSize: 13,
     lineHeight: 19,
-    marginBottom: 16,
-    opacity: 0.8,
+    marginBottom: SPACE[16],
   },
   previewCapsule: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 14,
+    paddingHorizontal: SPACE[12],
+    paddingVertical: SPACE[12],
+    borderRadius: RADIUS.inner,
     borderWidth: 1,
   },
   previewText: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 12.5,
+    fontVariant: ['tabular-nums'],
   },
   paginationRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 14,
+    gap: SPACE[8],
+    marginTop: SPACE[8],
   },
   paginationDot: {
     height: 4,
@@ -549,18 +544,7 @@ const styles = StyleSheet.create({
   },
   btnWrapper: {
     width: '100%',
-    marginBottom: 12,
-  },
-  primaryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 22,
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    width: '100%',
-    borderWidth: 1,
-    ...SHADOW.sm,
+    marginBottom: SPACE[12],
   },
   primaryBtnText: {
     fontFamily: FONT_FAMILY.bold,
@@ -570,7 +554,6 @@ const styles = StyleSheet.create({
   trustText: {
     fontFamily: FONT_FAMILY.body,
     fontSize: 11,
-    opacity: 0.6,
     letterSpacing: 0.3,
     textAlign: 'center',
   },

@@ -56,6 +56,7 @@ export type GymExercise = GymExerciseLog;
 export type GymLog = GymDayLog;
 
 export interface GymDayLog {
+  _schemaVer?: number;
   id?: string;
   userId: string;
   date: string;           // YYYY-MM-DD
@@ -65,6 +66,7 @@ export interface GymDayLog {
   notes?: string;
   workoutStartTime?: number | null;
   workoutDurationMinutes?: number;
+  workoutDurationSeconds?: number;
   completed?: boolean;
   startTime?: string;
   endTime?: string;
@@ -157,6 +159,7 @@ export interface UserGymPlanDoc {
   id?: string;
   userId: string;
   schemaVersion?: number;
+  name?: string;
   templateId?: 'arnold' | 'ppl' | string;
   schedulePattern?: 'mon_sun' | 'tue_mon' | 'wed_sun' | 'mon_fri' | 'custom' | string;
   scheduleMode?: 'calendar' | 'rotation';
@@ -165,25 +168,6 @@ export interface UserGymPlanDoc {
   routineFolders?: GymRoutineFolder[];           // NEW: Organizes routines
   activeProgramme?: UserGymProgramme | null;     // NEW: Multi-week structured periodization mesocycle
   updatedAt: number;
-}
-
-// ── New Types ────────────────────────────────────────────────────────────────
-
-export interface GymGeofenceConfig {
-  enabled: boolean;
-  gymName: string;
-  latitude: number;
-  longitude: number;
-  radiusMeters: number; // 100, 150 (default), 250
-}
-
-export interface BluetoothTriggerConfig {
-  enabled: boolean;
-  targetDeviceName?: string;
-  filterWorkoutHours: boolean;
-  startHour: string; // e.g. "05:00"
-  endHour: string;   // e.g. "21:00"
-  autoLaunchWorkout: boolean; // false = prompt (recommended), true = direct open
 }
 
 export type GymGoal = 'strength' | 'hypertrophy' | 'weightLoss' | 'recomp' | 'maintenance';
@@ -233,6 +217,8 @@ export interface GymProfile {
   autoTimer?: boolean;
   hapticsEnabled?: boolean;
   audioCues?: boolean;
+  defaultRestSecs?: number;
+  keepAwake?: boolean;
   onboardingCompleted?: boolean;
   splitPreference?: string | null;
   updatedAt?: number;
@@ -298,8 +284,8 @@ export type GymNavigationParamList = {
   Splits: undefined;
   History: undefined;
   GymHome: undefined;
-  ActiveLogging: { date: string; initialIndex?: number; exerciseIndex?: number; autoPromptEnd?: boolean };
-  WorkoutSummary: { date?: string; readOnly?: boolean } | undefined;
+  ActiveLogging: { date: string; initialIndex?: number; exerciseIndex?: number; autoPromptEnd?: boolean; previewOnly?: boolean };
+  WorkoutSummary: { date?: string; readOnly?: boolean; log?: GymDayLog } | undefined;
   GymProgress: { date?: string } | undefined;
   ExerciseDetail: {
     exerciseId: string;
@@ -313,10 +299,23 @@ export type GymNavigationParamList = {
   };
   ExerciseSwap: { exerciseIndex?: number; date?: string; currentName?: string; originalExerciseId?: string };
   GymHistory: undefined;
-  CardioLog: { date: string; cardioId?: string };
   ExerciseLibrary: undefined;
   GymProfile: undefined;
 };
+
+export interface ExerciseCatalogEntry {
+  id: string;
+  name: string;
+  muscle: string;
+  targetSets: number;
+  targetReps: string;
+  aliases?: string[];
+  restTimeSecs: number;
+  videoId: string;
+  tier?: 'S Tier' | 'A+ Tier' | 'A Tier' | 'B Tier' | 'C Tier';
+  isCurated?: boolean;
+  isCustom?: boolean;
+}
 
 export * from './exercise';
 

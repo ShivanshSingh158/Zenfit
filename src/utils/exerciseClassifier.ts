@@ -30,6 +30,9 @@ const LENGTHENED_REGEX =
 const SHORTENED_REGEX =
   /\b(pec deck|hip thrust|kickback|spider curl|cable pushdown|leg extension|lying leg curl|seated leg curl|cable lateral|concentration)\b/i;
 
+const MAX_BIO_CACHE_SIZE = 1000;
+const _biometricsMemoCache = new Map<string, ExerciseBiometrics>();
+
 /**
  * Resolves full ExerciseBiometrics for any exercise name and equipment.
  */
@@ -39,6 +42,14 @@ export function resolveExerciseBiometrics(
 ): ExerciseBiometrics {
   const name = (exerciseName || '').toLowerCase().trim();
   const equip = (explicitEquipment || '').toLowerCase().trim();
+  const cacheKey = `${name}|${equip}`;
+
+  const cached = _biometricsMemoCache.get(cacheKey);
+  if (cached) {
+    _biometricsMemoCache.delete(cacheKey);
+    _biometricsMemoCache.set(cacheKey, cached);
+    return cached;
+  }
 
   // 1. Resolve Movement Category
   let category: MovementCategory = 'ISOLATION';
@@ -46,7 +57,8 @@ export function resolveExerciseBiometrics(
     category = 'HEAVY_COMPOUND';
   } else if (STANDARD_COMPOUND_REGEX.test(name) && !/extension|curl|raise|fly|pushdown/i.test(name)) {
     category = 'STANDARD_COMPOUND';
-  } else if (equip === 'barbell' && /row|press|squat/i.test(name)) {
+  } else if ((equip === 'barbell' || /barbell/i.test(name)) && /row|press|squat/i.test(name)) {
+    // Issue #112: Barbell compound variations (e.g. Barbell Row, Barbell Overhead Press)
     category = 'HEAVY_COMPOUND';
   } else if (/pulldown|leg press|hack squat|dip|pull-?up|chin-?up/i.test(name)) {
     category = 'STANDARD_COMPOUND';
@@ -64,9 +76,9 @@ export function resolveExerciseBiometrics(
   let eccentricDamageScalar = 1.0;
   if (resistanceProfile === 'LENGTHENED') {
     eccentricDamageScalar = 1.35; // Extreme microscopic sarcomere disruption
-  } else if (resistanceProfile === 'SHORTENED' || equip === 'cable' || /cable|machine/i.test(name)) {
+  } else if (resistanceProfile === 'SHORTENED' || ((equip === 'cable' || /cable|machine/i.test(name)) && !/hack squat|pendulum|leg press|squat/i.test(name))) {
     eccentricDamageScalar = 0.70; // Smooth continuous tension with lower peak stretch damage
-  } else if (category === 'HEAVY_COMPOUND') {
+  } else if (category === 'HEAVY_COMPOUND' || /hack squat|pendulum|leg press|squat/i.test(name)) {
     eccentricDamageScalar = 1.10;
   }
 
@@ -92,7 +104,7 @@ export function resolveExerciseBiometrics(
     voluntaryActivationBase = 1.15;
   }
 
-  return {
+  const result: ExerciseBiometrics = {
     name: exerciseName,
     category,
     resistanceProfile,
@@ -100,4 +112,11 @@ export function resolveExerciseBiometrics(
     cnsDemandScalar,
     voluntaryActivationBase,
   };
+
+  if (_biometricsMemoCache.size >= MAX_BIO_CACHE_SIZE) {
+    const oldest = _biometricsMemoCache.keys().next().value;
+    if (oldest !== undefined) _biometricsMemoCache.delete(oldest);
+  }
+  _biometricsMemoCache.set(cacheKey, result);
+  return result;
 }

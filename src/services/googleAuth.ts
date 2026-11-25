@@ -16,6 +16,17 @@ try {
   // Native module is linked in standalone APK build; Expo Go falls back gracefully
 }
 
+let _isGoogleConfigured = false;
+
+async function ensureGoogleConfigured(): Promise<void> {
+  if (_isGoogleConfigured || !GoogleSignin) return;
+  await GoogleSignin.configure({
+    webClientId: WEB_CLIENT_ID,
+    offlineAccess: false,
+  });
+  _isGoogleConfigured = true;
+}
+
 export interface GoogleAuthResult {
   success: boolean;
   cancelled?: boolean;
@@ -32,12 +43,7 @@ export async function signInWithGoogle(): Promise<GoogleAuthResult> {
   }
 
   try {
-    // Configure Google Sign In on demand to guarantee native Android Activity is ready
-    await GoogleSignin.configure({
-      webClientId: WEB_CLIENT_ID,
-      offlineAccess: false,
-    });
-
+    await ensureGoogleConfigured();
     await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
     
     // In @react-native-google-signin/google-signin v16:
@@ -95,6 +101,7 @@ export async function signInWithGoogle(): Promise<GoogleAuthResult> {
 export async function signOutGoogle(): Promise<void> {
   try {
     if (GoogleSignin) {
+      await ensureGoogleConfigured().catch(() => {});
       await GoogleSignin.signOut().catch(() => {});
     }
     await firebaseSignOut(auth);

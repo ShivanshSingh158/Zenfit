@@ -1,5 +1,5 @@
 import { todayStr } from '../hooks/useGymLog';
-import { getPreviousExerciseSession } from './gymUtils';
+import { getPreviousExerciseSession, normalizeExerciseKey } from './gymUtils';
 import { getExerciseLedgerSetsSync } from './exerciseLedger';
 
 export interface SetInputState {
@@ -14,8 +14,9 @@ export interface SetInputState {
 export function parseUpperTargetReps(targetRepsStr?: string | number | null): number {
   if (!targetRepsStr) return 10;
   const str = String(targetRepsStr).trim();
-  if (/[-–—]/.test(str)) {
-    const parts = str.split(/[-–—]/);
+  // Issue #94: Support "to" in range strings (e.g. "8 to 12" -> 12)
+  if (/[-–—]|\bto\b/i.test(str)) {
+    const parts = str.split(/[-–—]|\bto\b/i);
     const upper = parseInt(parts[parts.length - 1].trim(), 10);
     if (!isNaN(upper) && upper > 0) return Math.min(999, upper);
   }
@@ -29,8 +30,9 @@ export function parseUpperTargetReps(targetRepsStr?: string | number | null): nu
 export function parseTargetRepsDefault(targetRepsStr?: string | number | null): number {
   if (!targetRepsStr) return 8;
   const str = String(targetRepsStr).trim();
-  if (/[-–—]/.test(str)) {
-    const parts = str.split(/[-–—]/);
+  // Issue #94: Support "to" in range strings (e.g. "8 to 12" -> 8)
+  if (/[-–—]|\bto\b/i.test(str)) {
+    const parts = str.split(/[-–—]|\bto\b/i);
     const lower = parseInt(parts[0].trim(), 10);
     if (!isNaN(lower) && lower > 0) return Math.min(999, lower);
   }
@@ -56,7 +58,8 @@ export function resolveSetWeightAndReps(
   // 1. Resolve Weight (Clamped 0 - 1000 kg, supports 0 kg bodyweight)
   let weight: number | null = null;
   if (input?.weight !== '' && input?.weight !== undefined) {
-    weight = parseFloat(input.weight);
+    const parsed = parseFloat(input.weight);
+    weight = !isNaN(parsed) ? parsed : (isWeightEdited ? null : null);
   } else if (isWeightEdited) {
     weight = null;
   } else if (currentSet?.weight != null && !isNaN(Number(currentSet.weight)) && Number(currentSet.weight) >= 0) {
@@ -64,12 +67,13 @@ export function resolveSetWeightAndReps(
   } else if (lastSessionSet?.weight != null && !isNaN(Number(lastSessionSet.weight)) && Number(lastSessionSet.weight) >= 0) {
     weight = Number(lastSessionSet.weight);
   } else if (prevInput?.weight !== '' && prevInput?.weight !== undefined) {
-    weight = parseFloat(prevInput.weight);
+    const parsedPrev = parseFloat(prevInput.weight);
+    weight = !isNaN(parsedPrev) ? parsedPrev : null;
   } else if (prevSet?.weight != null && !isNaN(Number(prevSet.weight)) && Number(prevSet.weight) >= 0) {
     weight = Number(prevSet.weight);
   } else if (setIndex != null && overloadSuggestion?.prescribedSets?.[setIndex]?.targetWeight != null) {
     weight = Number(overloadSuggestion.prescribedSets[setIndex].targetWeight);
-  } else if (overloadSuggestion?.recommended) {
+  } else if (overloadSuggestion?.recommended != null && !isNaN(Number(overloadSuggestion.recommended))) {
     weight = Number(overloadSuggestion.recommended);
   }
 
@@ -77,17 +81,17 @@ export function resolveSetWeightAndReps(
   let reps: number | null = null;
   if (input?.reps !== '' && input?.reps !== undefined) {
     const directUserReps = parseInt(input.reps, 10);
-    reps = !isNaN(directUserReps) && directUserReps > 0 ? Math.min(999, directUserReps) : 10;
+    reps = !isNaN(directUserReps) && directUserReps >= 0 ? Math.min(999, directUserReps) : (isRepsEdited ? null : 10);
   } else if (isRepsEdited) {
     reps = null;
-  } else if (currentSet?.reps != null && Number(currentSet.reps) > 0) {
+  } else if (currentSet?.reps != null && Number(currentSet.reps) >= 0) {
     reps = Number(currentSet.reps);
   } else if (lastSessionSet?.reps != null && Number(lastSessionSet.reps) > 0) {
     reps = Number(lastSessionSet.reps);
   } else if (prevInput?.reps !== '' && prevInput?.reps !== undefined) {
     const directPrevReps = parseInt(prevInput.reps, 10);
-    reps = !isNaN(directPrevReps) && directPrevReps > 0 ? Math.min(999, directPrevReps) : 10;
-  } else if (prevSet?.reps != null && Number(prevSet.reps) > 0) {
+    reps = !isNaN(directPrevReps) && directPrevReps >= 0 ? Math.min(999, directPrevReps) : (isRepsEdited ? null : 10);
+  } else if (prevSet?.reps != null && Number(prevSet.reps) >= 0) {
     reps = Number(prevSet.reps);
   } else if (setIndex != null && overloadSuggestion?.prescribedSets?.[setIndex]?.targetReps != null) {
     reps = Number(overloadSuggestion.prescribedSets[setIndex].targetReps);
@@ -97,7 +101,7 @@ export function resolveSetWeightAndReps(
 
   return {
     weight: weight !== null && !isNaN(weight) ? Math.min(1000, Math.max(0, weight)) : null,
-    reps: reps !== null && !isNaN(reps) ? Math.min(999, Math.max(1, reps)) : 10,
+    reps: reps !== null && !isNaN(reps) ? Math.min(999, Math.max(0, reps)) : (isRepsEdited ? null : 10),
   };
 }
 
@@ -131,12 +135,13 @@ export function findNextSupersetExerciseIndex(exercises: any[], currentIdx: numb
 export function computeInitialSetInputs(
   exercise: any,
   gymLogs: any[] | null | undefined,
-  date: string | undefined
+  date: string | undefined,
+  historyIndex?: Map<string, any>
 ): SetInputState[] {
   if (!exercise || !exercise.setsLog) return [];
   let lastSessionSets = (Array.isArray(exercise.lastSessionSets) && exercise.lastSessionSets.length > 0)
     ? exercise.lastSessionSets
-    : (getPreviousExerciseSession(exercise.name, gymLogs, date || todayStr())?.sets ?? []);
+    : (historyIndex?.get(normalizeExerciseKey(exercise.name))?.sets ?? getPreviousExerciseSession(exercise.name, gymLogs, date || todayStr())?.sets ?? []);
 
   // Zero-Data-Loss Ledger Fallback: If gymLogs hasn't hydrated or last session had no sets, read permanent ledger!
   if ((!lastSessionSets || lastSessionSets.length === 0) && exercise.name) {
@@ -151,7 +156,7 @@ export function computeInitialSetInputs(
     if (s.completed) {
       return {
         weight: (s.weight !== null && s.weight !== undefined && Number(s.weight) >= 0) ? String(s.weight) : '',
-        reps: (s.reps !== null && s.reps !== undefined && Number(s.reps) > 0) ? String(s.reps) : '',
+        reps: (s.reps !== null && s.reps !== undefined && Number(s.reps) >= 0) ? String(s.reps) : '',
       };
     }
     const lastSet = lastSessionSets[idx] || lastValidPastSet;

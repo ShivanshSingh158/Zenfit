@@ -17,9 +17,20 @@
  */
 
 import React from 'react';
-// Safe fallbacks for Expo Go (Android home screen widgets require bare native build)
-const FlexWidget = (props: any) => null;
-const TextWidget = (props: any) => null;
+import { Platform } from 'react-native';
+// Safe dynamic resolution for production bare native build with Expo Go fallback
+let FlexWidget: any = (props: any) => null;
+let TextWidget: any = (props: any) => null;
+if (Platform.OS === 'android') {
+  try {
+    const RNWidget = require('react-native-android-widget');
+    if (RNWidget) {
+      FlexWidget = RNWidget.FlexWidget || FlexWidget;
+      TextWidget = RNWidget.TextWidget || TextWidget;
+    }
+  } catch {}
+}
+
 type HexColor = string;
 import { LiveWorkoutWidgetData } from '../types/widget.types';
 
@@ -29,25 +40,25 @@ interface LiveWorkoutWidgetProps {
   height?: number;
 }
 
-// ─── Design Tokens (Obsidian Cosmos Glassmorphism) ───────────────────────────
+// ─── Design Tokens (Apple OLED Dark Palette) ─────────────────────────────────
 const C = {
   bg:            '#00000000' as HexColor, // 100% transparent root background
-  outerCard:     '#2410101E' as HexColor, // Deep frosted obsidian cosmos card
-  outerBorder:   '#35A599FF' as HexColor, // Signature purple neon hairline outer border (matches TodayAgendaWidget)
-  headerGlass:   '#181628' as HexColor,   // Frosted header pill
-  headerBorder:  '#2C2842' as HexColor,
-  cardSurface:   '#151420' as HexColor,   // Frosted content card
-  cardBorder:    '#262238' as HexColor,
-  surface2:      '#201D30' as HexColor,
-  divider:       '#221F33' as HexColor,
+  outerCard:     '#E6121215' as HexColor, // Deep frosted OLED surface
+  outerBorder:   '#350A84FF' as HexColor, // Apple Blue hairline outer border
+  headerGlass:   '#18181B' as HexColor,   // Elevated pill header
+  headerBorder:  '#27272A' as HexColor,
+  cardSurface:   '#121215' as HexColor,   // Surface content card
+  cardBorder:    '#27272A' as HexColor,
+  surface2:      '#1C1C21' as HexColor,
+  divider:       '#27272A' as HexColor,
 
   textPrimary:   '#FFFFFF' as HexColor,
   textSecondary: '#AEAEB2' as HexColor,
   textTertiary:  '#7C7C88' as HexColor,
 
-  accent:        '#A599FF' as HexColor,   // ZenTrack purple
-  accentSoft:    '#251F3D' as HexColor,
-  accentBorder:  '#4A3D7A' as HexColor,
+  accent:        '#0A84FF' as HexColor,   // Apple Electric Blue
+  accentSoft:    '#10243E' as HexColor,
+  accentBorder:  '#1E4976' as HexColor,
 
   green:         '#30D158' as HexColor,   // iOS system green
   greenSoft:     '#16281C' as HexColor,
@@ -102,6 +113,14 @@ export function LiveWorkoutWidget({ data, width = 330, height = 280 }: LiveWorko
   const doneSets       = data?.completedSetsCount ?? 0;
   const totalSets      = data?.totalSetsCount ?? (totalExercises * 3);
   const duration       = data?.workoutDurationMinutes;
+
+  const isLbs          = data?.unit === 'lbs';
+  const unitTag        = isLbs ? 'lbs' : 'kg';
+  const stepLabel      = isLbs ? '5' : '2.5';
+  const stepKgDelta    = isLbs ? 2.26796 : 2.5;
+  const displayWeightVal = targetWeight > 0
+    ? (isLbs ? Math.round(targetWeight * 2.20462 * 10) / 10 : Math.round(targetWeight * 10) / 10)
+    : 0;
 
   const isCompact      = height < 150;
   const isLarge        = height >= 230;
@@ -275,24 +294,22 @@ export function LiveWorkoutWidget({ data, width = 330, height = 280 }: LiveWorko
                   marginTop: isCompact ? 4 : 6,
                 }}
               >
-                {targetWeight > 0 ? (
-                  <FlexWidget
-                    style={{
-                      backgroundColor: C.setsPillBg,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: C.setsPillBorder,
-                      paddingHorizontal: 8,
-                      paddingVertical: 3,
-                      marginRight: 6,
-                    }}
-                  >
-                    <TextWidget
-                      text={`${targetWeight} kg`}
-                      style={{ fontSize: 12, fontWeight: 'bold', color: C.setsPillText }}
-                    />
-                  </FlexWidget>
-                ) : null}
+                <FlexWidget
+                  style={{
+                    backgroundColor: C.setsPillBg,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: C.setsPillBorder,
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    marginRight: 6,
+                  }}
+                >
+                  <TextWidget
+                    text={displayWeightVal > 0 ? `${displayWeightVal} ${unitTag}` : `BW / 0 ${unitTag}`}
+                    style={{ fontSize: 12, fontWeight: 'bold', color: C.setsPillText }}
+                  />
+                </FlexWidget>
 
                 <FlexWidget
                   style={{
@@ -392,7 +409,7 @@ export function LiveWorkoutWidget({ data, width = 330, height = 280 }: LiveWorko
                   }}
                 >
                   <TextWidget
-                    text={`⏱ ${duration || 45}m`}
+                    text={duration && duration > 0 ? `⏱ ${duration}m` : '⏱ Done'}
                     style={{ fontSize: 11, fontWeight: 'bold', color: C.durationPillText }}
                   />
                 </FlexWidget>
@@ -568,13 +585,13 @@ export function LiveWorkoutWidget({ data, width = 330, height = 280 }: LiveWorko
                   action: 'adjust_workout_weight',
                   exerciseId: currentEx.id,
                   setIndex: currentSetIdx,
-                  weightDelta: -2.5,
+                  weightDelta: targetWeight > 0 ? -stepKgDelta : 0,
                 }}
               >
-                <TextWidget text="-2.5" style={{ fontSize: 11, fontWeight: 'bold', color: C.textPrimary }} />
+                <TextWidget text={`-${stepLabel}`} style={{ fontSize: 11, fontWeight: 'bold', color: C.textPrimary }} />
               </FlexWidget>
 
-              {/* +2.5 kg button */}
+              {/* +2.5 kg / +5 lbs button */}
               <FlexWidget
                 style={{
                   backgroundColor: C.cardSurface,
@@ -592,10 +609,10 @@ export function LiveWorkoutWidget({ data, width = 330, height = 280 }: LiveWorko
                   action: 'adjust_workout_weight',
                   exerciseId: currentEx.id,
                   setIndex: currentSetIdx,
-                  weightDelta: 2.5,
+                  weightDelta: stepKgDelta,
                 }}
               >
-                <TextWidget text="+2.5" style={{ fontSize: 11, fontWeight: 'bold', color: C.textPrimary }} />
+                <TextWidget text={`+${stepLabel}`} style={{ fontSize: 11, fontWeight: 'bold', color: C.textPrimary }} />
               </FlexWidget>
 
               {/* Done Set button (or Finish Workout on final set) */}

@@ -1,3 +1,4 @@
+import NetInfo from '@react-native-community/netinfo';
 /**
  * exerciseVideoResolver.ts — ZenTrack Mobile
  * S.A.R.A AI Auto-Video Form Finder & YouTube Resolver.
@@ -9,52 +10,139 @@ import { KNOWN_EXERCISE_VIDEOS, sanitizeName } from './exerciseVideoDatabase';
 
 const VIDEO_CACHE_PREFIX = '@zentrack_video_id_';
 
-export async function autoResolveExerciseVideoId(exerciseName: string, forceRefresh = false): Promise<string | null> {
+let _videoIndexesInitialized = false;
+const NORMALIZED_VIDEO_MAP = new Map<string, string>();
+const SORTED_NORMALIZED_VIDEO_KEYS: string[] = [];
+
+function ensureVideoIndexes(): void {
+  if (_videoIndexesInitialized) return;
+  _videoIndexesInitialized = true;
+  for (const [rawKey, videoId] of Object.entries(KNOWN_EXERCISE_VIDEOS)) {
+    const normKey = sanitizeName(rawKey);
+    NORMALIZED_VIDEO_MAP.set(normKey, videoId);
+    SORTED_NORMALIZED_VIDEO_KEYS.push(normKey);
+  }
+  SORTED_NORMALIZED_VIDEO_KEYS.sort((a, b) => b.length - a.length);
+}
+
+const SINGLE_VIDEO_CACHE_KEY = '@zentrack_video_id_cache_v1';
+let _videoCacheMap: Record<string, { videoId: string; expiresAt?: number }> | null = null;
+
+async function getVideoCacheMap(): Promise<Record<string, { videoId: string; expiresAt?: number }>> {
+  if (_videoCacheMap !== null) return _videoCacheMap;
+  try {
+    const raw = await AsyncStorage.getItem(SINGLE_VIDEO_CACHE_KEY);
+    _videoCacheMap = raw ? JSON.parse(raw) : {};
+  } catch {
+    _videoCacheMap = {};
+  }
+  return _videoCacheMap!;
+}
+
+async function setVideoInCacheMap(key: string, videoId: string, ttlMs = 7 * 86400000): Promise<void> {
+  const map = await getVideoCacheMap();
+  map[key] = { videoId, expiresAt: Date.now() + ttlMs };
+  try {
+    await AsyncStorage.setItem(SINGLE_VIDEO_CACHE_KEY, JSON.stringify(map));
+  } catch (_) {}
+}
+
+export async function clearVideoResolverCache(): Promise<void> {
+  _videoCacheMap = {};
+  try {
+    await AsyncStorage.removeItem(SINGLE_VIDEO_CACHE_KEY);
+  } catch (_) {}
+}
+
+async function isValidYoutubeVideoId(videoId: string): Promise<boolean> {
+  if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) return false;
+  try {
+    const resp = await fetch(`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`, { method: 'HEAD' });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
+const MODIFIER_GUARDS = ['reverse', 'rear', 'incline', 'decline', 'seated', 'standing', 'lying', 'single', 'cable', 'barbell', 'dumbbell'];
+
+const IN_FLIGHT_VIDEO_RESOLVES = new Map<string, Promise<string | null>>();
+
+export function autoResolveExerciseVideoId(exerciseName: string, forceRefresh = false): Promise<string | null> {
+  const key = `${sanitizeName(exerciseName || '')}_${forceRefresh}`;
+  if (IN_FLIGHT_VIDEO_RESOLVES.has(key)) return IN_FLIGHT_VIDEO_RESOLVES.get(key)!;
+  const p = _autoResolveImpl(exerciseName, forceRefresh).finally(() => {
+    IN_FLIGHT_VIDEO_RESOLVES.delete(key);
+  });
+  IN_FLIGHT_VIDEO_RESOLVES.set(key, p);
+  return p;
+}
+
+async function _autoResolveImpl(exerciseName: string, forceRefresh = false): Promise<string | null> {
+  ensureVideoIndexes();
   if (!exerciseName || !exerciseName.trim()) return null;
 
   const sanitized = sanitizeName(exerciseName);
-  const cacheKey = `${VIDEO_CACHE_PREFIX}${sanitized}`;
+  const legacyCacheKey = `${VIDEO_CACHE_PREFIX}${sanitized}`;
 
   let isRateLimited = false;
 
   if (forceRefresh) {
     try {
-      await AsyncStorage.removeItem(cacheKey);
+      const map = await getVideoCacheMap();
+      if (map[sanitized]) {
+        delete map[sanitized];
+        await AsyncStorage.setItem(SINGLE_VIDEO_CACHE_KEY, JSON.stringify(map));
+      }
+      await AsyncStorage.removeItem(legacyCacheKey);
     } catch (_) {}
   } else {
-    // 1. Direct exact match in dictionary (400+ Exercises)
-    if (KNOWN_EXERCISE_VIDEOS[sanitized]) {
-      return KNOWN_EXERCISE_VIDEOS[sanitized];
+    // 1. Direct exact match in normalized dictionary (400+ Exercises)
+    if (NORMALIZED_VIDEO_MAP.has(sanitized)) {
+      return NORMALIZED_VIDEO_MAP.get(sanitized)!;
     }
 
-    // 2. Smart Modifier-Aware Partial Match
-    const sortedKeys = Object.keys(KNOWN_EXERCISE_VIDEOS).sort((a, b) => b.length - a.length);
-    const keyMatch = sortedKeys.find(k => {
-      const hasReverseInName = sanitized.includes('reverse') || sanitized.includes('rear');
-      const hasReverseInKey = k.includes('reverse') || k.includes('rear');
-      if (hasReverseInName !== hasReverseInKey) return false;
-
-      const hasInclineInName = sanitized.includes('incline');
-      const hasInclineInKey = k.includes('incline');
-      if (hasInclineInName !== hasInclineInKey) return false;
-
-      const hasDeclineInName = sanitized.includes('decline');
-      const hasDeclineInKey = k.includes('decline');
-      if (hasDeclineInName !== hasDeclineInKey) return false;
+    // 2. Smart Modifier-Aware Partial Match via pre-sorted keys
+    const keyMatch = SORTED_NORMALIZED_VIDEO_KEYS.find(k => {
+      const hasModifierMismatch = MODIFIER_GUARDS.some(
+        mod => sanitized.includes(mod) !== k.includes(mod)
+      );
+      if (hasModifierMismatch) return false;
 
       return sanitized.includes(k) || k.includes(sanitized);
     });
 
-    if (keyMatch) {
-      return KNOWN_EXERCISE_VIDEOS[keyMatch];
+    if (keyMatch && NORMALIZED_VIDEO_MAP.has(keyMatch)) {
+      return NORMALIZED_VIDEO_MAP.get(keyMatch)!;
     }
 
-    // 3. Local AsyncStorage Cache
+    // 3. Unified Video Cache Map (plus one-time legacy key read)
     try {
-      const cached = await AsyncStorage.getItem(cacheKey);
-      if (cached && cached !== 'NONE') return cached;
+      const cacheMap = await getVideoCacheMap();
+      const entry = cacheMap[sanitized];
+      if (entry) {
+        if (!entry.expiresAt || entry.expiresAt > Date.now()) {
+          return entry.videoId && entry.videoId !== 'NONE' ? entry.videoId : null;
+        }
+      }
+      const legacyCached = await AsyncStorage.getItem(legacyCacheKey);
+      if (legacyCached) {
+        if (legacyCached !== 'NONE') {
+          await setVideoInCacheMap(sanitized, legacyCached);
+        }
+        AsyncStorage.removeItem(legacyCacheKey).catch(() => {});
+        if (legacyCached !== 'NONE') return legacyCached;
+      }
     } catch (_) { /* ignore */ }
   }
+
+  // Offline fast-bail before attempting live AI web search
+  try {
+    const net = await NetInfo.fetch();
+    if (net.isConnected === false || net.isInternetReachable === false) {
+      return null;
+    }
+  } catch (_) {}
 
   // 4. S.A.R.A AI Live Search Resolution — Queries YouTube live for a fresh video
   try {
@@ -81,8 +169,11 @@ Output ONLY the raw 11-character YouTube video ID string (e.g. vB_hT1sK2kM). If 
     if (textResult) {
       const cleanId = textResult.replace(/[^a-zA-Z0-9_-]/g, '').trim();
       if (cleanId.length === 11 && cleanId.toUpperCase() !== 'NONE') {
-        AsyncStorage.setItem(cacheKey, cleanId).catch(() => {});
-        return cleanId;
+        const isValid = await isValidYoutubeVideoId(cleanId);
+        if (isValid) {
+          await setVideoInCacheMap(sanitized, cleanId);
+          return cleanId;
+        }
       }
     }
   } catch (e: any) {
@@ -117,8 +208,11 @@ Return ONLY the 11-character YouTube video ID string.`;
       if (textResult) {
         const cleanId = textResult.replace(/[^a-zA-Z0-9_-]/g, '').trim();
         if (cleanId.length === 11 && cleanId.toUpperCase() !== 'NONE') {
-          AsyncStorage.setItem(cacheKey, cleanId).catch(() => {});
-          return cleanId;
+          const isValid = await isValidYoutubeVideoId(cleanId);
+          if (isValid) {
+            await setVideoInCacheMap(sanitized, cleanId);
+            return cleanId;
+          }
         }
       }
     } catch (e) {
@@ -126,16 +220,19 @@ Return ONLY the 11-character YouTube video ID string.`;
     }
   }
 
-  // Guaranteed Movement Pattern Fallback — Ensures NO EXERCISE ever returns empty null!
-  if (sanitized.includes('swing') || sanitized.includes('kettlebell')) return 'ysO0yL2z_o8';
+  // Negative-cache unresolved results briefly so UI falls back cleanly to local GIF/still without retrying every mount
+  await setVideoInCacheMap(sanitized, 'NONE', 6 * 3600000).catch(() => {});
+
+  // Core movement fallbacks (only for safe primary compound patterns; return null otherwise)
+  if (sanitized.includes('swing') || sanitized.includes('kettlebell')) return null;
   if (sanitized.includes('press') || sanitized.includes('bench')) return 'hWbUlkb5Ms4';
   if (sanitized.includes('row') || sanitized.includes('pulldown') || sanitized.includes('pullup') || sanitized.includes('chinup')) return 'G8l_8chR5BE';
   if (sanitized.includes('squat') || sanitized.includes('lunge')) return 'RVEZruvfkqI';
   if (sanitized.includes('deadlift') || sanitized.includes('rdl') || sanitized.includes('hinge')) return '2SHsk9AzdjA';
-  if (sanitized.includes('curl')) return 'kwG2ipFRgfo';
+  if (sanitized.includes('curl') && !sanitized.includes('leg')) return 'kwG2ipFRgfo';
   if (sanitized.includes('extension') || sanitized.includes('pushdown') || sanitized.includes('dip')) return 'NvZKjiZ8NYc';
   if (sanitized.includes('raise') || sanitized.includes('fly')) return 'Kl3LEzQ5Zqs';
-  if (sanitized.includes('crunch') || sanitized.includes('plank') || sanitized.includes('ab')) return 'mnRhbUB3Fjs';
+  if (sanitized.includes('crunch') || sanitized.includes('plank')) return 'mnRhbUB3Fjs';
 
-  return 'ysO0yL2z_o8';
+  return null;
 }

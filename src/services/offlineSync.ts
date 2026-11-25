@@ -1,14 +1,21 @@
+// src/services/offlineSync.ts
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { doc, setDoc, addDoc, updateDoc, deleteDoc, collection, serverTimestamp, writeBatch, increment, deleteField } from 'firebase/firestore';
+import { AppState } from 'react-native';
+import { doc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp, writeBatch, increment, deleteField } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from './firebase';
 import NetInfo from '@react-native-community/netinfo';
-import { InteractionManager } from 'react-native';
 import { COLLECTION } from '../config/constants';
-import { touchServerSyncMeta } from '../utils/syncMeta';
 
-function unflattenDotNotation(obj: any): any {
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+function isPlainRecord(val: any): boolean {
+  if (!val || typeof val !== 'object' || Array.isArray(val)) return false;
+  const proto = Object.getPrototypeOf(val);
+  return proto === null || proto === Object.prototype;
+}
+
+export function unflattenDotNotation(obj: any): any {
+  if (!isPlainRecord(obj)) return obj;
   const result: Record<string, any> = {};
   for (const [key, val] of Object.entries(obj)) {
     if (key.includes('.')) {
@@ -16,14 +23,25 @@ function unflattenDotNotation(obj: any): any {
       let curr = result;
       for (let i = 0; i < parts.length - 1; i++) {
         const part = parts[i];
-        if (!curr[part] || typeof curr[part] !== 'object' || Array.isArray(curr[part])) {
+        if (!isPlainRecord(curr[part])) {
           curr[part] = {};
         }
         curr = curr[part];
       }
-      curr[parts[parts.length - 1]] = unflattenDotNotation(val);
+      const leaf = parts[parts.length - 1];
+      const expandedVal = unflattenDotNotation(val);
+      if (isPlainRecord(curr[leaf]) && isPlainRecord(expandedVal)) {
+        curr[leaf] = { ...curr[leaf], ...expandedVal };
+      } else {
+        curr[leaf] = expandedVal;
+      }
     } else {
-      result[key] = typeof val === 'object' ? unflattenDotNotation(val) : val;
+      const expandedVal = isPlainRecord(val) ? unflattenDotNotation(val) : val;
+      if (isPlainRecord(result[key]) && isPlainRecord(expandedVal)) {
+        result[key] = { ...result[key], ...expandedVal };
+      } else {
+        result[key] = expandedVal;
+      }
     }
   }
   return result;
@@ -32,7 +50,10 @@ function unflattenDotNotation(obj: any): any {
 function restoreFirestoreSentinels(obj: any): any {
   if (!obj || typeof obj !== 'object') return obj;
   const expanded = unflattenDotNotation(obj);
-  const clone: Record<string, any> = Array.isArray(expanded) ? [...expanded] : { ...expanded };
+  if (Array.isArray(expanded)) {
+    return expanded.map(restoreFirestoreSentinels);
+  }
+  const clone: Record<string, any> = { ...expanded };
   for (const key of Object.keys(clone)) {
     const val = clone[key];
     if (val && typeof val === 'object') {
@@ -42,14 +63,9 @@ function restoreFirestoreSentinels(obj: any): any {
         clone[key] = increment(val._operand);
       } else if (val._methodName === 'deleteField' || val.__zentrackDeleteField === true) {
         clone[key] = deleteField();
-      } else if (
-        val._methodName === 'serverTimestamp' ||
-        val.__zentrackServerTimestamp === true ||
-        ((key === 'createdAt' || key === 'updatedAt' || key === 'timestamp' || key === 'startTime') &&
-          Object.keys(val).length === 0)
-      ) {
+      } else if (val._methodName === 'serverTimestamp' || val.__zentrackServerTimestamp === true) {
         clone[key] = serverTimestamp();
-      } else {
+      } else if (isPlainRecord(val)) {
         clone[key] = restoreFirestoreSentinels(val);
       }
     }
@@ -57,23 +73,90 @@ function restoreFirestoreSentinels(obj: any): any {
   return clone;
 }
 
+function mergeOfflinePayloads(prevData: any, nextData: any, now: number): any {
+  if (!isPlainRecord(prevData) || !isPlainRecord(nextData)) return nextData;
+  const merged: Record<string, any> = { ...prevData, ...nextData, clientUpdatedAt: now, updatedAt: now };
+  for (const key of Object.keys(nextData)) {
+    const prevVal = prevData[key];
+    const nextVal = nextData[key];
+    const prevInc = prevVal?.__zentrackIncrement ?? (prevVal?._methodName === 'increment' ? prevVal._operand : undefined);
+    const nextInc = nextVal?.__zentrackIncrement ?? (nextVal?._methodName === 'increment' ? nextVal._operand : undefined);
+    if (typeof prevInc === 'number' && typeof nextInc === 'number') {
+      const totalInc = prevInc + nextInc;
+      if (totalInc === 0) {
+        delete merged[key];
+      } else {
+        merged[key] = { __zentrackIncrement: totalInc };
+      }
+    }
+  }
+  return merged;
+}
+
+export interface OfflineQueueItem {
+  id: string;
+  collection: string;
+  operation: 'add' | 'update' | 'delete' | 'set';
+  data: any;
+  docId?: string;
+  createdAt: number;
+  clientUpdatedAt: number;
+  retryCount: number;
+  lastAttemptAt?: number;
+  inFlightUntil?: number;
+  isLocalGenesis?: boolean;
+}
+
+export type QueueItem = OfflineQueueItem;
+
 const OFFLINE_QUEUE_KEY = '@zentrack_offline_write_queue';
 
-// Synchronous In-Memory Write-Ahead Log (WAL) to prevent snapshot rollback
 let _memoryQueue: OfflineQueueItem[] | null = null;
 let _queueDiskFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let _diskFlushChain: Promise<void> = Promise.resolve();
+let _retryWakeupTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Immediately flush pending debounced queue writes when app backgrounds or becomes inactive
+AppState.addEventListener('change', nextState => {
+  if (nextState === 'background' || nextState === 'inactive') {
+    if (_queueDiskFlushTimer || (_memoryQueue && _memoryQueue.length > 0)) {
+      persistMemoryQueueToDisk().catch(() => {});
+    }
+  }
+});
+
+export async function clearOfflineQueue(): Promise<void> {
+  if (_queueDiskFlushTimer) {
+    clearTimeout(_queueDiskFlushTimer);
+    _queueDiskFlushTimer = null;
+  }
+  if (_retryWakeupTimer) {
+    clearTimeout(_retryWakeupTimer);
+    _retryWakeupTimer = null;
+  }
+  _memoryQueue = [];
+  try {
+    await AsyncStorage.removeItem(OFFLINE_QUEUE_KEY);
+  } catch {}
+  await notifyQueueChange();
+}
 
 async function persistMemoryQueueToDisk(): Promise<void> {
   if (_queueDiskFlushTimer) {
     clearTimeout(_queueDiskFlushTimer);
     _queueDiskFlushTimer = null;
   }
-  const q = _memoryQueue || [];
-  if (q.length > 0) {
-    await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q));
-  } else {
-    await AsyncStorage.removeItem(OFFLINE_QUEUE_KEY);
-  }
+  const snapshot = _memoryQueue ? [..._memoryQueue] : [];
+  _diskFlushChain = _diskFlushChain.then(async () => {
+    try {
+      if (snapshot.length > 0) {
+        await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(snapshot));
+      } else {
+        await AsyncStorage.removeItem(OFFLINE_QUEUE_KEY);
+      }
+    } catch {}
+  });
+  return _diskFlushChain;
 }
 
 function scheduleQueueDiskFlush(): void {
@@ -84,6 +167,7 @@ function scheduleQueueDiskFlush(): void {
 }
 
 export async function initMemoryQueue(): Promise<OfflineQueueItem[]> {
+  if (_memoryQueue !== null) return _memoryQueue;
   try {
     const raw = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
     _memoryQueue = raw ? JSON.parse(raw) : [];
@@ -93,20 +177,12 @@ export async function initMemoryQueue(): Promise<OfflineQueueItem[]> {
   return _memoryQueue ?? [];
 }
 
-// Auto-seed memory queue on load
 initMemoryQueue().catch(() => {});
 
 export function getMemoryQueueSync(): OfflineQueueItem[] {
   return _memoryQueue || [];
 }
 
-/**
- * Synchronous snapshot overlay:
- * Merges pending in-flight offline writes over incoming server snapshots.
- * - 'set' / 'add': replaces or appends the item with local optimistic data
- * - 'update': merges local partial fields into the server doc
- * - 'delete': filters out the item so deleted docs never resurrect
- */
 export function applyPendingQueueOverlay<T extends { id?: string }>(
   collectionName: string,
   serverDocs: T[]
@@ -118,21 +194,29 @@ export function applyPendingQueueOverlay<T extends { id?: string }>(
   if (pendingItems.length === 0) return serverDocs;
 
   const result = [...serverDocs];
+  const indexById = new Map<string, number>();
+  for (let i = 0; i < result.length; i++) {
+    const id = result[i]?.id;
+    if (id) indexById.set(id, i);
+  }
 
-  const applyFieldsToDoc = (baseDoc: Record<string, any>, patch: Record<string, any>) => {
+  const applyFieldsToDoc = (baseDoc: Record<string, any>, patch: Record<string, any>): Record<string, any> => {
+    const expandedPatch = unflattenDotNotation(patch || {});
     const merged = { ...baseDoc };
-    for (const [k, v] of Object.entries(patch || {})) {
+    for (const [k, v] of Object.entries(expandedPatch)) {
       if (v && typeof v === 'object') {
-        if (v._methodName === 'deleteField' || v.__zentrackDeleteField === true) {
+        const anyV = v as any;
+        if (anyV._methodName === 'deleteField' || anyV.__zentrackDeleteField === true) {
           delete merged[k];
           continue;
         }
-        if (typeof v.__zentrackIncrement === 'number') {
-          merged[k] = Math.max(0, (Number(merged[k]) || 0) + v.__zentrackIncrement);
+        const incVal = anyV.__zentrackIncrement ?? (anyV._methodName === 'increment' ? anyV._operand : undefined);
+        if (typeof incVal === 'number') {
+          merged[k] = (Number(merged[k]) || 0) + incVal;
           continue;
         }
-        if (v._methodName === 'increment' && typeof v._operand === 'number') {
-          merged[k] = Math.max(0, (Number(merged[k]) || 0) + v._operand);
+        if (isPlainRecord(v) && isPlainRecord(merged[k])) {
+          merged[k] = applyFieldsToDoc(merged[k], v);
           continue;
         }
       }
@@ -143,22 +227,32 @@ export function applyPendingQueueOverlay<T extends { id?: string }>(
 
   for (const item of pendingItems) {
     if (!item.docId) continue;
+    const idx = indexById.get(item.docId) ?? -1;
 
     if (item.operation === 'delete') {
-      const idx = result.findIndex(d => d.id === item.docId);
-      if (idx !== -1) result.splice(idx, 1);
+      if (idx !== -1) {
+        result.splice(idx, 1);
+        indexById.clear();
+        for (let i = 0; i < result.length; i++) {
+          const id = result[i]?.id;
+          if (id) indexById.set(id, i);
+        }
+      }
     } else if (item.operation === 'update') {
-      const idx = result.findIndex(d => d.id === item.docId);
       if (idx !== -1) {
         result[idx] = applyFieldsToDoc(result[idx] as any, item.data) as T;
       }
     } else if (item.operation === 'set' || item.operation === 'add') {
-      const idx = result.findIndex(d => d.id === item.docId);
       const itemData = { id: item.docId, ...(item.data || {}) };
       if (idx !== -1) {
         result[idx] = applyFieldsToDoc(result[idx] as any, itemData) as T;
       } else {
         result.unshift(applyFieldsToDoc({ id: item.docId }, itemData) as T);
+        indexById.clear();
+        for (let i = 0; i < result.length; i++) {
+          const id = result[i]?.id;
+          if (id) indexById.set(id, i);
+        }
       }
     }
   }
@@ -167,29 +261,7 @@ export function applyPendingQueueOverlay<T extends { id?: string }>(
 }
 
 let isSyncing = false;
-// Tracks whether the device has actually been offline in the current session.
-// The sync-complete toast should ONLY show when this flips offline → online,
-// not on every cold boot (which also calls syncOfflineQueue once).
 let wasOfflineInSession = false;
-
-export interface OfflineQueueItem {
-  id: string;
-  collection: string;
-  operation: 'add' | 'update' | 'delete' | 'set';
-  data: any;
-  docId?: string;
-  createdAt: number;
-  clientUpdatedAt: number; // LWW Vector Clock timestamp
-  retryCount: number;
-  lastAttemptAt?: number;
-}
-
-// Backward-compatible alias
-export type QueueItem = OfflineQueueItem;
-
-// ── Listener Registry ───────────────────────────────────────────────────────
-// OfflineIndicator subscribes here so it gets live queue-count updates and
-// sync-complete events without any polling or prop-drilling.
 
 type QueueChangeListener = (count: number) => void;
 type SyncCompleteListener = (syncedCount: number) => void;
@@ -197,15 +269,18 @@ type SyncCompleteListener = (syncedCount: number) => void;
 const queueChangeListeners = new Set<QueueChangeListener>();
 const syncCompleteListeners = new Set<SyncCompleteListener>();
 
-/** Subscribe to queue-size changes. Returns an unsubscribe function. */
 export function subscribeToQueueChanges(cb: QueueChangeListener): () => void {
+  let active = true;
   queueChangeListeners.add(cb);
-  // Immediately fire with current count so subscriber has the initial state
-  getQueueCount().then(cb);
-  return () => queueChangeListeners.delete(cb);
+  getQueueCount().then(c => {
+    if (active) cb(c);
+  });
+  return () => {
+    active = false;
+    queueChangeListeners.delete(cb);
+  };
 }
 
-/** Subscribe to successful sync completions. Returns an unsubscribe function. */
 export function subscribeToSyncComplete(cb: SyncCompleteListener): () => void {
   syncCompleteListeners.add(cb);
   return () => syncCompleteListeners.delete(cb);
@@ -220,43 +295,42 @@ function notifySyncComplete(syncedCount: number) {
   syncCompleteListeners.forEach(cb => cb(syncedCount));
 }
 
-/** Returns the current number of pending offline write operations. */
 export async function getQueueCount(): Promise<number> {
   if (_memoryQueue !== null) return _memoryQueue.length;
-  try {
-    const raw = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
-    if (!raw) return 0;
-    const queue: OfflineQueueItem[] = JSON.parse(raw);
-    _memoryQueue = queue;
-    return queue.length;
-  } catch {
-    return 0;
-  }
+  const q = await initMemoryQueue();
+  return q.length;
 }
 
-// ── Write Queueing & Coalescing ──────────────────────────────────────────────
-
-/**
- * Queues ANY Firestore write operation to be executed when the network reconnects.
- *
- * Implements idempotent deterministic IDs and rapid-mutation coalescing:
- *   - If the same document has a pending 'update' or 'set', merges data in-place
- *     to prevent redundant network round-trips and race conditions.
- */
+function clonePlainPayload<T>(val: T): T {
+  if (val === null || typeof val !== 'object') return val;
+  if (Array.isArray(val)) return val.map(clonePlainPayload) as unknown as T;
+  const proto = Object.getPrototypeOf(val);
+  if (proto !== Object.prototype && proto !== null) return val;
+  const out: Record<string, any> = {};
+  for (const k of Object.keys(val)) {
+    const v = (val as any)[k];
+    if (v !== undefined) out[k] = clonePlainPayload(v);
+  }
+  return out as T;
+}
 
 export async function queueWrite(
   collectionName: string,
   operation: 'add' | 'update' | 'delete' | 'set',
   data: any,
   docId?: string,
-  triggerImmediateSync: boolean = false
+  triggerImmediateSync: boolean = false,
+  inFlightUntil: number = 0
 ) {
   try {
-    let queue = _memoryQueue ?? (await initMemoryQueue());
-
-    const now = Date.now();
+    const queue = _memoryQueue ?? (await initMemoryQueue());
+    const now = typeof data?.updatedAt === 'number' && data.updatedAt > 0 ? data.updatedAt : Date.now();
     const currentUser = auth.currentUser;
-    const payload = data && typeof data === 'object' ? { ...data } : data;
+
+    // Mint a deterministic docId for 'add' so network retries are 100% idempotent (#37)
+    const resolvedDocId = docId || (operation === 'add' ? doc(collection(db, collectionName)).id : undefined);
+
+    const payload = data && typeof data === 'object' ? clonePlainPayload(data) : data;
     if (currentUser && payload && typeof payload === 'object' && !payload.userId && operation !== 'delete') {
       payload.userId = currentUser.uid;
     }
@@ -265,89 +339,71 @@ export async function queueWrite(
       payload.updatedAt = now;
     }
 
-    const deterministicId = docId
-      ? `${collectionName}_${docId}_${operation}`
-      : `${collectionName}_auto_${now}_${Math.random().toString(36).substring(7)}`;
+    const deterministicId = resolvedDocId
+      ? `${collectionName}_${resolvedDocId}_${operation}`
+      : `${collectionName}_auto_${now}_${Math.random().toString(36).slice(2, 9)}`;
 
-    // ── Delete coalescing: cancel pending creations or replace pending updates ──
-    if (docId && operation === 'delete') {
+    // ── Delete coalescing (#1) ──
+    if (resolvedDocId && operation === 'delete') {
       const existingIndex = queue.findIndex(
-        q => q.collection === collectionName && q.docId === docId
+        q => q.collection === collectionName && q.docId === resolvedDocId
       );
       if (existingIndex !== -1) {
         const prev = queue[existingIndex];
-        if (prev.operation === 'set' || prev.operation === 'add') {
-          // Document was created offline and never synced; delete simply cancels it!
+        if (prev.operation === 'add' && prev.isLocalGenesis && !prev.inFlightUntil) {
           queue.splice(existingIndex, 1);
           _memoryQueue = queue;
           scheduleQueueDiskFlush();
-          console.log(`[OfflineSync] Coalesced and cancelled offline creation for ${collectionName}/${docId}. Queue size: ${queue.length}`);
           await notifyQueueChange();
-          return;
-        } else if (prev.operation === 'update') {
-          // Replace obsolete update with delete
-          queue[existingIndex] = {
-            ...prev,
-            operation: 'delete',
-            data: null,
-            createdAt: now,
-            clientUpdatedAt: now,
-            retryCount: 0,
-          };
-          _memoryQueue = queue;
-          scheduleQueueDiskFlush();
-          console.log(`[OfflineSync] Coalesced update -> delete for ${collectionName}/${docId}. Queue size: ${queue.length}`);
-          await notifyQueueChange();
-          if (triggerImmediateSync && auth.currentUser) syncOfflineQueue(true);
-          return;
-        } else if (prev.operation === 'delete') {
           return;
         }
+        queue[existingIndex] = {
+          ...prev,
+          id: deterministicId,
+          operation: 'delete',
+          data: null,
+          createdAt: now,
+          clientUpdatedAt: now,
+          retryCount: 0,
+          inFlightUntil,
+        };
+        _memoryQueue = queue;
+        scheduleQueueDiskFlush();
+        await notifyQueueChange();
+        if (triggerImmediateSync && auth.currentUser) syncOfflineQueue(true);
+        return;
       }
     }
 
-    // ── Coalesce rapid updates to the same document (SUMMING increment sentinels!) ──
-    if (docId && (operation === 'update' || operation === 'set')) {
+    // ── Rapid update/set coalescing with increment sentinel summing (#2) ──
+    if (resolvedDocId && (operation === 'update' || operation === 'set')) {
       const existingIndex = queue.findIndex(
-        q => q.collection === collectionName && q.docId === docId && (q.operation === 'update' || q.operation === 'set')
+        q => q.collection === collectionName && q.docId === resolvedDocId && (q.operation === 'update' || q.operation === 'set' || q.operation === 'add')
       );
 
       if (existingIndex !== -1) {
         const prev = queue[existingIndex];
-        let mergedData = payload;
-
-        if (typeof prev.data === 'object' && prev.data !== null && typeof payload === 'object' && payload !== null) {
-          mergedData = { ...prev.data, ...payload, clientUpdatedAt: now, updatedAt: now };
-
-          for (const key of Object.keys(payload)) {
-            const prevVal = prev.data[key];
-            const nextVal = payload[key];
-            const prevInc = prevVal?.__zentrackIncrement ?? (prevVal?._methodName === 'increment' ? prevVal._operand : undefined);
-            const nextInc = nextVal?.__zentrackIncrement ?? (nextVal?._methodName === 'increment' ? nextVal._operand : undefined);
-
-            if (typeof prevInc === 'number' && typeof nextInc === 'number') {
-              const totalInc = prevInc + nextInc;
-              if (totalInc === 0) {
-                delete mergedData[key];
-              } else {
-                mergedData[key] = { __zentrackIncrement: totalInc };
-              }
-            }
-          }
+        if (
+          typeof prev.data?.updatedAt === 'number' &&
+          typeof payload?.updatedAt === 'number' &&
+          payload.updatedAt < prev.data.updatedAt
+        ) {
+          return;
         }
 
+        const mergedData = mergeOfflinePayloads(prev.data, payload, now);
         queue[existingIndex] = {
           ...prev,
           data: mergedData,
-          operation: operation === 'set' ? 'set' : prev.operation,
+          operation: operation === 'set' || prev.operation === 'add' ? 'set' : prev.operation,
           createdAt: now,
           clientUpdatedAt: now,
           retryCount: 0,
+          inFlightUntil: Math.max(prev.inFlightUntil || 0, inFlightUntil),
         };
 
         _memoryQueue = queue;
         scheduleQueueDiskFlush();
-        console.log(`[OfflineSync] Coalesced update for ${collectionName}/${docId}. Queue size: ${queue.length}`);
         await notifyQueueChange();
         if (triggerImmediateSync && auth.currentUser) syncOfflineQueue(true);
         return;
@@ -359,20 +415,18 @@ export async function queueWrite(
       collection: collectionName,
       operation,
       data: payload,
-      docId,
+      docId: resolvedDocId,
       createdAt: now,
       clientUpdatedAt: now,
       retryCount: 0,
+      inFlightUntil,
+      isLocalGenesis: operation === 'add' && !inFlightUntil,
     });
 
     _memoryQueue = queue;
     scheduleQueueDiskFlush();
-    console.log(`[OfflineSync] Queued ${operation} in ${collectionName}. Queue size: ${queue.length}`);
-
-    // Notify all subscribers (e.g. OfflineIndicator) that the count changed
     await notifyQueueChange();
 
-    // Attempt to sync immediately if explicitly requested & online & authenticated
     if (triggerImmediateSync && auth.currentUser) {
       syncOfflineQueue(true);
     }
@@ -381,52 +435,118 @@ export async function queueWrite(
   }
 }
 
-/**
- * Legacy wrapper for Gym logs — maintains compatibility with existing gym code.
- * Translates to the generic queueWrite.
- */
+export async function queueBatchWrites(
+  items: Array<{
+    collectionName: string;
+    operation: 'add' | 'update' | 'delete' | 'set';
+    data: any;
+    docId?: string;
+  }>,
+  triggerImmediateSync: boolean = false
+): Promise<void> {
+  if (!items || items.length === 0) return;
+  try {
+    const queue = _memoryQueue ?? (await initMemoryQueue());
+    const now = Date.now();
+    const currentUser = auth.currentUser;
+
+    for (const item of items) {
+      const { collectionName, operation } = item;
+      const resolvedDocId = item.docId || (operation === 'add' ? doc(collection(db, collectionName)).id : undefined);
+      const payload = item.data && typeof item.data === 'object' ? clonePlainPayload(item.data) : item.data;
+      if (currentUser && payload && typeof payload === 'object' && !payload.userId && operation !== 'delete') {
+        payload.userId = currentUser.uid;
+      }
+      if (payload && typeof payload === 'object' && operation !== 'delete') {
+        payload.clientUpdatedAt = now;
+        payload.updatedAt = now;
+      }
+
+      const deterministicId = resolvedDocId
+        ? `${collectionName}_${resolvedDocId}_${operation}`
+        : `${collectionName}_auto_${now}_${Math.random().toString(36).slice(2, 9)}`;
+
+      if (resolvedDocId && (operation === 'update' || operation === 'set')) {
+        const existingIndex = queue.findIndex(
+          q => q.collection === collectionName && q.docId === resolvedDocId && (q.operation === 'update' || q.operation === 'set')
+        );
+        if (existingIndex !== -1) {
+          const prev = queue[existingIndex];
+          queue[existingIndex] = {
+            ...prev,
+            data: mergeOfflinePayloads(prev.data, payload, now),
+            operation: operation === 'set' ? 'set' : prev.operation,
+            createdAt: now,
+            clientUpdatedAt: now,
+            retryCount: 0,
+          };
+          continue;
+        }
+      }
+
+      queue.push({
+        id: deterministicId,
+        collection: collectionName,
+        operation,
+        data: payload,
+        docId: resolvedDocId,
+        createdAt: now,
+        clientUpdatedAt: now,
+        retryCount: 0,
+      });
+    }
+
+    _memoryQueue = queue;
+    await persistMemoryQueueToDisk();
+    await notifyQueueChange();
+    if (triggerImmediateSync && auth.currentUser) {
+      syncOfflineQueue(true).catch(() => {});
+    }
+  } catch (err) {
+    console.warn('[OfflineSync] Batch enqueue error:', err);
+  }
+}
+
 export async function queueGymLogOffline(log: any) {
   await queueWrite(COLLECTION.GYM_LOGS, 'set', log, log.id || `${log.userId}_${log.date}`);
 }
 
-/**
- * Removes a fallback queue item if its in-flight online request succeeded in the background.
- * Prevents double execution of increment/mutation sentinels.
- */
+export async function markQueueItemRetryable(collectionName: string, docId?: string): Promise<void> {
+  if (!_memoryQueue || !docId) return;
+  const item = _memoryQueue.find(q => q.collection === collectionName && q.docId === docId);
+  if (item) {
+    item.inFlightUntil = 0;
+    scheduleQueueDiskFlush();
+  }
+}
+
 export async function removeQueuedFallback(
   collectionName: string,
   operation: string,
-  docId?: string
+  docId?: string,
+  maxClientUpdatedAt?: number
 ): Promise<boolean> {
   const queue = _memoryQueue;
-  if (!queue || queue.length === 0) return false;
+  if (!queue || queue.length === 0 || !docId) return false;
 
   const idx = queue.findIndex(
-    q => q.collection === collectionName && q.operation === operation && (docId ? q.docId === docId : true)
+    q =>
+      q.collection === collectionName &&
+      q.docId === docId &&
+      (q.operation === operation || q.operation === 'set') &&
+      (!maxClientUpdatedAt || q.clientUpdatedAt <= maxClientUpdatedAt)
   );
 
   if (idx !== -1) {
     queue.splice(idx, 1);
     _memoryQueue = queue;
-    if (queue.length > 0) {
-      await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
-    } else {
-      await AsyncStorage.removeItem(OFFLINE_QUEUE_KEY);
-    }
+    await persistMemoryQueueToDisk();
     await notifyQueueChange();
-    console.log(`[OfflineSync] In-flight online write succeeded; removed fallback queue item for ${collectionName}/${docId ?? 'new'}`);
     return true;
   }
   return false;
 }
 
-// ── Queue Drain ─────────────────────────────────────────────────────────────
-
-/**
- * Drains the offline queue sequentially to Firestore.
- * Returns the number of items successfully synced (used by UI toast).
- * Failed items remain in the queue for the next attempt.
- */
 export async function syncOfflineQueue(silent = false): Promise<number> {
   if (isSyncing) return 0;
   isSyncing = true;
@@ -452,24 +572,26 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
     }
 
     if (!uid) {
-      // Defer drain until user authentication is fully hydrated
       isSyncing = false;
       return 0;
     }
 
-    const existingStr = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
-    if (!existingStr) {
+    // Always drain from _memoryQueue first so recent debounced writes are never missed (#5)
+    const fullQueue = _memoryQueue !== null ? [..._memoryQueue] : await initMemoryQueue();
+    if (fullQueue.length === 0) {
       isSyncing = false;
       return 0;
     }
 
-    const queue: QueueItem[] = JSON.parse(existingStr);
+    // Filter out items currently in-flight via safeWrite online fast-path (#77)
+    const nowTs = Date.now();
+    const queue = fullQueue.filter(q => !q.inFlightUntil || nowTs >= q.inFlightUntil);
     if (queue.length === 0) {
       isSyncing = false;
       return 0;
     }
 
-    // Auto-promote guest_* users to real Firebase anonymous credentials before draining
+    // Auto-promote guest_* users atomically in _memoryQueue and disk (#4)
     if ((!auth.currentUser || (uid && uid.startsWith('guest_'))) && state.isConnected) {
       try {
         const { signInAnonymously } = await import('firebase/auth');
@@ -488,138 +610,121 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
         const { updateL1Cache } = await import('../utils/bootManifest');
         updateL1Cache('optimisticUser', cred.user);
 
-        if (oldGuestUid && oldGuestUid.startsWith('guest_')) {
-          for (const qItem of queue) {
+        if (oldGuestUid && oldGuestUid.startsWith('guest_') && _memoryQueue) {
+          for (const qItem of _memoryQueue) {
             if (qItem.data && typeof qItem.data === 'object' && qItem.data.userId === oldGuestUid) {
               qItem.data.userId = realUid;
             }
             if (qItem.docId && qItem.docId.includes(oldGuestUid)) {
               qItem.docId = qItem.docId.replace(oldGuestUid, realUid);
             }
+            if (qItem.id && qItem.id.includes(oldGuestUid)) {
+              qItem.id = qItem.id.replace(oldGuestUid, realUid);
+            }
           }
-          await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+          await persistMemoryQueueToDisk();
         }
       } catch (promoErr) {
         console.warn('[OfflineSync] Could not promote guest user to Firebase session:', promoErr);
       }
     }
 
-    console.log(`[OfflineSync] Draining ${queue.length} operations to Firestore for ${uid}…`);
-
-    // High-Performance Fast Path: Deduplicate mutations targeting the same document
-    // (e.g. 15 sets logged offline for 1 workout collapse into the single latest workout document state)
     const BATCH_LIMIT = 400;
-    if (queue.length >= 1) {
-      try {
-        await new Promise<void>(resolve => {
-          let done = false;
-          const timer = setTimeout(() => {
-            if (!done) { done = true; resolve(); }
-          }, 500);
-          InteractionManager.runAfterInteractions(() => {
-            if (!done) { done = true; clearTimeout(timer); resolve(); }
-          });
-        });
+    try {
+      const dedupedMap = new Map<string, OfflineQueueItem>();
+      const nonDedupeQueue: OfflineQueueItem[] = [];
 
-        const dedupedMap = new Map<string, OfflineQueueItem>();
-        const nonDedupeQueue: OfflineQueueItem[] = [];
-
-        for (const item of queue) {
-          if (item.docId && (item.operation === 'set' || item.operation === 'update' || item.operation === 'delete')) {
-            const key = `${item.collection}/${item.docId}`;
-            const existing = dedupedMap.get(key);
-            if (!existing || (item.clientUpdatedAt || item.createdAt) >= (existing.clientUpdatedAt || existing.createdAt)) {
-              if (existing && item.operation !== 'delete' && existing.operation !== 'delete') {
-                const mergedData = {
-                  ...(typeof existing.data === 'object' && existing.data ? existing.data : {}),
-                  ...(typeof item.data === 'object' && item.data ? item.data : {}),
-                };
-                dedupedMap.set(key, {
-                  ...item,
-                  operation: existing.operation === 'set' ? 'set' : item.operation,
-                  data: mergedData,
-                });
-              } else {
-                dedupedMap.set(key, item);
-              }
-            }
-          } else {
-            nonDedupeQueue.push(item);
-          }
-        }
-
-        const queueToProcess = [...Array.from(dedupedMap.values()), ...nonDedupeQueue];
-        const syncedItemSignatures = new Set<string>();
-
-        // Mark all original queue items that were merged into deduped items as synced
-        for (const orig of queue) {
-          if (orig.docId) {
-            const key = `${orig.collection}/${orig.docId}`;
-            if (dedupedMap.has(key)) {
-              syncedItemSignatures.add(`${orig.id}_${orig.clientUpdatedAt}`);
+      const remainingQueueForFallback = _memoryQueue ? [..._memoryQueue] : queue;
+    for (const item of remainingQueueForFallback) {
+        if (item.docId && (item.operation === 'set' || item.operation === 'update' || item.operation === 'delete' || item.operation === 'add')) {
+          const key = `${item.collection}/${item.docId}`;
+          const existing = dedupedMap.get(key);
+          if (!existing || (item.clientUpdatedAt || item.createdAt) >= (existing.clientUpdatedAt || existing.createdAt)) {
+            if (existing && item.operation !== 'delete' && existing.operation !== 'delete') {
+              const mergedData = mergeOfflinePayloads(existing.data, item.data, item.clientUpdatedAt || Date.now());
+              dedupedMap.set(key, {
+                ...item,
+                operation: existing.operation === 'set' || existing.operation === 'add' ? 'set' : item.operation,
+                data: mergedData,
+              });
+            } else {
+              dedupedMap.set(key, item);
             }
           }
-        }
-
-        for (let i = 0; i < queueToProcess.length; i += BATCH_LIMIT) {
-          const chunk = queueToProcess.slice(i, i + BATCH_LIMIT);
-          const batch = writeBatch(db);
-          for (const item of chunk) {
-            let dataToWrite = item.data && typeof item.data === 'object' ? { ...item.data } : item.data;
-            if (uid && dataToWrite && typeof dataToWrite === 'object' && !dataToWrite.userId && item.operation !== 'delete') {
-              dataToWrite.userId = uid;
-            }
-            dataToWrite = restoreFirestoreSentinels(dataToWrite);
-
-            if (item.operation === 'add') {
-              const newDocRef = item.docId ? doc(db, item.collection, item.docId) : doc(collection(db, item.collection));
-              batch.set(newDocRef, dataToWrite, { merge: true });
-            } else if ((item.operation === 'set' || item.operation === 'update') && item.docId) {
-              // Use set with merge: true so a missing doc doesn't abort the entire 400-op batch
-              batch.set(doc(db, item.collection, item.docId), dataToWrite, { merge: true });
-            } else if (item.operation === 'delete' && item.docId) {
-              batch.delete(doc(db, item.collection, item.docId));
-            }
-            syncedItemSignatures.add(`${item.id}_${item.clientUpdatedAt}`);
-          }
-          await batch.commit();
-          syncedCount += chunk.length;
-        }
-
-        // Preserve any items that were enqueued WHILE batch.commit() was in flight!
-        const latestRaw = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
-        const latestQueue: OfflineQueueItem[] = latestRaw ? JSON.parse(latestRaw) : [];
-        const remaining = latestQueue.filter(q => !syncedItemSignatures.has(`${q.id}_${q.clientUpdatedAt}`));
-
-        _memoryQueue = remaining;
-        if (remaining.length > 0) {
-          await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remaining));
         } else {
-          await AsyncStorage.removeItem(OFFLINE_QUEUE_KEY);
-          wasOfflineInSession = false;
+          nonDedupeQueue.push(item);
         }
-        await notifyQueueChange();
-        if (syncedCount > 0) {
-          touchServerSyncMeta();
-          if (!silent) notifySyncComplete(syncedCount);
-        }
-        return syncedCount;
-      } catch (batchErr) {
-        console.warn('[OfflineSync] Batch commit failed, falling back to sequential item drain:', batchErr);
       }
+
+      const queueToProcess = [...Array.from(dedupedMap.values()), ...nonDedupeQueue];
+      const syncedItemSignatures = new Set<string>();
+
+      for (const orig of queue) {
+        if (orig.docId && dedupedMap.has(`${orig.collection}/${orig.docId}`)) {
+          syncedItemSignatures.add(`${orig.id}_${orig.clientUpdatedAt}`);
+        }
+      }
+
+      for (let i = 0; i < queueToProcess.length; i += BATCH_LIMIT) {
+        const chunk = queueToProcess.slice(i, i + BATCH_LIMIT);
+        const batch = writeBatch(db);
+        const chunkSignatures = new Set<string>();
+        for (const item of chunk) {
+          let dataToWrite = item.data && typeof item.data === 'object' ? { ...item.data } : item.data;
+          if (uid && dataToWrite && typeof dataToWrite === 'object' && !dataToWrite.userId && item.operation !== 'delete') {
+            dataToWrite.userId = uid;
+          }
+          dataToWrite = restoreFirestoreSentinels(dataToWrite);
+
+          if (item.operation === 'add') {
+            const newDocRef = item.docId ? doc(db, item.collection, item.docId) : doc(collection(db, item.collection));
+            batch.set(newDocRef, dataToWrite, { merge: true });
+          } else if ((item.operation === 'set' || item.operation === 'update') && item.docId) {
+            batch.set(doc(db, item.collection, item.docId), dataToWrite, { merge: true });
+          } else if (item.operation === 'delete' && item.docId) {
+            batch.delete(doc(db, item.collection, item.docId));
+          }
+          const sig = `${item.id}_${item.clientUpdatedAt}`;
+          chunkSignatures.add(sig);
+          syncedItemSignatures.add(sig);
+        }
+        await batch.commit();
+        syncedCount += chunk.length;
+
+        // Prune committed chunk items from _memoryQueue immediately AFTER EACH successful commit
+        if (_memoryQueue) {
+          _memoryQueue = _memoryQueue.filter(q => !chunkSignatures.has(`${q.id}_${q.clientUpdatedAt}`));
+          await persistMemoryQueueToDisk();
+          await notifyQueueChange();
+        }
+      }
+
+      const currentMem = _memoryQueue || [];
+      const remaining = currentMem.filter(q => !syncedItemSignatures.has(`${q.id}_${q.clientUpdatedAt}`));
+      _memoryQueue = remaining;
+      await persistMemoryQueueToDisk();
+      if (remaining.length === 0) wasOfflineInSession = false;
+      await notifyQueueChange();
+      if (syncedCount > 0 && !silent) notifySyncComplete(syncedCount);
+      return syncedCount;
+    } catch (batchErr) {
+      console.warn('[OfflineSync] Batch commit failed, falling back to sequential item drain:', batchErr);
     }
 
     const failedQueue: OfflineQueueItem[] = [];
     const seqSyncedSignatures = new Set<string>();
+    const deadLetters: any[] = [];
     const now = Date.now();
+    let minNextBackoffMs = Infinity;
 
-    // Process sequentially to maintain causality (add before update, etc.)
-    for (const item of queue) {
+    const remainingQueueForFallback = _memoryQueue ? [..._memoryQueue] : queue;
+    for (const item of remainingQueueForFallback) {
       try {
-        // Exponential backoff check: delay retries by 1.5s, 3s, 6s...
         if (item.retryCount > 0 && item.lastAttemptAt) {
           const backoffDelay = Math.min(30000, 1500 * Math.pow(2, item.retryCount - 1));
-          if (now - item.lastAttemptAt < backoffDelay) {
+          const elapsed = now - item.lastAttemptAt;
+          if (elapsed < backoffDelay) {
+            minNextBackoffMs = Math.min(minNextBackoffMs, backoffDelay - elapsed);
             failedQueue.push(item);
             continue;
           }
@@ -629,21 +734,13 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
         if (uid && dataToWrite && typeof dataToWrite === 'object' && !dataToWrite.userId && item.operation !== 'delete') {
           dataToWrite.userId = uid;
         }
-
-        // Native Firestore Server Merge:
-        // setDoc with { merge: true } and updateDoc natively perform field-level merges on the server without pre-flight getDoc reads.
-
         dataToWrite = restoreFirestoreSentinels(dataToWrite);
 
         if (item.operation === 'add') {
-          if (item.docId) {
-            await setDoc(doc(db, item.collection, item.docId), dataToWrite, { merge: true });
-          } else {
-            await addDoc(collection(db, item.collection), dataToWrite);
-          }
+          const targetRef = item.docId ? doc(db, item.collection, item.docId) : doc(collection(db, item.collection));
+          await setDoc(targetRef, dataToWrite, { merge: true });
         } else if (item.operation === 'set' && item.docId) {
-          const docRef = doc(db, item.collection, item.docId);
-          await setDoc(docRef, dataToWrite, { merge: true });
+          await setDoc(doc(db, item.collection, item.docId), dataToWrite, { merge: true });
         } else if (item.operation === 'update' && item.docId) {
           const docRef = doc(db, item.collection, item.docId);
           try {
@@ -656,59 +753,77 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
             }
           }
         } else if (item.operation === 'delete' && item.docId) {
-          const docRef = doc(db, item.collection, item.docId);
-          await deleteDoc(docRef);
+          await deleteDoc(doc(db, item.collection, item.docId));
         }
         syncedCount++;
         seqSyncedSignatures.add(`${item.id}_${item.clientUpdatedAt}`);
-        console.log(`[OfflineSync] ✓ Synced ${item.operation} on ${item.collection} (id: ${item.id})`);
       } catch (e: any) {
-        console.warn(`[OfflineSync] ✗ Write failed for item ${item.id} in ${item.collection}:`, e?.message || e);
         const code = String(e?.code || e?.message || '').toLowerCase();
         const isPermanentFailure = code.includes('permission-denied') || code.includes('invalid-argument') || code.includes('permission');
         const retryCount = (item.retryCount || 0) + 1;
 
         if (!isPermanentFailure) {
-          // Network timeout, unavailable, or captive portal: NEVER discard user data!
-          // Keep in queue with capped exponential backoff.
+          const nextDelay = Math.min(30000, 1500 * Math.pow(2, retryCount - 1));
+          minNextBackoffMs = Math.min(minNextBackoffMs, nextDelay);
           failedQueue.push({ ...item, retryCount, lastAttemptAt: Date.now() });
         } else {
-          // Archive to dead-letter vault so data is never permanently lost
-          try {
-            const rawVault = await AsyncStorage.getItem('@zentrack_dead_letter_vault');
-            const vault = rawVault ? JSON.parse(rawVault) : [];
-            vault.push({ ...item, failedAt: Date.now(), error: code });
-            await AsyncStorage.setItem('@zentrack_dead_letter_vault', JSON.stringify(vault.slice(-100)));
-            console.warn(`[OfflineSync] Moved permanently failing item ${item.id} to dead-letter vault.`);
-          } catch {}
+          deadLetters.push({ ...item, failedAt: Date.now(), error: code });
+          seqSyncedSignatures.add(`${item.id}_${item.clientUpdatedAt}`);
         }
       }
     }
 
-    const latestRaw = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
-    const latestQueue: OfflineQueueItem[] = latestRaw ? JSON.parse(latestRaw) : [];
-    const remaining = [
-      ...failedQueue,
-      ...latestQueue.filter(q => !seqSyncedSignatures.has(`${q.id}_${q.clientUpdatedAt}`) && !failedQueue.some(f => f.id === q.id))
-    ];
-
-    _memoryQueue = remaining;
-    if (remaining.length > 0) {
-      await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remaining));
-    } else {
-      await AsyncStorage.removeItem(OFFLINE_QUEUE_KEY);
-      wasOfflineInSession = false;
-      console.log('[OfflineSync] Queue cleared. All writes synced.');
+    if (deadLetters.length > 0) {
+      try {
+        const rawVault = await AsyncStorage.getItem('@zentrack_dead_letter_vault');
+        const vault = rawVault ? JSON.parse(rawVault) : [];
+        vault.push(...deadLetters);
+        await AsyncStorage.setItem('@zentrack_dead_letter_vault', JSON.stringify(vault.slice(-100)));
+      } catch {}
     }
 
-    // Notify listeners: queue count dropped + sync completed
-    await notifyQueueChange();
-    if (syncedCount > 0) {
-      touchServerSyncMeta();
-      if (!silent) {
-        notifySyncComplete(syncedCount);
+    // Preserve any newer mutations in _memoryQueue that arrived while sequential drain was running (#84)
+    const currentMem = _memoryQueue || [];
+    const failedByKey = new Map<string, OfflineQueueItem>();
+    for (const f of failedQueue) {
+      failedByKey.set(`${f.collection}/${f.docId || f.id}`, f);
+    }
+
+    const remaining: OfflineQueueItem[] = [];
+    for (const q of currentMem) {
+      if (seqSyncedSignatures.has(`${q.id}_${q.clientUpdatedAt}`)) continue;
+      const key = `${q.collection}/${q.docId || q.id}`;
+      const failedMatch = failedByKey.get(key);
+      if (failedMatch) {
+        if (q.clientUpdatedAt > failedMatch.clientUpdatedAt) {
+          remaining.push(q); // Newer mutation arrived during drain — keep newer!
+        } else {
+          remaining.push(failedMatch);
+        }
+        failedByKey.delete(key);
+      } else {
+        remaining.push(q);
       }
     }
+    for (const leftover of failedByKey.values()) {
+      remaining.push(leftover);
+    }
+
+    _memoryQueue = remaining;
+    await persistMemoryQueueToDisk();
+    if (remaining.length === 0) {
+      wasOfflineInSession = false;
+    } else if (Number.isFinite(minNextBackoffMs)) {
+      // Schedule automatic wakeup timer for backoff items (#83)
+      if (_retryWakeupTimer) clearTimeout(_retryWakeupTimer);
+      _retryWakeupTimer = setTimeout(() => {
+        _retryWakeupTimer = null;
+        syncOfflineQueue(true).catch(() => {});
+      }, minNextBackoffMs + 50);
+    }
+
+    await notifyQueueChange();
+    if (syncedCount > 0 && !silent) notifySyncComplete(syncedCount);
   } catch (e) {
     console.warn('[OfflineSync] Error during sync drain', e);
   } finally {
@@ -718,31 +833,23 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
   return syncedCount;
 }
 
-// ── Network & Auth Listener ─────────────────────────────────────────────────
-
-/**
- * Call this once in AppNavigator to automatically drain the queue when
- * the network reconnects or user authenticates. Returns an unsubscribe function.
- */
 export function setupNetworkListener(): () => void {
   const netUnsubscribe = NetInfo.addEventListener(state => {
     if (state.isConnected === false) {
-      // Device just went offline — remember this for the current session
       wasOfflineInSession = true;
-    } else if (state.isConnected === true && state.isInternetReachable !== false && wasOfflineInSession) {
-      // Came back online after being offline — drain and show toast
-      syncOfflineQueue();
+    } else if (state.isConnected === true && state.isInternetReachable !== false) {
+      if (wasOfflineInSession || (_memoryQueue && _memoryQueue.length > 0)) {
+        syncOfflineQueue(!wasOfflineInSession);
+      }
     }
   });
 
-  // When auth token restores or user logs in, trigger automatic background drain
   const authUnsubscribe = onAuthStateChanged(auth, user => {
     if (user) {
       syncOfflineQueue(true);
     }
   });
 
-  // On boot: drain silently if already online and authenticated
   const bootDrain = async () => {
     const state = await NetInfo.fetch();
     if (state.isConnected && auth.currentUser) {
@@ -754,5 +861,6 @@ export function setupNetworkListener(): () => void {
   return () => {
     netUnsubscribe();
     authUnsubscribe();
+    if (_retryWakeupTimer) clearTimeout(_retryWakeupTimer);
   };
 }

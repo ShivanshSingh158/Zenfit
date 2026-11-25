@@ -45,6 +45,8 @@ function inferMimeType(filename: string, fallbackType?: string): string {
 // form `{ uri, type, name }` and streams the file from disk without ever loading
 // it into JS memory. This is safe for 100 MB+ files on both iOS and Android.
 
+export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
+
 function attemptUpload(
   uri: string,
   cleanType: string,
@@ -53,8 +55,13 @@ function attemptUpload(
   uploadPreset: string,
   timeoutMs: number,
   onProgress?: (progress: number) => void,
+  signal?: AbortSignal,
 ): Promise<{ url: string; size: number; format?: string; resourceType?: string }> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      return reject(new Error('Upload aborted by user'));
+    }
+
     // React Native special FormData file descriptor — streams the file natively
     const fileDescriptor = { uri, type: cleanType, name: cleanName };
     const formData = new FormData();
@@ -65,6 +72,17 @@ function attemptUpload(
     xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`);
     xhr.timeout = timeoutMs;
 
+    const onAbort = () => {
+      try {
+        xhr.abort();
+      } catch (_) {}
+      reject(new Error('Upload aborted by user'));
+    };
+
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
     if (onProgress) {
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
@@ -74,6 +92,7 @@ function attemptUpload(
     }
 
     xhr.onload = () => {
+      if (signal) signal.removeEventListener('abort', onAbort);
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const data = JSON.parse(xhr.responseText);
@@ -97,14 +116,23 @@ function attemptUpload(
       }
     };
 
-    xhr.ontimeout = () =>
+    xhr.ontimeout = () => {
+      if (signal) signal.removeEventListener('abort', onAbort);
       reject(new Error(
         `Upload timed out after ${Math.round(timeoutMs / 1000)}s. ` +
         `Please check your connection — large files need a stable network.`
       ));
+    };
 
-    xhr.onerror = () =>
+    xhr.onerror = () => {
+      if (signal) signal.removeEventListener('abort', onAbort);
       reject(new Error('Network error during file upload. Please check your connection and try again.'));
+    };
+
+    xhr.onabort = () => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      reject(new Error('Upload aborted by user'));
+    };
 
     xhr.send(formData);
   });
@@ -119,6 +147,7 @@ export const uploadFileToCloudinary = async (
   onProgress?: (progress: number) => void,
   /** Pass file.size (bytes) from DocumentPicker for accurate timeout scaling */
   fileSize?: number,
+  signal?: AbortSignal,
 ): Promise<{ url: string; size: number; format?: string; resourceType?: string }> => {
   const cloudName    = process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME;
   const uploadPreset = process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
@@ -133,26 +162,29 @@ export const uploadFileToCloudinary = async (
     throw new Error('Cannot upload empty file URI.');
   }
 
+  if (fileSize && fileSize > MAX_FILE_SIZE_BYTES) {
+    throw new Error(`File exceeds maximum upload size limit of 50 MB (requested: ${(fileSize / (1024 * 1024)).toFixed(1)} MB).`);
+  }
+
   const cleanName = name || `file_${Date.now()}`;
   const cleanType = inferMimeType(cleanName, type);
 
-  // Dynamic timeout: at a reference speed of ~500 bytes/ms (≈4 Mbps):
-  //   - 5 MB  →  10s → clamped to 300s minimum
-  //   - 20 MB →  40s → clamped to 300s minimum
-  //   - 92 MB → 184s → rounds up to 300s minimum
-  //  100 MB → 200s → rounds up to 300s minimum (comfortably within limit)
-  // Minimum 300s (5 min) so even very slow networks have a chance.
+  // Dynamic timeout: scales proportionally from 30s floor (at ~125 bytes/ms ≈ 1 Mbps) up to 300s ceiling (5m)
   const timeoutMs = fileSize
-    ? Math.max(300_000, Math.ceil(fileSize / 500))
-    : 300_000; // 5 minutes if size is unknown
+    ? Math.min(300_000, Math.max(30_000, Math.ceil(fileSize / 125)))
+    : 60_000;
 
   const sizeLabel = fileSize ? `${(fileSize / 1024 / 1024).toFixed(1)} MB` : 'unknown size';
   console.log(`[Cloudinary] Uploading "${cleanName}" (${sizeLabel}), timeout ${Math.round(timeoutMs / 1000)}s`);
 
   // Attempt 1
   try {
-    return await attemptUpload(uri, cleanType, cleanName, cloudName, uploadPreset, timeoutMs, onProgress);
+    return await attemptUpload(uri, cleanType, cleanName, cloudName, uploadPreset, timeoutMs, onProgress, signal);
   } catch (err: any) {
+    if (signal?.aborted || err.message?.includes('aborted')) {
+      throw err;
+    }
+
     // Only retry on network/timeout errors — don't retry on 4xx (bad request, bad preset, etc.)
     const isRetryable = err.message?.includes('timed out') ||
                         err.message?.includes('Network error') ||
@@ -169,5 +201,5 @@ export const uploadFileToCloudinary = async (
   }
 
   // Attempt 2 (single retry for transient network drops)
-  return await attemptUpload(uri, cleanType, cleanName, cloudName, uploadPreset, timeoutMs, onProgress);
+  return await attemptUpload(uri, cleanType, cleanName, cloudName, uploadPreset, timeoutMs, onProgress, signal);
 };

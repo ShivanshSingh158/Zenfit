@@ -7,7 +7,6 @@ export * from './ExerciseDeepDiveModal';
 export * from './ExerciseDetailModal';
 export * from './ExerciseHistoryDrawer';
 export * from './ExercisePastSessions';
-export * from './ExerciseSearchDropdown';
 export * from './GymExerciseDraggableRow';
 export * from './GymExerciseOptionsSheet';
 export * from './SupersetPickerModal';

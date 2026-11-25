@@ -1,12 +1,12 @@
 /**
  * GymProgressScreen.tsx — ZenFit
  *
- * Tab 4: 🧬 Body (Physical Body & Recovery Hub)
- * Clean Apple iOS Inset Grouped Card Architecture on pure #000000 canvas.
+ * Tab 4: Body (Physical Body & Recovery Hub)
+ * Clean OLED card architecture on Canvas (#09090B).
  * - Section 1: Muscle Recovery & Fatigue Map (AnatomicalBodyMapCard default to fatigue)
  * - Section 2: Weight & Body Composition (Inline Start / Current / Change, BMI, Target Progress & Trend Curve)
  * - Section 3: Physique Transformation (Interactive Before/After Photo Slider)
- * - Header Actions: [⚖️ Weigh-In] & [⚙️ Settings/GymProfile]
+ * - Header Actions: [Weigh-In] & [Settings/GymProfile]
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -14,29 +14,34 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   ScrollView,
-  Image,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image as ExpoImage } from 'expo-image';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
-import { StatusBar } from 'expo-status-bar';
+import { Scale, Settings, Camera, Plus } from 'lucide-react-native';
 import { hapticLight } from '../../utils/haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useGymLogs, useBodyMetrics } from '../../contexts/domains/WellnessContext';
 import { useGymProfile } from '../../hooks/useGymProfile';
+import { formatWeight, kgToDisplay, unitLabel, useWeightUnit } from '../../utils/weightUnit';
 import { BOOT_KEYS, getL1Sync } from '../../utils/bootManifest';
 import { useTheme } from '../../contexts/ThemeContext';
-import { FONT_FAMILY } from '../../theme/tokens';
+import { FONT_FAMILY, ICON, RADIUS, SPACE, TOUCH, ThemeTokens } from '../../theme/tokens';
+import { useResponsiveMetrics } from '../../theme/responsive';
+import {
+  ScreenWrapper,
+  TabScreenHeader,
+  TactileButton,
+  NumericText,
+} from '../../components/ui';
+import { RollingNumber } from '../../components/ui/RollingNumber';
+import { AnimatedProgressBar } from '../../components/ui/AnimatedProgressBar';
+import { useScreenReplayTrigger } from '../../hooks/useScreenReplayTrigger';
 import { GymNavigationParamList } from '../../types/gym.types';
 
 import AnatomicalBodyMapCard from '../../components/Gym/metrics/AnatomicalBodyMapCard';
-import VolumeZoneRadarBar, { MuscleVolumeEntry } from '../../components/Gym/metrics/VolumeZoneRadarBar';
-import StructuralBalanceCard from '../../components/Gym/metrics/StructuralBalanceCard';
-import { calculateMacroVolumeLoad, MuscleSlug } from '../../services/muscleRecoveryService';
 import BodyMetricsHistoryChart, { WeightChartEntry } from '../../components/Gym/metrics/BodyMetricsHistoryChart';
 import BodyMetricsSheet from '../../components/Gym/metrics/BodyMetricsSheet';
 import BeforeAfterSlider from '../../components/Gym/metrics/BeforeAfterSlider';
@@ -44,19 +49,24 @@ import BeforeAfterSlider from '../../components/Gym/metrics/BeforeAfterSlider';
 const WEIGHT_LOGS_KEY = BOOT_KEYS.WEIGHT_LOGS;
 const LEGACY_WEIGHT_LOGS_KEY = 'zentrack_weight_logs_v1';
 
-function classifyBMI(bmi: number): { label: string; color: string } {
-  if (bmi < 18.5) return { label: 'Underweight', color: '#60A5FA' };
-  if (bmi < 25) return { label: 'Normal', color: '#30D158' };
-  if (bmi < 30) return { label: 'Overweight', color: '#FF9F0A' };
-  return { label: 'Obese', color: '#FF453A' };
+function classifyBMI(bmi: number, tokens: ThemeTokens): { label: string; color: string; bg: string } {
+  if (bmi < 18.5) return { label: 'Underweight', color: tokens.status.info, bg: tokens.status.infoDim };
+  if (bmi < 25) return { label: 'Normal', color: tokens.status.success, bg: tokens.status.successDim };
+  if (bmi < 30) return { label: 'Overweight', color: tokens.status.warning, bg: tokens.status.warningDim };
+  return { label: 'Obese', color: tokens.status.danger, bg: tokens.status.dangerDim };
 }
 
 export default function GymProgressScreen() {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, tokens } = useTheme();
+  const { bodyMapHeight } = useResponsiveMetrics();
+  const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const navigation = useNavigation<NativeStackNavigationProp<GymNavigationParamList>>();
   const { gymLogs } = useGymLogs();
   const { weightLogs: contextWeightLogs } = useBodyMetrics();
   const { gymProfile } = useGymProfile();
+  const unitIsLbs = useWeightUnit();
+  const weightUnitStr = unitLabel(unitIsLbs);
+  const { replayKey } = useScreenReplayTrigger();
 
   const [showWeighInSheet, setShowWeighInSheet] = useState(false);
   const [metricsSheetTab, setMetricsSheetTab] = useState<'weight' | 'photo'>('weight');
@@ -107,12 +117,13 @@ export default function GymProgressScreen() {
 
     // Oldest -> Newest
     const chrono = Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
-    const last10: WeightChartEntry[] = chrono.slice(-10).map(l => ({ weight: l.weight, date: l.date }));
+    // Full chronological progression (up to 90 active data points instead of arbitrary 10-cap)
+    const chartData: WeightChartEntry[] = chrono.slice(-90).map(l => ({ weight: l.weight, date: l.date }));
     const photos = chrono.filter(l => Boolean(l.photoUrl)) as { date: string; weight: number; photoUrl: string }[];
 
     return {
       combinedLogs: chrono,
-      chartEntries: last10,
+      chartEntries: chartData,
       photoEntries: photos,
     };
   }, [localWeightLogs, contextWeightLogs]);
@@ -122,12 +133,19 @@ export default function GymProgressScreen() {
   const weightDelta =
     currentWeight && startWeight ? parseFloat((currentWeight - startWeight).toFixed(1)) : 0;
 
+  const dispStartWeight = startWeight ? kgToDisplay(startWeight, unitIsLbs, 1) : null;
+  const dispCurrentWeight = currentWeight ? kgToDisplay(currentWeight, unitIsLbs, 1) : null;
+  const dispWeightDelta =
+    dispCurrentWeight !== null && dispStartWeight !== null
+      ? Math.round((dispCurrentWeight - dispStartWeight) * 10) / 10
+      : 0;
+
   const heightCm = gymProfile.heightCm ?? null;
   const bmi =
     currentWeight && heightCm && heightCm > 0
       ? Math.round((currentWeight / Math.pow(heightCm / 100, 2)) * 10) / 10
       : null;
-  const bmiClass = bmi ? classifyBMI(bmi) : null;
+  const bmiClass = bmi ? classifyBMI(bmi, tokens) : null;
 
   // Fixed field name matching gym.types.ts (supports both targetBodyweightKg and legacy targetWeightKg)
   const targetWeight =
@@ -137,99 +155,61 @@ export default function GymProgressScreen() {
       ? Math.min(Math.max((currentWeight - startWeight) / (targetWeight - startWeight), 0), 1)
       : null;
 
-  const cardBg = isDark ? '#1C1C1E' : '#FFFFFF';
-  const separatorColor = isDark ? 'rgba(84, 84, 88, 0.36)' : 'rgba(60, 60, 67, 0.18)';
-
-  const weeklyMuscleVolumes = useMemo<MuscleVolumeEntry[]>(() => {
-    const macro = calculateMacroVolumeLoad(gymLogs, 7);
-    const groups: { name: string; slugs: MuscleSlug[] }[] = [
-      { name: 'Chest', slugs: ['chest'] },
-      { name: 'Back', slugs: ['upper-back', 'serratus'] },
-      { name: 'Shoulders', slugs: ['deltoids'] },
-      { name: 'Quads', slugs: ['quadriceps'] },
-      { name: 'Hamstrings', slugs: ['hamstring'] },
-      { name: 'Glutes', slugs: ['gluteal'] },
-      { name: 'Biceps', slugs: ['biceps'] },
-      { name: 'Triceps', slugs: ['triceps'] },
-      { name: 'Calves', slugs: ['calves', 'tibialis'] },
-      { name: 'Abs', slugs: ['abs', 'obliques'] },
-      { name: 'Traps', slugs: ['trapezius'] },
-      { name: 'Forearms', slugs: ['forearm'] },
-    ];
-
-    return groups.map(g => {
-      let sets = 0;
-      for (const slug of g.slugs) {
-        if (macro[slug]) sets += macro[slug].sets;
-      }
-      const direct = Math.round(sets * 0.7);
-      const synergist = Math.round(sets * 0.3);
-      return {
-        muscleGroup: g.name,
-        directSets: direct,
-        synergistSets: synergist,
-        effectiveSets: sets,
-      };
-    });
-  }, [gymLogs]);
-
   const bodyMapStyle = useMemo(
-    () => [styles.iosCard, { backgroundColor: cardBg, borderWidth: 0 }],
-    [styles.iosCard, cardBg]
+    () => [styles.iosCard],
+    [styles.iosCard]
   );
 
   const historyChartStyles = useMemo(
     () => ({
-      sectionCard: [styles.iosCard, { backgroundColor: cardBg }],
+      sectionCard: [styles.iosCard],
       cardHeaderRow: styles.chartHeaderRow,
-      sectionTitle: [styles.chartTitle, { color: colors.textPrimary }],
+      sectionTitle: styles.chartTitle,
       badgeText: styles.chartBadge,
-      chartContainer: { alignItems: 'center' as const, marginVertical: 4 },
-      metricLabel: { color: '#8E8E93' },
+      chartContainer: { alignItems: 'center' as const, marginVertical: SPACE[4] },
+      metricLabel: { color: tokens.text.secondary },
     }),
-    [styles, cardBg, colors.textPrimary]
+    [styles, tokens.text.secondary]
   );
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: isDark ? '#000000' : colors.background }]} edges={['top']}>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+    <ScreenWrapper edges={['top']} compactTop topAura keyboardAvoiding={false}>
+      {/* ── Unified Screen Header ── */}
+      <TabScreenHeader
+        title="Body"
+        subtitle={`${dispCurrentWeight ? `${dispCurrentWeight} ${weightUnitStr}` : 'Body Hub'}${bmi ? ` · BMI ${bmi} (${bmiClass?.label})` : ''}`}
+        rightActions={
+          <>
+            <TactileButton
+              variant="primary"
+              size="sm"
+              onPress={() => {
+                hapticLight();
+                setMetricsSheetTab('weight');
+                setShowWeighInSheet(true);
+              }}
+              style={styles.weighInBtn}
+            >
+              <Scale size={14} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
+              <Text style={styles.weighInBtnText}>Weigh In</Text>
+            </TactileButton>
 
-      {/* ── Native Apple iOS Header ── */}
-      <View style={styles.header}>
-        <View style={{ flex: 1, paddingRight: 8 }}>
-          <Text style={[styles.largeTitle, { color: colors.textPrimary }]}>Body</Text>
-          <Text style={styles.headerSubtitle} numberOfLines={1}>
-            {currentWeight ? `${currentWeight} kg` : 'Body Hub'}
-            {bmi ? ` · BMI ${bmi} (${bmiClass?.label})` : ''}
-          </Text>
-        </View>
-
-        <View style={styles.headerRight}>
-          <TouchableOpacity
-            onPress={() => {
-              hapticLight();
-              setMetricsSheetTab('weight');
-              setShowWeighInSheet(true);
-            }}
-            style={[styles.weighInBtn, { backgroundColor: isDark ? '#FFFFFF' : '#000000' }]}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="scale-outline" size={13} color={isDark ? '#000000' : '#FFFFFF'} />
-            <Text style={[styles.weighInBtnText, { color: isDark ? '#000000' : '#FFFFFF' }]}>+ Weigh In</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => {
-              hapticLight();
-              navigation.navigate('GymProfile');
-            }}
-            style={[styles.settingsIconBtn, { backgroundColor: isDark ? '#1C1C1E' : '#E5E5EA' }]}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="settings-outline" size={18} color={isDark ? '#FFFFFF' : '#000000'} />
-          </TouchableOpacity>
-        </View>
-      </View>
+            <TactileButton
+              variant="icon"
+              size="sm"
+              onPress={() => {
+                hapticLight();
+                navigation.navigate('GymProfile');
+              }}
+              hitSlop={TOUCH.hitSlop}
+              style={styles.settingsIconBtn}
+              accessibilityLabel="Profile and Settings"
+            >
+              <Settings size={16} color={tokens.text.primary} strokeWidth={ICON.strokeWidth} />
+            </TactileButton>
+          </>
+        }
+      />
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -237,7 +217,7 @@ export default function GymProgressScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {/* ── SECTION 1: MUSCLE STATUS & RECOVERY ── */}
-        <View style={styles.sectionHeaderRow}>
+        <View style={[styles.sectionHeaderRow, { marginTop: 4 }]}>
           <Text style={styles.sectionHeaderLabel}>MUSCLE STATUS & RECOVERY</Text>
           <Text style={styles.sectionBadgeText}>THIS WEEK</Text>
         </View>
@@ -248,9 +228,6 @@ export default function GymProgressScreen() {
           variant="weekly"
           defaultMode="fatigue"
           style={bodyMapStyle}
-          onAddCorrectiveExercise={(exerciseName) => {
-            navigation.navigate('Today' as any);
-          }}
         />
 
         {/* ── SECTION 2: WEIGHT & BODY COMPOSITION ── */}
@@ -258,270 +235,316 @@ export default function GymProgressScreen() {
           <Text style={styles.sectionHeaderLabel}>WEIGHT & COMPOSITION</Text>
         </View>
 
-        <View style={[styles.iosCard, { backgroundColor: cardBg }]}>
+        <View style={styles.iosCard}>
           {/* 3-Column KPI Strip */}
           <View style={styles.weightKpiRow}>
             <View style={styles.weightKpiCol}>
               <Text style={styles.kpiLabel}>START</Text>
-              <Text style={[styles.kpiValue, { color: colors.textPrimary }]}>
-                {startWeight ? `${startWeight}` : '—'}
-                <Text style={styles.kpiUnit}> kg</Text>
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                {dispStartWeight ? (
+                  <RollingNumber
+                    value={dispStartWeight}
+                    replayKey={replayKey}
+                    cycles={1}
+                    durationMs={520}
+                    style={[styles.kpiValue, { color: tokens.text.primary }]}
+                  />
+                ) : (
+                  <NumericText style={[styles.kpiValue, { color: tokens.text.primary }]}>—</NumericText>
+                )}
+                <Text style={styles.kpiUnit}> {weightUnitStr}</Text>
+              </View>
             </View>
 
-            <View style={[styles.verticalHairline, { backgroundColor: separatorColor }]} />
+            <View style={styles.verticalHairline} />
 
             <View style={styles.weightKpiCol}>
               <Text style={styles.kpiLabel}>CURRENT</Text>
-              <Text style={[styles.kpiValue, { color: '#A599FF' }]}>
-                {currentWeight ? `${currentWeight}` : '—'}
-                <Text style={styles.kpiUnit}> kg</Text>
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                {dispCurrentWeight ? (
+                  <RollingNumber
+                    value={dispCurrentWeight}
+                    replayKey={replayKey}
+                    cycles={1}
+                    durationMs={560}
+                    style={[styles.kpiValue, { color: tokens.accent.primary }]}
+                  />
+                ) : (
+                  <NumericText style={[styles.kpiValue, { color: tokens.accent.primary }]}>—</NumericText>
+                )}
+                <Text style={styles.kpiUnit}> {weightUnitStr}</Text>
+              </View>
             </View>
 
-            <View style={[styles.verticalHairline, { backgroundColor: separatorColor }]} />
+            <View style={styles.verticalHairline} />
 
             <View style={styles.weightKpiCol}>
               <Text style={styles.kpiLabel}>CHANGE</Text>
-              <Text
-                style={[
-                  styles.kpiValue,
-                  {
-                    color:
-                      weightDelta === 0
-                        ? colors.textPrimary
-                        : weightDelta < 0
-                        ? '#30D158'
-                        : '#FF9F0A',
-                  },
-                ]}
-              >
-                {currentWeight && startWeight
-                  ? `${weightDelta > 0 ? `+${weightDelta}` : weightDelta}`
-                  : '—'}
-                <Text style={styles.kpiUnit}> kg</Text>
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                {dispCurrentWeight && dispStartWeight ? (
+                  <RollingNumber
+                    value={dispWeightDelta}
+                    prefix={dispWeightDelta > 0 ? '+' : ''}
+                    replayKey={replayKey}
+                    cycles={0}
+                    durationMs={480}
+                    style={[
+                      styles.kpiValue,
+                      {
+                        color:
+                          dispWeightDelta === 0
+                            ? tokens.text.primary
+                            : dispWeightDelta < 0
+                            ? tokens.status.success
+                            : tokens.status.warning,
+                      },
+                    ]}
+                  />
+                ) : (
+                  <NumericText
+                    style={[
+                      styles.kpiValue,
+                      {
+                        color:
+                          dispWeightDelta === 0
+                            ? tokens.text.primary
+                            : dispWeightDelta < 0
+                            ? tokens.status.success
+                            : tokens.status.warning,
+                      },
+                    ]}
+                  >
+                    —
+                  </NumericText>
+                )}
+                <Text style={styles.kpiUnit}> {weightUnitStr}</Text>
+              </View>
             </View>
           </View>
 
           {/* Hairline Divider + BMI & Height Row */}
           {bmi && bmiClass ? (
             <>
-              <View style={[styles.horizontalHairline, { backgroundColor: separatorColor }]} />
+              <View style={styles.horizontalHairline} />
               <View style={styles.bmiInlineRow}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={[styles.bmiTitle, { color: colors.textPrimary }]}>BMI {bmi}</Text>
-                  <View style={[styles.bmiTag, { backgroundColor: `${bmiClass.color}20` }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE[8] }}>
+                  <NumericText style={styles.bmiTitle}>BMI {bmi}</NumericText>
+                  <View style={[styles.bmiTag, { backgroundColor: bmiClass.bg }]}>
                     <Text style={[styles.bmiTagText, { color: bmiClass.color }]}>{bmiClass.label}</Text>
                   </View>
                 </View>
-                <Text style={styles.bmiMetaText}>
+                <NumericText style={styles.bmiMetaText}>
                   {heightCm ? `${heightCm} cm` : ''}
-                  {targetWeight ? ` · Goal: ${targetWeight} kg` : ''}
-                </Text>
+                  {targetWeight ? ` · Goal: ${formatWeight(targetWeight, unitIsLbs, 1)}` : ''}
+                </NumericText>
               </View>
             </>
           ) : null}
 
           {/* Target Weight Progress Bar */}
           {targetProgress !== null && (
-            <View style={{ marginTop: 12 }}>
+            <View style={{ marginTop: SPACE[12] }}>
               <View style={styles.progressHeaderRow}>
                 <Text style={styles.progressLabel}>Goal Progress</Text>
-                <Text style={styles.progressPercent}>{Math.round(targetProgress * 100)}%</Text>
-              </View>
-              <View style={styles.progressTrack}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    { width: `${Math.round(targetProgress * 100)}%` },
-                  ]}
+                <RollingNumber
+                  value={Math.round(targetProgress * 100)}
+                  suffix="%"
+                  replayKey={replayKey}
+                  cycles={1}
+                  durationMs={520}
+                  style={styles.progressPercent}
                 />
               </View>
+              <AnimatedProgressBar
+                progress={targetProgress}
+                height={7}
+                borderRadius={RADIUS.full}
+                durationMs={560}
+                replayKey={replayKey}
+                color={tokens.accent.primary}
+                trackColor={tokens.bg.elevated}
+              />
             </View>
           )}
         </View>
 
         {/* Inline Weight Trend SVG Chart (if 2+ entries exist) */}
         {chartEntries.length >= 2 && (
-          <View style={{ marginTop: 2, marginBottom: 12 }}>
+          <View style={{ marginTop: 2, marginBottom: SPACE[12] }}>
             <BodyMetricsHistoryChart
               entries={chartEntries}
               styles={historyChartStyles}
               colors={colors}
               isDark={isDark}
+              replayKey={replayKey}
             />
           </View>
         )}
 
         {/* ── SECTION 3: PHYSIQUE TRANSFORMATION (BEFORE / AFTER) ── */}
-        <View style={[styles.sectionHeaderRow, { marginTop: 8 }]}>
+        <View style={[styles.sectionHeaderRow, { marginTop: SPACE[8] }]}>
           <Text style={styles.sectionHeaderLabel}>PHYSIQUE TRANSFORMATION</Text>
-          <TouchableOpacity
+          <TactileButton
+            variant="secondary"
+            size="xs"
             onPress={() => {
               hapticLight();
               setMetricsSheetTab('photo');
               setShowWeighInSheet(true);
             }}
-            activeOpacity={0.7}
+            style={styles.sectionActionBtn}
           >
-            <Text style={styles.sectionActionText}>+ Add Photo</Text>
-          </TouchableOpacity>
+            <Plus size={12} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+            <Text style={styles.sectionActionText}>Add Photo</Text>
+          </TactileButton>
         </View>
 
         {photoEntries.length >= 2 ? (
-          <View style={[styles.iosCard, { backgroundColor: cardBg, padding: 12 }]}>
+          <View style={[styles.iosCard, { padding: SPACE[12] }]}>
             <BeforeAfterSlider
               beforeImage={photoEntries[0].photoUrl}
               afterImage={photoEntries[photoEntries.length - 1].photoUrl}
             />
             <View style={styles.photoDatesRow}>
-              <Text style={styles.photoDateLabel}>
-                Before: {photoEntries[0].date} ({photoEntries[0].weight} kg)
-              </Text>
-              <Text style={styles.photoDateLabel}>
-                Latest: {photoEntries[photoEntries.length - 1].date} ({photoEntries[photoEntries.length - 1].weight} kg)
-              </Text>
+              <NumericText style={styles.photoDateLabel}>
+                Before: {photoEntries[0].date} ({formatWeight(photoEntries[0].weight, unitIsLbs, 1)})
+              </NumericText>
+              <NumericText style={styles.photoDateLabel}>
+                Latest: {photoEntries[photoEntries.length - 1].date} ({formatWeight(photoEntries[photoEntries.length - 1].weight, unitIsLbs, 1)})
+              </NumericText>
             </View>
           </View>
         ) : photoEntries.length === 1 ? (
-          <View style={[styles.iosCard, { backgroundColor: cardBg, padding: 12 }]}>
-            <View style={{ height: 260, borderRadius: 12, overflow: 'hidden', backgroundColor: '#1C1C1E' }}>
-              <Image source={{ uri: photoEntries[0].photoUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+          <View style={[styles.iosCard, { padding: SPACE[12] }]}>
+            <View style={[styles.baselinePhotoFrame, { height: bodyMapHeight }]}>
+              <ExpoImage
+                source={{ uri: photoEntries[0].photoUrl }}
+                style={{ width: '100%', height: '100%' }}
+                contentFit="cover"
+                transition={120}
+                cachePolicy="memory-disk"
+              />
             </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-              <Text style={styles.photoDateLabel}>
-                Baseline Photo · {photoEntries[0].date} ({photoEntries[0].weight} kg)
-              </Text>
-              <TouchableOpacity
+            <View style={styles.baselineMetaRow}>
+              <NumericText style={styles.photoDateLabel}>
+                Baseline Photo · {photoEntries[0].date} ({formatWeight(photoEntries[0].weight, unitIsLbs, 1)})
+              </NumericText>
+              <TactileButton
+                variant="secondary"
+                size="xs"
                 onPress={() => {
                   hapticLight();
                   setMetricsSheetTab('photo');
                   setShowWeighInSheet(true);
                 }}
-                activeOpacity={0.7}
+                style={styles.sectionActionBtn}
               >
-                <Text style={{ fontFamily: FONT_FAMILY.bold, fontSize: 12, color: '#A599FF' }}>+ Add Comparison</Text>
-              </TouchableOpacity>
+                <Plus size={12} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                <Text style={styles.addComparisonText}>Add Comparison</Text>
+              </TactileButton>
             </View>
           </View>
         ) : (
-          <TouchableOpacity
-            activeOpacity={0.8}
+          <TactileButton
+            variant="custom"
+            scaleTo={0.985}
             onPress={() => {
               hapticLight();
               setMetricsSheetTab('photo');
               setShowWeighInSheet(true);
             }}
-            style={[styles.iosCard, styles.emptyPhotoCard, { backgroundColor: cardBg }]}
+            style={[styles.iosCard, styles.emptyPhotoCard]}
           >
-            <Ionicons name="camera-outline" size={26} color="#8E8E93" />
-            <Text style={[styles.emptyPhotoTitle, { color: colors.textPrimary }]}>
+            <Camera size={26} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />
+            <Text style={styles.emptyPhotoTitle}>
               Log Check-In Photos
             </Text>
             <Text style={styles.emptyPhotoSub}>
               Attach front, side, or back photos over time to unlock the interactive Before & After slider.
             </Text>
-          </TouchableOpacity>
+          </TactileButton>
         )}
       </ScrollView>
 
-      {/* Weigh-In & Photo Input Bottom Sheet */}
-      {showWeighInSheet && (
-        <BodyMetricsSheet
-          visible={showWeighInSheet}
-          initialTab={metricsSheetTab}
-          onClose={() => setShowWeighInSheet(false)}
-        />
-      )}
-    </SafeAreaView>
+      {/* Weigh-In & Photo Input Bottom Sheet (always mounted for smooth exit spring) */}
+      <BodyMetricsSheet
+        visible={showWeighInSheet}
+        initialTab={metricsSheetTab}
+        onClose={() => setShowWeighInSheet(false)}
+      />
+    </ScreenWrapper>
   );
 }
 
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingTop: 4,
-    paddingBottom: 8,
-  },
-  largeTitle: {
-    fontFamily: FONT_FAMILY.bold,
-    fontSize: 22,
-    letterSpacing: -0.3,
-    color: '#FFFFFF',
-  },
-  headerSubtitle: {
-    fontSize: 12.5,
-    fontFamily: FONT_FAMILY.medium,
-    color: '#8E8E93',
-    marginTop: 2,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
+const makeStyles = (tokens: ThemeTokens) => StyleSheet.create({
   weighInBtn: {
+    minHeight: 32,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 5.5,
-    borderRadius: 999,
+    gap: 6,
+    paddingHorizontal: 14,
+    borderRadius: RADIUS.inner,
   },
   weighInBtnText: {
     fontSize: 12,
     fontFamily: FONT_FAMILY.bold,
-    color: '#000000',
+    color: tokens.accent.onPrimary,
   },
   settingsIconBtn: {
     width: 32,
     height: 32,
-    borderRadius: 16,
-    backgroundColor: '#1C1C1E',
+    borderRadius: RADIUS.inner,
+    backgroundColor: tokens.isDark ? 'rgba(255,255,255,0.06)' : tokens.bg.elevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
   scrollContent: {
-    paddingHorizontal: 6,
+    paddingHorizontal: SPACE[12],
+    paddingTop: 4,
     paddingBottom: 110,
   },
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 4,
-    marginBottom: 8,
-    marginTop: 6,
+    paddingHorizontal: SPACE[4],
+    marginBottom: SPACE[8],
+    marginTop: SPACE[8],
   },
   sectionHeaderLabel: {
     fontFamily: FONT_FAMILY.medium,
-    fontSize: 12,
-    color: '#8E8E93',
+    fontSize: 11.5,
+    color: tokens.text.secondary,
     letterSpacing: 0.6,
+  },
+  sectionActionBtn: {
+    minHeight: 28,
+    paddingHorizontal: 12,
+    borderRadius: RADIUS.sm,
   },
   sectionActionText: {
     fontFamily: FONT_FAMILY.bold,
-    fontSize: 13,
-    color: '#A599FF',
+    fontSize: 11.5,
+    color: tokens.accent.primary,
+  },
+  addComparisonText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: 11.5,
+    color: tokens.accent.primary,
   },
   sectionBadgeText: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 11,
-    color: '#30D158',
+    color: tokens.status.success,
     letterSpacing: 0.5,
   },
   iosCard: {
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    backgroundColor: tokens.isDark ? '#0F1015' : tokens.bg.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.border.subtle,
+    borderRadius: RADIUS.card,
+    padding: SPACE[16],
+    marginBottom: SPACE[12],
   },
   weightKpiRow: {
     flexDirection: 'row',
@@ -535,18 +558,20 @@ const styles = StyleSheet.create({
   verticalHairline: {
     width: StyleSheet.hairlineWidth,
     height: 34,
+    backgroundColor: tokens.border.subtle,
   },
   horizontalHairline: {
     height: StyleSheet.hairlineWidth,
     width: '100%',
-    marginVertical: 12,
+    backgroundColor: tokens.border.subtle,
+    marginVertical: SPACE[12],
   },
   kpiLabel: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 11,
-    color: '#8E8E93',
+    color: tokens.text.muted,
     letterSpacing: 0.5,
-    marginBottom: 4,
+    marginBottom: SPACE[4],
   },
   kpiValue: {
     fontFamily: FONT_FAMILY.bold,
@@ -556,21 +581,24 @@ const styles = StyleSheet.create({
   kpiUnit: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 13,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
   bmiInlineRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: SPACE[8],
   },
   bmiTitle: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 14,
+    color: tokens.text.primary,
   },
   bmiTag: {
-    paddingHorizontal: 8,
+    paddingHorizontal: SPACE[8],
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: RADIUS.sm,
   },
   bmiTagText: {
     fontFamily: FONT_FAMILY.bold,
@@ -579,77 +607,92 @@ const styles = StyleSheet.create({
   bmiMetaText: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 12.5,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
+    flexShrink: 1,
   },
   progressHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: SPACE[8],
   },
   progressLabel: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 11.5,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
   progressPercent: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 12,
-    color: '#30D158',
+    color: tokens.status.success,
   },
   progressTrack: {
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#2C2C2E',
+    backgroundColor: tokens.bg.elevated,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#30D158',
+    backgroundColor: tokens.status.success,
     borderRadius: 3,
   },
   chartHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: SPACE[8],
   },
   chartTitle: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 15,
+    color: tokens.text.primary,
   },
   chartBadge: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 13,
-    color: '#A599FF',
+    color: tokens.accent.primary,
+  },
+  baselinePhotoFrame: {
+    height: 260,
+    borderRadius: RADIUS.inner,
+    overflow: 'hidden',
+    backgroundColor: tokens.bg.elevated,
+  },
+  baselineMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: SPACE[12],
   },
   photoDatesRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 10,
-    paddingHorizontal: 4,
+    marginTop: SPACE[12],
+    paddingHorizontal: SPACE[4],
   },
   photoDateLabel: {
     fontFamily: FONT_FAMILY.medium,
     fontSize: 12,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
   },
   emptyPhotoCard: {
     alignItems: 'center',
-    paddingVertical: 28,
-    gap: 6,
+    paddingVertical: SPACE[24],
+    gap: SPACE[8],
   },
   emptyPhotoTitle: {
     fontFamily: FONT_FAMILY.bold,
     fontSize: 15,
-    marginTop: 4,
+    color: tokens.text.primary,
+    marginTop: SPACE[4],
   },
   emptyPhotoSub: {
     fontFamily: FONT_FAMILY.regular,
     fontSize: 12.5,
-    color: '#8E8E93',
+    color: tokens.text.secondary,
     textAlign: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: SPACE[16],
     lineHeight: 18,
   },
 });

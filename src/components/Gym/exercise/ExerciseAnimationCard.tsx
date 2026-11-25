@@ -1,21 +1,34 @@
 /**
  * ExerciseAnimationCard.tsx — ZenTrack Mobile
  *
- * High-Quality Exercise Form & Looping Animation Card:
- * - Powered by 5,632 exercise dataset with high-efficiency 20 KB MP4 video loops.
- * - 5 KB instant WebP still poster placeholder for zero buffering latency (0 ms load).
- * - Automatic offline disk caching via Expo FileSystem.
- * - Tap to play/pause toggle & collapsible minimize/expand height controls.
- * - Full-width edge-to-edge rendering with clean 5px border framing.
- * - Collapsible step-by-step execution cues.
+ * High-Quality Exercise Form & Looping Animation Card.
  */
-import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
-import { Video, ResizeMode } from 'expo-av';
-import { Ionicons } from '@expo/vector-icons';
+import { Video as ExpoVideo, ResizeMode } from 'expo-av';
+import {
+  ChevronDown,
+  ChevronUp,
+  Dumbbell,
+  FileText,
+  Gauge,
+  Maximize2,
+  Minimize2,
+  Pause,
+  Play,
+  Video,
+} from 'lucide-react-native';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { getExerciseMediaUri, ExerciseDefinition, ExerciseMediaResult } from '../../../services/exerciseMediaService';
+import {
+  getExerciseMediaUri,
+  resolveExercise,
+  getExerciseStillPosterUrl,
+  getExerciseThumbnailUrl,
+  ExerciseMediaResult,
+} from '../../../services/exerciseMediaService';
+import { FONT_FAMILY, ICON, RADIUS, SPACE, TOUCH, ThemeTokens } from '../../../theme/tokens';
+import { NumericText, TactileButton } from '../../ui';
 
 interface ExerciseAnimationCardProps {
   exerciseName: string;
@@ -25,37 +38,63 @@ interface ExerciseAnimationCardProps {
   isEmbedded?: boolean;
   animationHeight?: number;
   allowMinimize?: boolean;
+  /** Delay before mounting native ExoVideo decoder so sheet/screen transitions stay 120fps. */
+  deferVideoMs?: number;
   style?: any;
 }
 
 export const ExerciseAnimationCard: React.FC<ExerciseAnimationCardProps> = React.memo(({
   exerciseName,
+  onOpenYoutube,
   showInstructions = true,
   showBadges = false,
   isEmbedded = false,
   animationHeight,
   allowMinimize = true,
+  deferVideoMs = 260,
   style,
 }) => {
-  const { colors, isDark } = useTheme();
+  const { tokens } = useTheme();
+  const styles = useMemo(() => makeStyles(tokens), [tokens]);
+  const initialResolved = useMemo(() => {
+    const def = resolveExercise(exerciseName);
+    if (!def) return null;
+    return {
+      def,
+      stillUri: getExerciseStillPosterUrl(def) || null,
+      thumbUri: getExerciseThumbnailUrl(def) || null,
+    };
+  }, [exerciseName]);
   const [media, setMedia] = useState<ExerciseMediaResult | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialResolved?.stillUri);
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
+  const [videoMountReady, setVideoMountReady] = useState(deferVideoMs <= 0);
   const [isPlaying, setIsPlaying] = useState(true);
+  const [playbackSpeed, setPlaybackSpeed] = useState<0.5 | 1.0>(1.0);
   const [isMinimized, setIsMinimized] = useState(false);
   const [failedUris, setFailedUris] = useState<Record<string, boolean>>({});
   const [showCues, setShowCues] = useState(false);
-  const videoRef = useRef<Video>(null);
+  const videoRef = useRef<ExpoVideo>(null);
 
   useEffect(() => {
     let isMounted = true;
-    setLoading(true);
+    setMedia(null);
+    setLoading(!initialResolved?.stillUri);
     setIsVideoLoaded(false);
     setVideoFailed(false);
+    setVideoMountReady(deferVideoMs <= 0);
     setIsPlaying(true);
+    setPlaybackSpeed(1.0);
     setFailedUris({});
     setShowCues(false);
+
+    let videoTimer: ReturnType<typeof setTimeout> | null = null;
+    if (deferVideoMs > 0) {
+      videoTimer = setTimeout(() => {
+        if (isMounted) setVideoMountReady(true);
+      }, deferVideoMs);
+    }
 
     getExerciseMediaUri(exerciseName).then(result => {
       if (isMounted) {
@@ -68,16 +107,19 @@ export const ExerciseAnimationCard: React.FC<ExerciseAnimationCardProps> = React
 
     return () => {
       isMounted = false;
+      if (videoTimer) clearTimeout(videoTimer);
     };
-  }, [exerciseName]);
+  }, [exerciseName, deferVideoMs, initialResolved]);
 
-  const def = media?.definition;
+  const def = media?.definition ?? initialResolved?.def ?? null;
   const isVideoAvailable = !!(media?.clipUri && !videoFailed);
-  const stillUri = media?.stillUri && !failedUris[media.stillUri] ? media.stillUri : null;
+  const rawStill = media?.stillUri || initialResolved?.stillUri || null;
+  const stillUri = rawStill && !failedUris[rawStill] ? rawStill : null;
+  const rawImage = media?.imageUri || initialResolved?.thumbUri || null;
   const activeFallbackUri = (media?.gifUri && !failedUris[media.gifUri])
     ? media.gifUri
-    : (media?.imageUri && !failedUris[media.imageUri])
-    ? media.imageUri
+    : (rawImage && !failedUris[rawImage])
+    ? rawImage
     : null;
 
   const resolvedHeight = animationHeight
@@ -88,7 +130,7 @@ export const ExerciseAnimationCard: React.FC<ExerciseAnimationCardProps> = React
     setIsPlaying(prev => !prev);
   };
 
-  const handleToggleMinimize = (e: any) => {
+  const handleToggleMinimize = (e?: any) => {
     e?.stopPropagation?.();
     setIsMinimized(prev => !prev);
   };
@@ -98,73 +140,20 @@ export const ExerciseAnimationCard: React.FC<ExerciseAnimationCardProps> = React
       style={[
         styles.container,
         {
-          backgroundColor: isEmbedded ? 'transparent' : isDark ? '#111016' : '#F9FAFB',
-          borderColor: isEmbedded ? 'transparent' : isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
-          borderWidth: isEmbedded ? 0 : 1,
-          marginBottom: isEmbedded ? 0 : 16,
+          backgroundColor: isEmbedded ? 'transparent' : tokens.bg.surface,
+          borderColor: isEmbedded ? 'transparent' : tokens.border.subtle,
+          borderWidth: isEmbedded ? 0 : tokens.border.hairlineWidth,
+          marginBottom: isEmbedded ? 0 : SPACE.lg,
         },
         style,
       ]}
     >
-      {/* Optional Top Badges & Controls Header */}
-      {(showBadges || allowMinimize) && (
-        <View style={[styles.topRow, isEmbedded && { paddingHorizontal: 0, paddingTop: 2, paddingBottom: 6 }]}>
-          <View style={styles.badgeRow}>
-            {showBadges && def?.target ? (
-              <View style={[styles.badge, { backgroundColor: isDark ? 'rgba(165,153,255,0.15)' : 'rgba(108,92,231,0.1)' }]}>
-                <Text style={[styles.badgeText, { color: isDark ? '#a599ff' : '#6c5ce7' }]}>
-                  {def.target.toUpperCase()}
-                </Text>
-              </View>
-            ) : null}
-            {showBadges && def?.equipment ? (
-              <View style={[styles.badge, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}>
-                <Text style={[styles.badgeText, { color: colors.textSecondary }]}>
-                  {def.equipment}
-                </Text>
-              </View>
-            ) : null}
-            {media?.isOffline ? (
-              <View style={[styles.badge, { backgroundColor: 'rgba(48,209,88,0.15)' }]}>
-                <Text style={[styles.badgeText, { color: '#30D158' }]}>
-                  OFFLINE READY
-                </Text>
-              </View>
-            ) : null}
-          </View>
-
-          {allowMinimize && (
-            <TouchableOpacity
-              onPress={handleToggleMinimize}
-              style={styles.minimizeBtn}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons
-                name={isMinimized ? "expand-outline" : "contract-outline"}
-                size={13}
-                color={colors.textMuted}
-              />
-              <Text style={[styles.minimizeText, { color: colors.textMuted }]}>
-                {isMinimized ? 'Expand' : 'Minimize'}
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
-
-      {/* Main Full-Width Animation Area with 5KB Instant Poster + 20KB MP4 Loop */}
-      <Pressable
-        onPress={handleTogglePlay}
+      <View
         style={[
           styles.animationContainer,
-          {
-            backgroundColor: isDark ? '#121214' : '#F2F2F7',
-            borderRadius: 14,
-            height: resolvedHeight,
-          },
+          { height: resolvedHeight },
         ]}
       >
-        {/* Layer 1: Instant 5 KB WebP Still Poster Placeholder (0ms load) */}
         {stillUri && (
           <Image
             source={{ uri: stillUri }}
@@ -178,16 +167,15 @@ export const ExerciseAnimationCard: React.FC<ExerciseAnimationCardProps> = React
           />
         )}
 
-        {/* Layer 2: High-Efficiency 20 KB MP4 Video Loop (Native Hardware Decoding) */}
-        {isVideoAvailable ? (
-          <Video
+        {isVideoAvailable && videoMountReady ? (
+          <ExpoVideo
             ref={videoRef}
             source={{ uri: media.clipUri! }}
-            rate={1.0}
+            rate={playbackSpeed}
             volume={0}
             isMuted={true}
             resizeMode={ResizeMode.CONTAIN}
-            shouldPlay={isPlaying}
+            shouldPlay={isPlaying && !isMinimized}
             isLooping={true}
             style={[styles.gifImage, { opacity: isVideoLoaded ? 1 : 0 }]}
             onLoad={() => setIsVideoLoaded(true)}
@@ -197,7 +185,6 @@ export const ExerciseAnimationCard: React.FC<ExerciseAnimationCardProps> = React
             }}
           />
         ) : activeFallbackUri ? (
-          /* Layer 3: Fallback GIF / Image */
           <Image
             source={{ uri: activeFallbackUri }}
             placeholder={stillUri ? { uri: stillUri } : undefined}
@@ -210,57 +197,152 @@ export const ExerciseAnimationCard: React.FC<ExerciseAnimationCardProps> = React
             }}
           />
         ) : !stillUri && !loading ? (
-          /* Layer 4: Neutral Dumbbell Fallback Tile */
           <View style={styles.placeholderCenter}>
-            <Ionicons name="barbell-outline" size={32} color="#888888" />
-            <Text style={[styles.placeholderText, { color: '#888888' }]}>
+            <Dumbbell size={ICON.xl + 4} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} />
+            <Text style={styles.placeholderText}>
               Form demo for {exerciseName}
             </Text>
           </View>
         ) : null}
 
-        {/* Loading Indicator Spinner (only if still poster hasn't loaded yet) */}
+        {!isPlaying && (isVideoAvailable || activeFallbackUri) && (
+          <TactileButton
+            variant="custom"
+            style={styles.centerPlayBtn}
+            onPress={() => setIsPlaying(true)}
+            accessibilityLabel="Play animation"
+          >
+            <Play size={ICON.lg + 4} strokeWidth={ICON.strokeWidth} color={tokens.text.primary} style={{ marginLeft: 3 }} />
+          </TactileButton>
+        )}
+
         {loading && !stillUri && (
           <View style={styles.loaderCenter}>
-            <ActivityIndicator size="small" color={isDark ? '#a599ff' : '#6c5ce7'} />
-            <Text style={[styles.loadingText, { color: '#666666' }]}>Loading Animation...</Text>
+            <ActivityIndicator size="small" color={tokens.accent.primary} />
+            <Text style={styles.loadingText}>Loading Animation...</Text>
           </View>
         )}
 
-        {/* Subtle Play / Pause Indicator Pill */}
-        {!isMinimized && (isVideoAvailable || activeFallbackUri) && (
-          <View style={[styles.playbackPill, { backgroundColor: isPlaying ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.7)' }]}>
-            <Ionicons name={isPlaying ? "pause" : "play"} size={11} color="#FFFFFF" />
-            <Text style={styles.playbackText}>{isPlaying ? 'tap to pause' : 'paused'}</Text>
+        <View style={styles.topOverlayRow} pointerEvents="box-none">
+          <View style={styles.badgeRow}>
+            {showBadges && def?.target ? (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>
+                  {def.target.toUpperCase()}
+                </Text>
+              </View>
+            ) : null}
+            {showBadges && def?.equipment ? (
+              <View style={styles.badge}>
+                <Text style={styles.badgeSubText}>
+                  {def.equipment}
+                </Text>
+              </View>
+            ) : null}
           </View>
-        )}
-      </Pressable>
 
-      {/* Collapsible Execution Cues */}
+          {allowMinimize && (
+            <TactileButton
+              variant="custom"
+              onPress={handleToggleMinimize}
+              style={styles.floatingPill}
+              hitSlop={TOUCH.hitSlop}
+            >
+              {isMinimized ? (
+                <Maximize2 size={ICON.xs - 2} strokeWidth={ICON.strokeWidth} color={tokens.text.primary} />
+              ) : (
+                <Minimize2 size={ICON.xs - 2} strokeWidth={ICON.strokeWidth} color={tokens.text.primary} />
+              )}
+              <Text style={styles.floatingPillText}>
+                {isMinimized ? 'Expand' : 'Minimize'}
+              </Text>
+            </TactileButton>
+          )}
+        </View>
+
+        <View style={styles.bottomOverlayRow} pointerEvents="box-none">
+          {onOpenYoutube ? (
+            <TactileButton
+              variant="custom"
+              onPress={onOpenYoutube}
+              style={styles.floatingPill}
+              hitSlop={TOUCH.hitSlop}
+            >
+              <Video size={ICON.xs} strokeWidth={ICON.strokeWidth} color={tokens.accent.crimson} />
+              <Text style={styles.floatingPillText}>Video</Text>
+            </TactileButton>
+          ) : <View />}
+
+          {!isMinimized && (
+            <View style={styles.controlsGroup}>
+              {isVideoAvailable && (
+                <TactileButton
+                  variant="custom"
+                  onPress={() => setPlaybackSpeed(s => (s === 1.0 ? 0.5 : 1.0))}
+                  style={[styles.floatingPill, playbackSpeed === 0.5 && styles.activeSpeedPill]}
+                  hitSlop={TOUCH.hitSlop}
+                >
+                  <Gauge
+                    size={ICON.xs - 2}
+                    strokeWidth={ICON.strokeWidth}
+                    color={playbackSpeed === 0.5 ? tokens.status.success : tokens.text.primary}
+                  />
+                  <NumericText
+                    style={[
+                      styles.floatingPillText,
+                      playbackSpeed === 0.5 && { color: tokens.status.success },
+                    ]}
+                  >
+                    {playbackSpeed === 0.5 ? '0.5x' : '1.0x'}
+                  </NumericText>
+                </TactileButton>
+              )}
+
+              {(isVideoAvailable || activeFallbackUri) && (
+                <TactileButton
+                  variant="custom"
+                  onPress={handleTogglePlay}
+                  style={styles.floatingPill}
+                  hitSlop={TOUCH.hitSlop}
+                >
+                  {isPlaying ? (
+                    <Pause size={ICON.xs - 2} strokeWidth={ICON.strokeWidth} color={tokens.text.primary} />
+                  ) : (
+                    <Play size={ICON.xs - 2} strokeWidth={ICON.strokeWidth} color={tokens.text.primary} />
+                  )}
+                  <Text style={styles.floatingPillText}>{isPlaying ? 'Pause' : 'Play'}</Text>
+                </TactileButton>
+              )}
+            </View>
+          )}
+        </View>
+      </View>
+
       {showInstructions && def && (def.instruction || (def.steps && def.steps.length > 0)) ? (
-        <View style={[styles.instructionsSection, isEmbedded && { paddingHorizontal: 0, paddingBottom: 0, borderTopWidth: 0 }]}>
-          <Pressable
-            style={[
-              styles.cuesToggleBtn,
-              {
-                backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-                borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-              },
-            ]}
+        <View
+          style={[
+            styles.instructionsSection,
+            isEmbedded && { paddingHorizontal: 0, paddingBottom: 0, borderTopWidth: 0 },
+          ]}
+        >
+          <TactileButton
+            variant="custom"
+            haptic="selection"
+            style={styles.cuesToggleBtn}
             onPress={() => setShowCues(prev => !prev)}
           >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name="newspaper-outline" size={13} color={colors.accentPrimary} />
-              <Text style={[styles.instructionHeaderTitle, { color: colors.textPrimary }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs + 2 }}>
+              <FileText size={ICON.xs} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
+              <Text style={styles.instructionHeaderTitle}>
                 Execution Cues {def.steps && def.steps.length > 0 ? `(${def.steps.length} Steps)` : ''}
               </Text>
             </View>
-            <Ionicons
-              name={showCues ? "chevron-up" : "chevron-down"}
-              size={14}
-              color={colors.textMuted}
-            />
-          </Pressable>
+            {showCues ? (
+              <ChevronUp size={ICON.xs + 1} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} />
+            ) : (
+              <ChevronDown size={ICON.xs + 1} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} />
+            )}
+          </TactileButton>
 
           {showCues && (
             <View style={styles.cuesContent}>
@@ -268,15 +350,13 @@ export const ExerciseAnimationCard: React.FC<ExerciseAnimationCardProps> = React
                 <View style={styles.stepsList}>
                   {def.steps.map((step, index) => (
                     <View key={index} style={styles.stepRow}>
-                      <Text style={[styles.stepNumber, { color: colors.accentPrimary }]}>{index + 1}.</Text>
-                      <Text style={[styles.stepText, { color: colors.textSecondary }]}>{step}</Text>
+                      <NumericText style={styles.stepNumber}>{index + 1}.</NumericText>
+                      <Text style={styles.stepText}>{step}</Text>
                     </View>
                   ))}
                 </View>
               ) : (
-                <Text style={[styles.instructionParagraph, { color: colors.textSecondary }]}>
-                  {def.instruction}
-                </Text>
+                <Text style={styles.instructionParagraph}>{def.instruction}</Text>
               )}
             </View>
           )}
@@ -288,47 +368,34 @@ export const ExerciseAnimationCard: React.FC<ExerciseAnimationCardProps> = React
 
 export default ExerciseAnimationCard;
 
-const styles = StyleSheet.create({
+const makeStyles = (tokens: ThemeTokens) => StyleSheet.create({
   container: {
-    borderRadius: 14,
+    borderRadius: RADIUS.card,
     overflow: 'hidden',
     padding: 0,
-  },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingTop: 6,
-    paddingBottom: 6,
   },
   badgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: SPACE.xs + 2,
   },
   badge: {
-    paddingHorizontal: 8,
+    backgroundColor: tokens.bg.overlay,
+    paddingHorizontal: SPACE.sm,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: RADIUS.sm - 2,
   },
   badgeText: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 10,
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: tokens.fontSize.xs,
+    color: tokens.text.primary,
     letterSpacing: 0.4,
   },
-  minimizeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  minimizeText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 11,
+  badgeSubText: {
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: tokens.fontSize.xs,
+    color: tokens.text.secondary,
+    letterSpacing: 0.4,
   },
   animationContainer: {
     width: '100%',
@@ -336,90 +403,144 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
     position: 'relative',
+    backgroundColor: tokens.bg.mediaLight,
+    borderRadius: RADIUS.card,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
   },
   gifImage: {
     width: '100%',
     height: '100%',
+    backgroundColor: tokens.bg.mediaLight,
   },
-  playbackPill: {
+  centerPlayBtn: {
     position: 'absolute',
-    bottom: 8,
-    right: 8,
+    width: 56,
+    height: 56,
+    borderRadius: RADIUS.full,
+    backgroundColor: tokens.bg.overlay,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 15,
+    borderWidth: 1.5,
+    borderColor: tokens.border.medium,
+  },
+  topOverlayRow: {
+    position: 'absolute',
+    top: SPACE.sm + 2,
+    left: SPACE.sm + 2,
+    right: SPACE.sm + 2,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    justifyContent: 'space-between',
+    zIndex: 10,
   },
-  playbackText: {
-    color: '#FFFFFF',
-    fontFamily: 'Inter_500Medium',
-    fontSize: 10,
+  bottomOverlayRow: {
+    position: 'absolute',
+    bottom: SPACE.sm + 2,
+    left: SPACE.sm + 2,
+    right: SPACE.sm + 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 10,
+  },
+  controlsGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACE.xs + 2,
+  },
+  floatingPill: {
+    backgroundColor: tokens.bg.overlay,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACE.xs + 1,
+    paddingHorizontal: SPACE.sm + 2,
+    paddingVertical: SPACE.xs + 1,
+    borderRadius: RADIUS.full,
+  },
+  activeSpeedPill: {
+    borderColor: tokens.status.success,
+    borderWidth: tokens.border.hairlineWidth,
+    backgroundColor: tokens.bg.overlay,
+  },
+  floatingPillText: {
+    color: tokens.text.primary,
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: tokens.fontSize.xs,
     letterSpacing: 0.2,
   },
   loaderCenter: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: SPACE.sm,
   },
   loadingText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: tokens.fontSize.sm,
+    color: tokens.text.muted,
   },
   placeholderCenter: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: SPACE.xs + 2,
   },
   placeholderText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 12,
+    fontFamily: FONT_FAMILY.medium,
+    fontSize: tokens.fontSize.sm,
+    color: tokens.text.muted,
   },
   instructionsSection: {
-    paddingTop: 6,
+    paddingTop: SPACE.xs + 2,
   },
   cuesToggleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
+    paddingHorizontal: SPACE.sm + 2,
+    paddingVertical: SPACE.sm,
+    minHeight: TOUCH.minTarget - 6,
+    borderRadius: RADIUS.inner,
+    backgroundColor: tokens.bg.surface,
+    borderWidth: tokens.border.hairlineWidth,
+    borderColor: tokens.border.subtle,
   },
   instructionHeaderTitle: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 11,
+    fontFamily: FONT_FAMILY.semibold,
+    fontSize: tokens.fontSize.xs,
+    color: tokens.text.primary,
     letterSpacing: 0.2,
   },
   cuesContent: {
-    paddingHorizontal: 4,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingHorizontal: SPACE.xs,
+    paddingTop: SPACE.sm,
+    paddingBottom: SPACE.xs,
   },
   instructionParagraph: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 12.5,
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: tokens.fontSize.sm,
+    color: tokens.text.secondary,
     lineHeight: 18,
   },
   stepsList: {
-    gap: 6,
+    gap: SPACE.xs + 2,
   },
   stepRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 6,
+    gap: SPACE.xs + 2,
   },
   stepNumber: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 12,
+    fontFamily: FONT_FAMILY.bold,
+    fontSize: tokens.fontSize.sm,
+    color: tokens.accent.primary,
     lineHeight: 17,
-    width: 16,
+    width: 18,
   },
   stepText: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 12,
+    fontFamily: FONT_FAMILY.regular,
+    fontSize: tokens.fontSize.sm,
+    color: tokens.text.secondary,
     lineHeight: 17,
     flex: 1,
   },

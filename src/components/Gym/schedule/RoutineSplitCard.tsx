@@ -1,12 +1,17 @@
 import React, { useMemo } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View, Text } from 'react-native';
+import { Check, ChevronRight } from 'lucide-react-native';
+import { ICON } from '../../../theme/tokens';
+import { useTheme } from '../../../contexts/ThemeContext';
+import { TactileButton } from '../../ui/TactileButton';
+import { NumericText } from '../../ui/NumericText';
 import { GymPlanDay } from '../../../types/gym.types';
-import { resolveExerciseTargetMuscle, resolveMuscleColor } from '../../../utils/gymUtils';
+import { resolveExerciseTargetMuscle } from '../../../utils/gymUtils';
 
 export interface RoutineSplitCardProps {
   day: GymPlanDay;
   isSelected: boolean;
+  showDivider?: boolean;
   onSelect: (dayIndex: number) => void;
   styles: any;
   colors: any;
@@ -18,19 +23,18 @@ export interface RoutineSplitCardProps {
 export const RoutineSplitCard: React.FC<RoutineSplitCardProps> = React.memo(({
   day,
   isSelected,
+  showDivider = false,
   onSelect,
   styles,
-  colors,
   isRotation,
   isNextUp,
   rotationLetter,
 }) => {
+  const { tokens } = useTheme();
   const isRest = day.isRest;
 
-  // Aggregate Muscle and Exercise Info (No sets clutter)
   const stats = useMemo(() => {
     if (isRest || !day.exercises?.length) return null;
-
     const groupSets: Record<string, number> = {};
 
     for (const ex of day.exercises) {
@@ -46,14 +50,11 @@ export const RoutineSplitCard: React.FC<RoutineSplitCardProps> = React.memo(({
     const topMuscles = Object.entries(groupSets)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
-      .map(([name]) => ({
-        name,
-        color: resolveMuscleColor(name),
-      }));
+      .map(([name]) => name);
 
     return {
       exerciseCount: day.exercises.length,
-      topMuscles,
+      muscleLine: topMuscles.join(', '),
     };
   }, [isRest, day.exercises]);
 
@@ -65,84 +66,59 @@ export const RoutineSplitCard: React.FC<RoutineSplitCardProps> = React.memo(({
   }, [isRotation, isRest, rotationLetter, day.dayIndex, day.name]);
 
   const subtitle = useMemo(() => {
-    if (day.subtitle) return day.subtitle;
-    if (isRest) return 'Systemic recovery, sleep & active mobility';
-    return day.focus || `${stats?.exerciseCount || 0} Exercises programmed`;
-  }, [day.subtitle, day.focus, isRest, stats?.exerciseCount]);
+    if (isRest) return 'Full recovery & mobility day';
+    const focusPart = day.subtitle || day.focus || '';
+    const countPart = `${stats?.exerciseCount || 0} exercises`;
+    if (stats?.muscleLine && focusPart) {
+      return `${focusPart} · ${countPart} (${stats.muscleLine})`;
+    }
+    return focusPart ? `${focusPart} · ${countPart}` : countPart;
+  }, [day.subtitle, day.focus, isRest, stats]);
 
   return (
-    <TouchableOpacity
-      style={[styles.dayCard, isSelected && styles.dayCardActive]}
-      onPress={() => onSelect(day.dayIndex)}
-      activeOpacity={0.75}
-    >
-      {/* ── Top Bar: Day Indicator & Action State ── */}
-      <View style={styles.cardHeaderRow}>
-        <View style={styles.badgeRow}>
-          <View style={[styles.dayTag, isRest && styles.restTag]}>
-            <Text style={[styles.dayTagText, isRest && styles.restTagText]}>
-              {isRest ? 'REST DAY' : `DAY ${day.dayIndex}`}
-            </Text>
+    <View>
+      <TactileButton
+        variant="custom"
+        haptic="light"
+        style={[styles.dayRow, isSelected && styles.dayRowActive]}
+        onPress={() => onSelect(day.dayIndex)}
+      >
+        <View style={styles.rowMain}>
+          <View style={styles.rowMetaTop}>
+            <NumericText style={[styles.dayLabelPlain, isRest && { color: tokens.status.warning }]}>
+              {isRest ? `Day ${day.dayIndex} · Rest` : `Day ${day.dayIndex}`}
+            </NumericText>
+            {isNextUp && !isRest && (
+              <Text style={styles.upNextPlain}>· Up Next</Text>
+            )}
+            {isSelected && (
+              <View style={styles.activeDotRow}>
+                <View style={styles.activeGreenDot} />
+                <Text style={styles.activeBadgeText}>Active</Text>
+              </View>
+            )}
           </View>
-          {isNextUp && !isRest && (
-            <View style={styles.upNextTag}>
-              <Text style={styles.upNextText}>UP NEXT</Text>
-            </View>
-          )}
+
+          <Text style={styles.dayTitle} numberOfLines={1}>
+            {routineName}
+          </Text>
+
+          <NumericText style={styles.daySubLine} numberOfLines={1}>
+            {subtitle}
+          </NumericText>
         </View>
 
         {isSelected ? (
-          <View style={styles.activeBadge}>
-            <Ionicons name="checkmark-circle" size={13} color="#30D158" />
-            <Text style={styles.activeBadgeText}>Active</Text>
+          <View style={styles.checkCircle}>
+            <Check size={14} color={tokens.accent.primary} strokeWidth={2.5} />
           </View>
         ) : (
-          <View style={styles.actionPill}>
-            <Ionicons name="swap-horizontal" size={12} color={styles.actionPillText.color} />
-            <Text style={styles.actionPillText}>Select</Text>
-          </View>
+          <ChevronRight size={16} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />
         )}
-      </View>
+      </TactileButton>
 
-      {/* ── Routine Title & Focus ── */}
-      <Text style={styles.dayTitle} numberOfLines={1}>
-        {routineName}
-      </Text>
-      <Text style={styles.daySubtitle} numberOfLines={1}>
-        {subtitle}
-      </Text>
-
-      {/* ── Hairline Divider ── */}
-      <View style={styles.hairlineDivider} />
-
-      {/* ── Footer Strip: Clean Exercises Count & Target Muscles (Zero sets clutter, guaranteed no overlap) ── */}
-      <View style={styles.cardFooterRow}>
-        {isRest ? (
-          <Text style={styles.footerStatsText}>
-            Rest day • Full body recovery
-          </Text>
-        ) : (
-          <>
-            <Text style={styles.footerStatsText} numberOfLines={1}>
-              {stats?.exerciseCount || 0} exercises
-            </Text>
-
-            {stats?.topMuscles && stats.topMuscles.length > 0 && (
-              <View style={styles.musclesSummaryRow}>
-                {stats.topMuscles.map(m => (
-                  <View key={m.name} style={styles.muscleItem}>
-                    <View style={[styles.muscleDot, { backgroundColor: m.color }]} />
-                    <Text style={styles.muscleText} numberOfLines={1}>
-                      {m.name}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            )}
-          </>
-        )}
-      </View>
-    </TouchableOpacity>
+      {showDivider && <View style={styles.rowDivider} />}
+    </View>
   );
 });
 

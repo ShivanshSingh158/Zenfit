@@ -1,6 +1,10 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Switch, Platform } from 'react-native';
+import { View, Text, Switch, Platform } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { FONT_FAMILY, RADIUS, SPACE, TOUCH } from '../../../theme/tokens';
+import { useTheme } from '../../../contexts/ThemeContext';
+import { TactileButton } from '../../ui/TactileButton';
+import { NumericText } from '../../ui/NumericText';
 
 export interface GymScheduleReminderTabProps {
   notifEnabled: boolean;
@@ -27,62 +31,92 @@ export const GymScheduleReminderTab: React.FC<GymScheduleReminderTabProps> = Rea
   styles,
   colors,
 }) => {
+  const { tokens } = useTheme();
+
   return (
     <>
       <Text style={styles.description}>
-        Receive daily reminders before your planned workout sessions so you never miss a workout.
+        Get a notification on workout days before your scheduled session.
       </Text>
 
       <View style={styles.settingRow}>
-        <View>
-          <Text style={styles.settingLabel}>Workout Reminders</Text>
-          <Text style={styles.settingSub}>Push notification on training days</Text>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.settingLabel}>Workout Alerts</Text>
+          <Text style={styles.settingSub}>Send notification on active training days</Text>
         </View>
         <Switch
           value={notifEnabled}
           onValueChange={setNotifEnabled}
-          trackColor={{ false: 'rgba(255,255,255,0.1)', true: colors.accentPrimary }}
+          trackColor={{ false: tokens.border.medium, true: tokens.accent.primary }}
+          thumbColor={
+            Platform.OS === 'android'
+              ? notifEnabled
+                ? tokens.accent.onPrimary
+                : tokens.text.secondary
+              : undefined
+          }
+          ios_backgroundColor={tokens.border.medium}
+          accessibilityLabel="Toggle workout alerts"
         />
       </View>
 
       {notifEnabled && (
         <View style={styles.settingRow}>
-          <View>
-            <Text style={styles.settingLabel}>Reminder Time</Text>
-            <Text style={styles.settingSub}>Alert sent at this time</Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.settingLabel}>Alert Time</Text>
+            <Text style={styles.settingSub}>Daily notification time</Text>
           </View>
-          <TouchableOpacity
+          <TactileButton
+            variant="custom"
+            haptic="light"
             onPress={() => setShowPickerNotif(true)}
+            hitSlop={TOUCH.hitSlop}
             style={{
-              backgroundColor: 'rgba(255,255,255,0.06)',
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              borderRadius: 8,
+              backgroundColor: 'rgba(10, 132, 255, 0.14)',
+              minHeight: 34,
+              paddingHorizontal: 14,
+              justifyContent: 'center',
+              borderRadius: RADIUS.inner,
             }}
           >
-            <Text style={{ color: colors.accentPrimary, fontWeight: '700' }}>
+            <NumericText style={{ color: colors.accentPrimary, fontFamily: FONT_FAMILY.bold, fontSize: 13 }}>
               {formatTime(notifTime)}
-            </Text>
-          </TouchableOpacity>
+            </NumericText>
+          </TactileButton>
         </View>
       )}
 
       {showPickerNotif && (
-        <DateTimePicker
-          value={notifTime}
-          mode="time"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={(event, selectedDate) => {
-            setShowPickerNotif(Platform.OS === 'ios');
-            if (selectedDate) setNotifTime(selectedDate);
-          }}
-        />
+        <>
+          <DateTimePicker
+            value={notifTime}
+            mode="time"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={(event, selectedDate) => {
+              if (Platform.OS === 'android') {
+                setShowPickerNotif(false);
+              }
+              if (event.type === 'dismissed' || !selectedDate) return;
+              setNotifTime(selectedDate);
+            }}
+          />
+          {Platform.OS === 'ios' && (
+            <TactileButton
+              variant="custom"
+              haptic="light"
+              onPress={() => setShowPickerNotif(false)}
+              style={{ alignSelf: 'flex-end', minHeight: 32, justifyContent: 'center', paddingHorizontal: SPACE.md }}
+            >
+              <Text style={{ color: tokens.accent.secondary, fontFamily: FONT_FAMILY.bold, fontSize: 13 }}>Done</Text>
+            </TactileButton>
+          )}
+        </>
       )}
 
-      <View style={{ height: 20 }} />
-      <TouchableOpacity style={styles.saveBtn} onPress={onSave}>
-        <Text style={styles.saveBtnText}>Save Notification Settings</Text>
-      </TouchableOpacity>
+      <View style={{ height: 18 }} />
+      <TactileButton variant="custom" haptic="light" style={styles.saveBtn} onPress={onSave}>
+        <Text style={styles.saveBtnText}>Save Alerts</Text>
+      </TactileButton>
     </>
   );
 });

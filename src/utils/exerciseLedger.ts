@@ -1,13 +1,5 @@
-/**
- * exerciseLedger.ts — ZenTrack Mobile
- *
- * Dedicated O(1) Per-Exercise Working Sets Ledger:
- * Key: '@zentrack_exercise_ledger_v1'
- *
- * Guarantees that every exercise's latest completed working weights, reps,
- * best 1RM, and RIR are permanently remembered and available synchronously in 0ms on Frame 0,
- * even when `gymLogs` is empty, cleared, or still hydrating from Firestore.
- */
+import { estimate1RM } from '../services/oneRepMaxEngine';
+// src/utils/exerciseLedger.ts
 
 import { getL1Sync, setL1Sync } from './bootManifest';
 import { normalizeExerciseKey } from './gymUtils';
@@ -28,14 +20,15 @@ export interface ExerciseLedgerRecord {
   updatedAt: number;
   bestWeight: number;
   best1RM: number;
-  sets: LedgerSetEntry[]; // Always holds the latest completed working sets for instant pre-fill
+  historicalBestWeight?: number;
+  historicalBest1RM?: number;
+  historicalSets?: LedgerSetEntry[];
+  historicalDate?: string;
+  sets: LedgerSetEntry[];
 }
 
 export type ExerciseLedgerMap = Record<string, ExerciseLedgerRecord>;
 
-/**
- * 0ms Synchronous Read: Returns the last logged sets for an exercise even if `gymLogs` is empty!
- */
 export function getExerciseLedgerSetsSync(exerciseName: string): LedgerSetEntry[] | null {
   if (!exerciseName) return null;
   const key = normalizeExerciseKey(exerciseName);
@@ -43,9 +36,6 @@ export function getExerciseLedgerSetsSync(exerciseName: string): LedgerSetEntry[
   return ledger[key]?.sets?.length ? ledger[key].sets : null;
 }
 
-/**
- * 0ms Synchronous Read: Returns the full ledger record for an exercise.
- */
 export function getExerciseLedgerRecordSync(exerciseName: string): ExerciseLedgerRecord | null {
   if (!exerciseName) return null;
   const key = normalizeExerciseKey(exerciseName);
@@ -53,36 +43,56 @@ export function getExerciseLedgerRecordSync(exerciseName: string): ExerciseLedge
   return ledger[key] || null;
 }
 
-/**
- * Updates the permanent ledger the moment a set is completed.
- * Guarantees that future sessions (or app restarts) ALWAYS pre-fill the exact weight/reps logged.
- */
+function calcLedgerSet1RM(w: number, r: number, rir?: number): number {
+  if (w <= 0 || r <= 0) return 0;
+  return Math.round(estimate1RM(w, r, 'hybrid', rir ?? 0) * 10) / 10;
+}
+
 export function recordExerciseToLedger(
   exerciseName: string,
   setsLog: any[],
   dateStr: string
 ): void {
-  if (!exerciseName || !Array.isArray(setsLog)) return;
+  if (!exerciseName || !Array.isArray(setsLog) || !dateStr) return;
   const key = normalizeExerciseKey(exerciseName);
   if (!key) return;
 
   const workingDone = setsLog.filter(
-    s => s && !s.isWarmup && s.setType !== 'warmup' && (s.completed || (Number(s.weight) > 0 && Number(s.reps) > 0))
+    s => s && s.completed === true && !s.isWarmup && s.setType !== 'warmup' && (Number(s.weight ?? s.weightKg) >= 0 && Number(s.reps) > 0)
   );
-  if (workingDone.length === 0) return;
 
   const ledger = { ...getL1Sync<ExerciseLedgerMap>(EXERCISE_LEDGER_KEY, {}) };
   const existing = ledger[key];
 
-  let bestWeight = existing?.bestWeight || 0;
-  let best1RM = existing?.best1RM || 0;
+  // Fix #244: If user unchecked all sets on the latest session date, roll back to historical snapshot!
+  if (workingDone.length === 0) {
+    if (existing && existing.lastDate === dateStr) {
+      if (existing.historicalSets && existing.historicalSets.length > 0 && existing.historicalDate) {
+        ledger[key] = {
+          ...existing,
+          lastDate: existing.historicalDate,
+          bestWeight: existing.historicalBestWeight || 0,
+          best1RM: existing.historicalBest1RM || 0,
+          sets: existing.historicalSets,
+          updatedAt: Date.now(),
+        };
+      } else {
+        delete ledger[key];
+      }
+      setL1Sync(EXERCISE_LEDGER_KEY, ledger, true);
+    }
+    return;
+  }
+
+  let todayMaxWeight = 0;
+  let todayMax1RM = 0;
 
   const cleanSets: LedgerSetEntry[] = workingDone.map((s, idx) => {
-    const w = Number(s.weight ?? s.weightKg) || 0;
-    const r = Number(s.reps) || 0;
-    if (w > bestWeight) bestWeight = w;
-    const e1rm = w * (1 + r / 30);
-    if (e1rm > best1RM) best1RM = Math.round(e1rm * 10) / 10;
+    const w = Math.max(0, Number(s.weight ?? s.weightKg) || 0);
+    const r = Math.max(1, Number(s.reps) || 0);
+    if (w > todayMaxWeight) todayMaxWeight = w;
+    const e1rm = calcLedgerSet1RM(w, r, s.rir);
+    if (e1rm > todayMax1RM) todayMax1RM = e1rm;
     return {
       setNumber: idx + 1,
       weight: w,
@@ -92,15 +102,40 @@ export function recordExerciseToLedger(
     };
   });
 
+  // Fix #74 & #126: Never overwrite newer `sets` or `lastDate` when editing an older past workout!
+  if (existing && existing.lastDate && dateStr < existing.lastDate) {
+    if (todayMaxWeight > (existing.bestWeight || 0) || todayMax1RM > (existing.best1RM || 0)) {
+      ledger[key] = {
+        ...existing,
+        bestWeight: Math.max(existing.bestWeight || 0, todayMaxWeight),
+        best1RM: Math.max(existing.best1RM || 0, todayMax1RM),
+        historicalBestWeight: Math.max(existing.historicalBestWeight || 0, todayMaxWeight),
+        historicalBest1RM: Math.max(existing.historicalBest1RM || 0, todayMax1RM),
+        updatedAt: Date.now(),
+      };
+      setL1Sync(EXERCISE_LEDGER_KEY, ledger);
+    }
+    return;
+  }
+
+  const isNewerDate = existing && existing.lastDate && existing.lastDate < dateStr;
+  const baselineBestWeight = isNewerDate ? (existing.bestWeight || 0) : (existing?.historicalBestWeight || 0);
+  const baselineBest1RM = isNewerDate ? (existing.best1RM || 0) : (existing?.historicalBest1RM || 0);
+  const historicalSets = isNewerDate ? existing.sets : existing?.historicalSets;
+  const historicalDate = isNewerDate ? existing.lastDate : existing?.historicalDate;
+
   ledger[key] = {
     exerciseName,
     lastDate: dateStr,
     updatedAt: Date.now(),
-    bestWeight,
-    best1RM,
+    bestWeight: Math.max(baselineBestWeight, todayMaxWeight),
+    best1RM: Math.max(baselineBest1RM, todayMax1RM),
+    historicalBestWeight: baselineBestWeight,
+    historicalBest1RM: baselineBest1RM,
+    ...(historicalSets ? { historicalSets } : {}),
+    ...(historicalDate ? { historicalDate } : {}),
     sets: cleanSets,
   };
 
-  // Writes synchronously to L1_RAM_CACHE and persists to AsyncStorage via setL1Sync
-  setL1Sync(EXERCISE_LEDGER_KEY, ledger);
+  setL1Sync(EXERCISE_LEDGER_KEY, ledger, true);
 }

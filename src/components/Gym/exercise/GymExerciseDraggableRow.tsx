@@ -1,9 +1,12 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { Pressable, View, Text } from 'react-native';
 import type { RenderItemParams } from 'react-native-draggable-flatlist';
-import { Ionicons } from '@expo/vector-icons';
-import { IOS_DARK } from '../../../theme/tokens';
+import { Check, MoreHorizontal } from 'lucide-react-native';
+import { FONT_FAMILY, ICON, TOUCH } from '../../../theme/tokens';
+import { useTheme } from '../../../contexts/ThemeContext';
+import { NumericText } from '../../ui';
 import { hapticLight, hapticMedium } from '../../../utils/haptics';
+import { formatWeight, useWeightUnit } from '../../../utils/weightUnit';
 import { resolveMuscleColor, canonicalizeMuscle } from '../../../utils/gymUtils';
 
 export interface GymExerciseDraggableRowProps {
@@ -27,13 +30,13 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
   itemParams,
   exercise,
   index,
-  isPartnerWithPrevious: propIsPartner,
-  logExercises,
   s,
   onResumeWorkout,
   onShowMenu,
   onToggleComplete,
 }) => {
+  const { tokens } = useTheme();
+  const unitIsLbs = useWeightUnit();
   const ex = exercise || itemParams?.item;
   if (!ex) return null;
 
@@ -45,29 +48,27 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
   const totalSets = setsLog.length || Number(ex.targetSets) || 3;
   const isDone = setsLog.length > 0 && setsLog.every((set: any) => set.completed);
 
-  // Muscle metadata
   const muscleName = canonicalizeMuscle(ex.muscle);
   const muscleColor = resolveMuscleColor(ex.muscle);
 
-  // Set progress calculation
   const completedSets = setsLog.filter((set: any) => set.completed);
   const completedCount = completedSets.length;
 
   let progressLabel = '';
   if (completedCount === 0) {
-    progressLabel = `${totalSets} sets × ${ex.targetReps || '8–12'} reps${ex.restTimeSecs ? ` · ⏱ ${ex.restTimeSecs}s` : ''}`;
+    progressLabel = `${totalSets} sets × ${ex.targetReps || '8–12'} reps${ex.restTimeSecs ? ` · ${ex.restTimeSecs}s` : ''}`;
   } else if (completedCount < totalSets) {
     const lastDone = completedSets[completedSets.length - 1];
     const w = lastDone?.weight != null ? lastDone.weight : (lastDone?.weightKg != null ? lastDone.weightKg : null);
     const r = lastDone?.reps != null ? lastDone.reps : null;
-    const detail = w ? ` · ${w}kg${r ? ` × ${r}` : ''}` : (r ? ` · ${r} reps` : '');
+    const detail = w ? ` · ${formatWeight(Number(w), unitIsLbs, 1)}${r ? ` × ${r}` : ''}` : (r ? ` · ${r} reps` : '');
     progressLabel = `${completedCount}/${totalSets} sets${detail}`;
   } else {
     const weights = completedSets
       .map((set: any) => Number(set.weight || set.weightKg || 0))
       .filter((n: number) => n > 0);
     const topW = weights.length > 0 ? Math.max(...weights) : null;
-    progressLabel = `Completed${topW ? ` · ${topW}kg` : ''}`;
+    progressLabel = `Completed${topW ? ` · ${formatWeight(topW, unitIsLbs, 1)}` : ''}`;
   }
 
   return (
@@ -75,20 +76,17 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
       <View
         style={[
           s.row,
-          isActive && { backgroundColor: IOS_DARK.bgElevatedInput },
+          isActive && { backgroundColor: tokens.bg.elevated },
         ]}
       >
-        {/* Left Touch Zone (Opens Workout / Deep Dive) */}
-        <TouchableOpacity
-          style={s.heroLeftTouchZone}
-          activeOpacity={0.7}
+        <Pressable
+          style={({ pressed }) => [s.heroLeftTouchZone, pressed && { opacity: 0.72 }]}
           onPress={() => {
             if (isActive) return;
             hapticLight();
             onResumeWorkout(originalIndex);
           }}
           onLongPress={() => {
-            hapticMedium();
             if (drag && typeof drag === 'function') {
               drag();
             } else if (onShowMenu) {
@@ -97,25 +95,23 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
           }}
           delayLongPress={220}
         >
-          {/* Row 1: Exercise Title */}
           <Text
             style={[
               s.rowTitle,
               isDone && s.textStrikethrough,
-              isActive && { color: IOS_DARK.accent, fontWeight: '700' },
+              isActive && { color: tokens.accent.primary, fontFamily: FONT_FAMILY.bold },
             ]}
             numberOfLines={1}
           >
             {ex.name}
           </Text>
 
-          {/* Row 2: Muscle Dot + Name + Prescription / Progress */}
           <View style={s.cardMuscleRow || s.heroMetaRow}>
             <View style={[s.muscleDot || s.heroMuscleDot, { backgroundColor: muscleColor }]} />
-            <Text style={s.cardMuscleText || s.heroMuscleText} numberOfLines={1}>
+            <NumericText style={s.cardMuscleText || s.heroMuscleText} numberOfLines={1}>
               {muscleName}
-              <Text style={s.cardSnippetInline || s.heroProgressText}> · {progressLabel}</Text>
-            </Text>
+              <NumericText style={s.cardSnippetInline || s.heroProgressText}> · {progressLabel}</NumericText>
+            </NumericText>
             {completedCount > 0 && completedCount < totalSets && (
               <View style={s.heroSegmentsWrap}>
                 {Array.from({ length: Math.min(totalSets, 6) }).map((_, sIdx) => {
@@ -133,45 +129,43 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
               </View>
             )}
           </View>
-        </TouchableOpacity>
+        </Pressable>
 
-        {/* Right Action Zone (Aligned Horizontally) */}
         <View style={s.heroRightActionZone}>
-          {/* Fast Kebab Menu (···) */}
-          <TouchableOpacity
-            style={s.heroKebabBtn}
-            hitSlop={{ top: 10, bottom: 10, left: 8, right: 4 }}
-            activeOpacity={0.7}
+          <Pressable
+            style={({ pressed }) => [s.heroKebabBtn, pressed && { opacity: 0.65 }]}
+            hitSlop={TOUCH.hitSlop}
             onPress={() => {
               hapticMedium();
               onShowMenu(ex);
             }}
+            accessibilityLabel={`Options for ${ex.name}`}
           >
-            <Ionicons name="ellipsis-horizontal" size={17} color={IOS_DARK.labelSecondary} />
-          </TouchableOpacity>
+            <MoreHorizontal size={ICON.sm} strokeWidth={ICON.strokeWidth} color={tokens.text.secondary} />
+          </Pressable>
 
-          {/* Dedicated Checkmark Completion Button */}
-          <TouchableOpacity
-            style={[
+          <Pressable
+            style={({ pressed }) => [
               s.heroCheckmarkBtn,
               isDone && s.heroCheckmarkBtnCompleted,
+              pressed && { opacity: 0.72 },
             ]}
-            hitSlop={{ top: 10, bottom: 10, left: 4, right: 8 }}
-            activeOpacity={0.7}
+            hitSlop={TOUCH.hitSlop}
             onPress={(e) => {
-              e.stopPropagation?.();
+              e?.stopPropagation?.();
+              hapticLight();
               if (onToggleComplete) {
                 onToggleComplete(ex, originalIndex);
               } else {
-                hapticLight();
                 onResumeWorkout(originalIndex);
               }
             }}
+            accessibilityLabel={`Toggle ${ex.name} complete`}
           >
             {isDone ? (
-              <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+              <Check size={ICON.xs} strokeWidth={ICON.strokeWidth} color={tokens.accent.onPrimary} />
             ) : null}
-          </TouchableOpacity>
+          </Pressable>
         </View>
       </View>
     </View>

@@ -1,14 +1,34 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  View, Text, Modal, TouchableOpacity, TextInput,
-  Platform, Animated, ScrollView, Keyboard, StyleSheet,
+  View,
+  Text,
+  TextInput,
+  ScrollView,
+  Keyboard,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import {
+  Activity,
+  Clock,
+  Flame,
+  Gauge,
+  Layers,
+  Navigation,
+  RefreshCw,
+  Repeat,
+  SlidersHorizontal,
+  TrendingUp,
+  Waves,
+  X,
+  type LucideIcon,
+} from 'lucide-react-native';
 import { GymCardioLog } from '../../../types/gym.types';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { hapticSuccess } from '../../../utils/haptics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ICON, SPACE, TOUCH } from '../../../theme/tokens';
+import { TactileButton } from '../../ui';
+import BottomSheet from '../../ui/BottomSheet';
+import { useLatestNonNull } from '../../../hooks/useLatestNonNull';
 
-// Extracted Styles
 import { makeCardioModalStyles } from './cardioModalStyles';
 
 interface Props {
@@ -35,142 +55,77 @@ interface FieldConfig {
   key: FieldKey;
   label: string;
   placeholder: string;
-  icon: string;
+  Icon: LucideIcon;
   decimal?: boolean;
   unit: string;
 }
 
 const ALL_FIELDS: Record<FieldKey, FieldConfig> = {
-  durationMinutes: { key: 'durationMinutes', label: 'Duration', placeholder: 'e.g. 30', icon: 'time-outline', unit: 'min' },
-  distanceKm:      { key: 'distanceKm',      label: 'Distance', placeholder: 'e.g. 5.5', icon: 'navigate-outline', decimal: true, unit: 'km' },
-  speedKmh:        { key: 'speedKmh',        label: 'Speed',    placeholder: 'e.g. 8.5', icon: 'speedometer-outline', decimal: true, unit: 'km/h' },
-  incline:         { key: 'incline',         label: 'Incline',  placeholder: 'e.g. 5', icon: 'trending-up-outline', decimal: true, unit: '%' },
-  calories:        { key: 'calories',        label: 'Calories', placeholder: 'e.g. 250', icon: 'flame-outline', unit: 'kcal' },
-  floors:          { key: 'floors',          label: 'Floors',   placeholder: 'e.g. 40', icon: 'layers-outline', unit: 'floors' },
-  level:           { key: 'level',           label: 'Level',    placeholder: 'e.g. 8', icon: 'options-outline', unit: '/20' },
-  laps:            { key: 'laps',            label: 'Laps',     placeholder: 'e.g. 20', icon: 'sync-outline', unit: 'laps' },
-  rounds:          { key: 'rounds',          label: 'Rounds',   placeholder: 'e.g. 5', icon: 'infinite-outline', unit: 'rounds' },
-  spm:             { key: 'spm',             label: 'Stroke Rate', placeholder: 'e.g. 22', icon: 'boat-outline', unit: 'spm' },
-  pace:            { key: 'pace',            label: 'Pace',     placeholder: 'e.g. 5.30', icon: 'walk-outline', decimal: true, unit: 'min/km' },
+  durationMinutes: { key: 'durationMinutes', label: 'Duration', placeholder: 'e.g. 30', Icon: Clock, unit: 'min' },
+  distanceKm:      { key: 'distanceKm',      label: 'Distance', placeholder: 'e.g. 5.5', Icon: Navigation, decimal: true, unit: 'km' },
+  speedKmh:        { key: 'speedKmh',        label: 'Speed',    placeholder: 'e.g. 8.5', Icon: Gauge, decimal: true, unit: 'km/h' },
+  incline:         { key: 'incline',         label: 'Incline',  placeholder: 'e.g. 5', Icon: TrendingUp, decimal: true, unit: '%' },
+  calories:        { key: 'calories',        label: 'Calories', placeholder: 'e.g. 250', Icon: Flame, unit: 'kcal' },
+  floors:          { key: 'floors',          label: 'Floors',   placeholder: 'e.g. 40', Icon: Layers, unit: 'floors' },
+  level:           { key: 'level',           label: 'Level',    placeholder: 'e.g. 8', Icon: SlidersHorizontal, unit: '/20' },
+  laps:            { key: 'laps',            label: 'Laps',     placeholder: 'e.g. 20', Icon: RefreshCw, unit: 'laps' },
+  rounds:          { key: 'rounds',          label: 'Rounds',   placeholder: 'e.g. 5', Icon: Repeat, unit: 'rounds' },
+  spm:             { key: 'spm',             label: 'Stroke Rate', placeholder: 'e.g. 22', Icon: Waves, unit: 'spm' },
+  pace:            { key: 'pace',            label: 'Pace',     placeholder: 'e.g. 5.30', Icon: Activity, decimal: true, unit: 'min/km' },
 };
 
 const TYPE_FIELDS: Record<string, FieldKey[]> = {
-  'Treadmill':   ['durationMinutes', 'distanceKm', 'speedKmh', 'incline'],
-  'Cycling':     ['durationMinutes', 'distanceKm', 'speedKmh', 'calories'],
-  'Rowing':      ['durationMinutes', 'distanceKm', 'spm', 'calories'],
-  'Stairmaster': ['durationMinutes', 'floors', 'level', 'calories'],
-  'Elliptical':  ['durationMinutes', 'distanceKm', 'level', 'calories'],
-  'Outdoor Run': ['durationMinutes', 'distanceKm', 'pace', 'calories'],
-  'Jump Rope':   ['durationMinutes', 'rounds', 'calories'],
-  'Swimming':    ['durationMinutes', 'laps', 'distanceKm', 'calories'],
-  'Other':       ['durationMinutes', 'calories'],
+  'Treadmill':     ['durationMinutes', 'distanceKm', 'speedKmh', 'incline'],
+  'Cycling':       ['durationMinutes', 'distanceKm', 'speedKmh', 'calories'],
+  'Rowing':        ['durationMinutes', 'distanceKm', 'spm', 'calories'],
+  'Stairmaster':   ['durationMinutes', 'floors', 'level', 'calories'],
+  'Stair Climber': ['durationMinutes', 'floors', 'level', 'calories'],
+  'Swimming':      ['durationMinutes', 'distanceKm', 'laps', 'pace'],
+  'Elliptical':    ['durationMinutes', 'distanceKm', 'level', 'calories'],
+  'Jump Rope':     ['durationMinutes', 'rounds', 'calories'],
+  'HIIT':          ['durationMinutes', 'rounds', 'calories'],
+  'Walking':       ['durationMinutes', 'distanceKm', 'speedKmh', 'incline'],
+  'Outdoor Run':   ['durationMinutes', 'distanceKm', 'speedKmh', 'pace'],
+  'Running':       ['durationMinutes', 'distanceKm', 'speedKmh', 'pace'],
+  'Other':         ['durationMinutes', 'distanceKm', 'calories'],
 };
 
 const DEFAULT_FIELDS: FieldKey[] = ['durationMinutes', 'distanceKm', 'calories'];
 
 export function LogCardioModal({ visible, cardio, onClose, onSave }: Props) {
-  const { colors, isDark } = useTheme();
-  const s = useMemo(() => makeCardioModalStyles(colors, isDark), [colors, isDark]);
-  const slideAnim = useRef(new Animated.Value(500)).current;
-  const backdropAnim = useRef(new Animated.Value(0)).current;
-  const keyboardOffset = useRef(new Animated.Value(0)).current;
-  const isClosingRef = useRef(false);
+  const { tokens } = useTheme();
+  const insets = useSafeAreaInsets();
+  const s = useMemo(() => makeCardioModalStyles(tokens), [tokens]);
+  const activeCardio = useLatestNonNull(cardio);
+
+  const fields = useMemo(() => {
+    if (!activeCardio) return [];
+    const keys = TYPE_FIELDS[activeCardio.type] || DEFAULT_FIELDS;
+    return keys.map(k => ALL_FIELDS[k]);
+  }, [activeCardio?.type]);
 
   const [values, setValues] = useState<Record<string, string>>({});
 
-  const fields: FieldConfig[] = cardio
-    ? (TYPE_FIELDS[cardio.type] || DEFAULT_FIELDS).map(k => ALL_FIELDS[k])
-    : [];
-
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvent, (e) => {
-      Animated.timing(keyboardOffset, {
-        toValue: e.endCoordinates.height,
-        duration: Platform.OS === 'ios' ? (e.duration || 160) : 100,
-        useNativeDriver: true,
-      }).start();
-    });
-
-    const hideSub = Keyboard.addListener(hideEvent, (e: any) => {
-      Animated.timing(keyboardOffset, {
-        toValue: 0,
-        duration: Platform.OS === 'ios' ? (e?.duration || 160) : 100,
-        useNativeDriver: true,
-      }).start();
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
-
   useEffect(() => {
     if (visible && cardio) {
-      isClosingRef.current = false;
-      const init: Record<string, string> = {};
-      (TYPE_FIELDS[cardio.type] || DEFAULT_FIELDS).forEach(key => {
-        const v = (cardio as any)[key];
-        if (v != null) init[key] = String(v);
+      const initial: Record<string, string> = {};
+      const keys = TYPE_FIELDS[cardio.type] || DEFAULT_FIELDS;
+      keys.forEach(k => {
+        const val = (cardio as any)[k];
+        if (val !== undefined && val !== null) {
+          initial[k] = String(val);
+        }
       });
-      setValues(init);
-
-      Animated.parallel([
-        Animated.timing(backdropAnim, {
-          toValue: 1,
-          duration: 180,
-          useNativeDriver: true,
-        }),
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          damping: 24,
-          stiffness: 240,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      slideAnim.setValue(500);
-      backdropAnim.setValue(0);
-      keyboardOffset.setValue(0);
-      isClosingRef.current = false;
+      setValues(initial);
     }
   }, [visible, cardio?.id]);
 
-  const handleClose = (callback?: () => void) => {
-    if (isClosingRef.current) return;
-    isClosingRef.current = true;
-    Keyboard.dismiss();
-    Animated.parallel([
-      Animated.timing(backdropAnim, {
-        toValue: 0,
-        duration: 160,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 500,
-        duration: 180,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      isClosingRef.current = false;
-      if (callback) {
-        callback();
-      } else {
-        onClose();
-      }
-    });
-  };
-
   const handleSave = () => {
-    if (!cardio || isClosingRef.current) return;
+    if (!activeCardio) return;
     Keyboard.dismiss();
-    hapticSuccess();
 
     const updates: Partial<GymCardioLog> = { completed: true };
-    (TYPE_FIELDS[cardio.type] || DEFAULT_FIELDS).forEach(key => {
+    (TYPE_FIELDS[activeCardio.type] || DEFAULT_FIELDS).forEach(key => {
       const raw = values[key];
       if (raw && raw.trim()) {
         const num = parseFloat(raw);
@@ -180,12 +135,11 @@ export function LogCardioModal({ visible, cardio, onClose, onSave }: Props) {
       }
     });
 
-    handleClose(() => {
-      onSave(updates);
-    });
+    onSave(updates);
+    onClose();
   };
 
-  if (!cardio) return null;
+  if (!activeCardio) return null;
 
   const canSave = !!values['durationMinutes']?.trim();
 
@@ -194,94 +148,107 @@ export function LogCardioModal({ visible, cardio, onClose, onSave }: Props) {
     fieldPairs.push(fields.slice(i, i + 2));
   }
 
-  const combinedTranslateY = Animated.add(
-    slideAnim,
-    Animated.multiply(keyboardOffset, -1)
-  );
-
   return (
-    <Modal visible={visible} animationType="none" transparent statusBarTranslucent onRequestClose={() => handleClose()}>
-      <Animated.View style={[s.backdrop, { opacity: backdropAnim }]}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => handleClose()} />
-
-        <Animated.View
-          style={[
-            s.sheet,
-            { transform: [{ translateY: combinedTranslateY }] },
-          ]}
-        >
-          <View style={s.handle} />
-
-          <View style={s.header}>
-            <View style={s.headerSpacer} />
-            <View style={s.headerCenter}>
-              <Text style={s.title}>Log {cardio.type}</Text>
-              <Text style={s.subtitle}>
-                {(TYPE_FIELDS[cardio.type] || DEFAULT_FIELDS)
-                  .map(k => ALL_FIELDS[k].unit)
-                  .join(' · ')}
-              </Text>
-            </View>
-            <TouchableOpacity style={s.closeBtn} onPress={() => handleClose()} activeOpacity={0.7}>
-              <Ionicons name="close" size={16} color={colors.textPrimary} />
-            </TouchableOpacity>
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      avoidKeyboard={true}
+      noPadding={true}
+      sheetBackgroundColor={tokens.bg.elevated}
+    >
+      <View style={{ flexShrink: 1, paddingHorizontal: SPACE.lg, paddingBottom: Math.max(SPACE.xl, insets.bottom + SPACE.md) }}>
+        <View style={s.header}>
+          <View style={s.headerSpacer} />
+          <View style={s.headerCenter}>
+            <Text style={s.title}>Log {activeCardio.type}</Text>
+            <Text style={s.subtitle}>
+              {(TYPE_FIELDS[activeCardio.type] || DEFAULT_FIELDS)
+                .map(k => ALL_FIELDS[k].unit)
+                .join(' · ')}
+            </Text>
           </View>
-
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 8 }}
+          <TactileButton
+            variant="custom"
+            style={s.closeBtn}
+            onPress={onClose}
+            hitSlop={TOUCH.hitSlop}
+            accessibilityLabel="Close log cardio modal"
           >
-            {fieldPairs.map((row, ri) => (
-              <View key={ri} style={s.row}>
-                {row.map((field, fi) => (
+            <X size={ICON.sm} strokeWidth={ICON.strokeWidth} color={tokens.text.primary} />
+          </TactileButton>
+        </View>
+
+        <ScrollView
+          style={{ flexShrink: 1 }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
+          contentContainerStyle={{ paddingBottom: SPACE.sm }}
+        >
+          {fieldPairs.map((row, ri) => (
+            <View key={ri} style={s.row}>
+              {row.map((field, fi) => {
+                const FieldIcon = field.Icon;
+                return (
                   <View
                     key={field.key}
                     style={[
                       s.fieldBox,
-                      fi === 0 && row.length > 1 && { marginRight: 8 },
+                      fi === 0 && row.length > 1 && { marginRight: SPACE.sm },
                       row.length === 1 && { width: '100%' },
                     ]}
                   >
                     <View style={s.fieldHeader}>
                       <View style={s.fieldIconBox}>
-                        <Ionicons
-                          name={field.icon as any}
-                          size={12}
-                          color={isDark ? 'rgba(255,255,255,0.85)' : colors.textPrimary}
+                        <FieldIcon
+                          size={ICON.xs}
+                          strokeWidth={ICON.strokeWidth}
+                          color={tokens.text.primary}
                         />
                       </View>
-                      <Text style={s.fieldLabel}>{field.label}</Text>
-                      <Text style={s.fieldUnit}>{field.unit}</Text>
+                      <Text
+                        style={s.fieldLabel}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.8}
+                        maxFontSizeMultiplier={1.2}
+                      >
+                        {field.label}
+                      </Text>
+                      <Text style={s.fieldUnit} numberOfLines={1} maxFontSizeMultiplier={1.2}>
+                        {field.unit}
+                      </Text>
                     </View>
                     <TextInput
                       style={s.input}
+                      maxFontSizeMultiplier={1.25}
                       value={values[field.key] || ''}
                       onChangeText={t => setValues(prev => ({ ...prev, [field.key]: t }))}
                       placeholder="—"
-                      placeholderTextColor={colors.textMuted}
+                      placeholderTextColor={tokens.text.muted}
                       keyboardType={field.decimal ? 'decimal-pad' : 'number-pad'}
                       returnKeyType="done"
                     />
                   </View>
-                ))}
-              </View>
-            ))}
+                );
+              })}
+            </View>
+          ))}
 
-            <TouchableOpacity
-              style={[s.saveBtn, !canSave && s.saveBtnDisabled]}
-              onPress={handleSave}
-              activeOpacity={0.85}
-              disabled={!canSave}
-            >
-              <Text style={[s.saveBtnText, !canSave && s.saveBtnTextDisabled]}>
-                {canSave ? 'Save & Mark Complete' : 'Enter duration to complete'}
-              </Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </Animated.View>
-      </Animated.View>
-    </Modal>
+          <TactileButton
+            variant="custom"
+            haptic="success"
+            style={[s.saveBtn, !canSave && s.saveBtnDisabled]}
+            onPress={handleSave}
+            disabled={!canSave}
+          >
+            <Text style={[s.saveBtnText, !canSave && s.saveBtnTextDisabled]}>
+              {canSave ? 'Save & Mark Complete' : 'Enter duration to complete'}
+            </Text>
+          </TactileButton>
+        </ScrollView>
+      </View>
+    </BottomSheet>
   );
 }
 
