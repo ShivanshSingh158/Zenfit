@@ -11,17 +11,9 @@
  *
  * Cache clear: called on logout — stale data from a previous user never bleeds.
  */
-import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clearDomainHotCache } from './hotCacheStore';
 import { clearBootManifest, updateL1Cache, GYM_ARCHIVE_YEARS_KEY, EXERCISE_LEDGER_KEY } from './bootManifest';
-
-// Automatically flush any pending debounced AsyncStorage writes when app backgrounds
-AppState.addEventListener('change', nextState => {
-  if ((nextState === 'background' || nextState === 'inactive') && _pendingWrites.size > 0) {
-    flushDomainCache().catch(() => {});
-  }
-});
 
 // ─── Cache Keys ───────────────────────────────────────────────────────────────
 export const DOMAIN_CACHE_KEYS = {

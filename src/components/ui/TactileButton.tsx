@@ -90,6 +90,11 @@ export interface TactileButtonProps extends Omit<PressableProps, 'style' | 'chil
   loading?: boolean;
   haptic?: 'light' | 'medium' | 'heavy' | 'selection' | 'success' | 'none';
   scaleTo?: number;
+  /**
+   * Skips allocating Reanimated SharedValues & useAnimatedStyle for high-density
+   * chips, pills, and list items, using native Pressable pressed state instead.
+   */
+  lightweight?: boolean;
   style?: StyleProp<ViewStyle>;
   contentStyle?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
@@ -98,18 +103,26 @@ export interface TactileButtonProps extends Omit<PressableProps, 'style' | 'chil
   allowFontScaling?: boolean;
 }
 
-/**
- * TactileButton — UI-thread 120fps Pressable with calibrated Haptics, compact visual sizes,
- * automatic accessible hitSlop, and fixed-geometry loading.
- */
-export function TactileButton({
+function triggerTactileHaptic(haptic: TactileButtonProps['haptic']) {
+  if (haptic === 'light') {
+    impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  } else if (haptic === 'medium') {
+    impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  } else if (haptic === 'heavy') {
+    impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+  } else if (haptic === 'selection') {
+    selectionAsync();
+  } else if (haptic === 'success') {
+    notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }
+}
+
+function useTactileButtonLayout({
   children,
   label,
   variant = 'custom',
   size,
   loading = false,
-  haptic = 'light',
-  scaleTo = 0.96,
   style,
   contentStyle,
   textStyle,
@@ -118,21 +131,12 @@ export function TactileButton({
   allowFontScaling = true,
   disabled,
   hitSlop,
-  onPressIn,
-  onPressOut,
-  onPress,
-  ...rest
 }: TactileButtonProps) {
   const { tokens } = useTheme();
-  const scale = useSharedValue(1);
   const isDisabled = Boolean(disabled || loading);
 
   const resolvedSize: TactileButtonSize = size ?? (variant === 'icon' ? 'sm' : 'md');
   const spec = SIZE_SPECS[resolvedSize];
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
 
   const variantPalette = useMemo(() => {
     const borderRadius = pill
@@ -232,58 +236,40 @@ export function TactileButton({
     }
   }, [variant, pill, tokens, resolvedSize, spec]);
 
-  const handlePressIn = (e: any) => {
-    if (!isDisabled) {
-      if (haptic === 'light') {
-        impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      } else if (haptic === 'medium') {
-        impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      } else if (haptic === 'heavy') {
-        impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      } else if (haptic === 'selection') {
-        selectionAsync();
-      } else if (haptic === 'success') {
-        notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-      scale.value = withTiming(scaleTo, { duration: durations.tactilePressIn });
-    }
-    onPressIn?.(e);
-  };
-
-  const handlePressOut = (e: any) => {
-    if (!isDisabled) {
-      scale.value = withSpring(1, springs.tactile);
-    }
-    onPressOut?.(e);
-  };
-
   const resolvedSpinnerColor = spinnerColor || variantPalette.textColor;
   const resolvedHitSlop = hitSlop ?? (variant === 'custom' ? tokens.touch.hitSlop : spec.hitSlop);
+  const needsCustomWrapper = Boolean(loading || contentStyle);
+  const needsVariantWrapper = Boolean(loading || contentStyle);
 
-  return (
-    <AnimatedPressable
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-      onPress={onPress}
-      disabled={isDisabled}
-      hitSlop={resolvedHitSlop}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: isDisabled, busy: loading }}
-      unstable_pressDelay={0}
-      android_ripple={null}
-      style={[
-        variant !== 'custom' && styles.baseVariant,
-        variantPalette.container,
-        disabled && !loading && styles.disabled,
-        style,
-        animatedStyle,
-      ]}
-      {...rest}
-    >
-      {variant === 'custom' ? (
+  const customWrapperLayout = useMemo<ViewStyle | undefined>(() => {
+    if (!needsCustomWrapper) return undefined;
+    const flat = (StyleSheet.flatten(style) || {}) as ViewStyle;
+    return {
+      flexDirection: flat.flexDirection,
+      alignItems: flat.alignItems,
+      justifyContent: flat.justifyContent,
+      flexWrap: flat.flexWrap,
+      gap: flat.gap,
+      rowGap: flat.rowGap,
+      columnGap: flat.columnGap,
+      width: '100%',
+    };
+  }, [needsCustomWrapper, style]);
+
+  const baseContainerStyle: StyleProp<ViewStyle> = [
+    variant !== 'custom' && styles.baseVariant,
+    variant !== 'custom' && !needsVariantWrapper && { gap: spec.gap },
+    variantPalette.container,
+    disabled && !loading && styles.disabled,
+    style,
+  ];
+
+  const innerContent =
+    variant === 'custom' ? (
+      needsCustomWrapper ? (
         <>
           <View
-            style={[loading && styles.hiddenForLoader, contentStyle]}
+            style={[customWrapperLayout, loading && styles.hiddenForLoader, contentStyle]}
             pointerEvents={loading ? 'none' : 'auto'}
           >
             {children}
@@ -295,46 +281,194 @@ export function TactileButton({
           )}
         </>
       ) : (
-        <View style={[styles.labelShell, contentStyle]}>
-          <View
+        children
+      )
+    ) : (
+      (() => {
+        const variantContent = children ?? (
+          <Text
+            allowFontScaling={allowFontScaling}
             style={[
-              styles.labelRow,
-              { gap: spec.gap },
-              loading && styles.hiddenForLoader,
+              tokens.typography.label,
+              styles.defaultText,
+              {
+                color: variantPalette.textColor,
+                fontSize: spec.fontSize,
+                fontFamily: tokens.font.bold,
+              },
+              textStyle,
             ]}
-            pointerEvents={loading ? 'none' : 'auto'}
           >
-            {children ?? (
-              <Text
-                allowFontScaling={allowFontScaling}
-                style={[
-                  tokens.typography.label,
-                  styles.defaultText,
-                  {
-                    color: variantPalette.textColor,
-                    fontSize: spec.fontSize,
-                    fontFamily: tokens.font.bold,
-                  },
-                  textStyle,
-                ]}
-              >
-                {label}
-              </Text>
+            {label}
+          </Text>
+        );
+        return needsVariantWrapper ? (
+          <View style={[styles.labelShell, contentStyle]}>
+            <View
+              style={[
+                styles.labelRow,
+                { gap: spec.gap },
+                loading && styles.hiddenForLoader,
+              ]}
+              pointerEvents={loading ? 'none' : 'auto'}
+            >
+              {variantContent}
+            </View>
+            {loading && (
+              <View style={styles.loaderOverlay} pointerEvents="none">
+                <ActivityIndicator size="small" color={resolvedSpinnerColor} />
+              </View>
             )}
           </View>
-          {loading && (
-            <View style={styles.loaderOverlay} pointerEvents="none">
-              <ActivityIndicator size="small" color={resolvedSpinnerColor} />
-            </View>
-          )}
-        </View>
-      )}
+        ) : (
+          variantContent
+        );
+      })()
+    );
+
+  return {
+    isDisabled,
+    resolvedHitSlop,
+    baseContainerStyle,
+    innerContent,
+  };
+}
+
+function LightweightTactileButton(props: TactileButtonProps) {
+  const {
+    haptic = 'light',
+    scaleTo = 0.96,
+    onPressIn,
+    onPressOut,
+    onPress,
+    // Strip custom UI props so they are never forwarded onto native Pressable
+    children: _c,
+    label: _l,
+    variant: _v,
+    size: _s,
+    loading = false,
+    lightweight: _lw,
+    style: _st,
+    contentStyle: _cs,
+    textStyle: _ts,
+    spinnerColor: _sc,
+    pill: _p,
+    allowFontScaling: _afs,
+    disabled: _d,
+    hitSlop: _hs,
+    ...rest
+  } = props;
+  const layout = useTactileButtonLayout(props);
+
+  const handlePressIn = (e: any) => {
+    if (!layout.isDisabled) triggerTactileHaptic(haptic);
+    onPressIn?.(e);
+  };
+
+  return (
+    <Pressable
+      onPressIn={handlePressIn}
+      onPressOut={onPressOut}
+      onPress={onPress}
+      disabled={layout.isDisabled}
+      hitSlop={layout.resolvedHitSlop}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: layout.isDisabled, busy: loading }}
+      unstable_pressDelay={0}
+      android_ripple={null}
+      style={({ pressed }) => [
+        layout.baseContainerStyle,
+        pressed && !layout.isDisabled && {
+          transform: [{ scale: scaleTo }],
+          opacity: 0.88,
+        },
+      ]}
+      {...rest}
+    >
+      {layout.innerContent}
+    </Pressable>
+  );
+}
+
+function ReanimatedTactileButton(props: TactileButtonProps) {
+  const {
+    haptic = 'light',
+    scaleTo = 0.96,
+    onPressIn,
+    onPressOut,
+    onPress,
+    children: _c,
+    label: _l,
+    variant: _v,
+    size: _s,
+    loading = false,
+    lightweight: _lw,
+    style: _st,
+    contentStyle: _cs,
+    textStyle: _ts,
+    spinnerColor: _sc,
+    pill: _p,
+    allowFontScaling: _afs,
+    disabled: _d,
+    hitSlop: _hs,
+    ...rest
+  } = props;
+  const scale = useSharedValue(1);
+  const layout = useTactileButtonLayout(props);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePressIn = (e: any) => {
+    if (!layout.isDisabled) {
+      triggerTactileHaptic(haptic);
+      scale.value = withTiming(scaleTo, { duration: durations.tactilePressIn });
+    }
+    onPressIn?.(e);
+  };
+
+  const handlePressOut = (e: any) => {
+    if (!layout.isDisabled) {
+      scale.value = withSpring(1, springs.tactile);
+    }
+    onPressOut?.(e);
+  };
+
+  return (
+    <AnimatedPressable
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      onPress={onPress}
+      disabled={layout.isDisabled}
+      hitSlop={layout.resolvedHitSlop}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: layout.isDisabled, busy: loading }}
+      unstable_pressDelay={0}
+      android_ripple={null}
+      style={[layout.baseContainerStyle, animatedStyle]}
+      {...rest}
+    >
+      {layout.innerContent}
     </AnimatedPressable>
   );
 }
 
+/**
+ * TactileButton — UI-thread Pressable with calibrated Haptics, compact visual sizes,
+ * automatic accessible hitSlop, and zero-overhead lightweight fallback for compact/list controls.
+ */
+export function TactileButton(props: TactileButtonProps) {
+  const useLightweight = props.lightweight ?? (props.size === 'xs');
+  if (useLightweight) {
+    return <LightweightTactileButton {...props} />;
+  }
+  return <ReanimatedTactileButton {...props} />;
+}
+
 const styles = StyleSheet.create({
   baseVariant: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },

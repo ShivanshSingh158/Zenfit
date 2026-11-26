@@ -93,16 +93,9 @@ export const MonthlyGoalsCard: React.FC<MonthlyGoalsCardProps> = React.memo(
               />
             </TactileButton>
 
-            <View style={styles.goalPctBadge}>
-              <RollingNumber
-                value={monthProgressPct}
-                suffix="%"
-                replayKey={replayKey}
-                cycles={1}
-                durationMs={520}
-                style={styles.goalPctText}
-              />
-            </View>
+            <NumericText style={styles.goalPctPlain}>
+              {monthProgressPct}%
+            </NumericText>
           </View>
 
           {/* Progress Bar & Numerical Target */}
@@ -116,64 +109,52 @@ export const MonthlyGoalsCard: React.FC<MonthlyGoalsCardProps> = React.memo(
               </View>
               <NumericText style={styles.goalPaceSub} numberOfLines={1}>
                 {sessionsThisMonth >= monthlyTarget
-                  ? 'Monthly target achieved!'
-                  : `${Math.max(0, monthlyTarget - sessionsThisMonth)} sessions remaining this month`}
+                  ? 'Monthly target achieved'
+                  : sessionsThisMonth === 0 && daysLeftInMonth <= 7
+                  ? `${daysLeftInMonth} days left in ${currentMonthName} · Start strong today`
+                  : `${Math.max(0, monthlyTarget - sessionsThisMonth)} sessions left in ${currentMonthName}`}
               </NumericText>
             </View>
           </View>
 
-          {/* Progress Bar Track with Milestone Tick Marks */}
+          {/* Progress Bar Track */}
           <AnimatedProgressBar
             progress={monthProgressPct / 100}
             minVisualRatio={0.04}
-            height={8}
+            height={6}
             borderRadius={RADIUS.full}
             durationMs={560}
             replayKey={replayKey}
             color={monthProgressPct >= 100 ? tokens.status.success : tokens.accent.primary}
             trackColor={tokens.bg.elevated}
-            trackStyle={{ marginVertical: 4 }}
-          >
-            <View pointerEvents="none" style={[styles.milestoneTick, { left: '25%' }]} />
-            <View pointerEvents="none" style={[styles.milestoneTick, { left: '50%' }]} />
-            <View pointerEvents="none" style={[styles.milestoneTick, { left: '75%' }]} />
-          </AnimatedProgressBar>
-
-          {/* Milestone Labels Row */}
-          <View style={styles.milestoneLabelsRow}>
-            <NumericText style={styles.milestoneLabel}>0%</NumericText>
-            <NumericText style={styles.milestoneLabel}>25%</NumericText>
-            <NumericText style={styles.milestoneLabel}>50%</NumericText>
-            <NumericText style={styles.milestoneLabel}>75%</NumericText>
-            <NumericText
-              style={[
-                styles.milestoneLabel,
-                monthProgressPct >= 100 && { color: tokens.status.success },
-              ]}
-            >
-              100%
-            </NumericText>
-          </View>
+            trackStyle={{ marginVertical: 2 }}
+          />
 
           {/* 3-Column Micro Stats Strip */}
           <View style={styles.goalMicroStrip}>
             <View style={styles.goalMicroCol}>
-              <RollingNumber
-                value={monthVol.numStr}
-                suffix={` ${monthVol.suffix}`}
-                replayKey={replayKey}
-                cycles={1}
-                durationMs={580}
-                numberOfLines={1}
-                style={styles.goalMicroVal}
-              />
+              {monthVolumeKg > 0 ? (
+                <RollingNumber
+                  value={monthVol.numStr}
+                  suffix={` ${monthVol.suffix}`}
+                  replayKey={replayKey}
+                  cycles={1}
+                  durationMs={580}
+                  numberOfLines={1}
+                  style={styles.goalMicroVal}
+                />
+              ) : (
+                <Text style={styles.goalMicroVal} numberOfLines={1}>
+                  Ready
+                </Text>
+              )}
               <Text
                 style={styles.goalMicroLabel}
                 numberOfLines={1}
                 adjustsFontSizeToFit
                 minimumFontScale={0.78}
               >
-                Monthly Tonnage
+                {monthVolumeKg > 0 ? 'Monthly Tonnage' : 'First Session'}
               </Text>
             </View>
 
@@ -181,12 +162,19 @@ export const MonthlyGoalsCard: React.FC<MonthlyGoalsCardProps> = React.memo(
 
             <View style={styles.goalMicroCol}>
               <NumericText
-                style={[styles.goalMicroVal, { color: tokens.status.success }]}
+                style={[
+                  styles.goalMicroVal,
+                  { color: isOnPace ? tokens.status.success : tokens.accent.primary },
+                ]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
                 minimumFontScale={0.82}
               >
-                {isOnPace ? 'On Pace' : `${sessionsThisMonth} Logged`}
+                {sessionsThisMonth === 0
+                  ? 'Week 1'
+                  : isOnPace
+                  ? 'On Pace'
+                  : `${sessionsThisMonth} Logged`}
               </NumericText>
               <Text
                 style={styles.goalMicroLabel}

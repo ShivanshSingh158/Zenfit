@@ -6,7 +6,7 @@ import { db, auth } from '../services/firebase';
 import { useGymLogs, useGymPlan, getWorkoutActiveGlobal } from '../contexts/domains/WellnessContext';
 import { useCoreData } from '../contexts/domains/CoreDataContext';
 import { GYM_PLAN, GYM_PLAN_ARNOLD, WEEKDAY_TO_PLAN } from '../data/gymPlan';
-import { GymDayLog, GymExerciseLog, GymSet, GymCardioLog, GymPlanDay } from '../types/gym.types';
+import { GymDayLog, GymExerciseLog, GymSet, GymCardioLog, GymPlanCardio, GymPlanDay } from '../types/gym.types';
 
 function debounce<T extends (...args: any[]) => any>(fn: T, ms: number) {
   let timer: any;
@@ -135,7 +135,29 @@ export {
   resolvePlanDay,
 };
 
-export function useGymLog(dateStr: string) {
+export function mapPlanCardioToLogs(planCardio?: GymPlanCardio[] | null): GymCardioLog[] {
+  if (!Array.isArray(planCardio) || planCardio.length === 0) return [];
+  const baseTs = Date.now();
+  return planCardio.map((c, idx) => ({
+    id: c.id || `cardio_plan_${idx}_${baseTs}`,
+    type: c.type || 'Cardio',
+    durationMinutes: c.durationMinutes ?? null,
+    distanceKm: c.distanceKm ?? null,
+    speedKmh: c.speedKmh ?? null,
+    incline: c.incline ?? null,
+    calories: c.calories ?? null,
+    floors: c.floors ?? null,
+    level: c.level ?? null,
+    laps: c.laps ?? null,
+    rounds: c.rounds ?? null,
+    spm: c.spm ?? null,
+    pace: c.pace ?? null,
+    completed: false,
+  }));
+}
+
+export function useGymLog(dateStr: string, options?: { skipHistoryIndex?: boolean }) {
+  const skipHistoryIndex = Boolean(options?.skipHistoryIndex);
   const { gymLogs, gymLogsReady, ensureSubscribed: gymEnsureSubscribed, optimisticAddGymLog, optimisticUpdateGymLog } = useGymLogs();
   const { userGymPlan, updateMasterPlan, updateFullMasterPlan } = useGymPlan();
   const { user } = useCoreData();
@@ -209,6 +231,7 @@ export function useGymLog(dateStr: string) {
           restTimeSecs: ex.restTimeSecs,
           isCompound: ex.isCompound,
         })) as any,
+        cardio: existingPlan?.cardio || [],
         isRest: existingPlan?.isRest || false,
       });
     }, 3500)
@@ -237,7 +260,7 @@ export function useGymLog(dateStr: string) {
     }
 
     // Lazily pull cached history index only when a new or empty day needs template seeding
-    const getSeedHistory = () => buildExerciseHistoryIndex(gymLogs, dateStr);
+    const getSeedHistory = () => (skipHistoryIndex ? new Map() : buildExerciseHistoryIndex(gymLogs, dateStr));
 
     if (existing) {
       let patchedExercises = (existing.exercises || []).map((ex, idx) => ({ ...ex, _idx: idx }));
@@ -270,12 +293,17 @@ export function useGymLog(dateStr: string) {
           };
         });
       }
+      const templateCardio = (existing.cardio && existing.cardio.length > 0)
+        ? existing.cardio
+        : (!existing.completed && !existing.workoutStartTime && initialPlanDay && !initialPlanDay.isRest && Number(userGymPlan?.updatedAt || 0) >= Number(existing.updatedAt || 0))
+        ? mapPlanCardioToLogs(initialPlanDay.cardio)
+        : [];
       return {
         ...existing,
         id: existing.id || (user?.uid ? `${user.uid}_${dateStr}` : undefined),
         dayPlanIndex: existing.dayPlanIndex ?? initialPlanIdx,
         exercises: patchedExercises,
-        cardio: existing.cardio || [],
+        cardio: templateCardio,
         ...(existing.completed ? { workoutStartTime: undefined } : {}),
       } as GymDayLog;
     }
@@ -309,6 +337,9 @@ export function useGymLog(dateStr: string) {
           };
         })
       : [];
+    const templateCardio = (!initialPlanDay?.isRest && Array.isArray(initialPlanDay?.cardio))
+      ? mapPlanCardioToLogs(initialPlanDay.cardio)
+      : [];
 
     return {
       userId: user?.uid || '',
@@ -316,7 +347,7 @@ export function useGymLog(dateStr: string) {
       date: dateStr,
       dayPlanIndex: initialPlanIdx,
       exercises: templateExercises,
-      cardio: [],
+      cardio: templateCardio,
       createdAt: 0,
       updatedAt: 0,
     };
@@ -396,12 +427,12 @@ export function useGymLog(dateStr: string) {
 
   // Pass shared `gymLogs` reference directly so WeakMap fingerprint + HotCache hit O(1) on open
   const pastLogsFingerprint = useMemo(
-    () => (!dateStr ? 'empty' : generateDatasetFingerprint(gymLogs, dateStr)),
-    [gymLogs, dateStr]
+    () => (skipHistoryIndex || !dateStr ? 'empty' : generateDatasetFingerprint(gymLogs, dateStr)),
+    [skipHistoryIndex, gymLogs, dateStr]
   );
   const historyIndex = useMemo(
-    () => (!dateStr ? new Map() : buildExerciseHistoryIndex(gymLogs, dateStr)),
-    [pastLogsFingerprint, dateStr, gymLogs]
+    () => (skipHistoryIndex || !dateStr ? new Map() : buildExerciseHistoryIndex(gymLogs, dateStr)),
+    [skipHistoryIndex, pastLogsFingerprint, dateStr, gymLogs]
   );
 
   useEffect(() => {
@@ -447,11 +478,18 @@ export function useGymLog(dateStr: string) {
 
     const currentPlanUpdatedAt = userGymPlan?.updatedAt ?? 0;
     if (prevPlanUpdatedRef.current !== null && prevPlanUpdatedRef.current !== currentPlanUpdatedAt) {
-      // Issue #87: Check completed sets only so unstarted templates with default reps don't block plan updates
+      // Issue #87: Check completed sets or completed cardio so unstarted templates update with plan edits
       const hasLoggedSets = (logRef.current?.exercises || []).some((ex: any) =>
         (ex.setsLog || []).some((s: any) => s.completed === true)
       );
-      if (logRef.current && !logRef.current.workoutStartTime && !logRef.current.completed && !hasLoggedSets) {
+      const hasCompletedCardio = (logRef.current?.cardio || []).some((c: any) => Boolean(c.completed));
+      if (
+        logRef.current &&
+        !logRef.current.workoutStartTime &&
+        !logRef.current.completed &&
+        !hasLoggedSets &&
+        !hasCompletedCardio
+      ) {
         setLog(null);
         logRef.current = null;
         localWriteAtRef.current = 0;
@@ -616,11 +654,27 @@ export function useGymLog(dateStr: string) {
         patchedExercises = existing.exercises.map((ex, idx) => ({ ...ex, _idx: idx }));
       }
 
+      const existingTsNum: number =
+        typeof existing.updatedAt === 'number'
+          ? existing.updatedAt
+          : (existing.updatedAt as any)?.toMillis?.() ?? 0;
+      const shouldSeedPlanCardio =
+        !isHistorical &&
+        !existing.completed &&
+        !existing.workoutStartTime &&
+        (!existing.cardio || existing.cardio.length === 0) &&
+        planDay &&
+        !planDay.isRest &&
+        Array.isArray(planDay.cardio) &&
+        planDay.cardio.length > 0 &&
+        (existingTsNum === 0 || currentPlanUpdatedAt >= existingTsNum);
+
       let patchedLog = { 
         ...existing, 
         id: existing.id || (user?.uid ? `${user.uid}_${dateStr}` : undefined),
         dayPlanIndex: isHistorical ? (existing.dayPlanIndex ?? planIdx) : planIdx,
         exercises: patchedExercises,
+        ...(shouldSeedPlanCardio ? { cardio: mapPlanCardioToLogs(planDay.cardio) } : {}),
         ...(existing.completed ? { workoutStartTime: undefined } : {}),
       } as GymDayLog;
       if (!patchedLog.cardio) {
@@ -692,7 +746,9 @@ export function useGymLog(dateStr: string) {
         date: dateStr,
         dayPlanIndex: planIdx,
         exercises: newExercises,
-        cardio: [],
+        cardio: (planDay && !planDay.isRest && Array.isArray(planDay.cardio))
+          ? mapPlanCardioToLogs(planDay.cardio)
+          : [],
         createdAt: 0, // <-- Critical: 0 for unstarted template logs so real crash drafts ALWAYS win!
         updatedAt: 0,
       };
@@ -1254,13 +1310,13 @@ export function useGymLog(dateStr: string) {
     }
   }, [saveLog, debouncedSyncMasterPlan]);
 
-  const addCardio = useCallback((type: string) => {
+  const addCardio = useCallback((type: string, preset?: { durationMinutes?: number | null }) => {
     const prev = logRef.current;
     if (!prev) return;
     const cardio = [...(prev.cardio || []), {
       id: `cardio_${Date.now()}`,
       type,
-      durationMinutes: null,
+      durationMinutes: preset?.durationMinutes ?? null,
       distanceKm: null,
       speedKmh: null,
       incline: null,
@@ -1332,7 +1388,9 @@ export function useGymLog(dateStr: string) {
         date: dateStr,
         dayPlanIndex: planIdx,
         exercises: initialExercises,
-        cardio: [],
+        cardio: (basePlanDay && !basePlanDay.isRest && Array.isArray(basePlanDay.cardio))
+          ? mapPlanCardioToLogs(basePlanDay.cardio)
+          : [],
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -1560,7 +1618,7 @@ export function useGymLog(dateStr: string) {
     }
   }, [user, userGymPlan, updateFullMasterPlan, planIdx]);
 
-  const startWorkout = useCallback(() => {
+  const startWorkout = useCallback((customStartTime?: number) => {
     // GUARD: Never re-start an already running active workout timer.
     if (logRef.current?.workoutStartTime) return;
 
@@ -1603,7 +1661,9 @@ export function useGymLog(dateStr: string) {
         date: dateStr,
         dayPlanIndex: planIdx,
         exercises: initialExercises,
-        cardio: [],
+        cardio: (basePlanDay && !basePlanDay.isRest && Array.isArray(basePlanDay.cardio))
+          ? mapPlanCardioToLogs(basePlanDay.cardio)
+          : [],
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -1616,7 +1676,7 @@ export function useGymLog(dateStr: string) {
       completed: false,
       workoutDurationMinutes: base.workoutDurationMinutes,
       workoutDurationSeconds: base.workoutDurationSeconds,
-      workoutStartTime: Date.now() - pastDurationMs,
+      workoutStartTime: customStartTime ?? (Date.now() - pastDurationMs),
       updatedAt: Date.now(),
     };
     logRef.current = updated;
@@ -1650,14 +1710,15 @@ export function useGymLog(dateStr: string) {
     });
   }, [saveLog, userGymPlan, dateStr, planDay, planIdx, historyIndex, user]);
 
-  const resumeWorkout = useCallback(() => {
+  const resumeWorkout = useCallback((customStartTime?: number) => {
     const prev = logRef.current;
     if (!prev) return;
     const pastDurationMs = (prev.workoutDurationSeconds ? prev.workoutDurationSeconds * 1000 : (prev.workoutDurationMinutes || 0) * 60000);
+    const anchorNow = customStartTime ?? Date.now();
     const updated: GymDayLog = {
       ...prev,
       completed: false,
-      workoutStartTime: prev.workoutStartTime || (Date.now() - pastDurationMs),
+      workoutStartTime: prev.workoutStartTime || (anchorNow - pastDurationMs),
       workoutDurationMinutes: prev.workoutDurationMinutes,
       workoutDurationSeconds: prev.workoutDurationSeconds,
       updatedAt: Date.now(),
@@ -1966,10 +2027,19 @@ export function useGymLog(dateStr: string) {
     }) : [];
 
     const prev = logRef.current;
+    const keptCompletedCardio = (prev?.cardio || []).filter(c => Boolean(c.completed));
+    const nextPlanCardio = !targetPlanDay.isRest && Array.isArray(targetPlanDay.cardio)
+      ? mapPlanCardioToLogs(targetPlanDay.cardio)
+      : [];
+    const mergedCardio = targetPlanDay.isRest
+      ? keptCompletedCardio
+      : [...keptCompletedCardio, ...nextPlanCardio];
+
     const updated: GymDayLog = {
       ...(prev || { userId: user?.uid || '', date: dateStr, cardio: [], createdAt: Date.now() }),
       dayPlanIndex: targetDayIndex,
       exercises: newExercises,
+      cardio: mergedCardio,
       updatedAt: Date.now(),
     };
 
@@ -2074,7 +2144,9 @@ export function useGymLog(dateStr: string) {
       ...(logRef.current || { userId: user?.uid || '', date: dateStr, cardio: [], createdAt: Date.now() }),
       dayPlanIndex: pIdx,
       exercises: newExercises,
-      cardio: [],
+      cardio: (!isRest && Array.isArray(targetPlanDay.cardio))
+        ? mapPlanCardioToLogs(targetPlanDay.cardio)
+        : [],
       workoutStartTime: undefined,
       workoutDurationMinutes: undefined,
       completed: false,

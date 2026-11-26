@@ -18,7 +18,6 @@ import { UserGymPlanDoc, GymPlanDay, GymRoutine, GymRoutineFolder, UserGymProgra
 import type { GymLog } from "../../types/gym.types";
 import type { WaterLog, SleepLog, WeightLog } from "../../types/legacy.types";
 import { GYM_PLAN_ARNOLD, GYM_PLAN_PPL, clearPlanDayCache } from "../../data/gymPlan";
-import { CURATED_SPLITS } from "../../data/curatedSplits";
 import { writeWellnessCache, readWellnessCache } from "../../utils/domainCache";
 import { loadBootManifest, getBootManifestSync, updateL1Cache, setL1Sync, getL1Sync, deleteL1Sync, L1_RAM_CACHE } from "../../utils/bootManifest";
 import { parseGymLog, areItemsEqual } from "../../utils/schemaGuards";
@@ -31,32 +30,42 @@ import { getMonotonicTimestamp } from "../../utils/firebaseUtils";
 import { precomputeGymAnalytics } from "../../services/gymAnalyticsPrecompute";
 
 function canonicalizeGymPlanDay(day: GymPlanDay): GymPlanDay {
-  if (!day || !Array.isArray(day.exercises)) return day;
+  if (!day) return day;
+  const nextExercises = Array.isArray(day.exercises)
+    ? day.exercises.map(ex => {
+        const canonicalName = getCanonicalExerciseName(ex.name);
+        return {
+          ...ex,
+          name: canonicalName,
+          muscle: resolveExerciseTargetMuscle(canonicalName, ex.muscle).targetMuscle,
+        };
+      })
+    : [];
+  const nextCardio = Array.isArray(day.cardio) ? day.cardio : [];
   return {
     ...day,
-    exercises: day.exercises.map(ex => {
-      const canonicalName = getCanonicalExerciseName(ex.name);
-      return {
-        ...ex,
-        name: canonicalName,
-        muscle: resolveExerciseTargetMuscle(canonicalName, ex.muscle).targetMuscle,
-      };
-    }),
+    exercises: nextExercises,
+    ...(nextCardio.length > 0 || Array.isArray(day.cardio) ? { cardio: nextCardio } : {}),
   };
 }
 
 export function canonicalizeGymRoutine(routine: GymRoutine): GymRoutine {
-  if (!routine || !Array.isArray(routine.exercises)) return routine;
+  if (!routine) return routine;
+  const nextExercises = Array.isArray(routine.exercises)
+    ? routine.exercises.map(ex => {
+        const canonicalName = getCanonicalExerciseName(ex.name);
+        return {
+          ...ex,
+          name: canonicalName,
+          muscle: resolveExerciseTargetMuscle(canonicalName, ex.muscle).targetMuscle,
+        };
+      })
+    : [];
+  const nextCardio = Array.isArray(routine.cardio) ? routine.cardio : [];
   return {
     ...routine,
-    exercises: routine.exercises.map(ex => {
-      const canonicalName = getCanonicalExerciseName(ex.name);
-      return {
-        ...ex,
-        name: canonicalName,
-        muscle: resolveExerciseTargetMuscle(canonicalName, ex.muscle).targetMuscle,
-      };
-    }),
+    exercises: nextExercises,
+    ...(nextCardio.length > 0 || Array.isArray(routine.cardio) ? { cardio: nextCardio } : {}),
   };
 }
 
@@ -92,8 +101,9 @@ function canonicalizeUserGymPlan(plan: UserGymPlanDoc | null): UserGymPlanDoc | 
 
   let canonicalRoutines: Record<string, GymRoutine> = {};
   if (plan.routines && typeof plan.routines === 'object') {
+    const { CURATED_SPLITS } = require("../../data/curatedSplits");
     const curatedWorkoutIds = new Set(
-      CURATED_SPLITS.flatMap(s => s.workouts.map(w => w.id))
+      CURATED_SPLITS.flatMap((s: any) => s.workouts.map((w: any) => w.id))
     );
     for (const [id, rt] of Object.entries(plan.routines)) {
       if (!curatedWorkoutIds.has(id) && !(rt as any).isCuratedSplit) {
@@ -123,7 +133,7 @@ export interface GymLogsContextType {
 
 export interface GymPlanContextType {
   userGymPlan: UserGymPlanDoc | null;
-  updateMasterPlan: (dayIndex: number, planDay: GymPlanDay) => Promise<void>;
+  updateMasterPlan: (dayIndex: number, planDay: GymPlanDay, syncUnstartedDay?: boolean) => Promise<void>;
   updateFullMasterPlan: (
     newCustomDays: Record<number, GymPlanDay>,
     templateId?: string,
@@ -256,16 +266,21 @@ try {
 
 export function setWorkoutActiveGlobal(active: boolean, startTime?: number, date?: string) {
   _activeWorkoutMutated = true;
+  const nextStartTime = active ? (startTime || _activeWorkoutStartTime || Date.now()) : null;
+  const nextDate = active ? (date || _activeWorkoutDate) : null;
+
+  if (
+    _isWorkoutActiveGlobal === active &&
+    _activeWorkoutStartTime === nextStartTime &&
+    _activeWorkoutDate === nextDate
+  ) {
+    return;
+  }
+
   _isWorkoutActiveGlobal = active;
   if (active) {
-    if (startTime) {
-      _activeWorkoutStartTime = startTime;
-    } else if (!_activeWorkoutStartTime) {
-      _activeWorkoutStartTime = Date.now();
-    }
-    if (date) {
-      _activeWorkoutDate = date;
-    }
+    _activeWorkoutStartTime = nextStartTime;
+    _activeWorkoutDate = nextDate;
     const payload = {
       active: true,
       startTime: _activeWorkoutStartTime,
@@ -308,10 +323,18 @@ export function useActiveWorkoutState() {
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('gym_active_workout_state_changed', (payload) => {
-      setState({
-        active: Boolean(payload?.active),
-        startTime: payload?.startTime ?? null,
-        date: payload?.date ?? null,
+      const nextActive = Boolean(payload?.active);
+      const nextStart = payload?.startTime ?? null;
+      const nextDate = payload?.date ?? null;
+      setState((prev) => {
+        if (prev.active === nextActive && prev.startTime === nextStart && prev.date === nextDate) {
+          return prev;
+        }
+        return {
+          active: nextActive,
+          startTime: nextStart,
+          date: nextDate,
+        };
       });
     });
     return () => sub.remove();
@@ -568,8 +591,8 @@ export function WellnessProvider({
       }
     });
 
-    // Direct event listener for instant sample data population or clearing
-    const gymLogsChangeSub = DeviceEventEmitter.addListener('gym_logs_changed', (payload?: { gymLogs?: GymLog[]; weightLogs?: WeightLog[] }) => {
+    // Direct event listener for instant sample data population, archive hydration, or clearing
+    const gymLogsChangeSub = DeviceEventEmitter.addListener('gym_logs_changed', (payload?: { gymLogs?: GymLog[]; weightLogs?: WeightLog[]; waterLogs?: WaterLog[] }) => {
       unstable_batchedUpdates(() => {
         if (payload?.gymLogs) {
           setGymLogs(payload.gymLogs);
@@ -577,6 +600,9 @@ export function WellnessProvider({
         }
         if (payload?.weightLogs) {
           setWeightLogs(payload.weightLogs);
+        }
+        if (payload?.waterLogs) {
+          setWaterLogs(payload.waterLogs);
         }
       });
     });
@@ -661,24 +687,12 @@ export function WellnessProvider({
     if (prev) { try { prev(); } catch {} }
     unsubsMapRef.current.delete('gymLogs');
 
-    // Compute High-Water Mark cursor with clock skew protection (Issues #1 & #114)
-    const cachedLogs = gymLogsRef.current || [];
-    const maxUpdatedAt = cachedLogs.reduce((max, log) => {
-      const ts = typeof log.updatedAt === 'number' ? log.updatedAt : 0;
-      return ts > max ? ts : max;
-    }, 0);
-    const storedCursor = Number(getL1Sync(`@zenfit_firestore_cursor_${uid}`, 0)) || 0;
-    const effectiveHWM = Math.max(maxUpdatedAt, storedCursor);
-    const safeNow = Date.now();
-    const clampedHWM = Math.min(effectiveHWM, safeNow);
-    const deltaThreshold = clampedHWM > 0 ? Math.max(0, clampedHWM - 300_000) : 0; // 5-min skew window
-    const gymQuery = deltaThreshold > 0
-      ? query(
-          collection(db, COLLECTION.GYM_LOGS),
-          where("userId", "==", uid),
-          where("updatedAt", ">", deltaThreshold)
-        )
-      : query(collection(db, COLLECTION.GYM_LOGS), where("userId", "==", uid));
+    // Subscribe to all userId workout logs so older history and legacy docs
+    // without numeric updatedAt never get locked out behind a stale cursor.
+    const gymQuery = query(
+      collection(db, COLLECTION.GYM_LOGS),
+      where("userId", "==", uid)
+    );
 
     const onGymSnapshot = (snap: any) => {
       if (snap.metadata.hasPendingWrites) return;
@@ -709,23 +723,16 @@ export function WellnessProvider({
       const merged = applyPendingQueueOverlay(COLLECTION.GYM_LOGS, Array.from(byId.values()));
       merged.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-      if (areItemsEqual(gymLogsRef.current, merged)) return;
+      if (areItemsEqual(gymLogsRef.current, merged)) {
+        setGymLogsSnapshotFired(true);
+        return;
+      }
 
       unstable_batchedUpdates(() => {
         updateL1Cache('gymLogs', merged);
         setGymLogs(merged);
         gymLogsRef.current = merged;
         setGymLogsSnapshotFired(true);
-
-        const highestSnapshotTs = snap.docs.reduce((max: number, d: any) => {
-          const ts = d.data()?.updatedAt;
-          return typeof ts === 'number' && ts > max ? ts : max;
-        }, effectiveHWM);
-        if (highestSnapshotTs > effectiveHWM) {
-          setL1Sync(`@zenfit_firestore_cursor_${uid}`, highestSnapshotTs);
-          AsyncStorage.setItem(`@zenfit_firestore_cursor_${uid}`, String(highestSnapshotTs)).catch(() => {});
-        }
-
         InteractionManager.runAfterInteractions(() => writeWellnessCache({ gymLogs: merged }, false));
       });
     };
@@ -733,22 +740,7 @@ export function WellnessProvider({
     const gymUnsub = onSnapshot(
       gymQuery,
       onGymSnapshot,
-      (err: Error) => {
-        if (!subscribedRef.current) return;
-        const isIndexErr = err.message.toLowerCase().includes('index') || err.message.includes('failed-precondition');
-        if (isIndexErr && deltaThreshold > 0) {
-          console.warn('[Wellness] Delta query composite index unavailable, falling back to full collection query:', err.message);
-          const fallbackQuery = query(collection(db, COLLECTION.GYM_LOGS), where("userId", "==", uid));
-          const fallbackUnsub = onSnapshot(fallbackQuery, onGymSnapshot, scheduleListenerRestart("gymLogs", uid));
-          if (subscribedRef.current) {
-            unsubsMapRef.current.set('gymLogs', fallbackUnsub);
-          } else {
-            fallbackUnsub();
-          }
-        } else {
-          scheduleListenerRestart("gymLogs", uid)(err);
-        }
-      }
+      scheduleListenerRestart("gymLogs", uid)
     );
     unsubsMapRef.current.set('gymLogs', gymUnsub);
   }, [scheduleListenerRestart]);
@@ -877,29 +869,26 @@ export function WellnessProvider({
     });
   }, [subscribeGymLogs, subscribeUserGymPlan, subscribeWeightLogs, subscribeWaterLogs, subscribeSleepLogs]);
 
-  // ── Foreground reconnect: restart listeners after long background ─────────
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener('firestore_force_reconnect', () => {
-      if (user?.uid) {
-        console.log('[Wellness] foreground reconnect — restarting Firestore listeners');
-        cleanupSubscriptions();
-        openSubscriptions(user.uid);
-      }
-    });
-    return () => sub.remove();
-  }, [user?.uid, cleanupSubscriptions, openSubscriptions]);
-
   const demandRequestedRef = useRef(false);
   const deferredSubTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let interactionHandle: { cancel: () => void } | null = null;
+    let safetyTimer: ReturnType<typeof setTimeout> | null = null;
     if (user) {
       subscribedRef.current = false;
       // Defer Firestore subscription until Frame 0 paints from L1 cache & animations settle
       interactionHandle = InteractionManager.runAfterInteractions(() => {
+        if (safetyTimer) {
+          clearTimeout(safetyTimer);
+          safetyTimer = null;
+        }
         openSubscriptions(user.uid);
       });
+      safetyTimer = setTimeout(() => {
+        safetyTimer = null;
+        openSubscriptions(user.uid);
+      }, 1200);
     } else {
       cleanupSubscriptions();
       demandRequestedRef.current = false;
@@ -915,6 +904,7 @@ export function WellnessProvider({
     }
     return () => {
       interactionHandle?.cancel();
+      if (safetyTimer) clearTimeout(safetyTimer);
       cleanupSubscriptions();
     };
   }, [user?.uid, cleanupSubscriptions, openSubscriptions]);
@@ -935,7 +925,12 @@ export function WellnessProvider({
     }
   }, [user?.uid, openSubscriptions]);
 
-  const updateMasterPlan = useCallback(async (dayIndex: number, planDay: GymPlanDay) => {
+  const updateMasterPlan = useCallback(async (
+    dayIndex: number,
+    planDay: GymPlanDay,
+    syncUnstartedDay: boolean = false
+  ) => {
+    clearPlanDayCache();
     const userId = user?.uid || 'local_user';
     const currentPlan = userGymPlanRef.current;
     const canonicalDay = canonicalizeGymPlanDay(planDay);
@@ -959,6 +954,16 @@ export function WellnessProvider({
     InteractionManager.runAfterInteractions(() => {
       writeWellnessCache({ userGymPlan: updatedPlan }, false);
     });
+    if (syncUnstartedDay && dayIndex >= 1 && dayIndex <= 7) {
+      try {
+        const targetDateStr = getCurrentWeekDatesFromMonday()[dayIndex - 1];
+        if (targetDateStr) {
+          purgeUnstartedDraftsForDates([targetDateStr], user?.uid || 'local_user', setGymLogs);
+        }
+      } catch (e) {
+        console.warn('[Wellness] Error clearing draft for updated plan day:', e);
+      }
+    }
     if (user) {
       const docRef = doc(db, COLLECTION.USER_GYM_PLANS, user.uid);
       const payload = { userId: user.uid, customDays: newCustomDays, updatedAt: now };
@@ -1201,16 +1206,20 @@ export function WellnessProvider({
     // Synchronize customDays if any day links to this routineId
     const existingCustomDays = { ...(currentPlan?.customDays || {}) };
     let daysUpdated = false;
+    const touchedDayIndices = new Set<number>();
     for (const [dayKey, day] of Object.entries(existingCustomDays)) {
       if (day && day.routineId === canonical.id) {
-        existingCustomDays[Number(dayKey)] = {
+        const dNum = Number(dayKey);
+        existingCustomDays[dNum] = {
           ...day,
           name: canonical.name,
           subtitle: canonical.subtitle,
           focus: canonical.focus || canonical.subtitle || day.focus,
           exercises: canonical.exercises,
+          cardio: canonical.cardio || [],
           isRest: false,
         };
+        touchedDayIndices.add(dNum);
         daysUpdated = true;
       }
     }
@@ -1226,8 +1235,10 @@ export function WellnessProvider({
         subtitle: canonical.subtitle,
         focus: canonical.focus || canonical.subtitle || 'Strength & Hypertrophy',
         exercises: canonical.exercises,
+        cardio: canonical.cardio || [],
         isRest: false,
       };
+      touchedDayIndices.add(assignedDayIndex);
       daysUpdated = true;
     }
 
@@ -1252,12 +1263,16 @@ export function WellnessProvider({
       writeWellnessCache({ userGymPlan: updatedPlan }, false);
     });
 
-    // Clear any unstarted active draft or log for the assigned day so it immediately displays the updated routine
-    if (assignedDayIndex != null && assignedDayIndex >= 1 && assignedDayIndex <= 7) {
+    // Clear any unstarted active draft or log for modified days so they immediately display the updated routine
+    if (touchedDayIndices.size > 0) {
       try {
-        const targetDateStr = getCurrentWeekDatesFromMonday()[assignedDayIndex - 1];
-        if (targetDateStr) {
-          purgeUnstartedDraftsForDates([targetDateStr], effectiveUid, setGymLogs);
+        const weekDates = getCurrentWeekDatesFromMonday();
+        const datesToPurge = Array.from(touchedDayIndices)
+          .filter(dIdx => dIdx >= 1 && dIdx <= 7)
+          .map(dIdx => weekDates[dIdx - 1])
+          .filter(Boolean);
+        if (datesToPurge.length > 0) {
+          purgeUnstartedDraftsForDates(datesToPurge, effectiveUid, setGymLogs);
         }
       } catch (e) {
         console.warn('[Wellness] Error clearing draft for assigned day:', e);
@@ -1362,6 +1377,7 @@ export function WellnessProvider({
         subtitle: canonical.subtitle,
         focus: canonical.focus || canonical.subtitle || 'Strength & Hypertrophy',
         exercises: canonical.exercises,
+        cardio: canonical.cardio || [],
         isRest: false,
       };
     } else if (routineId === 'rest' || !routineId) {
@@ -1373,6 +1389,7 @@ export function WellnessProvider({
         subtitle: 'Active recovery, hydration & sleep',
         focus: 'Active recovery, hydration & sleep',
         exercises: [],
+        cardio: [],
         isRest: true,
       };
     } else {

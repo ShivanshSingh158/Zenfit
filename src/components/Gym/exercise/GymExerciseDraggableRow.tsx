@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, View, Text } from 'react-native';
 import type { RenderItemParams } from 'react-native-draggable-flatlist';
-import { Check, MoreHorizontal } from 'lucide-react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { FONT_FAMILY, ICON, TOUCH } from '../../../theme/tokens';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { NumericText } from '../../ui';
@@ -141,7 +141,7 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
             }}
             accessibilityLabel={`Options for ${ex.name}`}
           >
-            <MoreHorizontal size={ICON.sm} strokeWidth={ICON.strokeWidth} color={tokens.text.secondary} />
+            <Ionicons name="ellipsis-horizontal" size={ICON.sm} color={tokens.text.secondary} />
           </Pressable>
 
           <Pressable
@@ -163,7 +163,7 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
             accessibilityLabel={`Toggle ${ex.name} complete`}
           >
             {isDone ? (
-              <Check size={ICON.xs} strokeWidth={ICON.strokeWidth} color={tokens.accent.onPrimary} />
+              <Ionicons name="checkmark" size={ICON.xs} color={tokens.accent.onPrimary} />
             ) : null}
           </Pressable>
         </View>

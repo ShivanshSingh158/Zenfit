@@ -278,7 +278,7 @@ export function clearPlanDayCache(): void {
 }
 
 function buildCustomDaySignature(rawCustom: any): string {
-  if (!rawCustom || (!rawCustom.isRest && !Array.isArray(rawCustom.exercises))) {
+  if (!rawCustom || (!rawCustom.isRest && !Array.isArray(rawCustom.exercises) && !Array.isArray(rawCustom.cardio))) {
     return 'base';
   }
   const exSig = Array.isArray(rawCustom.exercises)
@@ -286,7 +286,12 @@ function buildCustomDaySignature(rawCustom: any): string {
         .map((e: any) => `${e?.id || ''}|${e?.name || ''}|${e?.muscle || ''}|${e?.targetSets || ''}|${e?.targetReps || ''}`)
         .join(';')
     : '';
-  return `c|${rawCustom.isRest ? 1 : 0}|${rawCustom.name || ''}|${exSig}`;
+  const cardioSig = Array.isArray(rawCustom.cardio)
+    ? rawCustom.cardio
+        .map((c: any) => `${c?.id || ''}|${c?.type || ''}|${c?.durationMinutes ?? ''}|${c?.distanceKm ?? ''}|${c?.calories ?? ''}`)
+        .join(';')
+    : '';
+  return `c|${rawCustom.isRest ? 1 : 0}|${rawCustom.name || ''}|${exSig}|${cardioSig}`;
 }
 
 export function resolvePlanDay(userGymPlan: any, planIdx: number): GymPlanDay {
@@ -300,7 +305,7 @@ export function resolvePlanDay(userGymPlan: any, planIdx: number): GymPlanDay {
   }
 
   let resolved: GymPlanDay;
-  if (rawCustom && (rawCustom.isRest || Array.isArray(rawCustom.exercises))) {
+  if (rawCustom && (rawCustom.isRest || Array.isArray(rawCustom.exercises) || Array.isArray(rawCustom.cardio))) {
     resolved = {
       ...rawCustom,
       exercises: Array.isArray(rawCustom.exercises)
@@ -313,6 +318,7 @@ export function resolvePlanDay(userGymPlan: any, planIdx: number): GymPlanDay {
             };
           })
         : [],
+      cardio: Array.isArray(rawCustom.cardio) ? rawCustom.cardio : [],
     };
   } else {
     // Look up curated split dynamically if templateId is specified

@@ -1,7 +1,6 @@
 // src/services/offlineSync.ts
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AppState } from 'react-native';
 import { doc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp, writeBatch, increment, deleteField } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { db, auth } from './firebase';
@@ -116,14 +115,12 @@ let _queueDiskFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let _diskFlushChain: Promise<void> = Promise.resolve();
 let _retryWakeupTimer: ReturnType<typeof setTimeout> | null = null;
 
-// Immediately flush pending debounced queue writes when app backgrounds or becomes inactive
-AppState.addEventListener('change', nextState => {
-  if (nextState === 'background' || nextState === 'inactive') {
-    if (_queueDiskFlushTimer || (_memoryQueue && _memoryQueue.length > 0)) {
-      persistMemoryQueueToDisk().catch(() => {});
-    }
+export function flushOfflineQueueDisk(): Promise<void> {
+  if (_queueDiskFlushTimer || (_memoryQueue && _memoryQueue.length > 0)) {
+    return persistMemoryQueueToDisk().catch(() => {});
   }
-});
+  return Promise.resolve();
+}
 
 export async function clearOfflineQueue(): Promise<void> {
   if (_queueDiskFlushTimer) {

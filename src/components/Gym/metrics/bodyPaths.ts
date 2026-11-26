@@ -18,6 +18,17 @@ const _MERGED_PATH_CACHE = new WeakMap<ViewGeometry, Map<string, string>>();
 const _MERGED_INERT_CACHE = new WeakMap<ViewGeometry, string>();
 
 /**
+ * Normalizes a leading relative `m` MoveTo command to absolute `M`.
+ * SVG paths inside `BODY_PATHS.female` start with lowercase `m `; when joined
+ * into a single compound `<Path>`, any subpath after the first would otherwise be
+ * interpreted relative to the previous subpath's end point, skewing the body.
+ */
+function normalizeLeadingMoveTo(raw: string): string {
+  const trimmed = raw.trimStart();
+  return trimmed.startsWith('m') ? `M${trimmed.slice(1)}` : trimmed;
+}
+
+/**
  * Returns pre-merged SVG path string for a given muscle slug.
  * Evaluated once per geometry object; subsequent calls are O(1) pointer lookups (<0.001ms).
  */
@@ -30,7 +41,7 @@ export function getMergedMusclePath(viewGeo: ViewGeometry, slug: string): string
   let merged = map.get(slug);
   if (merged === undefined) {
     const list = viewGeo.p[slug];
-    merged = Array.isArray(list) ? list.join(' ') : '';
+    merged = Array.isArray(list) ? list.map(normalizeLeadingMoveTo).join(' ') : '';
     map.set(slug, merged);
   }
   return merged;
@@ -42,7 +53,10 @@ export function getMergedMusclePath(viewGeo: ViewGeometry, slug: string): string
 export function getMergedInertPath(viewGeo: ViewGeometry, inertSlugs: readonly string[]): string {
   let merged = _MERGED_INERT_CACHE.get(viewGeo);
   if (merged === undefined) {
-    merged = inertSlugs.flatMap(slug => viewGeo.p[slug] || []).join(' ');
+    merged = inertSlugs
+      .flatMap(slug => viewGeo.p[slug] || [])
+      .map(normalizeLeadingMoveTo)
+      .join(' ');
     _MERGED_INERT_CACHE.set(viewGeo, merged);
   }
   return merged;

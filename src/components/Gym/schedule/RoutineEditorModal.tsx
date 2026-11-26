@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
+  Activity,
   ArrowLeftRight,
   Check,
   ChevronDown,
@@ -17,16 +18,16 @@ import {
   Minus,
   Plus,
   Trash2,
-  X,
 } from 'lucide-react-native';
 import BottomSheet from '../../ui/BottomSheet';
 import { TactileButton } from '../../ui/TactileButton';
 import { NumericText } from '../../ui/NumericText';
 import { AddExerciseModal } from '../exercise/AddExerciseModal';
+import { AddCardioModal } from '../cardio/AddCardioModal';
 
 import { DARK_TOKENS, FONT_FAMILY, ICON, RADIUS, SPACE, TOUCH } from '../../../theme/tokens';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { GymExerciseLog, GymPlanExercise, GymRoutine } from '../../../types/gym.types';
+import { GymExerciseLog, GymPlanCardio, GymPlanExercise, GymRoutine } from '../../../types/gym.types';
 import { resolveMuscleColor } from '../../../utils/gymUtils';
 import { hapticLight, hapticMedium, hapticSuccess, hapticSelection } from '../../../utils/haptics';
 
@@ -51,6 +52,7 @@ const DAY_CHIPS: Array<{ label: string; index: number | null }> = [
 
 const REP_LADDER = ['4-6', '6-8', '8-10', '8-12', '10-12', '12-15', '15-20'];
 const REST_PRESETS = [60, 90, 120, 180];
+const CARDIO_MIN_PRESETS = [15, 20, 30, 45];
 
 function normalizeRepString(val?: string): string {
   return (val || '8-10').trim().replace(/[–—]/g, '-');
@@ -109,10 +111,11 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = memo(functi
   const [routineName, setRoutineName] = useState('');
   const [routineFocus, setRoutineFocus] = useState('');
   const [exercises, setExercises] = useState<GymPlanExercise[]>([]);
+  const [cardioList, setCardioList] = useState<GymPlanCardio[]>([]);
   const [assignedDay, setAssignedDay] = useState<number | null>(initialDayIndex ?? null);
 
-  // ─── Single-Sheet Subview State (Editor / Multi-Add / Single-Swap) ────────
-  const [sheetView, setSheetView] = useState<'editor' | 'add' | 'swap'>('editor');
+  // ─── Single-Sheet Subview State (Editor / Multi-Add / Single-Swap / Cardio) ─
+  const [sheetView, setSheetView] = useState<'editor' | 'add' | 'swap' | 'add_cardio'>('editor');
   const [swapTargetIdx, setSwapTargetIdx] = useState<number | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
 
@@ -136,10 +139,19 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = memo(functi
               : { ...ex, id: `ex_init_${idx}_${Math.random().toString(36).slice(2, 6)}` }
           )
         );
+        const cList = Array.isArray(routineToEdit.cardio) ? routineToEdit.cardio : [];
+        setCardioList(
+          cList.map((c, idx) =>
+            c.id
+              ? { ...c }
+              : { ...c, id: `cardio_init_${idx}_${Math.random().toString(36).slice(2, 6)}` }
+          )
+        );
       } else {
         setRoutineName('');
         setRoutineFocus('');
         setExercises([]);
+        setCardioList([]);
       }
       setAssignedDay(initialDayIndex ?? null);
       setSheetView('editor');
@@ -161,11 +173,12 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = memo(functi
       muscleMap[m] = (muscleMap[m] || 0) + sets;
     }
 
-    const estimatedMins = Math.round(totalSets * 2.5);
-    const topMuscles = Object.keys(muscleMap).slice(0, 3).join(' · ');
+    const cardioMins = cardioList.reduce((acc, c) => acc + (Number(c.durationMinutes) || 0), 0);
+    const estimatedMins = Math.round(totalSets * 2.5) + cardioMins;
+    const topMuscles = Object.keys(muscleMap).slice(0, 3).join(' · ') || (cardioList.length > 0 ? 'Cardio & Conditioning' : '');
 
-    return { totalSets, estimatedMins, topMuscles };
-  }, [exercises]);
+    return { totalSets, cardioMins, estimatedMins, topMuscles };
+  }, [exercises, cardioList]);
 
   // ─── Exercise Handlers (100% Inline) ───────────────────────────────────────
   const handleSetChange = useCallback((index: number, delta: number) => {
@@ -293,12 +306,40 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = memo(functi
     [swapTargetIdx]
   );
 
+  const handleAddPlanCardio = useCallback((type: string, preset?: { durationMinutes?: number | null }) => {
+    hapticSuccess();
+    const newItem: GymPlanCardio = {
+      id: `cardio_plan_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      type,
+      durationMinutes: preset?.durationMinutes ?? null,
+    };
+    setCardioList((prev) => [...prev, newItem]);
+    setEditorError(null);
+    setSheetView('editor');
+  }, []);
+
+  const handleCardioDurationChange = useCallback((idx: number, mins: number | null) => {
+    hapticLight();
+    setCardioList((prev) =>
+      prev.map((item, i) =>
+        i === idx
+          ? { ...item, durationMinutes: item.durationMinutes === mins ? null : mins }
+          : item
+      )
+    );
+  }, []);
+
+  const handleDeleteCardioItem = useCallback((idx: number) => {
+    hapticMedium();
+    setCardioList((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
   // ─── Save Whole Routine ────────────────────────────────────────────────────
   const handleSaveRoutine = useCallback(async () => {
     if (savingRef.current) return;
-    const finalName = routineName.trim() || 'Custom Workout';
-    if (exercises.length === 0) {
-      setEditorError('Add at least 1 exercise before saving this routine.');
+    const finalName = routineName.trim() || (exercises.length === 0 && cardioList.length > 0 ? 'Cardio & Conditioning' : 'Custom Workout');
+    if (exercises.length === 0 && cardioList.length === 0) {
+      setEditorError('Add at least 1 exercise or cardio activity before saving.');
       return;
     }
 
@@ -312,6 +353,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = memo(functi
       subtitle: routineFocus.trim() || sessionSummary.topMuscles || undefined,
       focus: routineFocus.trim() || sessionSummary.topMuscles || undefined,
       exercises,
+      cardio: cardioList,
       estimatedDurationMins: sessionSummary.estimatedMins,
       updatedAt: Date.now(),
     };
@@ -323,7 +365,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = memo(functi
       savingRef.current = false;
       setIsSaving(false);
     }
-  }, [routineName, exercises, routineFocus, sessionSummary, routineToEdit, assignedDay, onSave, onClose]);
+  }, [routineName, exercises, cardioList, routineFocus, sessionSummary, routineToEdit, assignedDay, onSave, onClose]);
 
   return (
     <BottomSheet
@@ -335,7 +377,18 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = memo(functi
       sheetBackgroundColor={isDark ? '#0B0C10' : '#F8F8FA'}
     >
       <View style={[styles.root, { flex: 1 }]}>
-        {sheetView !== 'editor' ? (
+        {sheetView === 'add_cardio' ? (
+          <Animated.View entering={FadeIn.duration(170)} style={{ flex: 1 }}>
+            <AddCardioModal
+              embedded
+              visible={visible}
+              title="Add Cardio to Workout"
+              showDurationPresets={true}
+              onClose={() => setSheetView('editor')}
+              onAdd={handleAddPlanCardio}
+            />
+          </Animated.View>
+        ) : sheetView !== 'editor' ? (
           <Animated.View entering={FadeIn.duration(170)} style={{ flex: 1 }}>
             <AddExerciseModal
               embedded
@@ -452,8 +505,8 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = memo(functi
               </ScrollView>
             </View>
 
-            {/* ── Session Volume & Time HUD (shown once exercises exist) ── */}
-            {exercises.length > 0 && (
+            {/* ── Session Volume & Time HUD (shown once exercises or cardio exist) ── */}
+            {(exercises.length > 0 || cardioList.length > 0) && (
               <View style={styles.hudCard}>
                 <View style={styles.hudItem}>
                   <NumericText style={styles.hudVal}>{exercises.length}</NumericText>
@@ -461,9 +514,22 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = memo(functi
                 </View>
                 <View style={styles.hudDivider} />
                 <View style={styles.hudItem}>
-                  <NumericText style={[styles.hudVal, { color: tokens.status.success }]}>{sessionSummary.totalSets}</NumericText>
-                  <Text style={styles.hudLabel}>Working Sets</Text>
+                  <NumericText style={[styles.hudVal, { color: tokens.status.success }]}>
+                    {cardioList.length > 0 && exercises.length === 0 ? cardioList.length : sessionSummary.totalSets}
+                  </NumericText>
+                  <Text style={styles.hudLabel}>
+                    {cardioList.length > 0 && exercises.length === 0 ? 'Cardio' : 'Working Sets'}
+                  </Text>
                 </View>
+                {cardioList.length > 0 && exercises.length > 0 && (
+                  <>
+                    <View style={styles.hudDivider} />
+                    <View style={styles.hudItem}>
+                      <NumericText style={[styles.hudVal, { color: tokens.accent.primary }]}>{cardioList.length}</NumericText>
+                      <Text style={styles.hudLabel}>Cardio</Text>
+                    </View>
+                  </>
+                )}
                 <View style={styles.hudDivider} />
                 <View style={styles.hudItem}>
                   <NumericText style={styles.hudVal}>~{sessionSummary.estimatedMins}m</NumericText>
@@ -697,6 +763,68 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = memo(functi
               );
             })}
 
+            {cardioList.length > 0 && (
+              <>
+                <View style={styles.sectionHeaderRow}>
+                  <NumericText style={styles.sectionHeaderLabel}>CARDIO ({cardioList.length})</NumericText>
+                  <Text style={styles.sectionHeaderHint}>Optional target duration</Text>
+                </View>
+
+                {cardioList.map((cItem, cIdx) => (
+                  <View key={cItem.id || `${cItem.type}-${cIdx}`} style={styles.exerciseCard}>
+                    <View style={styles.exCardTopRow}>
+                      <View style={[styles.exIndexBadge, { backgroundColor: tokens.accent.primaryDim }]}>
+                        <Activity size={12} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                      </View>
+                      <View style={{ flex: 1, paddingRight: 6 }}>
+                        <Text style={styles.exNameTitle} numberOfLines={1}>{cItem.type}</Text>
+                        <NumericText style={styles.exMuscleText} numberOfLines={1}>
+                          {cItem.durationMinutes ? `${cItem.durationMinutes} min planned` : 'Open duration'}
+                        </NumericText>
+                      </View>
+                      <TactileButton
+                        variant="icon"
+                        haptic="none"
+                        onPress={() => handleDeleteCardioItem(cIdx)}
+                        style={styles.deleteExBtn}
+                        hitSlop={TOUCH.hitSlop}
+                        accessibilityLabel={`Remove ${cItem.type}`}
+                      >
+                        <Trash2 size={16} color={tokens.accent.crimson} strokeWidth={ICON.strokeWidth} />
+                      </TactileButton>
+                    </View>
+
+                    <View style={styles.restRow}>
+                      <Text style={styles.controlRowLabel}>Target:</Text>
+                      <View style={styles.chipsWrap}>
+                        {CARDIO_MIN_PRESETS.map((mins) => {
+                          const isSel = cItem.durationMinutes === mins;
+                          return (
+                            <Pressable
+                              key={mins}
+                              onPress={() => handleCardioDurationChange(cIdx, mins)}
+                              style={({ pressed }) => [
+                                styles.restChip,
+                                isSel && styles.restChipActive,
+                                pressed && { opacity: 0.78 },
+                              ]}
+                            >
+                              {isSel && (
+                                <Check size={11} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} style={{ marginRight: 3 }} />
+                              )}
+                              <NumericText style={[styles.restChipText, isSel && styles.restChipTextActive]}>
+                                {mins}m
+                              </NumericText>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  </View>
+                ))}
+              </>
+            )}
+
             {editorError ? (
               <View
                 style={{
@@ -714,42 +842,80 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = memo(functi
               </View>
             ) : null}
 
-            {exercises.length === 0 ? (
-              <TactileButton
-                variant="custom"
-                haptic="none"
-                onPress={() => {
-                  hapticLight();
-                  setSwapTargetIdx(null);
-                  setSheetView('add');
-                }}
-                style={styles.emptyAddCard}
-              >
-                <View style={styles.emptyAddIconWrap}>
-                  <Dumbbell size={18} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
-                </View>
-                <View style={styles.emptyAddTextCol}>
-                  <Text style={styles.emptyTitle}>Add Exercises</Text>
-                  <Text style={styles.emptySub}>Tap to select movements from the catalogue</Text>
-                </View>
-                <View style={styles.emptyAddPlusPill}>
-                  <Plus size={14} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
-                </View>
-              </TactileButton>
+            {exercises.length === 0 && cardioList.length === 0 ? (
+              <View style={{ gap: 10 }}>
+                <TactileButton
+                  variant="custom"
+                  haptic="none"
+                  onPress={() => {
+                    hapticLight();
+                    setSwapTargetIdx(null);
+                    setSheetView('add');
+                  }}
+                  style={styles.emptyAddCard}
+                >
+                  <View style={styles.emptyAddIconWrap}>
+                    <Dumbbell size={18} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                  </View>
+                  <View style={styles.emptyAddTextCol}>
+                    <Text style={styles.emptyTitle}>Add Exercises</Text>
+                    <Text style={styles.emptySub}>Tap to select movements from the catalogue</Text>
+                  </View>
+                  <View style={styles.emptyAddPlusPill}>
+                    <Plus size={14} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
+                  </View>
+                </TactileButton>
+
+                <TactileButton
+                  variant="custom"
+                  haptic="none"
+                  onPress={() => {
+                    hapticLight();
+                    setSheetView('add_cardio');
+                  }}
+                  style={styles.emptyAddCard}
+                >
+                  <View style={[styles.emptyAddIconWrap, { backgroundColor: tokens.status.successDim }]}>
+                    <Activity size={18} color={tokens.status.success} strokeWidth={ICON.strokeWidth} />
+                  </View>
+                  <View style={styles.emptyAddTextCol}>
+                    <Text style={styles.emptyTitle}>Add Cardio</Text>
+                    <Text style={styles.emptySub}>Treadmill, cycling, stairmaster & conditioning</Text>
+                  </View>
+                  <View style={styles.emptyAddPlusPill}>
+                    <Plus size={14} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
+                  </View>
+                </TactileButton>
+              </View>
             ) : (
-              <TactileButton
-                variant="custom"
-                haptic="none"
-                onPress={() => {
-                  hapticLight();
-                  setSwapTargetIdx(null);
-                  setSheetView('add');
-                }}
-                style={styles.addExerciseMainBtn}
-              >
-                <Plus size={16} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
-                <Text style={styles.addExerciseMainBtnText}>Add More Exercises</Text>
-              </TactileButton>
+              <View style={styles.bottomAddRow}>
+                <TactileButton
+                  variant="custom"
+                  haptic="none"
+                  onPress={() => {
+                    hapticLight();
+                    setSwapTargetIdx(null);
+                    setSheetView('add');
+                  }}
+                  style={[styles.addExerciseMainBtn, { flex: 1, marginTop: 0 }]}
+                >
+                  <Plus size={15} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
+                  <Text style={styles.addExerciseMainBtnText} numberOfLines={1}>Add Exercise</Text>
+                </TactileButton>
+
+                <TactileButton
+                  variant="custom"
+                  haptic="none"
+                  onPress={() => {
+                    hapticLight();
+                    setSheetView('add_cardio');
+                  }}
+                  style={styles.addCardioSecondaryBtn}
+                >
+                  <Activity size={15} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                  <Text style={styles.addCardioSecondaryBtnText} numberOfLines={1}>Add Cardio</Text>
+                </TactileButton>
+              </View>
             )}
           </ScrollView>
         </>
@@ -1157,22 +1323,46 @@ const makeStyles = (tokens: typeof DARK_TOKENS, isDark: boolean) => {
     justifyContent: 'center',
   },
 
-  // Main Add Button
+  // Main Add Buttons
+  bottomAddRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: SPACE.xs,
+  },
   addExerciseMainBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 7,
+    gap: 6,
     backgroundColor: tokens.accent.primary,
     minHeight: 44,
-    paddingHorizontal: 20,
+    paddingHorizontal: 14,
     borderRadius: RADIUS.md,
     marginTop: SPACE.xs,
   },
   addExerciseMainBtnText: {
-    fontSize: 14.5,
+    fontSize: 13.5,
     fontFamily: FONT_FAMILY.bold,
     color: tokens.accent.onPrimary,
+  },
+  addCardioSecondaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: surfaceBg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tokens.border.subtle,
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: RADIUS.md,
+  },
+  addCardioSecondaryBtnText: {
+    fontSize: 13.5,
+    fontFamily: FONT_FAMILY.bold,
+    color: tokens.accent.primary,
   },
 
   // Custom Rep Prompt Modal

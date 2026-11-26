@@ -4,7 +4,6 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withSpring,
   withSequence,
   withRepeat,
   cancelAnimation,
@@ -12,22 +11,10 @@ import Animated, {
   FadeOut,
   Easing,
 } from 'react-native-reanimated';
-import { springs, iosEasing } from '../../theme/motion';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  Home,
-  Dumbbell,
-  Calendar,
-  BarChart3,
-  User,
-  ChevronRight,
-  ClipboardList,
-  Flame,
-  Circle,
-  LucideIcon,
-} from 'lucide-react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { SHADOW, TAB_BAR_HEIGHT } from '../../theme/tokens';
 import {
@@ -35,40 +22,42 @@ import {
   useGymLogs,
   useGymPlan,
 } from '../../contexts/domains/WellnessContext';
-import { planDayIndexForDate, resolvePlanDay } from '../../data/gymPlan';
+import { planDayIndexForDate, resolvePlanDay, todayStr } from '../../data/gymPlan';
 import { useGlobalRestTimer } from '../../services/restTimerService';
 import { RestTimerBar as AnimatedRestTimer } from '../workout/RestTimerBar';
 import { SetRestPickerSheet } from '../modals/SetRestPickerSheet';
-import { todayStr } from '../../data/gymPlan';
 import { hapticLight, hapticMedium, hapticSelection } from '../../utils/haptics';
 import { getDefaultRestSecsSync } from '../../hooks/useGymProfile';
 import { TactileButton } from '../ui/TactileButton';
 import { NumericText } from '../ui/NumericText';
-import { AppIcon } from '../ui/AppIcon';
 import { useMainTabsFocused } from '../../navigation/MainTabsFocusContext';
+
+type IoniconName = keyof typeof Ionicons.glyphMap;
 
 export const TAB_CONFIG: Record<
   string,
   {
     name: string;
-    icon: LucideIcon;
+    activeIcon: IoniconName;
+    inactiveIcon: IoniconName;
   }
 > = {
-  Home: { name: 'Home', icon: Home },
-  Today: { name: 'Train', icon: Dumbbell },
-  Train: { name: 'Train', icon: Dumbbell },
-  Plan: { name: 'Plan', icon: Calendar },
-  Analytics: { name: 'Analytics', icon: BarChart3 },
-  Body: { name: 'Body', icon: User },
-  Splits: { name: 'Plan', icon: ClipboardList },
-  History: { name: 'Analytics', icon: BarChart3 },
-  Workout: { name: 'Train', icon: Flame },
-  Progress: { name: 'Body', icon: User },
+  Home: { name: 'Home', activeIcon: 'home', inactiveIcon: 'home-outline' },
+  Today: { name: 'Train', activeIcon: 'barbell', inactiveIcon: 'barbell-outline' },
+  Train: { name: 'Train', activeIcon: 'barbell', inactiveIcon: 'barbell-outline' },
+  Plan: { name: 'Plan', activeIcon: 'calendar', inactiveIcon: 'calendar-outline' },
+  Analytics: { name: 'Analytics', activeIcon: 'stats-chart', inactiveIcon: 'stats-chart-outline' },
+  Body: { name: 'Body', activeIcon: 'person', inactiveIcon: 'person-outline' },
+  Splits: { name: 'Plan', activeIcon: 'list', inactiveIcon: 'list-outline' },
+  History: { name: 'Analytics', activeIcon: 'stats-chart', inactiveIcon: 'stats-chart-outline' },
+  Workout: { name: 'Train', activeIcon: 'flame', inactiveIcon: 'flame-outline' },
+  Progress: { name: 'Body', activeIcon: 'person', inactiveIcon: 'person-outline' },
 };
 
-const DEFAULT_TAB_CONFIG = {
+const DEFAULT_TAB_CONFIG: { name: string; activeIcon: IoniconName; inactiveIcon: IoniconName } = {
   name: '',
-  icon: Circle,
+  activeIcon: 'ellipse',
+  inactiveIcon: 'ellipse-outline',
 };
 
 const FLOATING_DOCK_HEIGHT = 58;
@@ -110,8 +99,8 @@ const TabItem = React.memo(function TabItem({
       canPreventDefault: true,
     });
     if (!isActuallyFocused && !event.defaultPrevented) {
-      hapticSelection();
       navigation.navigate(route.name, { merge: true } as any);
+      hapticSelection();
     }
   }, [route.key, route.name, isActuallyFocused, navigation]);
 
@@ -123,21 +112,15 @@ const TabItem = React.memo(function TabItem({
   const prevFocusedRef = useRef(isFocused);
 
   useEffect(() => {
-    const becameFocused = isFocused && !prevFocusedRef.current;
+    if (isFocused === prevFocusedRef.current) return;
     prevFocusedRef.current = isFocused;
-
-    if (becameFocused) {
-      iconScale.value = withSequence(
-        withSpring(1.16, springs.bouncy),
-        withSpring(1.04, springs.snappy)
-      );
-      iconTranslateY.value = withSpring(-1.5, springs.snappy);
-    } else if (isFocused) {
-      iconScale.value = withSpring(1.04, springs.snappy);
-      iconTranslateY.value = withSpring(-1.5, springs.snappy);
+    const timing = { duration: 120, easing: Easing.out(Easing.quad) };
+    if (isFocused) {
+      iconScale.value = withTiming(1.06, timing);
+      iconTranslateY.value = withTiming(-1.5, timing);
     } else {
-      iconScale.value = withSpring(1, springs.snappy);
-      iconTranslateY.value = withSpring(0, springs.snappy);
+      iconScale.value = withTiming(1, timing);
+      iconTranslateY.value = withTiming(0, timing);
     }
   }, [isFocused, iconScale, iconTranslateY]);
 
@@ -160,9 +143,9 @@ const TabItem = React.memo(function TabItem({
     >
       <View style={styles.tabContent}>
         <Animated.View style={[styles.iconBox, iconAnimStyle]}>
-          <AppIcon
-            icon={config.icon}
-            size={20}
+          <Ionicons
+            name={isFocused ? config.activeIcon : config.inactiveIcon}
+            size={21}
             color={isFocused ? activeColor : inactiveColor}
           />
 
@@ -396,8 +379,8 @@ const FloatingLiveWorkoutIsland = React.memo(function FloatingLiveWorkoutIsland(
             <Text style={[styles.liveIslandResumeText, { color: tokens.status.success }]}>
               Resume
             </Text>
-            <AppIcon
-              icon={ChevronRight}
+            <Ionicons
+              name="chevron-forward"
               size={12}
               color={tokens.status.success}
             />
@@ -535,7 +518,10 @@ export const TelegramTabBar = React.memo(function TelegramTabBar({
 
   useEffect(() => {
     if (slotWidth > 0 && activeIndex >= 0) {
-      pillX.value = withSpring(activeIndex * slotWidth, springs.snappy);
+      pillX.value = withTiming(activeIndex * slotWidth, {
+        duration: 160,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+      });
     }
   }, [activeIndex, slotWidth, pillX]);
 

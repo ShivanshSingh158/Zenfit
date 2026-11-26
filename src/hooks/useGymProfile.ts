@@ -165,8 +165,8 @@ function ensureProfileSubscription(uid?: string | null) {
       const currentTs = (current as any)?.updatedAt || 0;
       const cloudTs = cloudData?.updatedAt || 0;
 
-      // Issue #23: Only let cloud win if its timestamp is newer or equal
-      if (cloudTs >= currentTs) {
+      // Issue #23: Let cloud win when its timestamp is newer/equal, or when hydrating completed onboarding profile over uncompleted defaults
+      if (cloudTs >= currentTs || (!current?.onboardingCompleted && Boolean(cloudData?.onboardingCompleted))) {
         const merged = normalizeGymProfileAliases({
           ...DEFAULT_PROFILE,
           ...(current || {}),
@@ -178,7 +178,9 @@ function ensureProfileSubscription(uid?: string | null) {
         DeviceEventEmitter.emit('gym_profile_updated', merged);
       }
     }
-  }, () => {});
+  }, () => {
+    _activeProfileUid = null;
+  });
 }
 
 export function useGymProfile() {

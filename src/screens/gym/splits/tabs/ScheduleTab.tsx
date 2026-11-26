@@ -103,6 +103,8 @@ export const ScheduleTab: React.FC<ScheduleTabProps> = React.memo(({
                 subtitle={d.planDay.focus || d.planDay.subtitle}
                 exerciseCount={d.planDay.exercises?.length || 0}
                 exercises={d.planDay.exercises || []}
+                cardioCount={d.planDay.cardio?.length || 0}
+                cardio={d.planDay.cardio || []}
                 isRest={isRest}
                 isToday={isToday}
                 isLast={idx === resolvedDays.length - 1}

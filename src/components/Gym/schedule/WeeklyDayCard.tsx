@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { ChevronRight, Moon } from 'lucide-react-native';
+import { Activity, ChevronRight, Moon } from 'lucide-react-native';
 import { DARK_TOKENS, FONT_FAMILY, ICON, LIGHT_TOKENS, RADIUS, SPACE } from '../../../theme/tokens';
 import { TactileButton } from '../../ui/TactileButton';
 import { NumericText } from '../../ui/NumericText';
@@ -13,6 +13,8 @@ export interface WeeklyDayCardProps {
   subtitle?: string;
   exerciseCount?: number;
   exercises?: Array<{ name: string; muscle?: string; targetSets?: number | string }>;
+  cardioCount?: number;
+  cardio?: Array<{ type: string; durationMinutes?: number | null }>;
   isRest?: boolean;
   isToday?: boolean;
   isLast?: boolean;
@@ -26,6 +28,8 @@ export const WeeklyDayCard: React.FC<WeeklyDayCardProps> = React.memo(({
   routineTitle,
   exerciseCount = 0,
   exercises = [],
+  cardioCount = 0,
+  cardio = [],
   isRest = false,
   isToday = false,
   isLast = false,
@@ -47,6 +51,28 @@ export const WeeklyDayCard: React.FC<WeeklyDayCardProps> = React.memo(({
     if (isRest || !exercises) return 0;
     return exercises.reduce((acc, ex) => acc + (Number(ex.targetSets) || 3), 0);
   }, [exercises, isRest]);
+
+  const effectiveCardioCount = cardioCount || cardio.length;
+  const cardioMinutes = useMemo(() => {
+    if (isRest || !cardio?.length) return 0;
+    return cardio.reduce((acc, c) => acc + (Number(c.durationMinutes) || 0), 0);
+  }, [cardio, isRest]);
+
+  const statsLabel = useMemo(() => {
+    if (isRest) return 'Rest & recovery';
+    const parts: string[] = [];
+    if (exerciseCount > 0) {
+      parts.push(`${exerciseCount} exercises · ${totalSets} sets`);
+    }
+    if (effectiveCardioCount > 0) {
+      parts.push(
+        cardioMinutes > 0 && exerciseCount === 0
+          ? `${effectiveCardioCount} cardio · ~${cardioMinutes}m`
+          : `${effectiveCardioCount} cardio`
+      );
+    }
+    return parts.length > 0 ? parts.join(' · ') : '0 exercises · 0 sets';
+  }, [isRest, exerciseCount, totalSets, effectiveCardioCount, cardioMinutes]);
 
   return (
     <TactileButton
@@ -113,9 +139,7 @@ export const WeeklyDayCard: React.FC<WeeklyDayCardProps> = React.memo(({
           ]}
           numberOfLines={1}
         >
-          {isRest
-            ? 'Rest & recovery'
-            : `${exerciseCount} exercises · ${totalSets} sets`}
+          {statsLabel}
         </NumericText>
       </View>
 
@@ -129,6 +153,14 @@ export const WeeklyDayCard: React.FC<WeeklyDayCardProps> = React.memo(({
             avatarWidth={22}
             isDark={isDark}
           />
+        ) : !isRest && effectiveCardioCount > 0 ? (
+          <View style={styles.restIconBox}>
+            <Activity
+              size={18}
+              color={tokens.accent.primary}
+              strokeWidth={ICON.strokeWidth}
+            />
+          </View>
         ) : isRest ? (
           <View style={styles.restIconBox}>
             <Moon

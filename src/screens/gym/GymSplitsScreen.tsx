@@ -15,6 +15,7 @@ import {
   Text,
   StyleSheet,
   DeviceEventEmitter,
+  InteractionManager,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Bell } from 'lucide-react-native';
@@ -37,7 +38,7 @@ import { useGymPlan, useGymLogs, setWorkoutActiveGlobal } from '../../contexts/d
 import { getRotationNextDayIndex, getWorkoutDaysInRotation } from '../../services/gymRotationService';
 import { GYM_PLAN, GYM_PLAN_ARNOLD, WEEKDAY_TO_PLAN, getCustomPlanDay, resolvePlanDay, getCuratedSplitById } from '../../data/gymPlan';
 import { CURATED_SPLITS, CuratedSplit, REST_DAY_TEMPLATE } from '../../data/curatedSplits';
-import { GymDayLog, GymExerciseLog, GymPlanDay, GymPlanExercise, GymRoutine, UserGymProgramme } from '../../types/gym.types';
+import { GymDayLog, GymExerciseLog, GymPlanCardio, GymPlanDay, GymPlanExercise, GymRoutine, UserGymProgramme } from '../../types/gym.types';
 import { hapticLight, hapticMedium, hapticSuccess, hapticSelection } from '../../utils/haptics';
 import {
   buildExerciseHistoryIndex,
@@ -46,7 +47,7 @@ import {
   resolveExerciseTargetMuscle,
 } from '../../utils/gymUtils';
 import { setL1Sync } from '../../utils/bootManifest';
-import { todayStr } from '../../hooks/useGymLog';
+import { mapPlanCardioToLogs, todayStr } from '../../hooks/useGymLog';
 import { useGymProfile } from '../../hooks/useGymProfile';
 import { useCoreData } from '../../contexts/domains/CoreDataContext';
 
@@ -55,21 +56,26 @@ import { getSplitsPalette, useSplitsStyles } from './splits/styles/gymSplitsStyl
 
 // Modular Tabs
 import ScheduleTab from './splits/tabs/ScheduleTab';
-import RoutinesTab from './splits/tabs/RoutinesTab';
-import ProgrammesTab from './splits/tabs/ProgrammesTab';
+const RoutinesTab = React.lazy(() => import('./splits/tabs/RoutinesTab'));
+const ProgrammesTab = React.lazy(() => import('./splits/tabs/ProgrammesTab'));
 
-// Modular Modals & Sheets (Lazy Mounted)
-import DayDetailModal from './splits/modals/DayDetailModal';
-import AssignRoutineModal from './splits/modals/AssignRoutineModal';
-import SwapRoutineModal from './splits/modals/SwapRoutineModal';
-import TimePresetModal from './splits/modals/TimePresetModal';
-import GymActionSheet, { ActionSheetConfig, ActionSheetOption } from './splits/modals/GymActionSheet';
-import SplitInspectorModal from './splits/modals/SplitInspectorModal';
-import MesocycleModal from './splits/modals/MesocycleModal';
-import { RoutineEditorModal } from '../../components/Gym/schedule/RoutineEditorModal';
-import GymScheduleSettingsModal from '../../components/Gym/schedule/GymScheduleSettingsModal';
-import { AddExerciseModal } from '../../components/Gym/exercise/AddExerciseModal';
-import { EditExerciseSheet, EditExerciseUpdates } from '../../components/Gym/exercise/EditExerciseSheet';
+// Modular Modals & Sheets (Lazy Evaluated + Lazy Mounted)
+import type { ActionSheetConfig, ActionSheetOption } from './splits/modals/GymActionSheet';
+import type { EditExerciseUpdates } from '../../components/Gym/exercise/EditExerciseSheet';
+
+const DayDetailModal = React.lazy(() => import('./splits/modals/DayDetailModal'));
+const AssignRoutineModal = React.lazy(() => import('./splits/modals/AssignRoutineModal'));
+const SwapRoutineModal = React.lazy(() => import('./splits/modals/SwapRoutineModal'));
+const TimePresetModal = React.lazy(() => import('./splits/modals/TimePresetModal'));
+const GymActionSheet = React.lazy(() => import('./splits/modals/GymActionSheet'));
+const SplitInspectorModal = React.lazy(() => import('./splits/modals/SplitInspectorModal'));
+const MesocycleModal = React.lazy(() => import('./splits/modals/MesocycleModal'));
+const RoutineEditorModal = React.lazy(() => import('../../components/Gym/schedule/RoutineEditorModal'));
+const GymScheduleSettingsModal = React.lazy(() => import('../../components/Gym/schedule/GymScheduleSettingsModal'));
+const AddExerciseModal = React.lazy(() => import('../../components/Gym/exercise/AddExerciseModal'));
+const EditExerciseSheet = React.lazy(() => import('../../components/Gym/exercise/EditExerciseSheet'));
+const AddCardioModal = React.lazy(() => import('../../components/Gym/cardio/AddCardioModal'));
+const LogCardioModal = React.lazy(() => import('../../components/Gym/cardio/LogCardioModal'));
 
 type PlanSubTab = 'schedule' | 'routines' | 'programmes' | 'explore';
 
@@ -168,8 +174,9 @@ export default function GymSplitsScreen({ route }: any) {
   // Quick Time Picker Modal State
   const [timePickerDayIndex, setTimePickerDayIndex] = useState<number | null>(null);
 
-  // Add Exercise to Plan Modal State
+  // Add Exercise / Cardio to Plan Modal State
   const [showPlanAddModal, setShowPlanAddModal] = useState(false);
+  const [showPlanCardioModal, setShowPlanCardioModal] = useState(false);
 
   // Assign Routine to Day Picker State
   const [assignRoutineTarget, setAssignRoutineTarget] = useState<GymRoutine | null>(null);
@@ -189,8 +196,9 @@ export default function GymSplitsScreen({ route }: any) {
   // Mesocycle Curriculum & Roadmap Sheet State
   const [inspectProgrammeTarget, setInspectProgrammeTarget] = useState<UserGymProgramme | null>(null);
 
-  // Plan Exercise Quick-Edit Sheet State
+  // Plan Exercise / Cardio Quick-Edit Sheet State
   const [planEditExercise, setPlanEditExercise] = useState<{ dayIndex: number; exIndex: number; ex: any } | null>(null);
+  const [planEditCardio, setPlanEditCardio] = useState<{ dayIndex: number; cardioIndex: number; cardio: GymPlanCardio } | null>(null);
 
   // Unified In-App Confirmation Sheet State (replaces native Alert dialogs)
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -273,11 +281,14 @@ export default function GymSplitsScreen({ route }: any) {
     if (!defaultDayForActive) return false;
     if (activeDay.planDay.name !== defaultDayForActive.name) return true;
     if ((activeDay.planDay.exercises || []).length !== (defaultDayForActive.exercises || []).length) return true;
+    if ((activeDay.planDay.cardio || []).length !== (defaultDayForActive.cardio || []).length) return true;
     return false;
   }, [userGymPlan?.customDays, activeDay, defaultDayForActive]);
 
   const trainingDaysCount = useMemo(() => {
-    return resolvedDays.filter(d => !d.planDay.isRest && (d.planDay.exercises?.length || 0) > 0).length;
+    return resolvedDays.filter(
+      d => !d.planDay.isRest && ((d.planDay.exercises?.length || 0) > 0 || (d.planDay.cardio?.length || 0) > 0)
+    ).length;
   }, [resolvedDays]);
 
   // User Custom Routines list (strictly manual/custom user routines, excluding curated split workouts)
@@ -373,7 +384,7 @@ export default function GymSplitsScreen({ route }: any) {
           : targetDay.planDay.name,
         focus: !currentlyRest ? 'Rest & Recovery' : targetDay.planDay.focus || 'Strength & Hypertrophy',
       };
-      updateMasterPlan(dayIndex, updatedPlanDay);
+      updateMasterPlan(dayIndex, updatedPlanDay, true);
       hapticSuccess();
     },
     [resolvedDays, updateMasterPlan]
@@ -420,14 +431,16 @@ export default function GymSplitsScreen({ route }: any) {
 
   const launchAdHocRoutine = useCallback((routine?: GymRoutine | GymPlanDay) => {
     const todayDateStr = todayStr();
-    if (!routine || !('exercises' in routine) || !Array.isArray(routine.exercises) || routine.exercises.length === 0) {
+    const routineExercises = (routine && 'exercises' in routine && Array.isArray(routine.exercises)) ? routine.exercises : [];
+    const routineCardio = (routine && 'cardio' in routine && Array.isArray(routine.cardio)) ? routine.cardio : [];
+    if (!routine || (routineExercises.length === 0 && routineCardio.length === 0)) {
       navigation.navigate('ActiveLogging', { date: todayDateStr });
       return;
     }
 
     const todayDayIdx = currentDayOfWeek === 0 ? 7 : currentDayOfWeek;
     const seedIdx = buildExerciseHistoryIndex(gymLogs || [], todayDateStr);
-    const seededExercises: GymExerciseLog[] = routine.exercises.map((e, idx) => {
+    const seededExercises: GymExerciseLog[] = routineExercises.map((e, idx) => {
       const canonicalName = getCanonicalExerciseName(e.name);
       const prevSession = seedIdx.get(normalizeExerciseKey(canonicalName));
       const lastSets = prevSession?.sets || null;
@@ -461,6 +474,11 @@ export default function GymSplitsScreen({ route }: any) {
     const existingToday = (gymLogs || []).find(l => l.date === todayDateStr);
     const logId = existingToday?.id || `${effectiveUid}_${todayDateStr}`;
     const now = Date.now();
+    const keptCompletedCardio = (existingToday?.cardio || []).filter(c => Boolean(c.completed));
+    const seededCardio = routineCardio.length > 0
+      ? [...keptCompletedCardio, ...mapPlanCardioToLogs(routineCardio)]
+      : (existingToday?.cardio || []);
+    const isCardioOnly = seededExercises.length === 0 && seededCardio.length > 0;
     const adHocLog: GymDayLog = {
       ...(existingToday || {}),
       id: logId,
@@ -468,9 +486,9 @@ export default function GymSplitsScreen({ route }: any) {
       date: todayDateStr,
       dayPlanIndex: existingToday?.dayPlanIndex ?? todayDayIdx,
       exercises: seededExercises,
-      cardio: existingToday?.cardio || [],
+      cardio: seededCardio,
       completed: false,
-      workoutStartTime: now,
+      workoutStartTime: isCardioOnly ? undefined : now,
       createdAt: (existingToday as any)?.createdAt || now,
       updatedAt: now,
     };
@@ -490,18 +508,26 @@ export default function GymSplitsScreen({ route }: any) {
       AsyncStorage.setItem(`gym_active_draft_${todayDateStr}`, serialized).catch(() => {});
     } catch {}
 
-    if (existingToday) {
-      optimisticUpdateGymLog(logId, adHocLog as any);
-    } else {
-      optimisticAddGymLog(adHocLog as any);
-    }
-    setWorkoutActiveGlobal(true, now, todayDateStr);
-    DeviceEventEmitter.emit('gym_log_local_mutation', {
-      date: todayDateStr,
-      log: adHocLog,
-      senderId: 'gym_splits_adhoc_start',
+    InteractionManager.runAfterInteractions(() => {
+      if (existingToday) {
+        optimisticUpdateGymLog(logId, adHocLog as any);
+      } else {
+        optimisticAddGymLog(adHocLog as any);
+      }
+      if (!isCardioOnly) {
+        setWorkoutActiveGlobal(true, now, todayDateStr);
+      }
+      DeviceEventEmitter.emit('gym_log_local_mutation', {
+        date: todayDateStr,
+        log: adHocLog,
+        senderId: 'gym_splits_adhoc_start',
+      });
     });
-    navigation.navigate('ActiveLogging', { date: todayDateStr });
+    if (isCardioOnly) {
+      navigation.navigate('Today');
+    } else {
+      navigation.navigate('ActiveLogging', { date: todayDateStr });
+    }
   }, [currentDayOfWeek, gymLogs, user?.uid, optimisticUpdateGymLog, optimisticAddGymLog, navigation]);
 
   const handleStartWorkout = useCallback((routine?: GymRoutine | GymPlanDay) => {
@@ -515,7 +541,13 @@ export default function GymSplitsScreen({ route }: any) {
         (existingToday.exercises || []).some(ex => (ex.setsLog || []).some(s => s.completed)))
     );
 
-    if (hasProgress && routine && 'exercises' in routine && Array.isArray(routine.exercises) && routine.exercises.length > 0) {
+    const hasRoutineItems = Boolean(
+      routine &&
+      (('exercises' in routine && Array.isArray(routine.exercises) && routine.exercises.length > 0) ||
+        ('cardio' in routine && Array.isArray(routine.cardio) && routine.cardio.length > 0))
+    );
+
+    if (hasProgress && routine && hasRoutineItems) {
       const rName = routine.name || 'this routine';
       setConfirmDialog({
         title: existingToday?.completed ? "Replace Today's Workout?" : 'Workout In Progress',
@@ -580,7 +612,7 @@ export default function GymSplitsScreen({ route }: any) {
 
     setActionSheetConfig({
       title: rt.name,
-      subtitle: `${rt.exercises?.length || 0} exercises · ${(rt.exercises || []).reduce((acc, ex) => acc + (Number(ex.targetSets) || 3), 0)} sets`,
+      subtitle: `${rt.exercises?.length || 0} exercises · ${(rt.exercises || []).reduce((acc, ex) => acc + (Number(ex.targetSets) || 3), 0)} sets${(rt.cardio?.length || 0) > 0 ? ` · ${rt.cardio?.length} cardio` : ''}`,
       options,
     });
   }, [customRoutinesList.length, handleMoveRoutine, handleEditRoutine, handleDuplicateRoutine, handleDeleteRoutine]);
@@ -669,7 +701,30 @@ export default function GymSplitsScreen({ route }: any) {
             ...activeDay.planDay,
             exercises: updatedExercises,
           };
-          await updateMasterPlan(dayIndex, updatedPlanDay);
+          await updateMasterPlan(dayIndex, updatedPlanDay, true);
+          hapticSuccess();
+        },
+      });
+    });
+  }, [activeDay, updateMasterPlan]);
+
+  const handleDeleteCardioFromPlan = useCallback((dayIndex: number, cardioIndex: number, cardioName: string) => {
+    hapticLight();
+    setDayDetailModalVisible(false);
+    afterSheetDismiss(() => {
+      setConfirmDialog({
+        title: 'Remove Cardio from Plan',
+        message: `Remove "${cardioName}" from ${activeDay.dayName} (${activeDay.planDay.name}) for all future weeks?`,
+        primaryLabel: 'Remove for All Weeks',
+        primaryDestructive: true,
+        onPrimary: async () => {
+          const currentCardio = activeDay.planDay.cardio || [];
+          const updatedCardio = currentCardio.filter((_, idx) => idx !== cardioIndex);
+          const updatedPlanDay: GymPlanDay = {
+            ...activeDay.planDay,
+            cardio: updatedCardio,
+          };
+          await updateMasterPlan(dayIndex, updatedPlanDay, true);
           hapticSuccess();
         },
       });
@@ -697,7 +752,8 @@ export default function GymSplitsScreen({ route }: any) {
                 muscle: resolveExerciseTargetMuscle(canonicalName, ex.muscle).targetMuscle,
               };
             }),
-          });
+            cardio: defaultDay.cardio || [],
+          }, true);
         } else {
           const newCustomDays = { ...(userGymPlan?.customDays || {}) };
           delete newCustomDays[dayIndex];
@@ -714,13 +770,14 @@ export default function GymSplitsScreen({ route }: any) {
     const dayName = dayObj.dayName;
     const isRest = dayObj.planDay.isRest;
     const exCount = (dayObj.planDay.exercises || []).length;
+    const cardioCount = (dayObj.planDay.cardio || []).length;
     const options: ActionSheetOption[] = [];
 
     if (!isRest) {
       options.push({
         icon: 'edit',
         label: 'Edit Workout',
-        subtitle: 'Customize exercises, sets & reps',
+        subtitle: 'Customize exercises, cardio, sets & reps',
         onPress: () => {
           const routineObj: GymRoutine = {
             id: dayObj.planDay.routineId || `rt_day_${dayObj.dayIndex}`,
@@ -728,6 +785,7 @@ export default function GymSplitsScreen({ route }: any) {
             subtitle: dayObj.planDay.subtitle,
             focus: dayObj.planDay.focus,
             exercises: dayObj.planDay.exercises || [],
+            cardio: dayObj.planDay.cardio || [],
             updatedAt: Date.now(),
           };
           setEditingRoutine(routineObj);
@@ -736,11 +794,11 @@ export default function GymSplitsScreen({ route }: any) {
         },
       });
 
-      if (exCount > 0) {
+      if (exCount > 0 || cardioCount > 0) {
         options.push({
           icon: isEditPlanMode ? 'check' : 'trash',
-          label: isEditPlanMode ? 'Done Removing' : 'Remove Exercises',
-          subtitle: isEditPlanMode ? 'Hide remove buttons' : 'Tap to remove exercises from this day',
+          label: isEditPlanMode ? 'Done Removing' : 'Remove Items',
+          subtitle: isEditPlanMode ? 'Hide remove buttons' : 'Tap to remove exercises or cardio from this day',
           onPress: () => {
             hapticLight();
             setIsEditPlanMode(prev => !prev);
@@ -900,6 +958,12 @@ export default function GymSplitsScreen({ route }: any) {
     afterSheetDismiss(() => setShowPlanAddModal(true));
   }, []);
 
+  const handleAddCardioFromDetail = useCallback(() => {
+    hapticLight();
+    setDayDetailModalVisible(false);
+    afterSheetDismiss(() => setShowPlanCardioModal(true));
+  }, []);
+
   const handleSwapRoutineFromDetail = useCallback((dIndex: number) => {
     hapticLight();
     setDayDetailModalVisible(false);
@@ -914,6 +978,7 @@ export default function GymSplitsScreen({ route }: any) {
       subtitle: dayObj.planDay.subtitle,
       focus: dayObj.planDay.focus,
       exercises: dayObj.planDay.exercises || [],
+      cardio: dayObj.planDay.cardio || [],
       updatedAt: Date.now(),
     };
     setDayDetailModalVisible(false);
@@ -928,6 +993,12 @@ export default function GymSplitsScreen({ route }: any) {
     hapticLight();
     setDayDetailModalVisible(false);
     afterSheetDismiss(() => setPlanEditExercise({ dayIndex, exIndex, ex }));
+  }, []);
+
+  const handleEditCardioFromDetail = useCallback((dayIndex: number, cardioIndex: number, cardioItem: GymPlanCardio) => {
+    hapticLight();
+    setDayDetailModalVisible(false);
+    afterSheetDismiss(() => setPlanEditCardio({ dayIndex, cardioIndex, cardio: cardioItem }));
   }, []);
 
   return (
@@ -985,32 +1056,36 @@ export default function GymSplitsScreen({ route }: any) {
             </AnimatedSubTabPane>
 
             <AnimatedSubTabPane index={1} activeIndex={activeSubTabIdx}>
-              <RoutinesTab
-                customRoutinesList={customRoutinesList}
-                onCreateRoutine={handleCreateRoutine}
-                onOpenRoutineOptions={handleOpenRoutineOptionsMenu}
-                onAssignRoutineTarget={handleAssignRoutineTarget}
-                onStartWorkout={handleStartWorkout}
-                exploreFilter={exploreFilter}
-                onSetExploreFilter={setExploreFilter}
-                filteredCuratedSplits={filteredCuratedSplits}
-                activeTemplate={activeTemplate}
-                onInspectSplit={handleInspectSplit}
-                onApplySplit={handleApplySplit}
-                isDark={isDark}
-              />
+              <React.Suspense fallback={null}>
+                <RoutinesTab
+                  customRoutinesList={customRoutinesList}
+                  onCreateRoutine={handleCreateRoutine}
+                  onOpenRoutineOptions={handleOpenRoutineOptionsMenu}
+                  onAssignRoutineTarget={handleAssignRoutineTarget}
+                  onStartWorkout={handleStartWorkout}
+                  exploreFilter={exploreFilter}
+                  onSetExploreFilter={setExploreFilter}
+                  filteredCuratedSplits={filteredCuratedSplits}
+                  activeTemplate={activeTemplate}
+                  onInspectSplit={handleInspectSplit}
+                  onApplySplit={handleApplySplit}
+                  isDark={isDark}
+                />
+              </React.Suspense>
             </AnimatedSubTabPane>
 
             <AnimatedSubTabPane index={2} activeIndex={activeSubTabIdx}>
-              <ProgrammesTab
-                userGymPlan={userGymPlan}
-                getPhaseColor={getPhaseColor}
-                handleAdvanceWeek={handleAdvanceWeek}
-                handleEndProgramme={handleEndProgramme}
-                handleEnrollProgramme={handleEnrollProgramme}
-                onInspectProgramme={handleInspectProgramme}
-                replayKey={`${replayKey}-${activeTab}`}
-              />
+              <React.Suspense fallback={null}>
+                <ProgrammesTab
+                  userGymPlan={userGymPlan}
+                  getPhaseColor={getPhaseColor}
+                  handleAdvanceWeek={handleAdvanceWeek}
+                  handleEndProgramme={handleEndProgramme}
+                  handleEnrollProgramme={handleEnrollProgramme}
+                  onInspectProgramme={handleInspectProgramme}
+                  replayKey={`${replayKey}-${activeTab}`}
+                />
+              </React.Suspense>
             </AnimatedSubTabPane>
           </View>
         );
@@ -1037,10 +1112,13 @@ export default function GymSplitsScreen({ route }: any) {
             isEditPlanMode={isEditPlanMode}
             onExitDeleteMode={handleExitDeleteMode}
             handleDeleteExerciseFromPlan={handleDeleteExerciseFromPlan}
+            handleDeleteCardioFromPlan={handleDeleteCardioFromPlan}
             onAddExercise={handleAddExerciseFromDetail}
+            onAddCardio={handleAddCardioFromDetail}
             onSwapRoutine={handleSwapRoutineFromDetail}
             onEditWorkout={handleEditWorkoutFromDetail}
             onEditExercise={handleEditExerciseFromDetail}
+            onEditCardio={handleEditCardioFromDetail}
           />
         )}
       />
@@ -1210,17 +1288,60 @@ export default function GymSplitsScreen({ route }: any) {
                   restTimeSecs: newEx.restTimeSecs,
                 },
               ];
+              const wasRest = Boolean(activeDay.planDay.isRest);
               const updatedPlanDay: GymPlanDay = {
                 ...activeDay.planDay,
+                name: wasRest && activeDay.planDay.name === 'Rest & Recovery'
+                  ? `Workout Day ${activeDay.dayIndex}`
+                  : activeDay.planDay.name,
+                focus: wasRest ? 'Strength & Hypertrophy' : activeDay.planDay.focus,
                 exercises: updatedExercises,
                 isRest: false,
               };
-              await updateMasterPlan(activeDay.dayIndex, updatedPlanDay);
+              await updateMasterPlan(activeDay.dayIndex, updatedPlanDay, true);
               hapticSuccess();
               setShowPlanAddModal(false);
               afterSheetDismiss(() => setDayDetailModalVisible(true));
             }}
             existingExerciseIds={(activeDay.planDay.exercises || []).map(e => e.id || e.name)}
+          />
+        )}
+      />
+
+      {/* 10b. Add Cardio to Plan Modal */}
+      <LazySheet
+        visible={showPlanCardioModal}
+        render={() => (
+          <AddCardioModal
+            visible={showPlanCardioModal}
+            title={`Add Cardio · ${activeDay.dayName}`}
+            showDurationPresets={true}
+            onClose={() => {
+              setShowPlanCardioModal(false);
+              afterSheetDismiss(() => setDayDetailModalVisible(true));
+            }}
+            onAdd={async (type: string, preset?: { durationMinutes?: number | null }) => {
+              const newCardioItem: GymPlanCardio = {
+                id: `cardio_plan_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                type,
+                durationMinutes: preset?.durationMinutes ?? null,
+              };
+              const wasRest = Boolean(activeDay.planDay.isRest);
+              const hasExistingExercises = (activeDay.planDay.exercises || []).length > 0;
+              const updatedPlanDay: GymPlanDay = {
+                ...activeDay.planDay,
+                name: wasRest && activeDay.planDay.name === 'Rest & Recovery'
+                  ? (hasExistingExercises ? `Workout Day ${activeDay.dayIndex}` : 'Cardio & Conditioning')
+                  : activeDay.planDay.name,
+                focus: wasRest ? 'Cardio & Recovery' : activeDay.planDay.focus,
+                cardio: [...(activeDay.planDay.cardio || []), newCardioItem],
+                isRest: false,
+              };
+              await updateMasterPlan(activeDay.dayIndex, updatedPlanDay, true);
+              hapticSuccess();
+              setShowPlanCardioModal(false);
+              afterSheetDismiss(() => setDayDetailModalVisible(true));
+            }}
           />
         )}
       />
@@ -1256,11 +1377,66 @@ export default function GymSplitsScreen({ route }: any) {
                   await updateMasterPlan(planEditExercise.dayIndex, {
                     ...targetDayObj.planDay,
                     exercises: nextExercises,
-                  });
+                  }, true);
                   hapticSuccess();
                 }
               }
               setPlanEditExercise(null);
+              afterSheetDismiss(() => setDayDetailModalVisible(true));
+            }}
+          />
+        )}
+      />
+
+      {/* 11b. Plan Cardio Target Edit Sheet */}
+      <LazySheet
+        visible={Boolean(planEditCardio)}
+        render={() => (
+          <LogCardioModal
+            mode="plan"
+            visible={Boolean(planEditCardio)}
+            cardio={
+              planEditCardio
+                ? {
+                    id: planEditCardio.cardio.id,
+                    type: planEditCardio.cardio.type,
+                    durationMinutes: planEditCardio.cardio.durationMinutes ?? null,
+                    distanceKm: planEditCardio.cardio.distanceKm ?? null,
+                    speedKmh: planEditCardio.cardio.speedKmh ?? null,
+                    incline: planEditCardio.cardio.incline ?? null,
+                    calories: planEditCardio.cardio.calories ?? null,
+                    floors: planEditCardio.cardio.floors ?? null,
+                    level: planEditCardio.cardio.level ?? null,
+                    laps: planEditCardio.cardio.laps ?? null,
+                    rounds: planEditCardio.cardio.rounds ?? null,
+                    spm: planEditCardio.cardio.spm ?? null,
+                    pace: planEditCardio.cardio.pace ?? null,
+                    completed: false,
+                  }
+                : null
+            }
+            onClose={() => {
+              setPlanEditCardio(null);
+              afterSheetDismiss(() => setDayDetailModalVisible(true));
+            }}
+            onSave={async (updates) => {
+              if (!planEditCardio) return;
+              const targetDayObj = resolvedDays.find(d => d.dayIndex === planEditCardio.dayIndex);
+              if (targetDayObj) {
+                const nextCardio = [...(targetDayObj.planDay.cardio || [])];
+                if (nextCardio[planEditCardio.cardioIndex]) {
+                  nextCardio[planEditCardio.cardioIndex] = {
+                    ...nextCardio[planEditCardio.cardioIndex],
+                    ...updates,
+                  };
+                  await updateMasterPlan(planEditCardio.dayIndex, {
+                    ...targetDayObj.planDay,
+                    cardio: nextCardio,
+                  }, true);
+                  hapticSuccess();
+                }
+              }
+              setPlanEditCardio(null);
               afterSheetDismiss(() => setDayDetailModalVisible(true));
             }}
           />

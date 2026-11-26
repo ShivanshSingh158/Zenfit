@@ -36,6 +36,7 @@ interface Props {
   cardio: GymCardioLog | null;
   onClose: () => void;
   onSave: (updates: Partial<GymCardioLog>) => void;
+  mode?: 'log' | 'plan';
 }
 
 type FieldKey =
@@ -92,7 +93,7 @@ const TYPE_FIELDS: Record<string, FieldKey[]> = {
 
 const DEFAULT_FIELDS: FieldKey[] = ['durationMinutes', 'distanceKm', 'calories'];
 
-export function LogCardioModal({ visible, cardio, onClose, onSave }: Props) {
+export function LogCardioModal({ visible, cardio, onClose, onSave, mode = 'log' }: Props) {
   const { tokens } = useTheme();
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeCardioModalStyles(tokens), [tokens]);
@@ -124,14 +125,14 @@ export function LogCardioModal({ visible, cardio, onClose, onSave }: Props) {
     if (!activeCardio) return;
     Keyboard.dismiss();
 
-    const updates: Partial<GymCardioLog> = { completed: true };
+    const updates: Partial<GymCardioLog> = mode === 'plan' ? {} : { completed: true };
     (TYPE_FIELDS[activeCardio.type] || DEFAULT_FIELDS).forEach(key => {
       const raw = values[key];
       if (raw && raw.trim()) {
         const num = parseFloat(raw);
         if (!isNaN(num)) (updates as any)[key] = num;
       } else {
-        (updates as any)[key] = undefined;
+        (updates as any)[key] = null;
       }
     });
 
@@ -141,7 +142,8 @@ export function LogCardioModal({ visible, cardio, onClose, onSave }: Props) {
 
   if (!activeCardio) return null;
 
-  const canSave = !!values['durationMinutes']?.trim();
+  const isPlanMode = mode === 'plan';
+  const canSave = isPlanMode || !!values['durationMinutes']?.trim();
 
   const fieldPairs: FieldConfig[][] = [];
   for (let i = 0; i < fields.length; i += 2) {
@@ -160,7 +162,9 @@ export function LogCardioModal({ visible, cardio, onClose, onSave }: Props) {
         <View style={s.header}>
           <View style={s.headerSpacer} />
           <View style={s.headerCenter}>
-            <Text style={s.title}>Log {activeCardio.type}</Text>
+            <Text style={s.title}>
+              {isPlanMode ? `${activeCardio.type} Targets` : `Log ${activeCardio.type}`}
+            </Text>
             <Text style={s.subtitle}>
               {(TYPE_FIELDS[activeCardio.type] || DEFAULT_FIELDS)
                 .map(k => ALL_FIELDS[k].unit)
@@ -243,7 +247,11 @@ export function LogCardioModal({ visible, cardio, onClose, onSave }: Props) {
             disabled={!canSave}
           >
             <Text style={[s.saveBtnText, !canSave && s.saveBtnTextDisabled]}>
-              {canSave ? 'Save & Mark Complete' : 'Enter duration to complete'}
+              {isPlanMode
+                ? 'Save Cardio Target'
+                : canSave
+                ? 'Save & Mark Complete'
+                : 'Enter duration to complete'}
             </Text>
           </TactileButton>
         </ScrollView>

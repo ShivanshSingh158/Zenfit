@@ -34,6 +34,7 @@ const localCacheSetting = memoryLocalCache({ garbageCollector: memoryLruGarbageC
 
 export const db = initializeFirestore(app, {
   localCache: localCacheSetting,
+  experimentalAutoDetectLongPolling: true,
 });
 
 export const googleProvider = new GoogleAuthProvider();

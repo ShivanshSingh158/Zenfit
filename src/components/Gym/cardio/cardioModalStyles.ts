@@ -212,4 +212,37 @@ export const makeCardioModalStyles = (tokens: ThemeTokens) =>
     addBtnTextDisabled: {
       color: tokens.text.muted,
     },
+    durationBlock: {
+      marginBottom: SPACE.md,
+      gap: SPACE.xs + 2,
+    },
+    durationRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: SPACE.xs + 2,
+    },
+    durationChip: {
+      flex: 1,
+      minHeight: 34,
+      borderRadius: RADIUS.sm,
+      backgroundColor: tokens.bg.surface,
+      borderWidth: tokens.border.hairlineWidth,
+      borderColor: tokens.border.subtle,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 6,
+    },
+    durationChipActive: {
+      backgroundColor: tokens.accent.primaryDim,
+      borderColor: tokens.accent.primary,
+    },
+    durationChipText: {
+      fontFamily: FONT_FAMILY.bold,
+      fontSize: tokens.fontSize.xs,
+      color: tokens.text.secondary,
+      fontVariant: ['tabular-nums'],
+    },
+    durationChipTextActive: {
+      color: tokens.accent.primary,
+    },
   });

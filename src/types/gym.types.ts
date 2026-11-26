@@ -79,6 +79,22 @@ export interface GymDayLog {
   isSampleData?: boolean;
 }
 
+export interface GymPlanCardio {
+  id: string;
+  type: string;             // e.g. Treadmill, Cycling, Stairmaster
+  durationMinutes?: number | null;
+  distanceKm?: number | null;
+  speedKmh?: number | null;
+  incline?: number | null;
+  calories?: number | null;
+  floors?: number | null;
+  level?: number | null;
+  laps?: number | null;
+  rounds?: number | null;
+  spm?: number | null;
+  pace?: number | null;
+}
+
 export interface GymPlanExercise {
   id: string;
   name: string;
@@ -104,6 +120,7 @@ export interface GymRoutine {
   subtitle?: string;   // e.g., 'Upper Chest & Side Delt Focus'
   focus?: string;
   exercises: GymPlanExercise[];
+  cardio?: GymPlanCardio[];
   estimatedDurationMins?: number;
   lastPerformedAt?: number;
   order?: number;
@@ -117,6 +134,7 @@ export interface GymPlanDay {
   subtitle?: string;
   focus: string;
   exercises: GymPlanExercise[];
+  cardio?: GymPlanCardio[];
   isRest?: boolean;
   startTime?: string; // "HH:MM" in 24h or 12h format
   endTime?: string;   // "HH:MM"
@@ -284,7 +302,7 @@ export type GymNavigationParamList = {
   Splits: undefined;
   History: undefined;
   GymHome: undefined;
-  ActiveLogging: { date: string; initialIndex?: number; exerciseIndex?: number; autoPromptEnd?: boolean; previewOnly?: boolean };
+  ActiveLogging: { date: string; initialIndex?: number; exerciseIndex?: number; autoPromptEnd?: boolean; previewOnly?: boolean; autoStart?: 'start' | 'resume' };
   WorkoutSummary: { date?: string; readOnly?: boolean; log?: GymDayLog } | undefined;
   GymProgress: { date?: string } | undefined;
   ExerciseDetail: {

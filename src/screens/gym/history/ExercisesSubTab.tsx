@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, TextInput } from 'react-native';
-import { Dumbbell, Play, Search, X } from 'lucide-react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, Text, ScrollView, FlatList, TextInput, StyleSheet, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
-import { FONT_FAMILY, ICON, RADIUS, SPACE, TOUCH, ThemeTokens } from '../../../theme/tokens';
+import { FONT_FAMILY, RADIUS, SPACE, TOUCH, ThemeTokens } from '../../../theme/tokens';
 import { hapticLight, hapticMedium } from '../../../utils/haptics';
 import { formatIndianDatePretty } from '../../../utils/gymUtils';
 import { formatWeight, useWeightUnit } from '../../../utils/weightUnit';
@@ -82,14 +82,87 @@ export const ExercisesSubTab: React.FC<ExercisesSubTabProps> = React.memo(
       [reversedSessions, showAllSessions]
     );
 
-    return (
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+    const renderProfileChip = useCallback(
+      ({ item: p }: { item: ExerciseHistoryProfile }) => {
+        const isSel = p.name === activeExerciseProfile?.name;
+        return (
+          <TactileButton
+            lightweight
+            variant="custom"
+            haptic="none"
+            onPress={() => {
+              hapticLight();
+              onSelectExerciseName(p.name);
+              onSelectDataPointIdx(null);
+            }}
+            style={[styles.exChipBtn, isSel ? styles.exChipBtnActive : styles.exChipBtnInactive]}
+          >
+            <Text style={[styles.exChipText, isSel ? styles.exChipTextActive : styles.exChipTextInactive]}>
+              {p.name}
+            </Text>
+            <NumericText
+              style={[styles.exChipCount, isSel ? styles.exChipCountActive : styles.exChipCountInactive]}
+            >
+              {p.totalSessions}
+            </NumericText>
+          </TactileButton>
+        );
+      },
+      [activeExerciseProfile?.name, onSelectDataPointIdx, onSelectExerciseName, styles]
+    );
+
+    const renderSessionRow = useCallback(
+      ({ item: sess, index: sIdx }: { item: ExerciseHistoryProfile['sessions'][number]; index: number }) => {
+        const isLast = sIdx === visibleSessions.length - 1;
+        return (
+          <View
+            style={{
+              backgroundColor: cardBg,
+              paddingHorizontal: 16,
+              borderLeftWidth: StyleSheet.hairlineWidth,
+              borderRightWidth: StyleSheet.hairlineWidth,
+              borderColor: tokens.border.subtle,
+            }}
+          >
+            <View
+              style={{
+                paddingVertical: SPACE.sm + 2,
+                borderBottomWidth: isLast ? 0 : 0.5,
+                borderBottomColor: tokens.border.subtle,
+              }}
+            >
+              <View style={styles.pastExSessHeader}>
+                <NumericText style={styles.pastExSessDate}>
+                  {formatIndianDatePretty(sess.date)}
+                </NumericText>
+                <NumericText style={styles.pastExSessVol}>{formatVol(sess.sessionVolume)}</NumericText>
+              </View>
+
+              <View style={styles.pastExSetsWrap}>
+                {sess.sets.map((st, idx) => (
+                  <NumericText key={idx} style={styles.pastExSetText}>
+                    <Text style={{ fontFamily: FONT_FAMILY.bold, color: tokens.text.primary }}>
+                      {st.weight > 0 ? formatWeight(st.weight, unitIsLbs, 1) : 'BW'} × {st.reps}
+                    </Text>
+                    {idx < sess.sets.length - 1 ? '  ·  ' : ''}
+                  </NumericText>
+                ))}
+              </View>
+            </View>
+          </View>
+        );
+      },
+      [cardBg, formatVol, styles, tokens.border.subtle, tokens.text.primary, unitIsLbs, visibleSessions.length]
+    );
+
+    const listHeader = (
+      <>
         {/* Exercise Search Input */}
-        <View style={[styles.searchBar, { backgroundColor: cardBg }]}>
-          <Search
+        <View style={[styles.searchBar, { backgroundColor: cardBg, marginBottom: 10 }]}>
+          <Ionicons
+            name="search"
             size={15}
             color={tokens.text.secondary}
-            strokeWidth={ICON.strokeWidth}
             style={{ marginRight: SPACE.sm }}
           />
           <TextInput
@@ -101,13 +174,14 @@ export const ExercisesSubTab: React.FC<ExercisesSubTabProps> = React.memo(
           />
           {exerciseSearchQuery.length > 0 && (
             <TactileButton
+              lightweight
               variant="custom"
               haptic="light"
               onPress={() => onChangeSearch('')}
               hitSlop={TOUCH.hitSlop}
               style={{ padding: SPACE.xs }}
             >
-              <X size={16} color={tokens.text.secondary} strokeWidth={ICON.strokeWidth} />
+              <Ionicons name="close" size={16} color={tokens.text.secondary} />
             </TactileButton>
           )}
         </View>
@@ -117,12 +191,14 @@ export const ExercisesSubTab: React.FC<ExercisesSubTabProps> = React.memo(
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={[styles.horizontalChipsScroll, { marginBottom: SPACE.xs }]}
+          style={{ marginBottom: 10 }}
         >
           {(['All', 'Push', 'Pull', 'Legs', 'Arms', 'Core'] as const).map((cat) => {
             const isSel = exCategoryFilter === cat;
             return (
               <TactileButton
                 key={cat}
+                lightweight
                 variant="custom"
                 haptic="none"
                 onPress={() => {
@@ -144,43 +220,26 @@ export const ExercisesSubTab: React.FC<ExercisesSubTabProps> = React.memo(
           })}
         </ScrollView>
 
-        {/* Horizontal Exercise Selector Chips */}
-        <ScrollView
+        {/* Horizontal Exercise Selector Chips (Virtualized) */}
+        <FlatList
           horizontal
+          data={filteredExerciseProfiles}
+          keyExtractor={(item) => item.name}
+          renderItem={renderProfileChip}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.horizontalChipsScroll}
-        >
-          {filteredExerciseProfiles.map((p) => {
-            const isSel = p.name === activeExerciseProfile?.name;
-            return (
-              <TactileButton
-                key={p.name}
-                variant="custom"
-                haptic="none"
-                onPress={() => {
-                  hapticLight();
-                  onSelectExerciseName(p.name);
-                  onSelectDataPointIdx(null);
-                }}
-                style={[styles.exChipBtn, isSel ? styles.exChipBtnActive : styles.exChipBtnInactive]}
-              >
-                <Text style={[styles.exChipText, isSel ? styles.exChipTextActive : styles.exChipTextInactive]}>
-                  {p.name}
-                </Text>
-                <NumericText
-                  style={[styles.exChipCount, isSel ? styles.exChipCountActive : styles.exChipCountInactive]}
-                >
-                  {p.totalSessions}
-                </NumericText>
-              </TactileButton>
-            );
-          })}
-        </ScrollView>
+          style={{ marginBottom: 10 }}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={5}
+          removeClippedSubviews={Platform.OS === 'android'}
+          extraData={activeExerciseProfile?.name}
+        />
 
         {activeExerciseProfile ? (
           <>
             {/* Selected Exercise Benchmark Hero */}
-            <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
+            <View style={[styles.insetCard, { backgroundColor: cardBg, marginBottom: 10 }]}>
               <View style={styles.cardHeaderRow}>
                 <View style={{ flex: 1, paddingRight: SPACE.sm }}>
                   <Text style={styles.exHeroTitle} numberOfLines={1}>
@@ -296,7 +355,7 @@ export const ExercisesSubTab: React.FC<ExercisesSubTabProps> = React.memo(
             </View>
 
             {/* Performance Trajectory Curve */}
-            <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
+            <View style={[styles.insetCard, { backgroundColor: cardBg, marginBottom: 10 }]}>
               <View style={[styles.cardHeaderRow, { flexWrap: 'wrap', gap: SPACE.sm }]}>
                 <View style={{ flex: 1, minWidth: 140, paddingRight: SPACE.sm }}>
                   <Text style={styles.cardSectionLabel}>STRENGTH CURVE</Text>
@@ -377,61 +436,33 @@ export const ExercisesSubTab: React.FC<ExercisesSubTabProps> = React.memo(
               )}
             </View>
 
-            {/* Session-by-Session Historical Set Log (Single Hairline Ledger) */}
-            <View style={[styles.insetCard, { backgroundColor: cardBg }]}>
+            {/* Session-by-Session Historical Set Log Card Top Header */}
+            <View
+              style={[
+                styles.insetCard,
+                {
+                  backgroundColor: cardBg,
+                  borderBottomLeftRadius: 0,
+                  borderBottomRightRadius: 0,
+                  borderBottomWidth: 0,
+                  paddingBottom: SPACE.sm,
+                },
+              ]}
+            >
               <NumericText style={styles.cardSectionLabel}>
                 PAST WORKOUTS ({activeExerciseProfile.sessions.length})
               </NumericText>
-
-              <View style={{ marginTop: SPACE.sm }}>
-                {visibleSessions.map((sess, sIdx, arr) => (
-                  <View
-                    key={sess.date}
-                    style={{
-                      paddingVertical: SPACE.sm + 2,
-                      borderBottomWidth: sIdx === arr.length - 1 ? 0 : 0.5,
-                      borderBottomColor: tokens.border.subtle,
-                    }}
-                  >
-                    <View style={styles.pastExSessHeader}>
-                      <NumericText style={styles.pastExSessDate}>
-                        {formatIndianDatePretty(sess.date)}
-                      </NumericText>
-                      <NumericText style={styles.pastExSessVol}>{formatVol(sess.sessionVolume)}</NumericText>
-                    </View>
-
-                    <View style={styles.pastExSetsWrap}>
-                      {sess.sets.map((st, idx) => (
-                        <NumericText key={idx} style={styles.pastExSetText}>
-                          <Text style={{ fontFamily: FONT_FAMILY.bold, color: tokens.text.primary }}>
-                            {st.weight > 0 ? formatWeight(st.weight, unitIsLbs, 1) : 'BW'} × {st.reps}
-                          </Text>
-                          {idx < sess.sets.length - 1 ? '  ·  ' : ''}
-                        </NumericText>
-                      ))}
-                    </View>
-                  </View>
-                ))}
-                {!showAllSessions && reversedSessions.length > 15 && (
-                  <TactileButton
-                    variant="secondary"
-                    size="sm"
-                    onPress={() => setShowAllSessions(true)}
-                    style={{ marginTop: SPACE.sm }}
-                    label={`Show All ${reversedSessions.length} Sessions`}
-                  />
-                )}
-              </View>
             </View>
           </>
         ) : (
           <View style={[styles.insetCard, { backgroundColor: cardBg, alignItems: 'center', paddingVertical: SPACE.xxl }]}>
-            <Dumbbell size={36} color={tokens.text.secondary} strokeWidth={ICON.strokeWidth} />
+            <Ionicons name="barbell-outline" size={36} color={tokens.text.secondary} />
             <Text style={styles.emptyTitle}>No Exercises Found</Text>
             <Text style={styles.emptyNote}>
               Log your working sets in the Today tab to automatically unlock strength curves, personal records (PRs), and estimated 1RMs.
             </Text>
             <TactileButton
+              lightweight
               variant="custom"
               haptic="none"
               onPress={() => {
@@ -440,17 +471,60 @@ export const ExercisesSubTab: React.FC<ExercisesSubTabProps> = React.memo(
               }}
               style={[styles.startTodayWorkoutBtn, { marginTop: SPACE.md }]}
             >
-              <Play
+              <Ionicons
+                name="play"
                 size={14}
                 color={tokens.accent.onPrimary}
-                strokeWidth={ICON.strokeWidth}
                 style={{ marginRight: SPACE.xs + 2 }}
               />
               <Text style={styles.startTodayWorkoutBtnText}>Go to Today's Workout</Text>
             </TactileButton>
           </View>
         )}
-      </ScrollView>
+      </>
+    );
+
+    const listFooter = activeExerciseProfile ? (
+      <View
+        style={{
+          backgroundColor: cardBg,
+          borderBottomLeftRadius: RADIUS.card,
+          borderBottomRightRadius: RADIUS.card,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderTopWidth: 0,
+          borderColor: tokens.border.subtle,
+          paddingHorizontal: 16,
+          paddingBottom: 16,
+        }}
+      >
+        {!showAllSessions && reversedSessions.length > 15 && (
+          <TactileButton
+            lightweight
+            variant="secondary"
+            size="sm"
+            onPress={() => setShowAllSessions(true)}
+            style={{ marginTop: SPACE.sm }}
+            label={`Show All ${reversedSessions.length} Sessions`}
+          />
+        )}
+      </View>
+    ) : null;
+
+    return (
+      <FlatList
+        data={activeExerciseProfile ? visibleSessions : []}
+        keyExtractor={(sess) => sess.date}
+        renderItem={renderSessionRow}
+        ListHeaderComponent={listHeader}
+        ListFooterComponent={listFooter}
+        contentContainerStyle={[styles.scrollContent, { gap: 0 }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        initialNumToRender={10}
+        maxToRenderPerBatch={8}
+        windowSize={5}
+        removeClippedSubviews={Platform.OS === 'android'}
+      />
     );
   }
 );

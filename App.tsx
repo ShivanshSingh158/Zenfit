@@ -38,6 +38,9 @@ import { CoreDataProvider, useCoreData } from './src/contexts/domains/CoreDataCo
 import { WellnessProvider } from './src/contexts/domains/WellnessContext';
 import GymStack from './src/navigation/GymStack';
 import { getAllPRs } from './src/utils/progressiveOverload';
+import { preloadModuleNow } from './src/utils/ModulePrefetcher';
+import ErrorBoundary from './src/components/ErrorBoundary';
+import { setupLifecycleHygiene } from './src/services/lifecycleHygiene';
 
 const LazyAthleteOnboardingFlow = React.lazy(
   () => import('./src/screens/onboarding/AthleteOnboardingFlow')
@@ -78,19 +81,28 @@ const ZEN_LIGHT_THEME = {
   },
 };
 
-function MainNavigator() {
+function MainNavigator({ bootHydrated }: { bootHydrated: boolean }) {
   const { user, isGuest } = useCoreData();
   const { isDark, colors } = useTheme();
   const initialOnboarded = getL1Sync<boolean>(ONBOARDING_FLOW_KEY, false) ||
     Boolean(getGymProfileSync()?.onboardingCompleted || (getGymProfileSync()?.heightCm && getGymProfileSync()?.weightKg));
   const [onboardingCompleted, setOnboardingCompleted] = useState<boolean>(Boolean(initialOnboarded));
 
+  // Sync onboarding flag immediately when L1 boot manifest finishes in parallel with Frame 0
+  React.useEffect(() => {
+    if (!bootHydrated || onboardingCompleted) return;
+    const synced = getL1Sync<boolean>(ONBOARDING_FLOW_KEY, false) ||
+      Boolean(getGymProfileSync()?.onboardingCompleted || (getGymProfileSync()?.heightCm && getGymProfileSync()?.weightKg));
+    if (synced) setOnboardingCompleted(true);
+  }, [bootHydrated, onboardingCompleted]);
+
   // Reset onboarding flag if user signed out and local onboarding state was wiped
   React.useEffect(() => {
+    if (!bootHydrated) return;
     if (!user && !isGuest && !getL1Sync<boolean>(ONBOARDING_FLOW_KEY, false)) {
       setOnboardingCompleted(false);
     }
-  }, [user, isGuest]);
+  }, [bootHydrated, user, isGuest]);
 
   React.useEffect(() => {
     if (onboardingCompleted) return;
@@ -155,6 +167,11 @@ function MainNavigator() {
     };
   }, [onboardingCompleted, user, isGuest]);
 
+  // Hold empty canvas only if neither user/onboarding L1 nor boot hydration is known yet (native splash stays visible above)
+  if (!bootHydrated && (!onboardingCompleted || (!user && !isGuest))) {
+    return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  }
+
   // Flagship Athlete Onboarding Flow (shown until all 7 steps are finished, or if signed out)
   if (!onboardingCompleted || (!user && !isGuest)) {
     return (
@@ -180,12 +197,20 @@ function MainNavigator() {
 function MainRoot({ fontsReady, bootHydrated }: { fontsReady: boolean; bootHydrated: boolean }) {
   const { isDark, colors } = useTheme();
   const [navReady, setNavReady] = useState(false);
+  const warmTimersRef = React.useRef<ReturnType<typeof setTimeout>[]>([]);
 
   React.useEffect(() => {
     if (bootHydrated && navReady && fontsReady) {
       SplashScreen.hideAsync().catch(() => { });
     }
   }, [bootHydrated, navReady, fontsReady]);
+
+  React.useEffect(() => {
+    return () => {
+      warmTimersRef.current.forEach(clearTimeout);
+      warmTimersRef.current = [];
+    };
+  }, []);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -196,15 +221,21 @@ function MainRoot({ fontsReady, bootHydrated }: { fontsReady: boolean; bootHydra
           setNavReady(true);
           flushPendingNavigation();
           InteractionManager.runAfterInteractions(() => {
-            // Idle background pre-warming after UI settles without blocking Frame 0 module eval
-            import('./src/components/Gym/exercise/AddExerciseModal')
-              .then((m) => m.warmExerciseCatalogue?.())
-              .catch(() => {});
-            getAllPRs().catch(() => {});
+            warmTimersRef.current.forEach(clearTimeout);
+            warmTimersRef.current = [
+              setTimeout(() => preloadModuleNow('Today'), 450),
+              setTimeout(() => preloadModuleNow('ActiveLogging'), 1100),
+              setTimeout(() => {
+                import('./src/components/Gym/exercise/AddExerciseModal')
+                  .then((m) => m.warmExerciseCatalogue?.())
+                  .catch(() => {});
+                getAllPRs().catch(() => {});
+              }, 2000),
+            ];
           });
         }}
       >
-        <MainNavigator />
+        <MainNavigator bootHydrated={bootHydrated} />
       </NavigationContainer>
     </View>
   );
@@ -231,7 +262,7 @@ export default function App() {
       if (active) setBootHydrated(true);
     }, 600);
 
-    // Await pre-warmed boot manifest before mounting ThemeProvider / CoreDataProvider / MainNavigator
+    // Parallel L1 boot manifest hydration (never blocks ThemeProvider / NavigationContainer mounting)
     loadBootManifest()
       .catch(() => {})
       .finally(() => {
@@ -256,12 +287,16 @@ export default function App() {
     // 0ms startup delay; silently downloads new bundles in the background, ready on next launch
     const unsubscribeOta = registerDeferredOtaSync();
 
+    // Centralized OS background/foreground flush hygiene (1 AppState listener instead of 4)
+    const unsubscribeLifecycle = setupLifecycleHygiene();
+
     return () => {
       active = false;
       clearTimeout(bootCapTimer);
       clearTimeout(splashFallbackTimer);
       unsubscribeOta?.();
       unsubscribeNotif?.();
+      unsubscribeLifecycle?.();
     };
   }, []);
 
@@ -271,20 +306,18 @@ export default function App() {
     (initialTheme === 'system' && Appearance.getColorScheme() === 'light');
   const appBg = isInitialLight ? LIGHT_TOKENS.bg.canvas : DARK_TOKENS.bg.canvas;
 
-  if (!bootHydrated) {
-    return <View style={{ flex: 1, backgroundColor: appBg }} />;
-  }
-
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: appBg }}>
       <SafeAreaProvider style={{ flex: 1, backgroundColor: appBg }}>
-        <ThemeProvider>
-          <PortalProvider>
-            <CoreDataProvider>
-              <MainRoot fontsReady={fontsReady} bootHydrated={bootHydrated} />
-            </CoreDataProvider>
-          </PortalProvider>
-        </ThemeProvider>
+        <ErrorBoundary screenName="ZenFit Root" autoRestartOnProd>
+          <ThemeProvider>
+            <PortalProvider>
+              <CoreDataProvider>
+                <MainRoot fontsReady={fontsReady} bootHydrated={bootHydrated} />
+              </CoreDataProvider>
+            </PortalProvider>
+          </ThemeProvider>
+        </ErrorBoundary>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

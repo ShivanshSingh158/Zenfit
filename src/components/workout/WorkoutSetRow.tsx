@@ -20,7 +20,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { Check, Trash2 } from 'lucide-react-native';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { GymSet } from '../../types/gym.types';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -328,10 +328,10 @@ export const WorkoutSetRow: React.FC<WorkoutSetRowProps> = React.memo(
               completeRailStyle,
             ]}
           >
-            <Check
+            <Ionicons
+              name="checkmark"
               size={16}
               color={tokens.status.success}
-              strokeWidth={tokens.icon.strokeWidth}
             />
           </Animated.View>
           <Animated.View
@@ -341,10 +341,10 @@ export const WorkoutSetRow: React.FC<WorkoutSetRowProps> = React.memo(
               deleteRailStyle,
             ]}
           >
-            <Trash2
+            <Ionicons
+              name="trash-outline"
               size={16}
               color={tokens.status.danger}
-              strokeWidth={tokens.icon.strokeWidth}
             />
           </Animated.View>
         </View>
@@ -537,14 +537,14 @@ export const WorkoutSetRow: React.FC<WorkoutSetRowProps> = React.memo(
                   animatedCheckStyle,
                 ]}
               >
-                <Check
+                <Ionicons
+                  name="checkmark"
                   size={16}
                   color={
                     isCompleted
                       ? tokens.status.onSuccess
                       : tokens.text.muted
                   }
-                  strokeWidth={tokens.icon.strokeWidth}
                 />
               </Animated.View>
             </Pressable>

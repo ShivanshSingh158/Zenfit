@@ -800,6 +800,7 @@ export function AddExerciseModal({
                     return (
                       <TactileButton
                         key={chip.id}
+                        lightweight
                         variant="custom"
                         style={[styles.filterChip, isActive && styles.filterChipActive]}
                         onPress={() => {

@@ -94,6 +94,7 @@ export const SwapRoutineModal: React.FC<SwapRoutineModalProps> = React.memo(({
                     <Text style={styles.dayPickName}>{rt.name}</Text>
                     <NumericText style={styles.sheetSubtitle}>
                       {rt.exercises?.length || 0} exercises · {totalSets} sets
+                      {(rt.cardio?.length || 0) > 0 ? ` · ${rt.cardio?.length} cardio` : ''}
                     </NumericText>
                   </View>
                   <ChevronRight size={ICON.sm} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />

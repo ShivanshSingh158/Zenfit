@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { AppState, View, Text, Pressable, Platform, StyleSheet, DeviceEventEmitter, InteractionManager, ScrollView } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   Extrapolation,
@@ -11,10 +10,19 @@ import Animated, {
 } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, {
+  Circle,
+  Defs,
+  LinearGradient as SvgLinearGradient,
+  Path,
+  RadialGradient,
+  Rect,
+  Stop,
+} from 'react-native-svg';
 import {
-  Flame,
+  AlertTriangle,
+  ChevronRight,
   Play,
-  ShieldCheck,
   X,
 } from 'lucide-react-native';
 import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
@@ -42,10 +50,12 @@ import { useCoreData } from '../../contexts/domains/CoreDataContext';
 import { useGymLogs, useGymPlan, useBodyMetrics, useActiveWorkoutState } from '../../contexts/domains/WellnessContext';
 import { useGymLog, todayStr } from '../../hooks/useGymLog';
 import { useGymProfile } from '../../hooks/useGymProfile';
-import { dateStrOffset, parseLocalDate, toYMD } from '../../utils/dateCore';
+import { parseLocalDate } from '../../utils/dateCore';
 import { getRotationNextDayIndex } from '../../services/gymRotationService';
 import {
+  buildExerciseHistoryIndex,
   calculateGymStreak,
+  normalizeExerciseKey,
   resolveExerciseTargetMuscle,
 } from '../../utils/gymUtils';
 import { planDayIndexForDate, resolvePlanDay, getCustomPlanDay } from '../../data/gymPlan';
@@ -55,23 +65,29 @@ import {
   MuscleSlug,
 } from '../../services/muscleRecoveryService';
 import { getAllPRs, PRRecord } from '../../utils/progressiveOverload';
+import { formatWeight, useWeightUnit } from '../../utils/weightUnit';
 import { hapticLight, hapticMedium, hapticSuccess } from '../../utils/haptics';
 
-import MiniDualBodyMap from '../../components/Gym/schedule/MiniDualBodyMap';
-import PRHallOfFameSheet from '../../components/Gym/metrics/PRHallOfFameSheet';
-import { FullAthleteProfileModal } from '../../components/Gym/profile/FullAthleteProfileModal';
-import { SetupAthleteStatsModal } from '../../components/Gym/profile/SetupAthleteStatsModal';
-import ExerciseDeepDiveModal from '../../components/Gym/exercise/ExerciseDeepDiveModal';
+import { LazySheet } from '../../hooks/useLazySheetMount';
+const MiniDualBodyMap = React.lazy(() => import('../../components/Gym/schedule/MiniDualBodyMap'));
+const PRHallOfFameSheet = React.lazy(() => import('../../components/Gym/metrics/PRHallOfFameSheet'));
+const BodyMetricsSheet = React.lazy(() => import('../../components/Gym/metrics/BodyMetricsSheet'));
+const FullAthleteProfileModal = React.lazy(() =>
+  import('../../components/Gym/profile/FullAthleteProfileModal').then(m => ({ default: m.FullAthleteProfileModal }))
+);
+const SetupAthleteStatsModal = React.lazy(() =>
+  import('../../components/Gym/profile/SetupAthleteStatsModal').then(m => ({ default: m.SetupAthleteStatsModal }))
+);
+const ExerciseDeepDiveModal = React.lazy(() => import('../../components/Gym/exercise/ExerciseDeepDiveModal'));
 import { afterSheetDismiss } from '../../utils/sheetCoordinator';
 import { computeAthleteCardStats } from '../../services/athleteCardService';
 import { UserAvatar } from '../../components/ui/UserAvatar';
 import { auth } from '../../services/firebase';
 import { getL1Sync } from '../../utils/bootManifest';
 import { makeDashboardStyles } from './dashboard/gymDashboardStyles';
-import GoalSetterModal from './dashboard/GoalSetterModal';
-import TelemetryBarCard from './dashboard/TelemetryBarCard';
-import MonthlyGoalsCard from './dashboard/MonthlyGoalsCard';
-import OrbitalChronometerHero from './dashboard/OrbitalChronometerHero';
+import { SwapRoutineModal } from '../../components/Gym/schedule/SwapRoutineModal';
+import WeeklySplitStrip, { WeekDaySlot } from './dashboard/TelemetryBarCard';
+import OrbitalChronometerHero, { HeroLiftPreviewItem } from './dashboard/OrbitalChronometerHero';
 
 const GENERIC_PROFILE_NAMES = new Set([
   'athlete',
@@ -160,8 +176,11 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
   const { userGymPlan } = useGymPlan();
   const { gymProfile, saveGymProfile } = useGymProfile();
   const { weightLogs } = useBodyMetrics();
+  const unitIsLbs = useWeightUnit();
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
-  const [capsuleWidth, setCapsuleWidth] = useState(108);
+  const [showBodyMetricsModal, setShowBodyMetricsModal] = useState(false);
+  const [showSwapModal, setShowSwapModal] = useState(false);
+  const [capsuleWidth, setCapsuleWidth] = useState(44);
 
   const [today, setToday] = useState(() => todayStr());
   useFocusEffect(
@@ -183,16 +202,14 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
 
   const {
     log: activeLog,
-    startWorkout,
     endWorkout,
-    resumeWorkout,
     revertWorkout,
+    swapDayRoutine,
     planDay: hookPlanDay,
-  } = useGymLog(selectedDate);
+  } = useGymLog(selectedDate, { skipHistoryIndex: false });
 
-  // ─── Scroll Choreography & Navigation Anchors ─────────────────────────────
+  // ─── Scroll Choreography ───────────────────────────────────────────────────
   const scrollRef = useRef<any>(null);
-  const muscleSectionYRef = useRef(0);
   const scrollY = useSharedValue(0);
 
   const scrollHandler = useAnimatedScrollHandler({
@@ -226,7 +243,6 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
   // ─── Modal States ──────────────────────────────────────────────────────────
   const [showPRSheet, setShowPRSheet] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [showGoalModal, setShowGoalModal] = useState(false);
   const [showPreviewSheet, setShowPreviewSheet] = useState(false);
   const [deepDiveExercise, setDeepDiveExercise] = useState<string | null>(null);
   const [dashConfirm, setDashConfirm] = useState<{
@@ -506,40 +522,21 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
     }
   }, [today]);
 
-  // ─── Streak & Weekly Sessions Dot Rail ──────────────────────────────────────
+  // ─── Active Plan Day for Today ─────────────────────────────────────────────
+  const activePlanDay = useMemo(() => {
+    if (hookPlanDay && (hookPlanDay.name || hookPlanDay.isRest)) {
+      return hookPlanDay;
+    }
+    const planIdx = userGymPlan?.scheduleMode === 'rotation'
+      ? getRotationNextDayIndex(userGymPlan, gymLogs || [], today)
+      : planDayIndexForDate(today);
+    return resolvePlanDay(userGymPlan, planIdx);
+  }, [today, hookPlanDay, userGymPlan, gymLogs]);
+
+  // ─── Streak & Weekly Sessions Interactive 7-Day Strip ───────────────────────
   const streakDays = useMemo(() => {
     return calculateGymStreak(gymLogs || [], userGymPlan);
   }, [gymLogs, userGymPlan]);
-
-  const { sessionsThisWeek, weekDots, todayDotIdx } = useMemo(() => {
-    const now = parseLocalDate(today);
-    const dayOfWeek = (now.getDay() + 6) % 7; // Monday = 0 ... Sunday = 6
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - dayOfWeek);
-
-    const dots: boolean[] = [];
-    let sessions = 0;
-
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      const dateStr = `${yyyy}-${mm}-${dd}`;
-
-      const log = logsByDateMap?.get(dateStr) ||
-        (effectiveLog && effectiveLog.date === dateStr ? effectiveLog : null);
-      const isDone = Boolean(
-        log?.completed ||
-        (log?.exercises && log.exercises.some((e: any) => e.setsLog?.some((s: any) => s.completed)))
-      );
-      if (isDone) sessions++;
-      dots.push(isDone);
-    }
-
-    return { sessionsThisWeek: sessions, weekDots: dots, todayDotIdx: dayOfWeek };
-  }, [logsByDateMap, gymLogs, effectiveLog, today]);
 
   const weeklyPlannedSessions = useMemo(() => {
     let count = 0;
@@ -552,50 +549,66 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
     return count > 0 ? count : 4;
   }, [userGymPlan]);
 
-  // ─── Weekly 7-Day Volume (Tonnage) & Trend ─────────────────────────────────
-  const { weeklyTotalVolumeKg, volumeTrendDiffKg } = useMemo(() => {
-    const current7Start = dateStrOffset(today, -6);
-    const prev7Start = dateStrOffset(today, -13);
-    let current7d = 0;
-    let prev7d = 0;
+  const { sessionsThisWeek, weekSlots } = useMemo(() => {
+    const now = parseLocalDate(today);
+    const dayOfWeek = (now.getDay() + 6) % 7; // Monday = 0 ... Sunday = 6
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - dayOfWeek);
 
-    for (const log of gymLogs || []) {
-      if (!log.date || typeof log.date !== 'string') continue;
-      if (!/^\d{4}-\d{1,2}-\d{1,2}/.test(log.date)) continue;
-      const logDateKey = toYMD(parseLocalDate(log.date));
-      if (logDateKey > today || logDateKey < prev7Start) continue;
+    const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const slots: WeekDaySlot[] = [];
+    let sessions = 0;
 
-      let logVol = 0;
-      for (const ex of log.exercises || []) {
-        for (const s of ex.setsLog || []) {
-          if (s.completed && s.weight && s.reps) {
-            logVol += Number(s.weight) * Number(s.reps);
-          }
-        }
-      }
-      if (logDateKey >= current7Start) {
-        current7d += logVol;
-      } else {
-        prev7d += logVol;
-      }
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const dateStr = `${yyyy}-${mm}-${dd}`;
+      const isToday = dateStr === today;
+
+      const dayLog = logsByDateMap?.get(dateStr) ||
+        (effectiveLog && effectiveLog.date === dateStr ? effectiveLog : null);
+      const isDone = Boolean(
+        dayLog?.completed ||
+        (dayLog?.exercises && dayLog.exercises.some((e: any) => e.setsLog?.some((s: any) => s.completed)))
+      );
+      if (isDone) sessions++;
+
+      const planDayIdx = i + 1;
+      const customDay = getCustomPlanDay(userGymPlan?.customDays, planDayIdx);
+      const resolvedDay = isToday
+        ? activePlanDay
+        : (customDay || resolvePlanDay(userGymPlan, planDayIdx));
+      const isRest = Boolean(resolvedDay ? resolvedDay.isRest : i === 6);
+      const exList = !isRest && Array.isArray(resolvedDay?.exercises) ? resolvedDay!.exercises : [];
+      const totalDaySets = exList.reduce(
+        (acc: number, ex: any) => acc + (Number(ex.targetSets) || 3),
+        0
+      );
+
+      slots.push({
+        dateStr,
+        letter: LETTERS[i],
+        dayName: DAY_NAMES[i],
+        isToday,
+        isDone,
+        isRest,
+        workoutName: isRest ? 'Rest & Rebuild' : (resolvedDay?.name || 'Training Day'),
+        exerciseCount: exList.length,
+        totalSets: totalDaySets,
+      });
     }
-    const diff = Math.round(current7d - prev7d);
-    return {
-      weeklyTotalVolumeKg: Math.round(current7d),
-      volumeTrendDiffKg: diff,
-    };
-  }, [gymLogs, today]);
 
-  // ─── Active Plan Day for Today ─────────────────────────────────────────────
-  const activePlanDay = useMemo(() => {
-    if (hookPlanDay && (hookPlanDay.name || hookPlanDay.isRest)) {
-      return hookPlanDay;
-    }
-    const planIdx = userGymPlan?.scheduleMode === 'rotation'
-      ? getRotationNextDayIndex(userGymPlan, gymLogs || [], today)
-      : planDayIndexForDate(today);
-    return resolvePlanDay(userGymPlan, planIdx);
-  }, [today, hookPlanDay, userGymPlan, gymLogs]);
+    return { sessionsThisWeek: sessions, weekSlots: slots };
+  }, [logsByDateMap, effectiveLog, today, userGymPlan, activePlanDay]);
+
+  const exerciseHistoryIndex = useMemo(
+    () => buildExerciseHistoryIndex(gymLogs, selectedDate),
+    [gymLogs, selectedDate]
+  );
 
   const exercises = useMemo(() => {
     if (effectiveLog?.exercises && effectiveLog.exercises.length > 0) {
@@ -627,7 +640,7 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
     return Array.from(list);
   }, [exercises]);
 
-  // ─── Clean, Non-Redundant Workout Subtitle ─────────────────────────────────
+  // ─── Clean Muscle Target Line (Volume & Time sit cleanly beside title) ───────
   const heroWorkoutSubtitle = useMemo(() => {
     if (!activePlanDay || activePlanDay.isRest) return 'Rest & Recovery';
     if (!exercises || exercises.length === 0) return 'No exercises scheduled';
@@ -635,26 +648,19 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
     const title = (activePlanDay?.name || '').toLowerCase();
     const titleWords = title.replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
 
-    // Filter out muscle groups that are already explicitly mentioned in the title (e.g. "Chest", "Back")
-    const nonRedundantMuscles = todayTargetGroups.filter(group => {
+    const nonRedundantMuscles = todayTargetGroups.filter((group) => {
       const gLower = group.toLowerCase();
-      return !titleWords.some(w => gLower.includes(w) || w.includes(gLower));
+      return !titleWords.some((w) => gLower.includes(w) || w.includes(gLower));
     });
 
-    const parts: string[] = [];
     if (nonRedundantMuscles.length > 0) {
-      parts.push(nonRedundantMuscles.slice(0, 3).join(' · '));
-    } else if (exercises.length > 0) {
-      parts.push(`${exercises.length} exercises`);
+      return nonRedundantMuscles.slice(0, 3).join(' · ');
     }
-
-    if (totalSets > 0) {
-      parts.push(`${totalSets} sets`);
-      parts.push(`~${Math.round(totalSets * 2.8)} min`);
+    if (todayTargetGroups.length > 0) {
+      return todayTargetGroups.slice(0, 3).join(' · ');
     }
-
-    return parts.length > 0 ? parts.join(' · ') : 'Rest & Recovery';
-  }, [activePlanDay, exercises, todayTargetGroups, totalSets]);
+    return `${exercises.length} exercises`;
+  }, [activePlanDay, exercises, todayTargetGroups]);
 
   // ─── Biomechanical Fatigue Engine & Today's Target Recovery ────────────────
   const fatigueData = useMemo(() => {
@@ -709,20 +715,19 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
       }
     });
 
-    const muscleNames = todayTargetGroups.slice(0, 3).join(', ');
     let desc = '';
     if (todayTargetReadinessPct >= 90) {
-      desc = `${muscleNames || 'Target muscles'} are fully primed (${todayTargetReadinessPct}%). High neural drive—optimal window to push overload on primary compound lifts today.`;
+      desc = `Peak readiness (${todayTargetReadinessPct}%) — ideal window to push overload on compounds.`;
     } else if (todayTargetReadinessPct >= 75) {
-      desc = `${muscleNames || 'Target muscles'} show solid readiness (${todayTargetReadinessPct}%). Good systemic capacity—execute working sets with strict tempo and clean form.`;
+      desc = `Solid readiness (${todayTargetReadinessPct}%) — drive crisp working sets with clean tempo.`;
     } else if (todayTargetReadinessPct >= 50) {
-      desc = `${muscleNames || 'Target muscles'} are restoring (${todayTargetReadinessPct}%). Take thorough warmup sets and leave 1–2 reps in reserve on compounds.`;
+      desc = `Restoring (${todayTargetReadinessPct}%) — extend warmups and keep 1–2 reps in reserve.`;
     } else {
-      desc = `Accumulated fatigue detected (${todayTargetReadinessPct}%). Prioritize controlled pump volume and form precision rather than chasing maximum load today.`;
+      desc = `High fatigue (${todayTargetReadinessPct}%) — focus on controlled form over max load today.`;
     }
 
     return { customRecoveryColors: colorMap, statusDescription: desc };
-  }, [allTodayTargetSlugs, todayTargetGroups, todayTargetReadinessPct, fatigueData, tokens]);
+  }, [allTodayTargetSlugs, todayTargetReadinessPct, fatigueData, tokens]);
 
   // ─── Weekly Muscle Volume Targets (Science-Based & Program-Aware) ──────────
   const weeklyStimulusRows = useMemo(() => {
@@ -791,6 +796,90 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
     ];
   }, [todayTargetGroups, gymLogs, sessionsThisWeek, userGymPlan, today]);
 
+  // Unified Focus & Volume Rows (Zero duplicated muscle lists across sections)
+  const unifiedFocusRows = useMemo(() => {
+    const readinessMap = new Map(todayMuscleItems.map((m) => [m.group, m.readiness]));
+    return weeklyStimulusRows.slice(0, 3).map((row) => ({
+      muscle: row.muscle,
+      readiness: readinessMap.get(row.muscle) ?? todayTargetReadinessPct,
+      doneSets: row.doneSets,
+      targetSets: row.targetSets,
+    }));
+  }, [weeklyStimulusRows, todayMuscleItems, todayTargetReadinessPct]);
+
+  // Top-3 Hero Lifts with Last-Session Context (What to beat today)
+  const topLiftPreviews: HeroLiftPreviewItem[] = useMemo(() => {
+    return (exercises || []).slice(0, 3).map((ex: any) => {
+      const hist = ex?.name ? exerciseHistoryIndex.get(normalizeExerciseKey(ex.name)) : null;
+      return {
+        name: ex?.name || 'Exercise',
+        targetSets:
+          Array.isArray(ex?.setsLog) && ex.setsLog.length > 0
+            ? ex.setsLog.length
+            : Number(ex?.targetSets) || 3,
+        targetReps: ex?.targetReps ? String(ex.targetReps) : '8–12',
+        lastWeightKg: hist?.lastWeight ?? null,
+        lastAvgReps: hist?.avgReps ?? null,
+      };
+    });
+  }, [exercises, exerciseHistoryIndex]);
+
+  // Show coaching note ONLY when working muscles actually show fatigue (< 65%)
+  const fatigueAlertMessage = useMemo(() => {
+    const fatigued = todayMuscleItems.find((m) => m.readiness < 65);
+    if (!fatigued) return null;
+    return `${fatigued.group} at ${fatigued.readiness}% readiness — warm up extra or consider swapping today's split.`;
+  }, [todayMuscleItems]);
+
+  // Live Bodyweight Snapshot & Strength Milestone
+  const bodyweightSnapshot = useMemo(() => {
+    const sorted = Array.isArray(weightLogs) ? weightLogs : [];
+    const latestKg =
+      (sorted[0]?.weightKg ?? gymProfile?.weightKg ?? gymProfile?.bodyweightKg) || null;
+    const prevKg = sorted.length > 1 ? (sorted[1]?.weightKg ?? null) : null;
+    const deltaKg = latestKg && prevKg ? Number((latestKg - prevKg).toFixed(1)) : null;
+
+    return {
+      latestKg,
+      displayValue: latestKg ? formatWeight(latestKg, unitIsLbs, 1) : 'Log weight',
+      subLabel:
+        deltaKg !== null && Math.abs(deltaKg) >= 0.1
+          ? `${deltaKg > 0 ? '+' : ''}${formatWeight(deltaKg, unitIsLbs, 1)} vs last`
+          : sorted[0]?.date === today
+          ? 'Logged today'
+          : 'Current weight',
+    };
+  }, [weightLogs, gymProfile?.weightKg, gymProfile?.bodyweightKg, unitIsLbs, today]);
+
+  const strengthMilestone = useMemo(() => {
+    if (latestPR) {
+      const weightTxt =
+        latestPR.heaviestWeight && latestPR.heaviestWeight > 0
+          ? formatWeight(latestPR.heaviestWeight, unitIsLbs, 1)
+          : '';
+      const metric = weightTxt
+        ? `${weightTxt}${latestPR.bestReps ? ` × ${latestPR.bestReps}` : ''}`
+        : latestPR.bestReps
+        ? `${latestPR.bestReps} reps`
+        : 'Recorded';
+      return {
+        isPR: true,
+        overline: 'BEST PR',
+        title: latestPR.exerciseName,
+        sub: metric,
+      };
+    }
+
+    const baseKg = bodyweightSnapshot.latestKg || 75;
+    const benchTargetDisplay = formatWeight(Math.round(baseKg), unitIsLbs, 0);
+    return {
+      isPR: false,
+      overline: 'PR VAULT',
+      title: `Bench ${benchTargetDisplay}`,
+      sub: '1.0× BW goal',
+    };
+  }, [latestPR, bodyweightSnapshot.latestKg, unitIsLbs]);
+
   // Session receipt when completed
   const sessionReceipt = useMemo(() => {
     let tonnage = 0;
@@ -816,83 +905,6 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
       xp,
     };
   }, [effectiveLog, activeLog, todayLogInList]);
-
-  // ─── Monthly Goals & Targets ───────────────────────────────────────────────
-  const [monthlyTarget, setMonthlyTarget] = useState(16);
-  const [tempGoal, setTempGoal] = useState(16);
-
-  useEffect(() => {
-    AsyncStorage.getItem('@gym_monthly_target_sessions').then((val) => {
-      if (val) {
-        const parsed = parseInt(val, 10);
-        if (!isNaN(parsed) && parsed > 0) {
-          setMonthlyTarget(parsed);
-          setTempGoal(parsed);
-        }
-      }
-    });
-  }, []);
-
-  const updateMonthlyTarget = useCallback(async (newTarget: number) => {
-    setMonthlyTarget(newTarget);
-    await AsyncStorage.setItem('@gym_monthly_target_sessions', String(newTarget));
-    setShowGoalModal(false);
-  }, []);
-
-  const { currentMonthName, sessionsThisMonth, monthVolumeKg, daysLeftInMonth, isOnPace } =
-    useMemo(() => {
-      const now = parseLocalDate(today);
-      const yyyy = now.getFullYear();
-      const mm = String(now.getMonth() + 1).padStart(2, '0');
-      const monthPrefix = `${yyyy}-${mm}`;
-
-      let sessions = 0;
-      let vol = 0;
-      for (const log of gymLogs || []) {
-        if (log.date && log.date.startsWith(monthPrefix)) {
-          const isDone = Boolean(
-            log.completed ||
-            (log.exercises && log.exercises.some((e: any) => e.setsLog?.some((s: any) => s.completed)))
-          );
-          if (isDone) sessions++;
-
-          for (const ex of log.exercises || []) {
-            for (const s of ex.setsLog || []) {
-              if (s.completed && s.weight && s.reps) {
-                vol += Number(s.weight) * Number(s.reps);
-              }
-            }
-          }
-        }
-      }
-
-      const daysInCurrentMonth = new Date(yyyy, now.getMonth() + 1, 0).getDate();
-      const currentDay = now.getDate();
-      const daysLeft = Math.max(0, daysInCurrentMonth - currentDay);
-      const expectedPace = Math.round((currentDay / daysInCurrentMonth) * monthlyTarget);
-
-      const monthNames = [
-        'January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December',
-      ];
-
-      return {
-        currentMonthName: monthNames[now.getMonth()],
-        sessionsThisMonth: sessions,
-        monthVolumeKg: Math.round(vol),
-        daysLeftInMonth: daysLeft,
-        isOnPace: sessions >= expectedPace,
-      };
-    }, [gymLogs, monthlyTarget, today]);
-
-  const monthProgressPct = useMemo(() => {
-    return Math.min(100, Math.round((sessionsThisMonth / monthlyTarget) * 100));
-  }, [sessionsThisMonth, monthlyTarget]);
-
-  const handleScrollToReadiness = useCallback(() => {
-    const targetY = Math.max(0, muscleSectionYRef.current - 58);
-    (scrollRef.current as any)?.scrollTo?.({ y: targetY, animated: true });
-  }, []);
 
   const isRestDay = Boolean(
     (!activePlanDay || activePlanDay.isRest || exercises.length === 0) &&
@@ -999,26 +1011,26 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
           style={styles.headerCapsuleContainer}
           onLayout={(e) => {
             const w = Math.ceil(e.nativeEvent.layout.width);
-            if (w > 0 && Math.abs(w - capsuleWidth) > 2) {
+            if (w > 0 && w !== capsuleWidth) {
               setCapsuleWidth(w);
             }
           }}
         >
           <TactileButton
+            lightweight
             variant="custom"
             onPress={() => {
               hapticLight();
               navigation.navigate('Analytics', { tab: 'consistency' });
             }}
-            style={styles.headerCapsuleStreakGroup}
+            style={[
+              styles.headerCapsuleStreakGroup,
+              streakDays > 0 && styles.headerCapsuleStreakActive,
+            ]}
             hitSlop={TOUCH.hitSlop}
             accessibilityLabel={`${streakDays} day streak, view consistency`}
           >
-            <Flame
-              size={14.5}
-              color={streakDays > 0 ? tokens.status.warning : tokens.text.muted}
-              strokeWidth={ICON.strokeWidth}
-            />
+            <Text style={styles.headerStreakFireEmoji}>🔥</Text>
             <NumericText
               style={[
                 styles.headerCapsuleStreakText,
@@ -1030,6 +1042,7 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
           </TactileButton>
 
           <TactileButton
+            lightweight
             variant="custom"
             onPress={() => {
               hapticLight();
@@ -1095,7 +1108,17 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
           </Text>
         </Animated.View>
 
-        {/* ── SECTION 2: HERO WORKOUT STAGE & KINETIC ORBITAL CHRONOMETER ── */}
+        {/* ── LAYER 1: INTERACTIVE WEEKLY SPLIT STRIP ── */}
+        <WeeklySplitStrip
+          weekSlots={weekSlots}
+          sessionsThisWeek={sessionsThisWeek}
+          weeklyPlannedSessions={weeklyPlannedSessions}
+          onOpenPlan={() => navigation.navigate('Plan', { initialTab: 'schedule' })}
+          tokens={tokens}
+          styles={styles}
+        />
+
+        {/* ── LAYER 2: HERO SESSION COCKPIT ── */}
         <OrbitalChronometerHero
           isScreenFocused={isScreenFocused}
           isInProgress={isInProgress}
@@ -1104,21 +1127,22 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
           activeStartMs={activeStartMs}
           workoutName={workoutTitle}
           exercises={exercises}
+          topLiftPreviews={topLiftPreviews}
           totalSets={totalSets}
           heroWorkoutSubtitle={heroWorkoutSubtitle}
           effectiveLog={effectiveLog}
           sessionReceipt={sessionReceipt}
           onStartWorkout={() => {
-            startWorkout();
-            navigation.navigate('ActiveLogging', { date: selectedDate });
+            navigation.navigate('ActiveLogging', { date: selectedDate, autoStart: 'start' });
           }}
           onResumeWorkout={() => {
-            resumeWorkout();
-            navigation.navigate('ActiveLogging', { date: selectedDate });
+            navigation.navigate('ActiveLogging', { date: selectedDate, autoStart: 'resume' });
           }}
           onFinishWorkout={handleQuickFinishWorkout}
           onBrowseWorkouts={() => navigation.navigate('Today')}
           onOpenPreview={() => setShowPreviewSheet(true)}
+          onSwapRoutine={() => setShowSwapModal(true)}
+          onPressExercise={(exName) => setDeepDiveExercise(exName)}
           onViewSummary={() =>
             navigation.navigate('WorkoutSummary', {
               date: selectedDate,
@@ -1130,34 +1154,10 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
           styles={styles}
         />
 
-        {/* ── SECTION 3: OPEN BORDERLESS TELEMETRY RIBBON ── */}
-        <TelemetryBarCard
-          sessionsThisWeek={sessionsThisWeek}
-          weeklyPlannedSessions={weeklyPlannedSessions}
-          weekDots={weekDots}
-          todayDotIdx={todayDotIdx}
-          todayTargetReadinessPct={todayTargetReadinessPct}
-          weeklyTotalVolumeKg={weeklyTotalVolumeKg}
-          volumeTrendDiffKg={volumeTrendDiffKg}
-          replayKey={replayKey}
-          onPressSessions={() =>
-            navigation.navigate('Plan', { initialTab: 'schedule' })
-          }
-          onPressReadiness={handleScrollToReadiness}
-          onPressVolume={() => navigation.navigate('Analytics')}
-          tokens={tokens}
-          styles={styles}
-        />
-
-        {/* ── SECTION 4: BORDERLESS MUSCLE PRIMING & COACH DIRECTIVE ── */}
-        <View
-          onLayout={(e) => {
-            muscleSectionYRef.current = e.nativeEvent.layout.y;
-          }}
-          style={styles.recoverySection}
-        >
+        {/* ── LAYER 3: TARGET MUSCLES & WEEKLY VOLUME ── */}
+        <View style={styles.recoverySection}>
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionHeaderLabel} numberOfLines={1}>MUSCLE READINESS & DIRECTIVE</Text>
+            <Text style={styles.sectionHeaderLabel} numberOfLines={1}>TARGET MUSCLES</Text>
             <TactileButton
               variant="custom"
               hitSlop={TOUCH.hitSlop}
@@ -1179,62 +1179,91 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
                 pressed && { opacity: 0.8 },
               ]}
             >
-              <View
+              <Svg
                 pointerEvents="none"
-                style={{
-                  position: 'absolute',
-                  width: 96,
-                  height: 96,
-                  borderRadius: 48,
-                  backgroundColor: eyebrowStatusColor,
-                  opacity: isDark ? 0.09 : 0.06,
-                }}
-              />
-              <MiniDualBodyMap
-                customMuscleColors={customRecoveryColors}
-                avatarHeight={120}
-                avatarWidth={52}
-                gap={14}
-                isDark={isDark}
-              />
+                width={108}
+                height={120}
+                viewBox="0 0 108 120"
+                style={StyleSheet.absoluteFillObject}
+              >
+                <Defs>
+                  <RadialGradient id="homeRecoveryGlow" cx="50%" cy="50%" rx="50%" ry="50%">
+                    <Stop
+                      offset="0%"
+                      stopColor={eyebrowStatusColor}
+                      stopOpacity={isDark ? 0.22 : 0.14}
+                    />
+                    <Stop
+                      offset="55%"
+                      stopColor={eyebrowStatusColor}
+                      stopOpacity={isDark ? 0.08 : 0.04}
+                    />
+                    <Stop offset="100%" stopColor={eyebrowStatusColor} stopOpacity="0" />
+                  </RadialGradient>
+                </Defs>
+                <Rect x="0" y="0" width="108" height="120" fill="url(#homeRecoveryGlow)" />
+              </Svg>
+              <React.Suspense fallback={<View style={{ width: 108, height: 116 }} />}>
+                <MiniDualBodyMap
+                  customMuscleColors={customRecoveryColors}
+                  avatarHeight={116}
+                  avatarWidth={48}
+                  gap={10}
+                  isDark={isDark}
+                />
+              </React.Suspense>
             </Pressable>
 
             <Pressable
               onPress={() => {
                 hapticLight();
-                navigation.navigate('Body');
+                navigation.navigate('Plan', { initialTab: 'schedule' });
               }}
               style={({ pressed }) => [
                 styles.muscleBarsColumn,
                 pressed && { opacity: 0.85 },
               ]}
             >
-              {todayMuscleItems.slice(0, 4).map((item, mIdx) => {
-                const color =
-                  item.readiness >= 85
+              {unifiedFocusRows.map((row, mIdx) => {
+                const readinessColor =
+                  row.readiness >= 85
                     ? tokens.status.success
-                    : item.readiness >= 50
+                    : row.readiness >= 50
                     ? tokens.status.warning
                     : tokens.status.danger;
+                const isGoalMet = row.doneSets >= row.targetSets;
+                const setRatio = row.targetSets > 0 ? Math.min(1, row.doneSets / row.targetSets) : 0;
                 return (
-                  <View key={item.group} style={styles.muscleBarRow}>
+                  <View key={row.muscle} style={styles.muscleBarRow}>
                     <View style={styles.muscleBarHeader}>
                       <Text style={styles.muscleBarName} numberOfLines={1}>
-                        {item.group}
+                        {row.muscle}
                       </Text>
-                      <NumericText style={[styles.muscleBarPct, { color }]}>
-                        {item.readiness}%
-                      </NumericText>
+                      <View style={styles.unifiedMetricRight}>
+                        <NumericText style={[styles.muscleBarPct, { color: readinessColor }]}>
+                          {row.readiness}%
+                        </NumericText>
+                        <Text style={styles.unifiedDotSep}>·</Text>
+                        <NumericText style={styles.unifiedSetText}>
+                          {row.doneSets}/{row.targetSets} sets
+                        </NumericText>
+                      </View>
                     </View>
                     <AnimatedProgressBar
-                      progress={Math.min(1, item.readiness / 100)}
+                      progress={row.doneSets > 0 ? setRatio : row.readiness / 100}
                       minVisualRatio={0.08}
-                      height={4}
-                      borderRadius={2}
+                      height={4.5}
+                      borderRadius={2.5}
                       delayMs={mIdx * 45}
                       durationMs={520}
                       replayKey={replayKey}
-                      color={color}
+                      color={
+                        row.doneSets > 0
+                          ? isGoalMet
+                            ? tokens.status.success
+                            : tokens.accent.primary
+                          : readinessColor
+                      }
                       trackColor={
                         isDark ? 'rgba(255, 255, 255, 0.08)' : tokens.bg.elevated
                       }
@@ -1245,131 +1274,112 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
             </Pressable>
           </View>
 
-          {/* Editorial Accent-Rule Coach Directive (Zero Inner Box) */}
-          <View
-            style={[
-              styles.editorialDirectiveQuote,
-              { borderLeftColor: tokens.accent.primary },
-            ]}
-          >
-            <View style={styles.readoutIconRow}>
-              <ShieldCheck
-                size={12.5}
-                color={tokens.accent.primary}
-                strokeWidth={ICON.strokeWidth}
-              />
-              <Text style={styles.readoutCardTitle}>COACH DIRECTIVE</Text>
+          {fatigueAlertMessage ? (
+            <View
+              style={[
+                styles.editorialDirectiveQuote,
+                { borderLeftColor: tokens.status.warning },
+              ]}
+            >
+              <View style={styles.readoutIconRow}>
+                <AlertTriangle
+                  size={12}
+                  color={tokens.status.warning}
+                  strokeWidth={ICON.strokeWidth}
+                />
+                <Text style={[styles.readoutCardTitle, { color: tokens.status.warning }]}>
+                  RECOVERY ALERT
+                </Text>
+              </View>
+              <Text style={styles.readoutText} numberOfLines={2}>
+                {fatigueAlertMessage}
+              </Text>
             </View>
-            <Text style={styles.readoutText} numberOfLines={3} ellipsizeMode="tail">
-              {statusDescription}
-            </Text>
-          </View>
+          ) : null}
         </View>
 
-        {/* ── SECTION 5: BORDERLESS WEEKLY VOLUME TARGETS LEDGER ── */}
-        <View style={styles.stimulusLedger}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionHeaderLabel} numberOfLines={1}>WEEKLY VOLUME TARGETS</Text>
+        {/* ── LAYER 4: COMPACT BODYWEIGHT & PR VAULT TILES ── */}
+        <View style={styles.paceSection}>
+          <View style={styles.footerTilesRow}>
             <TactileButton
               variant="custom"
-              hitSlop={TOUCH.hitSlop}
-              style={{ flexShrink: 0 }}
-              onPress={() => navigation.navigate('Plan', { initialTab: 'schedule' })}
+              haptic="light"
+              onPress={() => setShowBodyMetricsModal(true)}
+              style={styles.footerTile}
+              accessibilityLabel="Update bodyweight"
             >
-              <Text style={styles.sectionBadgeLink} numberOfLines={1}>Schedule ›</Text>
-            </TactileButton>
-          </View>
-
-          {weeklyStimulusRows.map((row, idx) => {
-            const pct = Math.min(100, Math.round((row.doneSets / row.targetSets) * 100));
-            const remaining = Math.max(0, row.targetSets - row.doneSets);
-            const isGoalMet = row.doneSets >= row.targetSets;
-            return (
-              <Pressable
-                key={row.muscle}
-                onPress={() => {
-                  hapticLight();
-                  navigation.navigate('Plan', { initialTab: 'schedule' });
-                }}
-                style={({ pressed }) => [
-                  styles.stimulusRow,
-                  idx > 0 && styles.stimulusRowBorder,
-                  pressed && { opacity: 0.8 },
+              <View
+                style={[
+                  styles.footerIconBox,
+                  { backgroundColor: tokens.accent.primaryDim },
                 ]}
               >
-                <View style={styles.stimulusHeader}>
-                  <Text style={styles.stimulusMuscleName} numberOfLines={1} ellipsizeMode="tail">
-                    {row.muscle}
-                  </Text>
-                  <View style={styles.stimulusRightRow}>
-                    <NumericText style={styles.stimulusSetFraction}>
-                      <Text style={styles.stimulusDoneBold}>{row.doneSets}</Text>
-                      <Text style={styles.stimulusTargetMuted}>
-                        {' '}/ {row.targetSets} sets
-                      </Text>
-                    </NumericText>
-                    <View
-                      style={[
-                        styles.stimulusStatusChip,
-                        {
-                          backgroundColor: isGoalMet
-                            ? tokens.status.successDim
-                            : tokens.accent.primaryDim,
-                        },
-                      ]}
-                    >
-                      <NumericText
-                        style={[
-                          styles.stimulusStatusChipText,
-                          {
-                            color: isGoalMet
-                              ? tokens.status.success
-                              : tokens.accent.primary,
-                          },
-                        ]}
-                      >
-                        {isGoalMet ? 'Goal Hit' : `${remaining} left`}
-                      </NumericText>
-                    </View>
-                  </View>
-                </View>
-                <AnimatedProgressBar
-                  progress={pct / 100}
-                  minVisualRatio={0.06}
-                  height={4}
-                  borderRadius={2}
-                  delayMs={idx * 45}
-                  durationMs={520}
-                  replayKey={replayKey}
-                  color={isGoalMet ? tokens.status.success : tokens.accent.primary}
-                  trackColor={
-                    isDark ? 'rgba(255, 255, 255, 0.08)' : tokens.bg.elevated
-                  }
-                />
-              </Pressable>
-            );
-          })}
-        </View>
+                <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                  <Defs>
+                    <SvgLinearGradient id="homeBwGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <Stop offset="0%" stopColor="#5AC8FA" />
+                      <Stop offset="100%" stopColor={tokens.accent.primary} />
+                    </SvgLinearGradient>
+                  </Defs>
+                  <Rect x={3} y={3.5} width={18} height={17} rx={4.5} stroke="url(#homeBwGrad)" strokeWidth={1.9} />
+                  <Path d="M7.5 12C7.5 9.5 9.5 7.5 12 7.5C14.5 7.5 16.5 9.5 16.5 12" stroke="url(#homeBwGrad)" strokeWidth={1.8} strokeLinecap="round" />
+                  <Path d="M12 12L14.8 9.2" stroke={tokens.status.success} strokeWidth={2} strokeLinecap="round" />
+                  <Circle cx={12} cy={12} r={1.4} fill={tokens.accent.primary} />
+                </Svg>
+              </View>
+              <View style={styles.footerTextCol}>
+                <Text style={styles.footerOverline} numberOfLines={1}>
+                  WEIGHT
+                </Text>
+                <NumericText style={styles.footerValueText} numberOfLines={1}>
+                  {bodyweightSnapshot.displayValue}
+                </NumericText>
+              </View>
+              <ChevronRight size={14} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />
+            </TactileButton>
 
-        {/* ── SECTION 6: PERFORMANCE HORIZON & MONTHLY TARGETS ── */}
-        <MonthlyGoalsCard
-          currentMonthName={currentMonthName}
-          sessionsThisMonth={sessionsThisMonth}
-          monthlyTarget={monthlyTarget}
-          monthProgressPct={monthProgressPct}
-          monthVolumeKg={monthVolumeKg}
-          isOnPace={isOnPace}
-          daysLeftInMonth={daysLeftInMonth}
-          latestPR={latestPR}
-          replayKey={replayKey}
-          onOpenPRVault={() => setShowPRSheet(true)}
-          onEditGoal={() => {
-            setTempGoal(monthlyTarget);
-            setShowGoalModal(true);
-          }}
-          tokens={tokens}
-          styles={styles}
-        />
+            <TactileButton
+              variant="custom"
+              haptic="light"
+              onPress={() => setShowPRSheet(true)}
+              style={styles.footerTile}
+              accessibilityLabel="Open PR Vault"
+            >
+              <View
+                style={[
+                  styles.footerIconBox,
+                  { backgroundColor: 'rgba(255, 159, 10, 0.14)' },
+                ]}
+              >
+                <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                  <Defs>
+                    <SvgLinearGradient id="homePrGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <Stop offset="0%" stopColor="#FFD60A" />
+                      <Stop offset="100%" stopColor="#FF9F0A" />
+                    </SvgLinearGradient>
+                  </Defs>
+                  <Path
+                    d="M7 4H17V10C17 12.8 14.8 15 12 15C9.2 15 7 12.8 7 10V4Z"
+                    stroke="url(#homePrGrad)"
+                    strokeWidth={1.9}
+                    strokeLinejoin="round"
+                  />
+                  <Path d="M7 6H4.5C4.5 9 5.5 10.5 7 10.5M17 6H19.5C19.5 9 18.5 10.5 17 10.5" stroke="url(#homePrGrad)" strokeWidth={1.8} strokeLinecap="round" />
+                  <Path d="M12 15V19.5M8.5 19.5H15.5" stroke="url(#homePrGrad)" strokeWidth={1.9} strokeLinecap="round" />
+                </Svg>
+              </View>
+              <View style={styles.footerTextCol}>
+                <Text style={styles.footerOverline} numberOfLines={1}>
+                  {strengthMilestone.overline}
+                </Text>
+                <Text style={styles.footerValueText} numberOfLines={1}>
+                  {strengthMilestone.title}
+                </Text>
+              </View>
+              <ChevronRight size={14} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />
+            </TactileButton>
+          </View>
+        </View>
       </Animated.ScrollView>
 
       {/* ── TODAY'S SESSION PREVIEW SHEET ── */}
@@ -1455,8 +1465,7 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
               size="md"
               onPress={() => {
                 setShowPreviewSheet(false);
-                startWorkout();
-                navigation.navigate('ActiveLogging', { date: selectedDate });
+                navigation.navigate('ActiveLogging', { date: selectedDate, autoStart: 'start' });
               }}
               style={{ flex: 1.35, borderRadius: RADIUS.md }}
             >
@@ -1472,64 +1481,85 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
       </BottomSheet>
 
       {/* ── EMBEDDED MODALS ── */}
-      <PRHallOfFameSheet
+      {/* ── PR VAULT MODAL SHEET ── */}
+      <LazySheet
         visible={showPRSheet}
-        onClose={() => setShowPRSheet(false)}
-        gymLogs={gymLogs}
+        render={() => (
+          <PRHallOfFameSheet
+            visible={showPRSheet}
+            onClose={() => setShowPRSheet(false)}
+            gymLogs={gymLogs}
+          />
+        )}
       />
 
       {/* ── Official Athlete Dossier / Performance Card ── */}
-      <FullAthleteProfileModal
+      <LazySheet
         visible={showProfileModal}
-        onClose={() => setShowProfileModal(false)}
-        stats={athleteStats}
-        onOpenSetup={() => {
-          setShowProfileModal(false);
-          afterSheetDismiss(() => setShowEditProfileModal(true));
-        }}
-        onOpenSettings={() => {
-          setShowProfileModal(false);
-          afterSheetDismiss(() => {
-            hapticLight();
-            navigation.navigate('GymProfile');
-          });
-        }}
-        onOpenExerciseDeepDive={(exerciseName) => {
-          setShowProfileModal(false);
-          afterSheetDismiss(() => setDeepDiveExercise(exerciseName));
-        }}
-        gymLogs={gymLogs}
+        render={() => (
+          <FullAthleteProfileModal
+            visible={showProfileModal}
+            onClose={() => setShowProfileModal(false)}
+            stats={athleteStats}
+            onOpenSetup={() => {
+              setShowProfileModal(false);
+              afterSheetDismiss(() => setShowEditProfileModal(true));
+            }}
+            onOpenSettings={() => {
+              setShowProfileModal(false);
+              afterSheetDismiss(() => {
+                hapticLight();
+                navigation.navigate('GymProfile');
+              });
+            }}
+            onOpenExerciseDeepDive={(exerciseName) => {
+              setShowProfileModal(false);
+              afterSheetDismiss(() => setDeepDiveExercise(exerciseName));
+            }}
+            gymLogs={gymLogs}
+          />
+        )}
       />
 
       {/* ── Unified Physical Stats & Goal Setup Sheet ── */}
-      <SetupAthleteStatsModal
+      <LazySheet
         visible={showEditProfileModal}
-        onClose={() => setShowEditProfileModal(false)}
-        currentProfile={gymProfile}
-        latestWeight={weightLogs?.[0]?.weightKg ?? gymProfile?.weightKg ?? gymProfile?.bodyweightKg ?? null}
-        userAuth={{
-          displayName: user?.displayName || auth.currentUser?.displayName,
-          photoURL: userPhotoURL,
-          email: user?.email || auth.currentUser?.email,
-        }}
-        onSaveSuccess={(updated) => {
-          saveGymProfile({
-            ...(updated.displayName ? { displayName: updated.displayName } : {}),
-            heightCm: updated.heightCm,
-            weightKg: updated.weightKg,
-            bodyweightKg: updated.weightKg,
-            goal: updated.goal as any,
-          });
-        }}
+        render={() => (
+          <SetupAthleteStatsModal
+            visible={showEditProfileModal}
+            onClose={() => setShowEditProfileModal(false)}
+            currentProfile={gymProfile}
+            latestWeight={weightLogs?.[0]?.weightKg ?? gymProfile?.weightKg ?? gymProfile?.bodyweightKg ?? null}
+            userAuth={{
+              displayName: user?.displayName || auth.currentUser?.displayName,
+              photoURL: userPhotoURL,
+              email: user?.email || auth.currentUser?.email,
+            }}
+            onSaveSuccess={(updated) => {
+              saveGymProfile({
+                ...(updated.displayName ? { displayName: updated.displayName } : {}),
+                heightCm: updated.heightCm,
+                weightKg: updated.weightKg,
+                bodyweightKg: updated.weightKg,
+                goal: updated.goal as any,
+              });
+            }}
+          />
+        )}
       />
 
       {/* ── Exercise Deep Dive (e.g. Athlete Record Drilldown) ── */}
-      <ExerciseDeepDiveModal
-        visible={!!deepDiveExercise}
-        exerciseName={deepDiveExercise}
-        gymLogs={gymLogs}
-        initialTab="analytics"
-        onClose={() => setDeepDiveExercise(null)}
+      <LazySheet
+        visible={Boolean(deepDiveExercise)}
+        render={() => (
+          <ExerciseDeepDiveModal
+            visible={!!deepDiveExercise}
+            exerciseName={deepDiveExercise}
+            gymLogs={gymLogs}
+            initialTab="analytics"
+            onClose={() => setDeepDiveExercise(null)}
+          />
+        )}
       />
 
       {/* ── Quick Session Confirmation Sheet (Replaces Native Alert) ── */}
@@ -1581,15 +1611,29 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
         ) : null}
       </BottomSheet>
 
-      {/* ── GOAL SETTER MODAL ── */}
-      <GoalSetterModal
-        visible={showGoalModal}
-        onClose={() => setShowGoalModal(false)}
-        tempGoal={tempGoal}
-        setTempGoal={setTempGoal}
-        onSaveGoal={updateMonthlyTarget}
-        tokens={tokens}
-        styles={styles}
+      {/* ── SWAP TODAY ROUTINE SHEET ── */}
+      <SwapRoutineModal
+        visible={showSwapModal}
+        selectedDate={selectedDate}
+        currentPlanDayIndex={activePlanDay?.dayIndex}
+        onClose={() => setShowSwapModal(false)}
+        onSelectDay={(idx: number) => {
+          setLiveLog(null);
+          swapDayRoutine(idx);
+          setShowSwapModal(false);
+        }}
+      />
+
+      {/* ── BODYWEIGHT & METRICS QUICK-LOG SHEET ── */}
+      <LazySheet
+        visible={showBodyMetricsModal}
+        render={() => (
+          <BodyMetricsSheet
+            visible={showBodyMetricsModal}
+            onClose={() => setShowBodyMetricsModal(false)}
+            initialTab="weight"
+          />
+        )}
       />
     </ScreenWrapper>
   );

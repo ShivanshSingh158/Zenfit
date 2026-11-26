@@ -31,6 +31,7 @@
         "backgroundColor": "#09090B"
       },
       "package": "com.shiv157.zenfit",
+      "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.VIBRATE",
@@ -49,6 +50,17 @@
         {
           "iosUrlScheme": "com.googleusercontent.apps.336719988763-a8l7noum7dapki5st6uoqvscnnlkid7e"
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "enablePngCrunchInReleaseBuilds": true,
+            "enableBundleCompression": false
+          }
+        }
       ]
     ],
     "newArchEnabled": true,
@@ -59,4 +71,3 @@
     }
   }
 }
-

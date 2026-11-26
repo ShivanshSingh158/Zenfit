@@ -6,6 +6,7 @@ import {
   getLocalAvatarUriSync,
   getCachedAvatarUri,
   cacheUserAvatar,
+  clearAvatarCache,
   subscribeAvatarChanges,
 } from '../../services/userAvatarService';
 
@@ -35,10 +36,18 @@ export const UserAvatar: React.FC<UserAvatarProps> = React.memo(({
   const { tokens } = useTheme();
   const [localUri, setLocalUri] = useState<string | null>(() => getLocalAvatarUriSync(uid));
   const [loadError, setLoadError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState<boolean>(() => Boolean(getLocalAvatarUriSync(uid)));
+
+  // Synchronously pick up pre-seeded memory cache if uid arrives after mount
+  useEffect(() => {
+    const syncMem = getLocalAvatarUriSync(uid);
+    setLocalUri(syncMem);
+    setImageLoaded(Boolean(syncMem));
+    setLoadError(false);
+  }, [uid]);
 
   useEffect(() => {
     if (!uid) return;
-    if (localUri) return;
     let isMounted = true;
 
     getCachedAvatarUri(uid).then((cached) => {
@@ -104,25 +113,41 @@ export const UserAvatar: React.FC<UserAvatarProps> = React.memo(({
 
   return (
     <View style={containerStyle} accessibilityLabel={accessibilityLabel} accessibilityRole="image">
-      {activeUri && !loadError ? (
+      {/* Keep crisp initial visible until ExpoImage paints so an empty dark circle never flashes */}
+      {(!activeUri || loadError || !imageLoaded) && (
+        <Text maxFontSizeMultiplier={1.15} style={letterStyle}>
+          {fallbackLetter || 'A'}
+        </Text>
+      )}
+      {activeUri && !loadError && (
         <ExpoImage
+          key={activeUri}
           source={{ uri: activeUri }}
-          style={[{ width: size, height: size, borderRadius }, imageStyle]}
+          style={[
+            StyleSheet.absoluteFillObject,
+            { width: size, height: size, borderRadius },
+            imageStyle,
+          ]}
           contentFit="cover"
           transition={localUri ? 0 : 120}
           cachePolicy="memory-disk"
+          onLoad={() => setImageLoaded(true)}
           onError={() => {
+            setImageLoaded(false);
             if (localUri) {
               setLocalUri(null);
+              if (uid) {
+                clearAvatarCache(uid)
+                  .then(() => {
+                    if (photoURL) return cacheUserAvatar(uid, photoURL);
+                  })
+                  .catch(() => {});
+              }
             } else {
               setLoadError(true);
             }
           }}
         />
-      ) : (
-        <Text maxFontSizeMultiplier={1.15} style={letterStyle}>
-          {fallbackLetter || 'A'}
-        </Text>
       )}
 
       {showOnlineRing && (

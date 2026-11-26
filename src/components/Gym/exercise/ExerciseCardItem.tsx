@@ -1,13 +1,12 @@
 import React, { memo, useMemo } from 'react';
 import { Pressable, View, Text, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import {
   Activity,
-  Check,
   Cpu,
   Disc,
   Dumbbell,
   GitFork,
-  Plus,
   Repeat,
   User,
   type LucideIcon,
@@ -262,7 +261,7 @@ export const ExerciseCardItem: React.FC<ExerciseCardItemProps> = memo(({
               priority="high"
             />
           ) : (
-            <Dumbbell size={ICON.md} strokeWidth={ICON.strokeWidth} color={tokens.text.secondary} />
+            <Ionicons name="barbell-outline" size={ICON.md} color={tokens.text.secondary} />
           )}
         </View>
 
@@ -303,18 +302,18 @@ export const ExerciseCardItem: React.FC<ExerciseCardItemProps> = memo(({
           {multiSelectMode ? (
             isMultiSelected ? (
               <>
-                <Check size={11} strokeWidth={ICON.strokeWidth} color={tokens.accent.onPrimary} />
+                <Ionicons name="checkmark" size={11} color={tokens.accent.onPrimary} />
                 <Text style={styles.quickAddBtnText}>Added</Text>
               </>
             ) : (
               <>
-                <Plus size={11} strokeWidth={ICON.strokeWidth} color={tokens.text.primary} />
+                <Ionicons name="add" size={11} color={tokens.text.primary} />
                 <Text style={[styles.quickAddBtnText, { color: tokens.text.primary }]}>Select</Text>
               </>
             )
           ) : (
             <>
-              <Plus size={11} strokeWidth={ICON.strokeWidth} color={tokens.accent.onPrimary} />
+              <Ionicons name="add" size={11} color={tokens.accent.onPrimary} />
               <Text style={styles.quickAddBtnText}>Add</Text>
             </>
           )}

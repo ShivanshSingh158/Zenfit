@@ -67,13 +67,17 @@ export const RoutineSplitCard: React.FC<RoutineSplitCardProps> = React.memo(({
 
   const subtitle = useMemo(() => {
     if (isRest) return 'Full recovery & mobility day';
+    const cardioCount = day.cardio?.length || 0;
     const focusPart = day.subtitle || day.focus || '';
-    const countPart = `${stats?.exerciseCount || 0} exercises`;
+    const countParts: string[] = [];
+    if ((stats?.exerciseCount || 0) > 0) countParts.push(`${stats?.exerciseCount || 0} exercises`);
+    if (cardioCount > 0) countParts.push(`${cardioCount} cardio`);
+    const countPart = countParts.join(' · ') || '0 exercises';
     if (stats?.muscleLine && focusPart) {
       return `${focusPart} · ${countPart} (${stats.muscleLine})`;
     }
     return focusPart ? `${focusPart} · ${countPart}` : countPart;
-  }, [day.subtitle, day.focus, isRest, stats]);
+  }, [day.subtitle, day.focus, day.cardio?.length, isRest, stats]);
 
   return (
     <View>

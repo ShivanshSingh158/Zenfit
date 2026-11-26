@@ -28,9 +28,9 @@ export const makeDashboardStyles = (tokens: ThemeTokens) => {
       overflow: 'hidden',
     },
     scrollContent: {
-      paddingHorizontal: SPACE[12],
-      paddingTop: 6,
-      gap: 14,
+      paddingHorizontal: SPACE[16],
+      paddingTop: 4,
+      gap: 13,
     },
 
     // 1. Sticky Glass Bar + Collapsible Header
@@ -133,17 +133,30 @@ export const makeDashboardStyles = (tokens: ThemeTokens) => {
     headerCapsuleContainer: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 14,
+      gap: 9,
     },
     headerCapsuleStreakGroup: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      minHeight: 32,
-      paddingHorizontal: 2,
+      height: 30,
+      paddingHorizontal: 10,
+      borderRadius: 999,
+      backgroundColor: glassChipBg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: glassChipBorder,
+    },
+    headerCapsuleStreakActive: {
+      backgroundColor: tokens.status.warningDim,
+      borderColor: 'rgba(255, 159, 10, 0.32)',
+    },
+    headerStreakFireEmoji: {
+      fontSize: 13,
+      lineHeight: 16,
+      includeFontPadding: false,
     },
     headerCapsuleStreakText: {
-      fontSize: 14,
+      fontSize: 13,
       fontFamily: FONT_FAMILY.bold,
       color: tokens.status.warning,
       includeFontPadding: false,
@@ -183,11 +196,11 @@ export const makeDashboardStyles = (tokens: ThemeTokens) => {
       color: tokens.accent.primary,
     },
 
-    // 2. Hero Mission Stage (Elevated Tonal Plane)
+    // 2. Hero Mission Stage (Single Elevated Surface)
     missionCard: {
       backgroundColor: stageSurface,
       borderRadius: 20,
-      padding: SPACE[16],
+      padding: 18,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: tokens.isDark ? 'rgba(255, 255, 255, 0.10)' : tokens.border.subtle,
       overflow: 'hidden',
@@ -196,7 +209,7 @@ export const makeDashboardStyles = (tokens: ThemeTokens) => {
       gap: 10,
     },
     heroPressableArea: {
-      gap: 6,
+      gap: 3,
     },
     missionHeaderRow: {
       flexDirection: 'row',
@@ -220,30 +233,128 @@ export const makeDashboardStyles = (tokens: ThemeTokens) => {
       textTransform: 'uppercase',
       color: tokens.accent.primary,
     },
-    heroPreviewLink: {
+    heroSwapLink: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 2,
+      gap: 5,
       paddingVertical: 2,
+      paddingHorizontal: 4,
     },
-    heroPreviewLinkText: {
+    heroSwapLinkText: {
       fontSize: 12,
       fontFamily: FONT_FAMILY.semibold,
       color: tokens.accent.primary,
     },
     heroWorkoutTitle: {
-      fontSize: 26,
+      fontSize: 25,
       fontFamily: FONT_FAMILY.bold,
       letterSpacing: -0.6,
       color: tokens.text.primary,
-      marginTop: 2,
+      flexShrink: 1,
+      includeFontPadding: false,
+    },
+    heroTitleMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      justifyContent: 'space-between',
+      gap: 8,
+    },
+    heroTitleVolumeMeta: {
+      fontSize: 12,
+      fontFamily: FONT_FAMILY.medium,
+      color: tokens.text.secondary,
+      flexShrink: 0,
+      includeFontPadding: false,
     },
     targetMusclesText: {
-      fontSize: 13.5,
+      fontSize: 13,
       fontFamily: FONT_FAMILY.medium,
       color: tokens.text.secondary,
       letterSpacing: -0.1,
-      marginTop: 2,
+      marginTop: 1,
+    },
+    heroLiftsBox: {
+      marginTop: 4,
+      paddingTop: 10,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: subtleHairline,
+      gap: 7,
+    },
+    heroLiftRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      minHeight: 24,
+      gap: 8,
+    },
+    heroLiftIdx: {
+      width: 14,
+      fontSize: 11,
+      fontFamily: FONT_FAMILY.bold,
+      color: tokens.text.muted,
+      includeFontPadding: false,
+    },
+    heroLiftName: {
+      flex: 1,
+      minWidth: 0,
+      fontSize: 13,
+      fontFamily: FONT_FAMILY.medium,
+      color: tokens.text.primary,
+      includeFontPadding: false,
+    },
+    heroLiftMeta: {
+      fontSize: 12,
+      fontFamily: FONT_FAMILY.semibold,
+      color: tokens.text.secondary,
+      flexShrink: 0,
+      includeFontPadding: false,
+    },
+    heroMoreLiftsRow: {
+      paddingLeft: 22,
+      paddingTop: 2,
+    },
+    heroMoreLiftsText: {
+      fontSize: 11.5,
+      fontFamily: FONT_FAMILY.medium,
+      color: tokens.text.muted,
+    },
+    heroActionsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: SPACE[8],
+      marginTop: 4,
+    },
+    heroPrimaryGradWrap: {
+      flex: 1,
+      borderRadius: RADIUS.md,
+      overflow: 'hidden',
+    },
+    heroPrimaryGradInner: {
+      minHeight: 46,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: SPACE[8],
+      paddingHorizontal: SPACE[16],
+    },
+    heroLineupBtn: {
+      minWidth: 92,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      minHeight: 46,
+      paddingHorizontal: 14,
+      borderRadius: RADIUS.md,
+      backgroundColor: glassChipBg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: glassChipBorder,
+      flexShrink: 0,
+    },
+    heroLineupBtnText: {
+      fontSize: 13,
+      fontFamily: FONT_FAMILY.semibold,
+      color: tokens.text.primary,
+      includeFontPadding: false,
     },
     primaryStartBtn: {
       flexDirection: 'row',
@@ -476,128 +587,105 @@ export const makeDashboardStyles = (tokens: ThemeTokens) => {
       color: tokens.text.secondary,
     },
 
-    // 3. Open Borderless Telemetry Ribbon
-    telemetryBarCard: {
+    // 1b. Borderless Interactive Weekly Split Strip
+    weekStripSection: {
+      gap: 7,
+      paddingBottom: 11,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: subtleHairline,
+    },
+    weekSummaryFraction: {
+      fontSize: 11.5,
+      fontFamily: FONT_FAMILY.semibold,
+      color: tokens.text.secondary,
+    },
+    weekNodesRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingVertical: 12,
-      paddingHorizontal: 2,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderColor: subtleHairline,
     },
-    telemetryCol: {
+    weekNodeCol: {
       flex: 1,
-      minWidth: 0,
-      paddingHorizontal: 2,
       alignItems: 'center',
-      justifyContent: 'center',
-      gap: 4,
-      minHeight: 48,
+      gap: 5,
     },
-    telemetryLabelRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: 16,
-      minWidth: 0,
-      gap: 4,
-    },
-    telemetryLabel: {
-      fontSize: 10,
-      fontFamily: FONT_FAMILY.bold,
-      letterSpacing: 0.6,
-      color: tokens.text.secondary,
-      flexShrink: 1,
-    },
-    telemetryFractionRow: {
-      flexDirection: 'row',
-      alignItems: 'baseline',
-      justifyContent: 'center',
-      minHeight: 22,
-      minWidth: 0,
-    },
-    telemetryVal: {
-      fontSize: 17,
-      fontFamily: FONT_FAMILY.bold,
-      color: tokens.text.primary,
-      letterSpacing: -0.3,
-      textAlign: 'center',
-    },
-    telemetryValMuted: {
-      fontSize: 13,
+    weekNodeLetter: {
+      fontSize: 10.5,
       fontFamily: FONT_FAMILY.semibold,
       color: tokens.text.muted,
+      includeFontPadding: false,
     },
-    weekDotsRail: {
-      flexDirection: 'row',
+    weekNodeCircle: {
+      width: 27,
+      height: 27,
+      borderRadius: 9,
+      borderWidth: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 4,
-      minHeight: 16,
     },
-    weekDot: {
-      width: 6,
-      height: 6,
-      borderRadius: 3,
+    weekTodayInnerDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
     },
-    telemetrySubRow: {
+    weekRestDash: {
+      width: 9,
+      height: 2,
+      borderRadius: 1,
+    },
+    weekUpcomingDot: {
+      width: 4,
+      height: 4,
+      borderRadius: 2,
+    },
+    weekPeekRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: 16,
+      justifyContent: 'space-between',
+      paddingTop: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: subtleHairline,
+      gap: 10,
+    },
+    weekPeekTextCol: {
+      flex: 1,
       minWidth: 0,
-      gap: 4,
     },
-    readinessGaugeTrack: {
-      width: 28,
-      flexShrink: 1,
-      height: 3.5,
-      borderRadius: 2,
-      overflow: 'hidden',
+    weekPeekTitle: {
+      fontSize: 13,
+      fontFamily: FONT_FAMILY.semibold,
+      color: tokens.text.primary,
+      includeFontPadding: false,
     },
-    readinessGaugeFill: {
-      height: '100%',
-      borderRadius: 2,
-    },
-    readinessSubLabel: {
-      fontSize: 10,
-      fontFamily: FONT_FAMILY.bold,
-      flexShrink: 1,
-    },
-    volumeTrendText: {
-      fontSize: 10.5,
-      fontFamily: FONT_FAMILY.bold,
-      flexShrink: 1,
-    },
-    telemetrySubMuted: {
-      fontSize: 9.5,
+    weekPeekSub: {
+      fontSize: 11.5,
       fontFamily: FONT_FAMILY.medium,
-      color: tokens.text.muted,
-      flexShrink: 1,
+      color: tokens.text.secondary,
+      marginTop: 2,
+      includeFontPadding: false,
     },
-    verticalHairline: {
-      width: StyleSheet.hairlineWidth,
-      height: 38,
-      backgroundColor: subtleHairline,
+    weekPeekAction: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+      paddingVertical: 4,
     },
 
-    // 4. Borderless Muscle Priming & Coach Directive
+    // 4. Unified Muscle Priming & Weekly Volume Ledger
     recoverySection: {
       gap: SPACE[12],
-      paddingBottom: 14,
+      paddingBottom: 16,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: subtleHairline,
     },
     recoveryTopSplitRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: SPACE[16],
+      gap: SPACE[12],
     },
     floatingMannequinStage: {
-      width: 118,
-      height: 128,
+      width: 108,
+      height: 120,
       alignItems: 'center',
       justifyContent: 'center',
       position: 'relative',
@@ -605,10 +693,11 @@ export const makeDashboardStyles = (tokens: ThemeTokens) => {
     muscleBarsColumn: {
       flex: 1,
       minWidth: 0,
-      gap: 9,
+      justifyContent: 'center',
+      gap: 14,
     },
     muscleBarRow: {
-      gap: 4,
+      gap: 5,
     },
     muscleBarHeader: {
       flexDirection: 'row',
@@ -621,19 +710,35 @@ export const makeDashboardStyles = (tokens: ThemeTokens) => {
       flex: 1,
       minWidth: 0,
       flexShrink: 1,
-      fontSize: 12.5,
-      fontFamily: FONT_FAMILY.medium,
+      fontSize: 13,
+      fontFamily: FONT_FAMILY.semibold,
       color: tokens.text.primary,
     },
+    unifiedMetricRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      flexShrink: 0,
+    },
     muscleBarPct: {
-      fontSize: 12,
+      fontSize: 11.5,
       fontFamily: FONT_FAMILY.bold,
       flexShrink: 0,
+    },
+    unifiedSetText: {
+      fontSize: 11.5,
+      fontFamily: FONT_FAMILY.medium,
+      color: tokens.text.secondary,
+      flexShrink: 0,
+    },
+    unifiedDotSep: {
+      fontSize: 11,
+      color: tokens.text.muted,
     },
     editorialDirectiveQuote: {
       borderLeftWidth: 2.5,
       paddingLeft: SPACE[12],
-      paddingVertical: 2,
+      paddingVertical: 1,
       gap: 3,
     },
     readoutIconRow: {
@@ -651,66 +756,57 @@ export const makeDashboardStyles = (tokens: ThemeTokens) => {
       fontSize: 12.5,
       fontFamily: FONT_FAMILY.regular,
       color: tokens.text.secondary,
-      lineHeight: 18,
+      lineHeight: 17.5,
     },
 
-    // 5. Borderless Weekly Volume Targets Ledger
-    stimulusLedger: {
-      gap: 10,
+    // 5. Compact Bodyweight & PR Footer Pair
+    paceSection: {
+      paddingTop: 2,
       paddingBottom: 4,
     },
-    stimulusRow: {
-      gap: 6,
-      paddingVertical: 4,
-    },
-    stimulusRowBorder: {
-      paddingTop: 10,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: subtleHairline,
-    },
-    stimulusHeader: {
+    footerTilesRow: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      gap: 8,
-      minWidth: 0,
+      gap: SPACE[8],
     },
-    stimulusMuscleName: {
+    footerTile: {
       flex: 1,
-      minWidth: 0,
-      flexShrink: 1,
-      fontSize: 13.5,
-      fontFamily: FONT_FAMILY.semibold,
-      color: tokens.text.primary,
-    },
-    stimulusRightRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
+      gap: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 11,
+      borderRadius: 16,
+      backgroundColor: stageSurface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: tokens.isDark ? 'rgba(255, 255, 255, 0.09)' : tokens.border.subtle,
+      minWidth: 0,
+    },
+    footerIconBox: {
+      width: 32,
+      height: 32,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
       flexShrink: 0,
     },
-    stimulusSetFraction: {
-      fontSize: 12,
-      fontFamily: FONT_FAMILY.medium,
+    footerTextCol: {
+      flex: 1,
+      minWidth: 0,
     },
-    stimulusDoneBold: {
-      fontSize: 13,
+    footerOverline: {
+      fontSize: 9.5,
+      fontFamily: FONT_FAMILY.bold,
+      letterSpacing: 0.7,
+      color: tokens.text.muted,
+      marginBottom: 2,
+      includeFontPadding: false,
+    },
+    footerValueText: {
+      fontSize: 14,
       fontFamily: FONT_FAMILY.bold,
       color: tokens.text.primary,
-    },
-    stimulusTargetMuted: {
-      fontSize: 12,
-      fontFamily: FONT_FAMILY.medium,
-      color: tokens.text.muted,
-    },
-    stimulusStatusChip: {
-      paddingHorizontal: 7,
-      paddingVertical: 2,
-      borderRadius: 6,
-    },
-    stimulusStatusChipText: {
-      fontSize: 10.5,
-      fontFamily: FONT_FAMILY.bold,
+      letterSpacing: -0.2,
+      includeFontPadding: false,
     },
 
     // 6. Monthly Goals & Performance Horizon (Single Surface — Zero Nested Boxes)
@@ -766,36 +862,11 @@ export const makeDashboardStyles = (tokens: ThemeTokens) => {
       color: tokens.text.secondary,
       marginTop: 2,
     },
-    goalPctBadge: {
-      backgroundColor: glassChipBg,
-      paddingHorizontal: 9,
-      paddingVertical: 4,
-      borderRadius: 8,
-      flexShrink: 0,
-    },
-    goalPctText: {
-      fontSize: 12,
+    goalPctPlain: {
+      fontSize: 13,
       fontFamily: FONT_FAMILY.bold,
-      color: tokens.text.primary,
-    },
-    milestoneTick: {
-      position: 'absolute',
-      top: 0,
-      bottom: 0,
-      width: 1.5,
-      backgroundColor: stageSurface,
-      zIndex: 2,
-    },
-    milestoneLabelsRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      paddingHorizontal: 2,
-      marginTop: -4,
-    },
-    milestoneLabel: {
-      fontSize: 9.5,
-      fontFamily: FONT_FAMILY.medium,
-      color: tokens.text.muted,
+      color: tokens.accent.primary,
+      flexShrink: 0,
     },
     goalMicroStrip: {
       flexDirection: 'row',

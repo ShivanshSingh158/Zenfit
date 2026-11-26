@@ -21,7 +21,6 @@ import {
   Leaf,
   Plus,
   Dumbbell,
-  ArrowUpDown,
   Check,
   Activity,
   MoreHorizontal,
@@ -36,7 +35,7 @@ import {
   dateStrOffset,
 } from '../../hooks/useGymLog';
 import { parseLocalDate } from '../../utils/dateCore';
-import { getL1Sync } from '../../utils/bootManifest';
+import { getL1Sync, isL1BootHydrated } from '../../utils/bootManifest';
 import { useTheme } from '../../contexts/ThemeContext';
 import { ICON, SPACE, TOUCH } from '../../theme/tokens';
 import { useResponsiveMetrics } from '../../theme/responsive';
@@ -64,37 +63,29 @@ import { makeStyles } from './gymHomeStyles';
 // ─── Core Frame-0 Components (Rendered directly on Today's active workout surface) ───
 import GymWorkoutBanner from '../../components/Gym/active/GymWorkoutBanner';
 import GymExerciseDraggableRow from '../../components/Gym/exercise/GymExerciseDraggableRow';
-import AddExerciseModal from '../../components/Gym/exercise/AddExerciseModal';
-import ExerciseDeepDiveModal from '../../components/Gym/exercise/ExerciseDeepDiveModal';
-import { GymExerciseOptionsSheet } from '../../components/Gym/exercise/GymExerciseOptionsSheet';
-import { EditExerciseSheet, EditExerciseUpdates } from '../../components/Gym/exercise/EditExerciseSheet';
-import { ActiveSwapModal } from '../../components/Gym/active/ActiveSwapModal';
-import PRHallOfFameSheet from '../../components/Gym/metrics/PRHallOfFameSheet';
-import { ExerciseHistoryDrawer } from '../../components/Gym/exercise/ExerciseHistoryDrawer';
-import { ExerciseDetailModal } from '../../components/Gym/exercise/ExerciseDetailModal';
-import { SwapRoutineModal } from '../../components/Gym/schedule/SwapRoutineModal';
-import BodyMetricsSheet from '../../components/Gym/metrics/BodyMetricsSheet';
-import { AddCardioModal } from '../../components/Gym/cardio/AddCardioModal';
-import { LogCardioModal } from '../../components/Gym/cardio/LogCardioModal';
+import type { EditExerciseUpdates } from '../../components/Gym/exercise/EditExerciseSheet';
 import WeeklyReportSkeleton from '../../components/Gym/metrics/WeeklyReportSkeleton';
 import { LazySheet } from '../../hooks/useLazySheetMount';
+
+// ─── Lazy-Loaded Modals & Secondary Sheets (Deferred until user opens or scrolls) ───
+const AddExerciseModal = React.lazy(() => import('../../components/Gym/exercise/AddExerciseModal'));
+const ExerciseDeepDiveModal = React.lazy(() => import('../../components/Gym/exercise/ExerciseDeepDiveModal'));
+const GymExerciseOptionsSheet = React.lazy(() => import('../../components/Gym/exercise/GymExerciseOptionsSheet'));
+const EditExerciseSheet = React.lazy(() => import('../../components/Gym/exercise/EditExerciseSheet'));
+const ActiveSwapModal = React.lazy(() => import('../../components/Gym/active/ActiveSwapModal'));
+const PRHallOfFameSheet = React.lazy(() => import('../../components/Gym/metrics/PRHallOfFameSheet'));
+const ExerciseHistoryDrawer = React.lazy(() => import('../../components/Gym/exercise/ExerciseHistoryDrawer').then(m => ({ default: m.ExerciseHistoryDrawer })));
+const ExerciseDetailModal = React.lazy(() => import('../../components/Gym/exercise/ExerciseDetailModal'));
+const SwapRoutineModal = React.lazy(() => import('../../components/Gym/schedule/SwapRoutineModal'));
+const BodyMetricsSheet = React.lazy(() => import('../../components/Gym/metrics/BodyMetricsSheet'));
+const AddCardioModal = React.lazy(() => import('../../components/Gym/cardio/AddCardioModal'));
+const LogCardioModal = React.lazy(() => import('../../components/Gym/cardio/LogCardioModal'));
 
 const LazyWeeklyGymReport = React.lazy(() => import('../../components/Gym/metrics/WeeklyGymReport'));
 
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const DAYS_FULL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-
-function getMuscleWeight(m: string): number {
-  const ml = m.toLowerCase();
-  if (ml.includes('chest') || ml.includes('pec')) return 1;
-  if (ml.includes('delt') || ml.includes('shoulder')) return 2;
-  if (ml.includes('back') || ml.includes('lat') || ml.includes('trap')) return 3;
-  if (ml.includes('bicep') || ml.includes('tricep') || ml.includes('brach') || ml.includes('forearm')) return 4;
-  if (ml.includes('abs') || ml.includes('oblique') || ml.includes('core')) return 5;
-  if (ml.includes('quad') || ml.includes('glute') || ml.includes('ham') || ml.includes('calf') || ml.includes('soleus')) return 6;
-  return 7;
-}
 
 export const GymHomeScreen = memo(function GymHomeScreen() {
   const { colors, isDark, tokens } = useTheme();
@@ -133,8 +124,6 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
 
   const {
     log,
-    startWorkout,
-    resumeWorkout,
     endWorkout,
     revertWorkout,
     addExercise,
@@ -331,30 +320,33 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     return Math.max(20, Math.round(totalWorkingSets * 2.5));
   }, [totalWorkingSets]);
 
-  const muscleCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    activeExercises.forEach((ex: any) => {
-      const { canonicalGroup } = resolveExerciseTargetMuscle(ex.name, ex.muscle);
-      if (canonicalGroup && canonicalGroup !== 'Mixed' && canonicalGroup !== 'Other') {
-        counts[canonicalGroup] = (counts[canonicalGroup] || 0) + (ex.setsLog?.length || 3);
+  const lastTrainedDaysAgo = useMemo(() => {
+    if (!activePlanDay || activePlanDay.isRest || !gymLogs?.length) return null;
+    const targetPlanIdx = activePlanDay.dayIndex;
+    let latestPrevDate: string | null = null;
+    for (let i = 0; i < gymLogs.length; i++) {
+      const g = gymLogs[i];
+      if (!g?.completed || !g.date || g.date >= selectedDate) continue;
+      if (g.dayPlanIndex === targetPlanIdx) {
+        if (!latestPrevDate || g.date > latestPrevDate) {
+          latestPrevDate = g.date;
+        }
       }
-    });
-    return counts;
-  }, [activeExercises]);
-
-  const sortedMuscles = useMemo(() => {
-    return Object.entries(muscleCounts).sort((a, b) => {
-      const weightDiff = getMuscleWeight(a[0]) - getMuscleWeight(b[0]);
-      if (weightDiff !== 0) return weightDiff;
-      return b[1] - a[1];
-    });
-  }, [muscleCounts]);
+    }
+    if (!latestPrevDate) return null;
+    const prevMs = parseLocalDate(latestPrevDate).getTime();
+    const selMs = parseLocalDate(selectedDate).getTime();
+    if (isNaN(prevMs) || isNaN(selMs)) return null;
+    return Math.max(0, Math.round((selMs - prevMs) / 86400000));
+  }, [activePlanDay, gymLogs, selectedDate]);
 
   const isWorkoutCompleted = Boolean(log?.completed && !log?.workoutStartTime);
 
   const isEffectiveRest = Boolean(
     (activePlanDay?.isRest || planDay?.isRest) &&
     (!log?.exercises || log.exercises.length === 0) &&
+    (!log?.cardio || log.cardio.length === 0) &&
+    (!activePlanDay?.cardio || activePlanDay.cardio.length === 0) &&
     (!log?.workoutStartTime) &&
     (!log?.completed)
   );
@@ -362,12 +354,16 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
   // ─── Handlers ──────────────────────────────────────────────────────────────
   const handleStartWorkout = useCallback(() => {
     if (activeExercises.length === 0) {
-      setShowAddModal(true);
+      if (log?.cardio && log.cardio.length > 0) {
+        hapticLight();
+        setLogCardioFor(log.cardio[0]);
+      } else {
+        setShowAddModal(true);
+      }
       return;
     }
-    startWorkout();
-    navigation.navigate('ActiveLogging', { date: selectedDate });
-  }, [activeExercises.length, startWorkout, navigation, selectedDate]);
+    navigation.navigate('ActiveLogging', { date: selectedDate, autoStart: 'start' });
+  }, [activeExercises.length, log?.cardio, navigation, selectedDate]);
 
   // Navigate to ActiveLogging without starting the workout — used by exercise rows.
   // Tapping an exercise should ONLY open the logger to view/log sets, never auto-start.
@@ -384,9 +380,8 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
 
   // Explicitly resume an in-progress workout — used ONLY by the banner's Resume button.
   const handleResumeWorkout = useCallback(() => {
-    resumeWorkout();
-    navigation.navigate('ActiveLogging', { date: selectedDate });
-  }, [resumeWorkout, navigation, selectedDate]);
+    navigation.navigate('ActiveLogging', { date: selectedDate, autoStart: 'resume' });
+  }, [navigation, selectedDate]);
 
   const handleEndWorkoutFromBanner = useCallback(async (completed = true) => {
     const exercisesToPass = (log?.exercises && log.exercises.length > 0) ? log.exercises : undefined;
@@ -570,7 +565,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
           if (done || logCompleted) return;
           const draftKey = logId ? `gym_active_draft_${logId}` : `gym_active_draft_${dateStrVal}`;
           let draft = getL1Sync<any>(draftKey, null);
-          if (!draft && logId) {
+          if (!draft && logId && !isL1BootHydrated()) {
             const raw = await AsyncStorage.getItem(draftKey);
             if (raw) {
               try {
@@ -622,12 +617,16 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       .map(([muscle]) => muscle);
 
     if (topMuscles.length === 0) {
+      if ((log?.cardio?.length || 0) > 0) {
+        const cNames = (log?.cardio || []).map(c => c.type).slice(0, 2).join(' · ');
+        return `${log!.cardio!.length} cardio · ${cNames}`;
+      }
       return activePlanDay?.name || 'Workout Day';
     }
     if (topMuscles.length === 1) {
       return `${topMuscles[0]} Focus`;
     }
-    return `${topMuscles[0]} & ${topMuscles[1]}`;
+    return topMuscles.slice(0, 3).join(' · ');
   }, [activePlanDay?.isRest, activePlanDay?.name, activeExercises]);
 
   const renderWeeklyIcon = (iconName: 'flame' | 'flash' | 'trophy' | 'rocket' | 'calendar', color: string) => {
@@ -669,7 +668,9 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
               color={tokens.text.primary}
               strokeWidth={ICON.strokeWidth}
             />
-            <Text style={s.swapRoutineBtnText} numberOfLines={1}>Swap Today</Text>
+            <Text style={s.swapRoutineBtnText} numberOfLines={1}>
+              {selectedDate === today ? 'Swap Today' : 'Swap Day'}
+            </Text>
           </TactileButton>
         }
       />
@@ -769,14 +770,20 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
 
               const dotColor = isDone
                 ? tokens.status.success
+                : isToday
+                ? tokens.accent.primary
                 : isRest
                 ? tokens.text.muted
-                : (isToday ? tokens.status.warning : tokens.text.secondary);
+                : tokens.text.secondary;
 
               return (
                 <Pressable
                   key={date}
-                  style={[s.dayCol, isSelected && s.dayColActive]}
+                  style={[
+                    s.dayCol,
+                    isToday && !isSelected && s.dayColToday,
+                    isSelected && s.dayColActive,
+                  ]}
                   hitSlop={{ top: 6, bottom: 6, left: 2, right: 2 }}
                   onPress={() => {
                     hapticLight();
@@ -784,25 +791,43 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
                   }}
                 >
                   <Text
-                    style={[s.dayLetter, isSelected && s.dayLetterActive]}
+                    style={[
+                      s.dayLetter,
+                      isToday && !isSelected && s.dayLetterToday,
+                      isSelected && s.dayLetterActive,
+                    ]}
                     numberOfLines={1}
                     maxFontSizeMultiplier={1.2}
                   >
                     {dateDay}
                   </Text>
-                  <NumericText style={[s.dayNum, isSelected && s.dayNumActive]} numberOfLines={1}>
+                  <NumericText
+                    style={[
+                      s.dayNum,
+                      isToday && !isSelected && s.dayNumToday,
+                      isSelected && s.dayNumActive,
+                    ]}
+                    numberOfLines={1}
+                  >
                     {dateNum}
                   </NumericText>
-                  {isRest && !isDone ? (
-                    <Coffee
-                      size={10}
-                      color={isSelected ? tokens.accent.primary : tokens.text.muted}
-                      strokeWidth={ICON.strokeWidth}
-                      style={{ marginTop: 1 }}
-                    />
-                  ) : (
-                    <View style={[s.dayDot, { backgroundColor: dotColor }]} />
-                  )}
+                  <View style={s.dayIndicatorSlot}>
+                    {isDone ? (
+                      <Check
+                        size={11}
+                        color={tokens.status.success}
+                        strokeWidth={2.6}
+                      />
+                    ) : isRest ? (
+                      <Coffee
+                        size={10}
+                        color={isSelected || isToday ? tokens.accent.primary : tokens.text.muted}
+                        strokeWidth={ICON.strokeWidth}
+                      />
+                    ) : (
+                      <View style={[s.dayDot, { backgroundColor: dotColor }]} />
+                    )}
+                  </View>
                 </Pressable>
               );
             })}
@@ -889,10 +914,12 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
               onStartWorkout={handleStartWorkout}
               onResumeWorkout={handleResumeWorkout}
               onEndWorkout={handleEndWorkoutFromBanner}
-              resumeWorkout={resumeWorkout}
+              resumeWorkout={handleResumeWorkout}
               onRevertWorkout={revertWorkout}
               routineTitle={routineTitle}
               routineFocus={routineFocus}
+              exercises={activeExercises}
+              lastTrainedDaysAgo={lastTrainedDaysAgo}
               exerciseCount={activeExercises.length}
               setsCount={totalWorkingSets}
               estimatedMinutes={estimatedMinutes}
@@ -918,7 +945,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
                 </TactileButton>
               </View>
 
-              {activeExercises.length === 0 ? (
+              {activeExercises.length === 0 && (log?.cardio || []).length === 0 ? (
                 <View style={s.emptyPlanCard}>
                   <Dumbbell
                     size={28}
@@ -935,7 +962,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
                       : 'Tap + Add Exercise to insert movements or swap your routine day.'}
                   </Text>
                 </View>
-              ) : (
+              ) : activeExercises.length === 0 ? null : (
                 <View style={{ gap: SPACE[8] }}>
                   {exerciseRenderSections.map((section) =>
                     section.kind === 'standalone' ? (
@@ -998,22 +1025,24 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
               )}
             </View>
 
-            {/* ─── 5. CARDIO SECTION ──────────────────────────────────────── */}
-            <View style={s.section}>
-              <View style={s.sectionHeaderRow}>
-                <Text style={s.sectionLabel} numberOfLines={1}>CARDIO</Text>
-                <TactileButton
-                  variant="custom"
-                  style={s.sectionActionBtn}
-                  hitSlop={TOUCH.hitSlop}
-                  onPress={() => setShowCardioModal(true)}
-                >
-                  <Plus size={14} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
-                  <Text style={s.sectionActionText} numberOfLines={1}>Add</Text>
-                </TactileButton>
-              </View>
+            {/* ─── 5. CARDIO SECTION (Compact trigger until cardio exists) ── */}
+            {(log?.cardio || []).length > 0 ? (
+              <View style={s.section}>
+                <View style={s.sectionHeaderRow}>
+                  <Text style={s.sectionLabel} numberOfLines={1}>
+                    CARDIO · {(log?.cardio || []).length}
+                  </Text>
+                  <TactileButton
+                    variant="custom"
+                    style={s.sectionActionBtn}
+                    hitSlop={TOUCH.hitSlop}
+                    onPress={() => setShowCardioModal(true)}
+                  >
+                    <Plus size={14} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                    <Text style={s.sectionActionText} numberOfLines={1}>Add</Text>
+                  </TactileButton>
+                </View>
 
-              {(log?.cardio || []).length > 0 && (
                 <View style={s.insetGroupedCard}>
                   {(log?.cardio || []).map((c, idx) => {
                     const isDone = c.completed;
@@ -1060,21 +1089,16 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
                     );
                   })}
                 </View>
-              )}
-            </View>
-
-            {/* ─── 6. SESSION TARGET MUSCLES (Borderless) ──────────────── */}
-            {sortedMuscles.length > 0 && (
-              <View style={s.section}>
-                <View style={s.sectionHeaderRow}>
-                  <Text style={s.sectionLabel}>MUSCLES HIT</Text>
-                </View>
-                <View style={s.targetMusclesCard}>
-                  <NumericText style={s.targetMusclesText}>
-                    {sortedMuscles.map(([muscle, count]) => `${muscle} (${count})`).join('  ·  ')}
-                  </NumericText>
-                </View>
               </View>
+            ) : (
+              <TactileButton
+                variant="custom"
+                style={s.emptyCardioBtn}
+                onPress={() => setShowCardioModal(true)}
+              >
+                <Plus size={14} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                <Text style={s.emptyCardioBtnText} numberOfLines={1}>Add Cardio</Text>
+              </TactileButton>
             )}
           </>
         )}
@@ -1103,8 +1127,8 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
           <AddCardioModal
             visible={showCardioModal}
             onClose={() => setShowCardioModal(false)}
-            onAdd={(type: any) => {
-              addCardio(type);
+            onAdd={(type: string, preset?: { durationMinutes?: number | null }) => {
+              addCardio(type, preset);
               setShowCardioModal(false);
             }}
           />

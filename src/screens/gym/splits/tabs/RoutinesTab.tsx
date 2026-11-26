@@ -1,20 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
   ScrollView,
+  FlatList,
+  Platform,
   StyleSheet,
   TextInput,
   Pressable,
 } from 'react-native';
-import {
-  Plus,
-  Search,
-  X,
-  MoreHorizontal,
-  Calendar,
-  Play,
-} from 'lucide-react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { GymRoutine } from '../../../../types/gym.types';
 import { CuratedSplit } from '../../../../data/curatedSplits';
 import { hapticLight } from '../../../../utils/haptics';
@@ -83,10 +78,40 @@ export const RoutinesTab: React.FC<RoutinesTabProps> = React.memo(({
     );
   }, [customRoutinesList, searchQuery]);
 
-  return (
-    <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+  type RoutineFeedRow =
+    | { key: string; type: 'custom_routine'; routine: GymRoutine; index: number }
+    | { key: string; type: 'splits_header' }
+    | { key: string; type: 'split_card'; split: CuratedSplit };
+
+  const feedRows = useMemo<RoutineFeedRow[]>(() => {
+    const rows: RoutineFeedRow[] = [];
+    if (showCustomSection && customRoutinesList.length > 0) {
+      displayedCustomRoutines.forEach((rt, rtIdx) => {
+        rows.push({
+          key: `rt_${rt.id || rtIdx}`,
+          type: 'custom_routine',
+          routine: rt,
+          index: rtIdx,
+        });
+      });
+    }
+    if (showSplitsSection) {
+      rows.push({ key: 'splits_header', type: 'splits_header' });
+      filteredCuratedSplits.forEach(split => {
+        rows.push({
+          key: `split_${split.id}`,
+          type: 'split_card',
+          split,
+        });
+      });
+    }
+    return rows;
+  }, [showCustomSection, customRoutinesList.length, displayedCustomRoutines, showSplitsSection, filteredCuratedSplits]);
+
+  const listHeader = (
+    <View>
       {/* ── Filter Chips Bar ── */}
-      <View style={{ marginBottom: SPACE[4] }}>
+      <View style={{ marginBottom: SPACE[12] }}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -97,6 +122,7 @@ export const RoutinesTab: React.FC<RoutinesTabProps> = React.memo(({
             return (
               <TactileButton
                 key={f}
+                lightweight
                 variant="custom"
                 onPress={() => {
                   hapticLight();
@@ -122,7 +148,7 @@ export const RoutinesTab: React.FC<RoutinesTabProps> = React.memo(({
       </View>
 
       {/* ════════════════════════════════════════════════════════════════════
-          SECTION 1: MY ROUTINES (Custom Workout Templates)
+          SECTION 1 HEADER: MY ROUTINES
          ════════════════════════════════════════════════════════════════════ */}
       {showCustomSection && (
         <View style={{ marginBottom: SPACE[8] }}>
@@ -133,12 +159,13 @@ export const RoutinesTab: React.FC<RoutinesTabProps> = React.memo(({
 
             {customRoutinesList.length > 0 && (
               <TactileButton
+                lightweight
                 variant="primary"
                 size="xs"
                 onPress={onCreateRoutine}
                 style={tabStyles.newRoutinePillBtn}
               >
-                <Plus size={12} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
+                <Ionicons name="add" size={13} color={tokens.accent.onPrimary} />
                 <Text style={tabStyles.newRoutinePillText} numberOfLines={1}>New Routine</Text>
               </TactileButton>
             )}
@@ -146,7 +173,7 @@ export const RoutinesTab: React.FC<RoutinesTabProps> = React.memo(({
 
           {customRoutinesList.length > 2 && (
             <View style={tabStyles.searchBox}>
-              <Search size={15} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />
+              <Ionicons name="search" size={15} color={tokens.text.muted} />
               <TextInput
                 style={tabStyles.searchInput}
                 placeholder="Search workouts or exercises..."
@@ -156,14 +183,15 @@ export const RoutinesTab: React.FC<RoutinesTabProps> = React.memo(({
               />
               {searchQuery.length > 0 && (
                 <Pressable onPress={() => setSearchQuery('')} hitSlop={TOUCH.hitSlop}>
-                  <X size={16} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />
+                  <Ionicons name="close" size={16} color={tokens.text.muted} />
                 </Pressable>
               )}
             </View>
           )}
 
-          {customRoutinesList.length === 0 ? (
+          {customRoutinesList.length === 0 && (
             <TactileButton
+              lightweight
               variant="custom"
               onPress={onCreateRoutine}
               style={tabStyles.compactEmptyCard}
@@ -175,218 +203,257 @@ export const RoutinesTab: React.FC<RoutinesTabProps> = React.memo(({
                 </Text>
               </View>
               <View style={tabStyles.compactCreateBtn}>
-                <Plus size={12} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
+                <Ionicons name="add" size={13} color={tokens.accent.onPrimary} />
                 <Text style={tabStyles.newRoutinePillText}>New Routine</Text>
               </View>
             </TactileButton>
-          ) : (
-            <View style={{ gap: SPACE[12], marginTop: SPACE[8] }}>
-              {displayedCustomRoutines.map((rt, rtIdx) => {
-                const totalSets = (rt.exercises || []).reduce((acc, ex) => acc + (Number(ex.targetSets) || 3), 0);
-                const estMins = Math.round(totalSets * 2.5);
-
-                return (
-                  <View
-                    key={rt.id}
-                    style={tabStyles.routineCard}
-                  >
-                    <View style={tabStyles.routineCardHeader}>
-                      <Pressable
-                        onPress={() => onOpenRoutineOptions(rt, rtIdx)}
-                        style={({ pressed }) => [
-                          { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
-                          pressed && { opacity: 0.78 },
-                        ]}
-                      >
-                        <View style={{ flex: 1, minWidth: 0, paddingRight: SPACE[8] }}>
-                          <Text style={tabStyles.routineName} numberOfLines={1}>{rt.name}</Text>
-                          <NumericText style={tabStyles.routineSubtitle}>
-                            {rt.exercises?.length || 0} exercises · {totalSets} sets · ~{estMins}m
-                          </NumericText>
-                        </View>
-
-                        <View style={{ marginRight: SPACE[8] }}>
-                          <MiniDualBodyMap
-                            exercises={rt.exercises || []}
-                            activeColor={tokens.accent.primary}
-                            avatarHeight={42}
-                            avatarWidth={19}
-                            isDark={isDark}
-                          />
-                        </View>
-                      </Pressable>
-
-                      <Pressable
-                        onPress={() => onOpenRoutineOptions(rt, rtIdx)}
-                        style={tabStyles.kebabBtn}
-                        hitSlop={TOUCH.hitSlop}
-                        accessibilityLabel={`Options for ${rt.name}`}
-                      >
-                        <MoreHorizontal size={16} color={tokens.text.secondary} strokeWidth={ICON.strokeWidth} />
-                      </Pressable>
-                    </View>
-
-                    <Pressable
-                      onPress={() => onOpenRoutineOptions(rt, rtIdx)}
-                      style={({ pressed }) => [tabStyles.exercisePreviewRow, pressed && { opacity: 0.78 }]}
-                    >
-                      {(rt.exercises || []).slice(0, 2).map((ex, i) => (
-                        <View key={`${ex.name}-${i}`} style={tabStyles.previewChip}>
-                          <Text style={tabStyles.previewChipText} numberOfLines={1}>
-                            {ex.name}
-                          </Text>
-                        </View>
-                      ))}
-                      {(rt.exercises?.length || 0) > 2 && (
-                        <View style={[tabStyles.previewChip, tabStyles.previewChipMore]}>
-                          <NumericText style={tabStyles.previewChipMoreText}>
-                            +{(rt.exercises?.length || 0) - 2}
-                          </NumericText>
-                        </View>
-                      )}
-                    </Pressable>
-
-                    <View style={tabStyles.footerActionsRow}>
-                      <TactileButton
-                        variant="custom"
-                        size="md"
-                        onPress={() => onAssignRoutineTarget(rt)}
-                        style={tabStyles.assignPillBtn}
-                      >
-                        <Calendar size={13} color={tokens.text.primary} strokeWidth={ICON.strokeWidth} />
-                        <Text
-                          style={tabStyles.assignPillBtnText}
-                          numberOfLines={1}
-                          adjustsFontSizeToFit
-                          minimumFontScale={0.82}
-                        >
-                          Schedule
-                        </Text>
-                      </TactileButton>
-
-                      <TactileButton
-                        variant="primary"
-                        size="md"
-                        onPress={() => onStartWorkout(rt)}
-                        style={tabStyles.startPillBtn}
-                      >
-                        <Play size={13} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
-                        <Text
-                          style={tabStyles.startPillBtnText}
-                          numberOfLines={1}
-                          adjustsFontSizeToFit
-                          minimumFontScale={0.82}
-                        >
-                          Start
-                        </Text>
-                      </TactileButton>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
           )}
         </View>
       )}
+    </View>
+  );
 
-      {/* ════════════════════════════════════════════════════════════════════
-          SECTION 2: CURATED WORKOUT PROGRAMS
-         ════════════════════════════════════════════════════════════════════ */}
-      {showSplitsSection && (
-        <View style={{ marginBottom: SPACE[16] }}>
-          <View style={styles.routinesHeaderRow}>
+  const renderFeedRow = useCallback(
+    ({ item }: { item: RoutineFeedRow }) => {
+      if (item.type === 'splits_header') {
+        return (
+          <View style={[styles.routinesHeaderRow, { marginTop: showCustomSection ? SPACE[8] : 0 }]}>
             <Text style={styles.cardSectionLabel}>WORKOUT SPLITS</Text>
           </View>
+        );
+      }
 
-          <View style={{ gap: SPACE[12], marginTop: SPACE[8] }}>
-            {filteredCuratedSplits.map(split => {
-              const isActive =
-                activeTemplate === split.id ||
-                (split.id === 'ppl' && (activeTemplate === 'ppl' || activeTemplate === 'ppl_6day')) ||
-                (split.id === 'arnold' && (activeTemplate === 'arnold' || activeTemplate === 'arnold_6day')) ||
-                (split.id === 'upper_lower' && (activeTemplate === 'upper_lower' || activeTemplate === 'upper_lower_4day')) ||
-                (split.id === 'full_body' && (activeTemplate === 'full_body' || activeTemplate === 'full_body_3day')) ||
-                (split.id === 'bro_split' && (activeTemplate === 'bro_split' || activeTemplate === 'bro_split_5day')) ||
-                (split.id === 'pplul' && activeTemplate === 'pplul') ||
-                (split.id === 'torso_limbs' && activeTemplate === 'torso_limbs');
+      if (item.type === 'custom_routine') {
+        const { routine: rt, index: rtIdx } = item;
+        const exCount = rt.exercises?.length || 0;
+        const cardioCount = rt.cardio?.length || 0;
+        const totalSets = (rt.exercises || []).reduce((acc, ex) => acc + (Number(ex.targetSets) || 3), 0);
+        const cardioMins = (rt.cardio || []).reduce((acc, c) => acc + (Number(c.durationMinutes) || 0), 0);
+        const estMins = Math.round(totalSets * 2.5) + cardioMins;
+        const previewLabels = [
+          ...(rt.exercises || []).map(ex => ex.name),
+          ...(rt.cardio || []).map(c => c.type),
+        ];
 
-              return (
-                <View
-                  key={split.id}
-                  style={[
-                    tabStyles.splitCard,
-                    isActive && tabStyles.splitCardActive,
-                  ]}
-                >
-                  <View style={tabStyles.splitHeaderRow}>
-                    <Pressable
-                      onPress={() => onInspectSplit(split)}
-                      style={({ pressed }) => [
-                        { flex: 1, minWidth: 0, paddingRight: SPACE[8] },
-                        pressed && { opacity: 0.78 },
-                      ]}
-                    >
-                      <NumericText style={tabStyles.splitMetaBadge}>
-                        {split.daysPerWeek} DAYS / WK · {split.level.toUpperCase()}
-                      </NumericText>
-                      <Text style={tabStyles.splitTitle} numberOfLines={1}>
-                        {split.name}
-                      </Text>
-                    </Pressable>
-
-                    {isActive ? (
-                      <View style={tabStyles.activeStatusRow}>
-                        <View style={[tabStyles.activeStatusDot, { backgroundColor: tokens.status.success }]} />
-                        <Text style={[tabStyles.activeStatusText, { color: tokens.status.success }]}>
-                          Active
-                        </Text>
-                      </View>
-                    ) : (
-                      <TactileButton
-                        variant="primary"
-                        size="xs"
-                        onPress={() => onApplySplit(split)}
-                        style={tabStyles.applyPillBtn}
-                      >
-                        <Text style={tabStyles.applyPillBtnText} numberOfLines={1}>Apply</Text>
-                      </TactileButton>
-                    )}
-                  </View>
-
-                  <Pressable
-                    onPress={() => onInspectSplit(split)}
-                    style={({ pressed }) => [pressed && { opacity: 0.78 }]}
-                  >
-                    <Text style={tabStyles.splitDesc} numberOfLines={2}>
-                      {split.description}
-                    </Text>
-                  </Pressable>
-
-                  {/* Uniform Horizontal Workout Sequence Strip */}
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={tabStyles.workoutsTagTrack}
-                  >
-                    {split.workouts.map(w => (
-                      <Pressable
-                        key={w.id}
-                        onPress={() => onInspectSplit(split)}
-                        style={({ pressed }) => [tabStyles.workoutTagPill, pressed && { opacity: 0.78 }]}
-                      >
-                        <Text style={tabStyles.workoutTagPillText} numberOfLines={1}>
-                          {formatSplitWorkoutChip(w.name)}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
+        return (
+          <View style={[tabStyles.routineCard, { marginBottom: SPACE[12] }]}>
+            <View style={tabStyles.routineCardHeader}>
+              <Pressable
+                onPress={() => onOpenRoutineOptions(rt, rtIdx)}
+                style={({ pressed }) => [
+                  { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
+                  pressed && { opacity: 0.78 },
+                ]}
+              >
+                <View style={{ flex: 1, minWidth: 0, paddingRight: SPACE[8] }}>
+                  <Text style={tabStyles.routineName} numberOfLines={1}>{rt.name}</Text>
+                  <NumericText style={tabStyles.routineSubtitle}>
+                    {exCount > 0 ? `${exCount} exercises · ${totalSets} sets` : ''}
+                    {cardioCount > 0 ? `${exCount > 0 ? ' · ' : ''}${cardioCount} cardio` : ''}
+                    {estMins > 0 ? ` · ~${estMins}m` : ''}
+                  </NumericText>
                 </View>
-              );
-            })}
+
+                <View style={{ marginRight: SPACE[8] }}>
+                  <MiniDualBodyMap
+                    exercises={rt.exercises || []}
+                    activeColor={tokens.accent.primary}
+                    avatarHeight={42}
+                    avatarWidth={19}
+                    isDark={isDark}
+                  />
+                </View>
+              </Pressable>
+
+              <Pressable
+                onPress={() => onOpenRoutineOptions(rt, rtIdx)}
+                style={tabStyles.kebabBtn}
+                hitSlop={TOUCH.hitSlop}
+                accessibilityLabel={`Options for ${rt.name}`}
+              >
+                <Ionicons name="ellipsis-horizontal" size={16} color={tokens.text.secondary} />
+              </Pressable>
+            </View>
+
+            <Pressable
+              onPress={() => onOpenRoutineOptions(rt, rtIdx)}
+              style={({ pressed }) => [tabStyles.exercisePreviewRow, pressed && { opacity: 0.78 }]}
+            >
+              {previewLabels.slice(0, 2).map((label, i) => (
+                <View key={`${label}-${i}`} style={tabStyles.previewChip}>
+                  <Text style={tabStyles.previewChipText} numberOfLines={1}>
+                    {label}
+                  </Text>
+                </View>
+              ))}
+              {previewLabels.length > 2 && (
+                <View style={[tabStyles.previewChip, tabStyles.previewChipMore]}>
+                  <NumericText style={tabStyles.previewChipMoreText}>
+                    +{previewLabels.length - 2}
+                  </NumericText>
+                </View>
+              )}
+            </Pressable>
+
+            <View style={tabStyles.footerActionsRow}>
+              <TactileButton
+                lightweight
+                variant="custom"
+                size="md"
+                onPress={() => onAssignRoutineTarget(rt)}
+                style={tabStyles.assignPillBtn}
+              >
+                <Ionicons name="calendar-outline" size={13} color={tokens.text.primary} />
+                <Text
+                  style={tabStyles.assignPillBtnText}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.82}
+                >
+                  Schedule
+                </Text>
+              </TactileButton>
+
+              <TactileButton
+                lightweight
+                variant="primary"
+                size="md"
+                onPress={() => onStartWorkout(rt)}
+                style={tabStyles.startPillBtn}
+              >
+                <Ionicons name="play" size={12} color={tokens.accent.onPrimary} />
+                <Text
+                  style={tabStyles.startPillBtnText}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.82}
+                >
+                  Start
+                </Text>
+              </TactileButton>
+            </View>
           </View>
+        );
+      }
+
+      const { split } = item;
+      const isActive =
+        activeTemplate === split.id ||
+        (split.id === 'ppl' && (activeTemplate === 'ppl' || activeTemplate === 'ppl_6day')) ||
+        (split.id === 'arnold' && (activeTemplate === 'arnold' || activeTemplate === 'arnold_6day')) ||
+        (split.id === 'upper_lower' && (activeTemplate === 'upper_lower' || activeTemplate === 'upper_lower_4day')) ||
+        (split.id === 'full_body' && (activeTemplate === 'full_body' || activeTemplate === 'full_body_3day')) ||
+        (split.id === 'bro_split' && (activeTemplate === 'bro_split' || activeTemplate === 'bro_split_5day')) ||
+        (split.id === 'pplul' && activeTemplate === 'pplul') ||
+        (split.id === 'torso_limbs' && activeTemplate === 'torso_limbs');
+
+      return (
+        <View
+          style={[
+            tabStyles.splitCard,
+            { marginBottom: SPACE[12] },
+            isActive && tabStyles.splitCardActive,
+          ]}
+        >
+          <View style={tabStyles.splitHeaderRow}>
+            <Pressable
+              onPress={() => onInspectSplit(split)}
+              style={({ pressed }) => [
+                { flex: 1, minWidth: 0, paddingRight: SPACE[8] },
+                pressed && { opacity: 0.78 },
+              ]}
+            >
+              <NumericText style={tabStyles.splitMetaBadge}>
+                {split.daysPerWeek} DAYS / WK · {split.level.toUpperCase()}
+              </NumericText>
+              <Text style={tabStyles.splitTitle} numberOfLines={1}>
+                {split.name}
+              </Text>
+            </Pressable>
+
+            {isActive ? (
+              <View style={tabStyles.activeStatusRow}>
+                <View style={[tabStyles.activeStatusDot, { backgroundColor: tokens.status.success }]} />
+                <Text style={[tabStyles.activeStatusText, { color: tokens.status.success }]}>
+                  Active
+                </Text>
+              </View>
+            ) : (
+              <TactileButton
+                lightweight
+                variant="primary"
+                size="xs"
+                onPress={() => onApplySplit(split)}
+                style={tabStyles.applyPillBtn}
+              >
+                <Text style={tabStyles.applyPillBtnText} numberOfLines={1}>Apply</Text>
+              </TactileButton>
+            )}
+          </View>
+
+          <Pressable
+            onPress={() => onInspectSplit(split)}
+            style={({ pressed }) => [pressed && { opacity: 0.78 }]}
+          >
+            <Text style={tabStyles.splitDesc} numberOfLines={2}>
+              {split.description}
+            </Text>
+          </Pressable>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={tabStyles.workoutsTagTrack}
+          >
+            {split.workouts.map(w => (
+              <Pressable
+                key={w.id}
+                onPress={() => onInspectSplit(split)}
+                style={({ pressed }) => [tabStyles.workoutTagPill, pressed && { opacity: 0.78 }]}
+              >
+                <Text style={tabStyles.workoutTagPillText} numberOfLines={1}>
+                  {formatSplitWorkoutChip(w.name)}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
         </View>
-      )}
-    </ScrollView>
+      );
+    },
+    [
+      activeTemplate,
+      isDark,
+      onApplySplit,
+      onAssignRoutineTarget,
+      onInspectSplit,
+      onOpenRoutineOptions,
+      onStartWorkout,
+      showCustomSection,
+      styles.cardSectionLabel,
+      styles.routinesHeaderRow,
+      tabStyles,
+      tokens.accent.onPrimary,
+      tokens.accent.primary,
+      tokens.status.success,
+      tokens.text.primary,
+      tokens.text.secondary,
+    ]
+  );
+
+  return (
+    <FlatList
+      data={feedRows}
+      keyExtractor={(item) => item.key}
+      renderItem={renderFeedRow}
+      ListHeaderComponent={listHeader}
+      contentContainerStyle={[styles.scrollContent, { gap: 0, paddingBottom: 110 }]}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      initialNumToRender={6}
+      maxToRenderPerBatch={6}
+      windowSize={5}
+      removeClippedSubviews={Platform.OS === 'android'}
+    />
   );
 });
 

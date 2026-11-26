@@ -278,7 +278,7 @@ function determineWorkoutSplit(exercises: GymExerciseLog[]): 'Push' | 'Pull' | '
 export function computeUnifiedAnalytics(gymLogs: GymDayLog[], userGymPlan?: any): UnifiedAnalyticsData {
   const today = todayStr();
   const unitIsLbs = getUnitIsLbsSync();
-  const datasetKey = `unified_analytics_v2_${unitIsLbs ? 'lbs' : 'kg'}_${generateDatasetFingerprint(gymLogs)}`;
+  const datasetKey = `unified_analytics_v3_${today}_${unitIsLbs ? 'lbs' : 'kg'}_${generateDatasetFingerprint(gymLogs)}`;
 
   return computeOrGetHotCache(datasetKey, () => {
     const effectivePlan = userGymPlan || (typeof require !== 'undefined' ? (require('../utils/bootManifest').getBootManifestSync()?.userGymPlan || null) : null);
@@ -369,14 +369,99 @@ export function computeUnifiedAnalytics(gymLogs: GymDayLog[], userGymPlan?: any)
           completed: s.completed,
         }));
 
-        const completedWorkingSets = extractWorkingSets(rawSets.filter(s => s.completed));
-        if (completedWorkingSets.length === 0) continue;
+        const completedNonWarmup = rawSets.filter(s => s.completed && !s.isWarmup);
+        if (completedNonWarmup.length === 0) continue;
 
         const exName = ex.name.trim();
         const normKey = normalizeExerciseKey(exName);
         const { canonicalGroup } = resolveExerciseTargetMuscle(exName, ex.muscle);
         const category = categorizeMuscleGroup(canonicalGroup);
         const volMultiplier = getVolumeMultiplier(exName);
+
+        // Populate Detailed Session Diary & Exercise History Profiles in the same O(N) pass
+        const detailedWorkingSets = completedNonWarmup.map((s, idx) => ({
+          setNumber: s.setNumber || idx + 1,
+          weight: s.weight,
+          reps: s.reps,
+          completed: Boolean(s.completed),
+          rir: s.rir,
+        }));
+        let exProfileVol = 0;
+        let exTopWeight = 0;
+        let exTopReps = 0;
+        const profileSets = detailedWorkingSets.map(ws => {
+          exProfileVol += ws.weight * ws.reps * volMultiplier;
+          if (ws.weight > exTopWeight || (ws.weight === exTopWeight && ws.reps > exTopReps)) {
+            exTopWeight = ws.weight;
+            exTopReps = ws.reps;
+          }
+          return {
+            setNumber: ws.setNumber,
+            weight: ws.weight,
+            reps: ws.reps,
+            rir: ws.rir,
+          };
+        });
+
+        sessSets += detailedWorkingSets.length;
+        sessVolume += exProfileVol;
+
+        const setsPreview = detailedWorkingSets
+          .slice(0, 3)
+          .map(s => `${s.weight > 0 ? formatWeight(s.weight, unitIsLbs, 1) : 'BW'} × ${s.reps}`)
+          .join(', ');
+        const summaryText = `${detailedWorkingSets.length} set${detailedWorkingSets.length > 1 ? 's' : ''} (${setsPreview}${detailedWorkingSets.length > 3 ? '...' : ''})`;
+
+        exList.push({
+          name: exName,
+          muscle: canonicalGroup,
+          workingSets: detailedWorkingSets,
+          summaryText,
+        });
+
+        let prof = exerciseProfileMap.get(normKey);
+        if (!prof) {
+          prof = {
+            name: exName,
+            category,
+            muscle: canonicalGroup,
+            totalSessions: 0,
+            firstLoggedDate: log.date,
+            lastLoggedDate: log.date,
+            allTimeBestWeight: 0,
+            allTimeBestReps: 0,
+            allTimeBestVolume: 0,
+            sessions: [],
+            progressionStatus: {
+              status: 'baseline',
+              message: 'Baseline session logged',
+              deltaWeight: 0,
+              deltaReps: 0,
+            },
+          };
+          exerciseProfileMap.set(normKey, prof);
+        }
+        prof.totalSessions += 1;
+        prof.lastLoggedDate = log.date;
+        if (exTopWeight > prof.allTimeBestWeight || (exTopWeight === prof.allTimeBestWeight && exTopReps > prof.allTimeBestReps)) {
+          prof.allTimeBestWeight = exTopWeight;
+          prof.allTimeBestReps = exTopReps;
+        }
+        if (exProfileVol > prof.allTimeBestVolume) {
+          prof.allTimeBestVolume = Math.round(exProfileVol);
+        }
+        prof.sessions.push({
+          date: log.date,
+          shortDate: log.date.slice(5).replace('-', '/'),
+          topWeight: exTopWeight,
+          topReps: exTopReps,
+          sessionVolume: Math.round(exProfileVol),
+          workingSetsCount: profileSets.length,
+          sets: profileSets,
+        });
+
+        const completedWorkingSets = extractWorkingSets(completedNonWarmup);
+        if (completedWorkingSets.length === 0) continue;
 
         let summary = prMap.get(normKey);
         if (!summary) {
@@ -623,14 +708,36 @@ export function computeUnifiedAnalytics(gymLogs: GymDayLog[], userGymPlan?: any)
         runningBestE1RM.set(key, item.e1rm);
       }
 
-      // Record daily volume and cardio for O(1) weekly trends
+      // Record daily volume and cardio for O(1) weekly trends & detailed logs
       let sessCardioMins = 0;
       let hasCardio = false;
+      const cardioList: DetailedSessionLog['cardio'] = [];
       for (const c of log.cardio || []) {
         if (c && c.completed) {
           hasCardio = true;
           sessCardioMins += Number(c.durationMinutes) || 0;
+          cardioList.push({
+            type: c.type || 'Cardio',
+            durationMinutes: c.durationMinutes ?? null,
+            distanceKm: c.distanceKm ?? null,
+            calories: c.calories ?? null,
+          });
         }
+      }
+      if (exList.length > 0 || cardioList.length > 0) {
+        detailedLogs.push({
+          id: log.id || log.date,
+          date: log.date,
+          formattedDate: formatIndianDatePretty(log.date),
+          splitTag,
+          durationMinutes: log.workoutDurationMinutes || 0,
+          totalVolumeKg: Math.round(sessVolume),
+          totalSets: sessSets,
+          exerciseCount: exList.length,
+          exercises: exList,
+          cardio: cardioList,
+          notes: log.notes?.trim() || undefined,
+        });
       }
       const existingDateData = sessionVolumeByDate.get(log.date) || { volumeKg: 0, cardioMinutes: 0, workoutCount: 0 };
       sessionVolumeByDate.set(log.date, {
@@ -640,7 +747,7 @@ export function computeUnifiedAnalytics(gymLogs: GymDayLog[], userGymPlan?: any)
       });
 
       // Build SessionCardItem for Workout Logs
-      if (sessionTotalWorkingSets > 0 || (log.cardio || []).some(c => c.completed)) {
+      if (sessionTotalWorkingSets > 0 || hasCardio) {
         // Sort top anchor sets by e1RM desc
         sessionWorkingSetsByEx.sort((a, b) => b.e1rm - a.e1rm);
         const top3Sets = sessionWorkingSetsByEx.slice(0, 3).map(s => ({

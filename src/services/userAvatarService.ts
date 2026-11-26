@@ -14,9 +14,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const AVATAR_DIR_NAME = 'zentrack_avatar_cache/';
 const ASYNC_STORAGE_PREFIX = '@zentrack_avatar_disk_path_';
 const ASYNC_STORAGE_SOURCE_URL_PREFIX = '@zentrack_avatar_source_url_';
+export const AVATAR_BOOT_RECORD_KEY = '@zentrack_avatar_disk_path';
 
 // In-memory cache for 0ms synchronous access
 const MEMORY_AVATAR_CACHE = new Map<string, string>();
+
+export function seedAvatarMemoryCache(uid?: string | null, localPath?: string | null): void {
+  if (uid && localPath) {
+    MEMORY_AVATAR_CACHE.set(uid, localPath);
+  }
+}
 
 // Subscribed listeners for cache updates (e.g., when a background download finishes)
 type AvatarChangeListener = (uid: string, localUri: string) => void;
@@ -83,6 +90,14 @@ export function getLocalAvatarUriSync(uid?: string | null): string | null {
   return MEMORY_AVATAR_CACHE.get(uid) || null;
 }
 
+function persistBootAvatarPointer(uid: string, localPath: string, sourceUrl?: string) {
+  AsyncStorage.setItem(`${ASYNC_STORAGE_PREFIX}${uid}`, localPath).catch(() => {});
+  AsyncStorage.setItem(
+    AVATAR_BOOT_RECORD_KEY,
+    JSON.stringify({ uid, path: localPath, ...(sourceUrl ? { sourceUrl } : {}) })
+  ).catch(() => {});
+}
+
 /**
  * Resolves cached disk avatar path asynchronously (checks memory -> disk -> AsyncStorage).
  */
@@ -99,9 +114,9 @@ export async function getCachedAvatarUri(uid: string): Promise<string | null> {
   // 2. Check expected disk path directly
   try {
     const info = await FileSystem.getInfoAsync(localPath);
-    if (info.exists && (info.size ?? 0) > 100) {
+    if (info.exists && (info.size ?? 0) > 256) {
       MEMORY_AVATAR_CACHE.set(uid, localPath);
-      AsyncStorage.setItem(`${ASYNC_STORAGE_PREFIX}${uid}`, localPath).catch(() => {});
+      persistBootAvatarPointer(uid, localPath);
       return localPath;
     }
   } catch {}
@@ -111,8 +126,9 @@ export async function getCachedAvatarUri(uid: string): Promise<string | null> {
     const storedPath = await AsyncStorage.getItem(`${ASYNC_STORAGE_PREFIX}${uid}`);
     if (storedPath && storedPath !== localPath) {
       const info = await FileSystem.getInfoAsync(storedPath);
-      if (info.exists && (info.size ?? 0) > 100) {
+      if (info.exists && (info.size ?? 0) > 256) {
         MEMORY_AVATAR_CACHE.set(uid, storedPath);
+        persistBootAvatarPointer(uid, storedPath);
         return storedPath;
       }
     }
@@ -149,8 +165,9 @@ export async function cacheUserAvatar(uid: string, remoteUrl: string): Promise<s
       const cachedSourceUrl = await AsyncStorage.getItem(`${ASYNC_STORAGE_SOURCE_URL_PREFIX}${uid}`);
       try {
         const fileInfo = await FileSystem.getInfoAsync(localPath);
-        if (fileInfo.exists && (fileInfo.size ?? 0) > 100 && cachedSourceUrl === remoteUrl) {
+        if (fileInfo.exists && (fileInfo.size ?? 0) > 256 && cachedSourceUrl === remoteUrl) {
           MEMORY_AVATAR_CACHE.set(uid, localPath);
+          persistBootAvatarPointer(uid, localPath, remoteUrl);
           return localPath;
         }
       } catch {
@@ -160,8 +177,19 @@ export async function cacheUserAvatar(uid: string, remoteUrl: string): Promise<s
       // Download to a temporary file first, then atomic move to prevent partial writes
       const tempPath = `${dir}temp_avatar_${getCleanUid(uid)}_${Date.now()}.jpg`;
       const downloadRes = await FileSystem.downloadAsync(remoteUrl, tempPath);
+      const rawContentType = String(
+        downloadRes?.headers?.['content-type'] || downloadRes?.headers?.['Content-Type'] || ''
+      ).toLowerCase();
+      const downloadedInfo = await FileSystem.getInfoAsync(tempPath).catch(() => null);
 
-      if (downloadRes && downloadRes.status >= 200 && downloadRes.status < 300) {
+      if (
+        downloadRes &&
+        downloadRes.status >= 200 &&
+        downloadRes.status < 300 &&
+        !rawContentType.includes('text/html') &&
+        downloadedInfo?.exists &&
+        (downloadedInfo.size ?? 0) > 256
+      ) {
         try {
           const existingInfo = await FileSystem.getInfoAsync(localPath);
           if (existingInfo.exists) {
@@ -173,6 +201,10 @@ export async function cacheUserAvatar(uid: string, remoteUrl: string): Promise<s
           await Promise.all([
             AsyncStorage.setItem(`${ASYNC_STORAGE_PREFIX}${uid}`, localPath),
             AsyncStorage.setItem(`${ASYNC_STORAGE_SOURCE_URL_PREFIX}${uid}`, remoteUrl),
+            AsyncStorage.setItem(
+              AVATAR_BOOT_RECORD_KEY,
+              JSON.stringify({ uid, path: localPath, sourceUrl: remoteUrl })
+            ),
           ]);
           notifyAvatarChange(uid, localPath);
           return localPath;
@@ -205,7 +237,7 @@ export async function initAvatarCacheOnBoot(uid?: string | null): Promise<string
 }
 
 /**
- * Clears cached avatar files on sign-out or account wipe.
+ * Clears cached avatar files on sign-out or account wipe (or corrupt file recovery).
  */
 export async function clearAvatarCache(uid?: string | null): Promise<void> {
   if (!uid) return;
@@ -218,6 +250,7 @@ export async function clearAvatarCache(uid?: string | null): Promise<void> {
     await Promise.all([
       AsyncStorage.removeItem(`${ASYNC_STORAGE_PREFIX}${uid}`),
       AsyncStorage.removeItem(`${ASYNC_STORAGE_SOURCE_URL_PREFIX}${uid}`),
+      AsyncStorage.removeItem(AVATAR_BOOT_RECORD_KEY),
     ]);
   } catch (err) {
     console.warn('[UserAvatarService] Error clearing avatar cache:', err);

@@ -26,7 +26,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useGymLogs, useBodyMetrics } from '../../contexts/domains/WellnessContext';
 import { useGymProfile } from '../../hooks/useGymProfile';
 import { formatWeight, kgToDisplay, unitLabel, useWeightUnit } from '../../utils/weightUnit';
-import { BOOT_KEYS, getL1Sync } from '../../utils/bootManifest';
+import { BOOT_KEYS, getL1Sync, isL1BootHydrated } from '../../utils/bootManifest';
+import { LazySheet } from '../../hooks/useLazySheetMount';
 import { useTheme } from '../../contexts/ThemeContext';
 import { FONT_FAMILY, ICON, RADIUS, SPACE, TOUCH, ThemeTokens } from '../../theme/tokens';
 import { useResponsiveMetrics } from '../../theme/responsive';
@@ -43,7 +44,7 @@ import { GymNavigationParamList } from '../../types/gym.types';
 
 import AnatomicalBodyMapCard from '../../components/Gym/metrics/AnatomicalBodyMapCard';
 import BodyMetricsHistoryChart, { WeightChartEntry } from '../../components/Gym/metrics/BodyMetricsHistoryChart';
-import BodyMetricsSheet from '../../components/Gym/metrics/BodyMetricsSheet';
+const BodyMetricsSheet = React.lazy(() => import('../../components/Gym/metrics/BodyMetricsSheet'));
 import BeforeAfterSlider from '../../components/Gym/metrics/BeforeAfterSlider';
 
 const WEIGHT_LOGS_KEY = BOOT_KEYS.WEIGHT_LOGS;
@@ -77,8 +78,8 @@ export default function GymProgressScreen() {
   const prevSheetOpenRef = React.useRef(false);
 
   useEffect(() => {
-    // Only re-read storage on initial mount or when sheet transitions from open -> closed
-    const shouldRead = !prevSheetOpenRef.current || (prevSheetOpenRef.current && !showWeighInSheet);
+    const justClosedSheet = prevSheetOpenRef.current && !showWeighInSheet;
+    const shouldRead = justClosedSheet || (!prevSheetOpenRef.current && !isL1BootHydrated());
     if (shouldRead) {
       AsyncStorage.getItem(WEIGHT_LOGS_KEY).then(raw => {
         if (raw) {
@@ -466,11 +467,16 @@ export default function GymProgressScreen() {
         )}
       </ScrollView>
 
-      {/* Weigh-In & Photo Input Bottom Sheet (always mounted for smooth exit spring) */}
-      <BodyMetricsSheet
+      {/* Weigh-In & Photo Input Bottom Sheet */}
+      <LazySheet
         visible={showWeighInSheet}
-        initialTab={metricsSheetTab}
-        onClose={() => setShowWeighInSheet(false)}
+        render={() => (
+          <BodyMetricsSheet
+            visible={showWeighInSheet}
+            initialTab={metricsSheetTab}
+            onClose={() => setShowWeighInSheet(false)}
+          />
+        )}
       />
     </ScreenWrapper>
   );

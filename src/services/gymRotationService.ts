@@ -48,7 +48,9 @@ export function getWorkoutDaysInRotation(userGymPlan: UserGymPlanDoc | null): Gy
   const workoutDays: GymPlanDay[] = [];
   for (const idx of slots) {
     const day = resolvePlanDay(userGymPlan, idx);
-    if (day && !day.isRest && Array.isArray(day.exercises) && day.exercises.length > 0) {
+    const hasExercises = Boolean(day && Array.isArray(day.exercises) && day.exercises.length > 0);
+    const hasCardio = Boolean(day && Array.isArray(day.cardio) && day.cardio.length > 0);
+    if (day && !day.isRest && (hasExercises || hasCardio)) {
       workoutDays.push(day);
     }
   }

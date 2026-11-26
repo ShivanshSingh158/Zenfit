@@ -6,7 +6,9 @@ import Svg, {
   Defs,
   G,
   LinearGradient as SvgLinearGradient,
+  Path,
   RadialGradient,
+  Rect,
   Stop,
 } from 'react-native-svg';
 import Animated, {
@@ -66,6 +68,42 @@ const CARDINAL_TICK_DASH = 1.6;
 const CARDINAL_TICK_GAP = CARDINAL_TICK_C / 4 - CARDINAL_TICK_DASH;
 const CARDINAL_TICK_ROT = -90 - (CARDINAL_TICK_DASH / CARDINAL_TICK_C) * 180;
 
+/* ── Bespoke Hero SVG Icons ─────────────────────────────────────────────── */
+const SwapArrowsSvg = React.memo(function SwapArrowsSvg({ color }: { color: string }) {
+  return (
+    <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M7 7H18M18 7L14.5 3.5M18 7L14.5 10.5M17 17H6M6 17L9.5 13.5M6 17L9.5 20.5"
+        stroke={color}
+        strokeWidth={2.2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+});
+
+const LineupBarsSvg = React.memo(function LineupBarsSvg({ color }: { color: string }) {
+  return (
+    <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+      <Rect x={3.5} y={5} width={4} height={4} rx={1.2} fill={color} opacity={0.9} />
+      <Path d="M10.5 7H20.5" stroke={color} strokeWidth={2.1} strokeLinecap="round" />
+      <Rect x={3.5} y={10.5} width={4} height={4} rx={1.2} fill={color} opacity={0.75} />
+      <Path d="M10.5 12.5H18.5" stroke={color} strokeWidth={2.1} strokeLinecap="round" />
+      <Rect x={3.5} y={16} width={4} height={4} rx={1.2} fill={color} opacity={0.6} />
+      <Path d="M10.5 18H16.5" stroke={color} strokeWidth={2.1} strokeLinecap="round" />
+    </Svg>
+  );
+});
+
+export interface HeroLiftPreviewItem {
+  name: string;
+  targetSets: number;
+  targetReps: string;
+  lastWeightKg?: number | null;
+  lastAvgReps?: number | null;
+}
+
 export interface OrbitalChronometerHeroProps {
   isScreenFocused?: boolean;
   isInProgress: boolean;
@@ -74,6 +112,7 @@ export interface OrbitalChronometerHeroProps {
   activeStartMs: any;
   workoutName: string;
   exercises: any[];
+  topLiftPreviews?: HeroLiftPreviewItem[];
   totalSets: number;
   heroWorkoutSubtitle: string;
   effectiveLog: any;
@@ -88,6 +127,8 @@ export interface OrbitalChronometerHeroProps {
   onFinishWorkout: () => void;
   onBrowseWorkouts: () => void;
   onOpenPreview: () => void;
+  onSwapRoutine?: () => void;
+  onPressExercise?: (exerciseName: string) => void;
   onViewSummary: () => void;
   onRevertWorkout: () => void;
   tokens: ThemeTokens;
@@ -408,6 +449,7 @@ export const OrbitalChronometerHero: React.FC<OrbitalChronometerHeroProps> =
     activeStartMs,
     workoutName,
     exercises,
+    topLiftPreviews = [],
     totalSets,
     heroWorkoutSubtitle,
     effectiveLog,
@@ -417,6 +459,8 @@ export const OrbitalChronometerHero: React.FC<OrbitalChronometerHeroProps> =
     onFinishWorkout,
     onBrowseWorkouts,
     onOpenPreview,
+    onSwapRoutine,
+    onPressExercise,
     onViewSummary,
     onRevertWorkout,
     tokens,
@@ -681,6 +725,17 @@ export const OrbitalChronometerHero: React.FC<OrbitalChronometerHeroProps> =
                   ACTIVE RECOVERY
                 </Text>
               </View>
+              {onSwapRoutine ? (
+                <TactileButton
+                  variant="custom"
+                  haptic="light"
+                  onPress={onSwapRoutine}
+                  style={styles.heroSwapLink}
+                >
+                  <SwapArrowsSvg color={tokens.accent.primary} />
+                  <Text style={styles.heroSwapLinkText}>Swap</Text>
+                </TactileButton>
+              ) : null}
             </View>
 
             <Text style={styles.heroWorkoutTitle} numberOfLines={1}>
@@ -688,7 +743,7 @@ export const OrbitalChronometerHero: React.FC<OrbitalChronometerHeroProps> =
             </Text>
 
             <Text style={styles.targetMusclesText}>
-              Scheduled recovery window. Light walking, mobility, or browse custom splits anytime.
+              Recovery day — walk, stretch, or swap in a workout if you feel ready.
             </Text>
 
             <TactileButton
@@ -709,6 +764,28 @@ export const OrbitalChronometerHero: React.FC<OrbitalChronometerHeroProps> =
           </View>
         ) : (
           <View style={styles.stateContainer}>
+            <View style={styles.missionHeaderRow}>
+              <View style={styles.eyebrowDotRow}>
+                <View
+                  style={[styles.eyebrowDot, { backgroundColor: tokens.accent.primary }]}
+                />
+                <Text style={styles.missionCardEyebrow}>TODAY&apos;S SESSION</Text>
+              </View>
+
+              {onSwapRoutine ? (
+                <TactileButton
+                  variant="custom"
+                  haptic="light"
+                  onPress={onSwapRoutine}
+                  style={styles.heroSwapLink}
+                  accessibilityLabel="Swap today's workout"
+                >
+                  <SwapArrowsSvg color={tokens.accent.primary} />
+                  <Text style={styles.heroSwapLinkText}>Swap</Text>
+                </TactileButton>
+              ) : null}
+            </View>
+
             <Pressable
               onPress={() => {
                 hapticLight();
@@ -716,45 +793,107 @@ export const OrbitalChronometerHero: React.FC<OrbitalChronometerHeroProps> =
               }}
               style={({ pressed }) => [
                 styles.heroPressableArea,
-                pressed && { opacity: 0.85 },
+                pressed && { opacity: 0.86 },
               ]}
             >
-              <View style={styles.missionHeaderRow}>
-                <Text style={styles.missionCardEyebrow}>TODAY'S WORKOUT</Text>
-
-                <View style={styles.heroPreviewLink}>
-                  <Text style={styles.heroPreviewLinkText}>Lineup</Text>
-                  <ChevronRight
-                    size={12}
-                    color={tokens.accent.primary}
-                    strokeWidth={ICON.strokeWidth}
-                  />
-                </View>
+              <View style={styles.heroTitleMetaRow}>
+                <Text style={styles.heroWorkoutTitle} numberOfLines={1}>
+                  {workoutName}
+                </Text>
+                {totalSets > 0 ? (
+                  <NumericText style={styles.heroTitleVolumeMeta} numberOfLines={1}>
+                    {totalSets} sets · ~{Math.max(20, Math.round(totalSets * 2.7))}m
+                  </NumericText>
+                ) : null}
               </View>
-
-              <Text style={styles.heroWorkoutTitle} numberOfLines={1}>
-                {workoutName}
-              </Text>
 
               <NumericText style={styles.targetMusclesText} numberOfLines={1}>
                 {heroWorkoutSubtitle}
               </NumericText>
             </Pressable>
 
-            <TactileButton
-              variant="primary"
-              haptic="success"
-              onPress={onStartWorkout}
-              size="lg"
-              style={styles.primaryStartBtn}
-            >
-              <Play
-                size={15}
-                color={tokens.accent.onPrimary}
-                strokeWidth={ICON.strokeWidth}
-              />
-              <Text style={styles.primaryStartBtnText} numberOfLines={1}>Start Workout</Text>
-            </TactileButton>
+            {topLiftPreviews.length > 0 ? (
+              <View style={styles.heroLiftsBox}>
+                {topLiftPreviews.map((lift, idx) => {
+                  const hasLast =
+                    typeof lift.lastWeightKg === 'number' &&
+                    lift.lastWeightKg >= 0 &&
+                    typeof lift.lastAvgReps === 'number' &&
+                    lift.lastAvgReps > 0;
+                  const rightLabel = hasLast
+                    ? `Last ${formatWeight(lift.lastWeightKg!, unitIsLbs, 1)} × ${lift.lastAvgReps}`
+                    : `${lift.targetSets} × ${lift.targetReps}`;
+                  return (
+                    <Pressable
+                      key={`${lift.name}-${idx}`}
+                      onPress={() => {
+                        hapticLight();
+                        onPressExercise?.(lift.name);
+                      }}
+                      style={({ pressed }) => [
+                        styles.heroLiftRow,
+                        pressed && { opacity: 0.72 },
+                      ]}
+                    >
+                      <NumericText style={styles.heroLiftIdx}>
+                        {idx + 1}
+                      </NumericText>
+                      <Text style={styles.heroLiftName} numberOfLines={1}>
+                        {lift.name}
+                      </Text>
+                      <NumericText
+                        style={[
+                          styles.heroLiftMeta,
+                          hasLast && { color: tokens.accent.primary },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {rightLabel}
+                      </NumericText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+
+            <View style={styles.heroActionsRow}>
+              <TactileButton
+                variant="custom"
+                haptic="success"
+                onPress={onStartWorkout}
+                style={styles.heroPrimaryGradWrap}
+              >
+                <LinearGradient
+                  colors={['#2589FF', tokens.accent.primary]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.heroPrimaryGradInner}
+                >
+                  <Play
+                    size={15}
+                    color={tokens.accent.onPrimary}
+                    fill={tokens.accent.onPrimary}
+                    strokeWidth={ICON.strokeWidth}
+                  />
+                  <Text style={styles.primaryStartBtnText} numberOfLines={1}>
+                    Start Workout
+                  </Text>
+                </LinearGradient>
+              </TactileButton>
+
+              <TactileButton
+                variant="custom"
+                haptic="light"
+                onPress={onOpenPreview}
+                style={styles.heroLineupBtn}
+                accessibilityLabel="Preview workout lineup"
+              >
+                <LineupBarsSvg color={tokens.text.primary} />
+                <NumericText style={styles.heroLineupBtnText} numberOfLines={1}>
+                  {exercises.length > 0 ? `All ${exercises.length}` : 'Lineup'}
+                </NumericText>
+              </TactileButton>
+            </View>
           </View>
         )}
       </View>

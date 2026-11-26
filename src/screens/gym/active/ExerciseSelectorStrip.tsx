@@ -1,10 +1,9 @@
 import React from 'react';
-import { LayoutChangeEvent, ScrollView, StyleSheet, View } from 'react-native';
-import { ChevronLeft, ChevronRight } from 'lucide-react-native';
-import { Text } from 'react-native';
+import { LayoutChangeEvent, ScrollView, StyleSheet, View, Text } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { useTheme } from '../../../contexts/ThemeContext';
-import { TactileButton, NumericText, AppIcon } from '../../../components/ui';
+import { TactileButton, NumericText } from '../../../components/ui';
 import { MiniMannequinButton } from '../../../components/workout';
 
 export interface ExerciseSelectorStripProps {
@@ -69,6 +68,7 @@ export const ExerciseSelectorStrip: React.FC<ExerciseSelectorStripProps> = React
             return (
               <TactileButton
                 key={ex.exerciseId || ex.name || idx}
+                lightweight
                 variant="custom"
                 haptic="selection"
                 hitSlop={tokens.touch.hitSlop}
@@ -138,14 +138,15 @@ export const ExerciseFooterNav: React.FC<ExerciseFooterNavProps> = React.memo(
         ]}
       >
         <TactileButton
+          lightweight
           variant="ghost"
           haptic="selection"
           disabled={isFirst}
           onPress={onPrev}
           style={footerStyles.navBtn}
         >
-          <AppIcon
-            icon={ChevronLeft}
+          <Ionicons
+            name="chevron-back"
             size={16}
             color={isFirst ? tokens.text.muted : tokens.text.secondary}
           />
@@ -163,6 +164,7 @@ export const ExerciseFooterNav: React.FC<ExerciseFooterNavProps> = React.memo(
         </TactileButton>
 
         <TactileButton
+          lightweight
           variant="ghost"
           haptic="selection"
           onPress={onNextOrFinish}
@@ -184,7 +186,7 @@ export const ExerciseFooterNav: React.FC<ExerciseFooterNavProps> = React.memo(
                   {nextLabel}
                 </Text>
               </View>
-              <AppIcon icon={ChevronRight} size={17} color={tokens.accent.primary} />
+              <Ionicons name="chevron-forward" size={17} color={tokens.accent.primary} />
             </>
           ) : (
             <>
@@ -201,7 +203,7 @@ export const ExerciseFooterNav: React.FC<ExerciseFooterNavProps> = React.memo(
                   Finish Workout
                 </Text>
               </View>
-              <AppIcon icon={ChevronRight} size={17} color={tokens.status.success} />
+              <Ionicons name="chevron-forward" size={17} color={tokens.status.success} />
             </>
           )}
         </TactileButton>

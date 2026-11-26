@@ -81,10 +81,14 @@ export default function GymHistoryScreen() {
   const safeChartWidth = clampChartWidth(44);
   const { replayKey } = useScreenReplayTrigger();
 
-  const { gymLogs } = useGymLogs();
+  const { gymLogs, ensureSubscribed } = useGymLogs();
   const { userGymPlan } = useGymPlan();
   const unitIsLbs = useWeightUnit();
   const route = useRoute<any>();
+
+  useEffect(() => {
+    ensureSubscribed?.();
+  }, [ensureSubscribed]);
 
   // Defer heavy SVG charts and heatmap mounts by 1 frame so shell/header paint in Frame 0 (<16ms)
   const [isHeavyReady, setIsHeavyReady] = useState(false);

@@ -14,6 +14,8 @@ import {
   ScrollView,
   Switch,
   Platform,
+  ActivityIndicator,
+  DeviceEventEmitter,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -43,6 +45,14 @@ import {
 } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../../services/firebase';
+import { COLLECTION } from '../../config/constants';
+import { parseGymLog } from '../../utils/schemaGuards';
+import { mergeGymLogMonotonic } from '../../utils/gymUtils';
+import { applyPendingQueueOverlay } from '../../services/offlineSync';
+import { writeWellnessCache } from '../../utils/domainCache';
+import { updateL1Cache, setL1Sync, ONBOARDING_FLOW_KEY } from '../../utils/bootManifest';
 
 import { useTheme, ThemeMode } from '../../contexts/ThemeContext';
 import { useCoreData } from '../../contexts/domains/CoreDataContext';
@@ -123,7 +133,7 @@ export default function GymProfileScreen() {
   const styles = useMemo(() => makeStyles(tokens, isDark), [tokens, isDark]);
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
-  const { user, performSignOut } = useCoreData();
+  const { user, performSignOut, performGoogleSignIn } = useCoreData();
   const { gymProfile, saveGymProfile } = useGymProfile();
   const { gymLogs } = useGymLogs();
   const { userGymPlan } = useGymPlan();
@@ -152,6 +162,7 @@ export default function GymProfileScreen() {
   const [deepDiveExercise, setDeepDiveExercise] = useState<string | null>(null);
   const [actionSheet, setActionSheet] = useState<SettingsActionSheetState>(null);
   const [statusToast, setStatusToast] = useState<string | null>(null);
+  const [cloudSyncing, setCloudSyncing] = useState(false);
 
   // Sync latest weight & athlete dossier
   const latestTrackedWeightKg = useMemo(() => {
@@ -320,24 +331,83 @@ export default function GymProfileScreen() {
   const cloudSyncInfo = useMemo(() => {
     if (user && !user.isAnonymous && user.email) {
       return {
-        subtitle: `Synced to ${user.email}`,
-        badge: 'Synced',
-        dotColor: tokens.status.success,
-      };
-    }
-    if (user) {
-      return {
-        subtitle: 'Cloud guest backup enabled',
-        badge: 'Active',
+        subtitle: `Synced to ${user.email} · Tap to refresh`,
+        badge: cloudSyncing ? 'Syncing' : 'Synced',
         dotColor: tokens.status.success,
       };
     }
     return {
-      subtitle: 'Saved locally on device only',
-      badge: 'Offline',
-      dotColor: tokens.text.muted,
+      subtitle: 'Tap to connect Gmail & restore cloud data',
+      badge: cloudSyncing ? 'Connecting' : 'Connect',
+      dotColor: tokens.status.warning,
     };
-  }, [user, tokens]);
+  }, [user, cloudSyncing, tokens]);
+
+  const handleCloudBackupPress = useCallback(async () => {
+    if (cloudSyncing) return;
+    impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setCloudSyncing(true);
+    try {
+      let activeUid = user && !user.isAnonymous ? user.uid : null;
+      let activeEmail = user?.email || null;
+
+      if (!activeUid) {
+        const res = await performGoogleSignIn();
+        if (res.cancelled) {
+          return;
+        }
+        if (!res.success || !res.user?.uid) {
+          setStatusToast(res.error || 'Google Sign-In could not be completed.');
+          return;
+        }
+        activeUid = res.user.uid;
+        activeEmail = res.user.email || null;
+        await AsyncStorage.setItem('zenfit_onboarding_flow_done_v3', 'true').catch(() => {});
+        setL1Sync(ONBOARDING_FLOW_KEY, true);
+      }
+
+      DeviceEventEmitter.emit('firestore_force_reconnect');
+
+      if (!activeUid) return;
+      const snap = await getDocs(
+        query(collection(db, COLLECTION.GYM_LOGS), where('userId', '==', activeUid))
+      );
+
+      const byId = new Map<string, any>();
+      for (const existing of gymLogs || []) {
+        if (existing) {
+          const key = existing.id || `${activeUid}_${existing.date}`;
+          byId.set(key, existing);
+        }
+      }
+
+      let cloudCount = 0;
+      snap.forEach((docSnap) => {
+        const parsed = parseGymLog(docSnap.data(), docSnap.id);
+        if (parsed.deleted) return;
+        cloudCount++;
+        const key = parsed.id || `${activeUid}_${parsed.date}`;
+        const existing = byId.get(key);
+        byId.set(key, existing ? mergeGymLogMonotonic(existing, parsed) : parsed);
+      });
+
+      const merged = applyPendingQueueOverlay(COLLECTION.GYM_LOGS, Array.from(byId.values()));
+      merged.sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''));
+      updateL1Cache('gymLogs', merged);
+      writeWellnessCache({ gymLogs: merged }, false);
+      DeviceEventEmitter.emit('gym_logs_changed', { gymLogs: merged });
+
+      notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const label = activeEmail ? ` (${activeEmail})` : '';
+      setStatusToast(
+        `Synced ${cloudCount} ${cloudCount === 1 ? 'workout' : 'workouts'}${label}.`
+      );
+    } catch (err: any) {
+      setStatusToast(err?.message || 'Unable to reach Cloud Firestore.');
+    } finally {
+      setCloudSyncing(false);
+    }
+  }, [cloudSyncing, user, gymLogs, performGoogleSignIn]);
 
   const statsSummarySub = useMemo(() => {
     if (!athleteStats.hasPhysicalStats) {
@@ -394,6 +464,7 @@ export default function GymProfileScreen() {
         {/* HERO PERFORMANCE CARD ENTRY */}
         <AthleteProfileCard
           stats={athleteStats}
+          uid={user?.uid}
           onOpenCard={() => {
             impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setShowFullCardModal(true);
@@ -755,8 +826,14 @@ export default function GymProfileScreen() {
 
           <View style={styles.hairline} />
 
-          {/* Cloud Sync Status */}
-          <View style={styles.settingRow}>
+          {/* Cloud Sync / Google Connect */}
+          <TactileButton
+            variant="custom"
+            scaleTo={0.99}
+            style={styles.settingRow}
+            onPress={handleCloudBackupPress}
+            disabled={cloudSyncing}
+          >
             <View style={styles.iconBox}>
               <Cloud size={ICON.sm} color={tokens.text.primary} strokeWidth={ICON.strokeWidth} />
             </View>
@@ -767,10 +844,14 @@ export default function GymProfileScreen() {
               </Text>
             </View>
             <View style={styles.syncStatusBadge}>
-              <View style={[styles.syncStatusDot, { backgroundColor: cloudSyncInfo.dotColor }]} />
+              {cloudSyncing ? (
+                <ActivityIndicator size="small" color={tokens.accent.primary} />
+              ) : (
+                <View style={[styles.syncStatusDot, { backgroundColor: cloudSyncInfo.dotColor }]} />
+              )}
               <Text style={styles.syncStatusText}>{cloudSyncInfo.badge}</Text>
             </View>
-          </View>
+          </TactileButton>
 
           <View style={styles.hairline} />
 

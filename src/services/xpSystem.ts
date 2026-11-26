@@ -1,7 +1,7 @@
 // src/services/xpSystem.ts
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DeviceEventEmitter, AppState } from 'react-native';
+import { DeviceEventEmitter } from 'react-native';
 import { doc, getDoc, setDoc, increment } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { updateL1Cache, getBootManifestSync, getL1Sync, setL1Sync } from '../utils/bootManifest';
@@ -382,9 +382,3 @@ export async function resetAllXP(clearRemote = false): Promise<void> {
 export async function resetXP(): Promise<void> {
   return resetAllXP(true);
 }
-
-AppState.addEventListener('change', nextState => {
-  if (nextState === 'background' || nextState === 'inactive') {
-    flushPendingXPCloudSync();
-  }
-});

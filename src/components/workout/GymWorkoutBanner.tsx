@@ -9,8 +9,8 @@ import PreSessionMuscleHitMap from '../Gym/schedule/PreSessionMuscleHitMap';
 import WorkoutTimer from './WorkoutTimer';
 import { TactileButton } from '../ui/TactileButton';
 import { NumericText } from '../ui/NumericText';
-import { RollingNumber } from '../ui/RollingNumber';
 import { AppIcon } from '../ui/AppIcon';
+import { formatVolumeParts, useWeightUnit } from '../../utils/weightUnit';
 
 export interface GymWorkoutBannerProps {
   log: any;
@@ -22,10 +22,12 @@ export interface GymWorkoutBannerProps {
   onStartWorkout: () => void;
   onResumeWorkout: () => void;
   onEndWorkout: (completed: boolean) => void;
-  resumeWorkout: () => void;
+  resumeWorkout?: () => void;
   onRevertWorkout?: () => void;
   routineTitle?: string;
   routineFocus?: string;
+  exercises?: any[];
+  lastTrainedDaysAgo?: number | null;
   exerciseCount?: number;
   setsCount?: number;
   estimatedMinutes?: number;
@@ -41,17 +43,24 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
     onStartWorkout,
     onResumeWorkout,
     onEndWorkout,
-    resumeWorkout,
     onRevertWorkout,
     routineTitle = 'Workout Day',
     routineFocus = 'Hypertrophy Training',
+    exercises,
+    lastTrainedDaysAgo = null,
     exerciseCount = 0,
     setsCount = 0,
     estimatedMinutes = 45,
     replayKey = 0,
   }) => {
     const { tokens, isDark } = useTheme();
+    const unitIsLbs = useWeightUnit();
     const [pendingAction, setPendingAction] = useState<'revert' | 'finish' | null>(null);
+
+    const effectiveExercises = useMemo(() => {
+      if (log?.exercises && log.exercises.length > 0) return log.exercises;
+      return exercises || [];
+    }, [log?.exercises, exercises]);
 
     const isCompleted = Boolean(
       !log?.workoutStartTime &&
@@ -60,21 +69,33 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
             log.workoutDurationMinutes > 0))
     );
 
-    const { hasLoggedAnyWork, completedSetsTotal, completedExercisesTotal } = useMemo(() => {
+    const {
+      hasLoggedAnyWork,
+      completedSetsTotal,
+      completedExercisesTotal,
+      completedVolumeKg,
+    } = useMemo(() => {
       let setsTotal = 0;
       let exTotal = 0;
+      let volKg = 0;
       (log?.exercises || []).forEach((ex: any) => {
-        const doneSets = (ex?.setsLog || []).filter((s: any) => Boolean(s?.completed)).length;
-        if (doneSets > 0) {
-          setsTotal += doneSets;
-          exTotal++;
-        }
+        let exDone = 0;
+        (ex?.setsLog || []).forEach((s: any) => {
+          if (!s?.completed) return;
+          exDone++;
+          setsTotal++;
+          const w = Number(s.weight ?? s.weightKg ?? 0);
+          const r = Number(s.reps ?? 0);
+          if (w > 0 && r > 0) volKg += w * r;
+        });
+        if (exDone > 0) exTotal++;
       });
       const hasCardio = (log?.cardio || []).some((c: any) => Boolean(c?.completed));
       return {
         hasLoggedAnyWork: setsTotal > 0 || hasCardio,
         completedSetsTotal: setsTotal,
         completedExercisesTotal: exTotal,
+        completedVolumeKg: volKg,
       };
     }, [log?.exercises, log?.cardio]);
 
@@ -92,10 +113,9 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
       ) {
         return routineFocus;
       }
-      const exercisesList = log?.exercises || [];
-      if (exercisesList.length > 0) {
+      if (effectiveExercises.length > 0) {
         const counts: Record<string, number> = {};
-        exercisesList.forEach((ex: any) => {
+        effectiveExercises.forEach((ex: any) => {
           const { canonicalGroup } = resolveExerciseTargetMuscle(ex.name, ex.muscle);
           if (canonicalGroup && canonicalGroup !== 'Mixed' && canonicalGroup !== 'Other') {
             counts[canonicalGroup] =
@@ -105,11 +125,20 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
         const top = Object.entries(counts)
           .sort((a, b) => b[1] - a[1])
           .map(([m]) => m);
-        if (top.length >= 2) return `${top[0]} & ${top[1]}`;
+        if (top.length >= 2) return top.slice(0, 3).join(' · ');
         if (top.length === 1) return `${top[0]} Focus`;
       }
       return routineFocus || 'Workout Session';
-    }, [routineFocus, log?.exercises]);
+    }, [routineFocus, effectiveExercises]);
+
+    const headerSubtitle = useMemo(() => {
+      if (lastTrainedDaysAgo !== null && lastTrainedDaysAgo !== undefined) {
+        if (lastTrainedDaysAgo === 0) return 'Trained earlier · Ready again';
+        if (lastTrainedDaysAgo === 1) return 'Last trained yesterday';
+        return `Last trained ${lastTrainedDaysAgo}d ago`;
+      }
+      return displayedFocus;
+    }, [lastTrainedDaysAgo, displayedFocus]);
 
     const cardStyle = [
       styles.heroCard,
@@ -139,15 +168,17 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
 
     // 1. Completed Workout Surface
     if (isCompleted) {
+      const volumeSuffix =
+        completedVolumeKg > 0 ? ` · ${formatVolumeParts(completedVolumeKg, unitIsLbs).full}` : '';
       const completedSummarySub = hasLoggedAnyWork
-        ? `${log?.workoutDurationMinutes || 1}m · ${completedExercisesTotal} ex · ${completedSetsTotal} sets`
+        ? `${log?.workoutDurationMinutes || 1}m · ${completedExercisesTotal} ex · ${completedSetsTotal} sets${volumeSuffix}`
         : `${log?.workoutDurationMinutes ? `${log.workoutDurationMinutes}m quick check-in` : 'Session marked complete'}`;
 
       return (
         <View style={cardStyle}>
           {sheenGradient}
           <View style={styles.topRow}>
-            <View style={styles.completedHeader}>
+            <View style={[styles.completedHeader, styles.flexOne]}>
               <View
                 style={[
                   styles.completedIconWrap,
@@ -156,11 +187,17 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
               >
                 <AppIcon icon={Check} size={15} color={tokens.status.onSuccess} />
               </View>
-              <View>
-                <Text style={[tokens.typography.title, { color: tokens.text.primary }]}>
+              <View style={styles.flexOne}>
+                <Text
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  style={[tokens.typography.title, { color: tokens.text.primary }]}
+                >
                   Workout Completed
                 </Text>
                 <NumericText
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
                   style={[
                     tokens.typography.caption,
                     { color: tokens.text.secondary, marginTop: 2 },
@@ -188,39 +225,49 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
                 { borderTopColor: isDark ? 'rgba(255,255,255,0.08)' : tokens.border.subtle },
               ]}
             >
-              <Text style={[tokens.typography.caption, { color: tokens.text.secondary, flex: 1 }]}>
+              <Text style={[tokens.typography.caption, { color: tokens.text.secondary }]}>
                 Reset status back to Start Workout?
               </Text>
-              <TactileButton
-                variant="secondary"
-                size="sm"
-                onPress={() => setPendingAction(null)}
-                style={{ minHeight: 34, paddingHorizontal: 12 }}
-              >
-                <Text style={[tokens.typography.caption, { color: tokens.text.primary }]}>Cancel</Text>
-              </TactileButton>
-              <TactileButton
-                variant="custom"
-                size="sm"
-                haptic="medium"
-                onPress={() => {
-                  hapticMedium();
-                  setPendingAction(null);
-                  onRevertWorkout?.();
-                }}
-                style={{
-                  minHeight: 34,
-                  paddingHorizontal: 12,
-                  borderRadius: 10,
-                  backgroundColor: tokens.status.warningDim,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Text style={[tokens.typography.caption, { fontFamily: tokens.font.bold, color: tokens.status.warning }]}>
-                  Revert
-                </Text>
-              </TactileButton>
+              <View style={styles.confirmActionsRow}>
+                <TactileButton
+                  variant="secondary"
+                  size="sm"
+                  onPress={() => setPendingAction(null)}
+                  style={[styles.flexOne, { minHeight: 36 }]}
+                >
+                  <Text style={[tokens.typography.caption, { color: tokens.text.primary }]} numberOfLines={1}>
+                    Cancel
+                  </Text>
+                </TactileButton>
+                <TactileButton
+                  variant="custom"
+                  size="sm"
+                  haptic="medium"
+                  onPress={() => {
+                    hapticMedium();
+                    setPendingAction(null);
+                    onRevertWorkout?.();
+                  }}
+                  style={[
+                    styles.flexOne,
+                    {
+                      minHeight: 36,
+                      paddingHorizontal: 12,
+                      borderRadius: 10,
+                      backgroundColor: tokens.status.warningDim,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[tokens.typography.caption, { fontFamily: tokens.font.bold, color: tokens.status.warning }]}
+                    numberOfLines={1}
+                  >
+                    Revert
+                  </Text>
+                </TactileButton>
+              </View>
             </View>
           ) : (
             <View style={styles.completedActions}>
@@ -241,8 +288,7 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
                   size="md"
                   haptic="medium"
                   onPress={() => {
-                    resumeWorkout();
-                    navigation.navigate('ActiveLogging', { date: selectedDate });
+                    navigation.navigate('ActiveLogging', { date: selectedDate, autoStart: 'resume' });
                   }}
                 >
                   <Text style={[tokens.typography.label, { color: tokens.status.success }]}>
@@ -275,6 +321,15 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
 
     // 2. Active / In-Progress Surface
     if (log?.workoutStartTime) {
+      const effectiveTotalSets =
+        setsCount > 0
+          ? setsCount
+          : effectiveExercises.reduce((sum: number, ex: any) => sum + (ex?.setsLog?.length || 3), 0);
+      const livePct =
+        effectiveTotalSets > 0 ? Math.min(100, Math.round((completedSetsTotal / effectiveTotalSets) * 100)) : 0;
+      const liveVolumeText =
+        completedVolumeKg > 0 ? ` · ${formatVolumeParts(completedVolumeKg, unitIsLbs).full}` : '';
+
       return (
         <View style={cardStyle}>
           {sheenGradient}
@@ -297,6 +352,8 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
                 </Text>
               </View>
               <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
                 style={[
                   tokens.typography.title,
                   { color: tokens.text.primary, marginTop: 4 },
@@ -311,12 +368,40 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
                 {
                   backgroundColor: tokens.accent.primaryDim,
                   borderRadius: tokens.radius.sm,
+                  flexShrink: 0,
                 },
               ]}
             >
               <WorkoutTimer startTime={log.workoutStartTime} />
             </View>
           </View>
+
+          {effectiveTotalSets > 0 && pendingAction !== 'finish' && (
+            <View style={styles.liveProgressRow}>
+              <View
+                style={[
+                  styles.liveProgressTrack,
+                  { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : tokens.border.subtle },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.liveProgressFill,
+                    {
+                      width: `${livePct}%`,
+                      backgroundColor: tokens.accent.primary,
+                    },
+                  ]}
+                />
+              </View>
+              <NumericText
+                numberOfLines={1}
+                style={[styles.liveProgressText, { color: tokens.text.secondary }]}
+              >
+                {completedSetsTotal}/{effectiveTotalSets} sets{liveVolumeText}
+              </NumericText>
+            </View>
+          )}
 
           {pendingAction === 'finish' ? (
             <View
@@ -325,40 +410,50 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
                 { borderTopColor: isDark ? 'rgba(255,255,255,0.08)' : tokens.border.subtle },
               ]}
             >
-              <Text style={[tokens.typography.caption, { color: tokens.text.secondary, flex: 1 }]}>
+              <Text style={[tokens.typography.caption, { color: tokens.text.secondary }]}>
                 {incompleteCount > 0 ? `${incompleteCount} exercises unfinished. End now?` : 'Save and finish session?'}
               </Text>
-              <TactileButton
-                variant="secondary"
-                size="sm"
-                onPress={() => setPendingAction(null)}
-                style={{ minHeight: 34, paddingHorizontal: 10 }}
-              >
-                <Text style={[tokens.typography.caption, { color: tokens.text.primary }]}>Back</Text>
-              </TactileButton>
-              <TactileButton
-                variant="custom"
-                size="sm"
-                haptic="medium"
-                onPress={() => {
-                  hapticMedium();
-                  setPendingAction(null);
-                  onEndWorkout(true);
-                  navigation.navigate('WorkoutSummary', { date: selectedDate, log });
-                }}
-                style={{
-                  minHeight: 34,
-                  paddingHorizontal: 12,
-                  borderRadius: 10,
-                  backgroundColor: tokens.accent.crimsonDim,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Text style={[tokens.typography.caption, { fontFamily: tokens.font.bold, color: tokens.accent.crimson }]}>
-                  End & Save
-                </Text>
-              </TactileButton>
+              <View style={styles.confirmActionsRow}>
+                <TactileButton
+                  variant="secondary"
+                  size="sm"
+                  onPress={() => setPendingAction(null)}
+                  style={[styles.flexOne, { minHeight: 36 }]}
+                >
+                  <Text style={[tokens.typography.caption, { color: tokens.text.primary }]} numberOfLines={1}>
+                    Back
+                  </Text>
+                </TactileButton>
+                <TactileButton
+                  variant="custom"
+                  size="sm"
+                  haptic="medium"
+                  onPress={() => {
+                    hapticMedium();
+                    setPendingAction(null);
+                    onEndWorkout(true);
+                    navigation.navigate('WorkoutSummary', { date: selectedDate, log });
+                  }}
+                  style={[
+                    styles.flexOne,
+                    {
+                      minHeight: 36,
+                      paddingHorizontal: 12,
+                      borderRadius: 10,
+                      backgroundColor: tokens.accent.crimsonDim,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[tokens.typography.caption, { fontFamily: tokens.font.bold, color: tokens.accent.crimson }]}
+                    numberOfLines={1}
+                  >
+                    End & Save
+                  </Text>
+                </TactileButton>
+              </View>
             </View>
           ) : (
             <View style={styles.completedActions}>
@@ -409,77 +504,63 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
       <View style={cardStyle}>
         {sheenGradient}
         <View style={styles.topRow}>
-          <View style={[styles.flexOne, { minWidth: 0, paddingRight: 8 }]}>
+          <View style={[styles.flexOne, { paddingRight: 6 }]}>
             <Text
               numberOfLines={1}
+              ellipsizeMode="tail"
               style={[tokens.typography.title, { color: tokens.text.primary }]}
             >
               {cleanTitle}
             </Text>
-            {(Boolean(displayedFocus) || currentStreak > 0) && (
-              <View style={styles.focusMetaRow}>
-                {Boolean(displayedFocus) && (
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      tokens.typography.caption,
-                      { color: tokens.text.secondary, flexShrink: 1 },
-                    ]}
-                  >
-                    {displayedFocus}
-                  </Text>
-                )}
-                {currentStreak > 0 && (
-                  <View style={styles.streakInlineCompact}>
-                    {Boolean(displayedFocus) && (
-                      <Text style={[tokens.typography.caption, { color: tokens.text.muted }]}>
-                        ·
-                      </Text>
-                    )}
-                    <AppIcon icon={Flame} size={12} color={tokens.status.warning} />
-                    <RollingNumber
-                      value={currentStreak}
-                      suffix="d"
-                      replayKey={replayKey}
-                      cycles={0}
-                      durationMs={420}
-                      style={[styles.streakCompactText, { color: tokens.status.warning }]}
-                    />
-                  </View>
-                )}
-              </View>
+            {Boolean(headerSubtitle) && (
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={[
+                  tokens.typography.caption,
+                  { color: tokens.text.secondary, marginTop: 2 },
+                ]}
+              >
+                {headerSubtitle}
+              </Text>
             )}
           </View>
 
           <TactileButton
+            lightweight
             variant="primary"
-            size="md"
+            size="sm"
             haptic="heavy"
             onPress={onStartWorkout}
-            hitSlop={4}
-            style={styles.topStartBtn}
+            style={styles.headerStartBtn}
           >
-            <AppIcon icon={Play} size={14} color={tokens.accent.onPrimary} />
+            <AppIcon icon={Play} size={13} color={tokens.accent.onPrimary} />
             <Text
               style={[
                 tokens.typography.label,
-                { fontFamily: tokens.font.bold, fontSize: 13, color: tokens.accent.onPrimary },
+                {
+                  fontFamily: tokens.font.bold,
+                  fontSize: 13.5,
+                  color: tokens.accent.onPrimary,
+                  includeFontPadding: false,
+                },
               ]}
               numberOfLines={1}
+              maxFontSizeMultiplier={1.15}
             >
               Start Workout
             </Text>
           </TactileButton>
         </View>
 
-        {log?.exercises && log.exercises.length > 0 && (
+        {effectiveExercises.length > 0 && (
           <PreSessionMuscleHitMap
-            exercises={log.exercises}
+            exercises={effectiveExercises}
             isRest={false}
             compact={false}
             showMiniAvatar={true}
             title={cleanTitle}
-            exerciseCount={exerciseCount}
+            exerciseCount={exerciseCount > 0 ? exerciseCount : effectiveExercises.length}
             totalSets={setsCount}
             estimatedMinutes={estimatedMinutes}
             replayKey={replayKey}
@@ -493,54 +574,44 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
 const styles = StyleSheet.create({
   flexOne: {
     flex: 1,
+    minWidth: 0,
   },
   heroCard: {
     borderWidth: StyleSheet.hairlineWidth,
     gap: 12,
+    overflow: 'hidden',
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
+    alignSelf: 'stretch',
   },
   streakInline: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    flexShrink: 0,
   },
   streakText: {
     fontSize: 13,
   },
-  focusMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 2,
-    minWidth: 0,
-  },
-  streakInlineCompact: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    flexShrink: 0,
-  },
-  streakCompactText: {
-    fontSize: 12,
-  },
-  topStartBtn: {
-    minHeight: 40,
+  headerStartBtn: {
+    minHeight: 38,
     paddingHorizontal: 14,
-    paddingVertical: 9,
     borderRadius: 12,
     flexShrink: 0,
   },
   inlineConfirmBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 8,
     paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  confirmActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   completedHeader: {
     flexDirection: 'row',
@@ -568,6 +639,25 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
+  },
+  liveProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  liveProgressTrack: {
+    flex: 1,
+    height: 5,
+    borderRadius: 2.5,
+    overflow: 'hidden',
+  },
+  liveProgressFill: {
+    height: '100%',
+    borderRadius: 2.5,
+  },
+  liveProgressText: {
+    fontSize: 11.5,
+    flexShrink: 0,
   },
   timerWrap: {
     paddingHorizontal: 10,

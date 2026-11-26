@@ -1,12 +1,15 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
   Pressable,
+  StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  Activity,
+  ChevronRight,
   Clock,
   Dumbbell,
   Moon,
@@ -21,12 +24,28 @@ import BottomSheet from '../../../../components/ui/BottomSheet';
 import { TactileButton, NumericText } from '../../../../components/ui';
 import { useTheme } from '../../../../contexts/ThemeContext';
 import { ICON, SPACE, TOUCH } from '../../../../theme/tokens';
-import { GymPlanDay } from '../../../../types/gym.types';
+import { GymPlanCardio, GymPlanDay } from '../../../../types/gym.types';
 import { hapticLight, hapticSelection } from '../../../../utils/haptics';
 import { getSplitsPalette, useSplitsStyles } from '../styles/gymSplitsStyles';
 import { getRotationLetterForDay } from '../../../../services/gymRotationService';
 import { resolveMuscleColor } from '../../../../utils/gymUtils';
 import { useLatestNonNull } from '../../../../hooks/useLatestNonNull';
+
+function formatPlanCardioSummary(c: GymPlanCardio): string {
+  const parts: string[] = [];
+  if (c.durationMinutes) parts.push(`${c.durationMinutes} min`);
+  if (c.distanceKm) parts.push(`${c.distanceKm} km`);
+  if (c.speedKmh) parts.push(`${c.speedKmh} km/h`);
+  if (c.incline) parts.push(`${c.incline}% incline`);
+  if (c.floors) parts.push(`${c.floors} floors`);
+  if (c.level) parts.push(`Lvl ${c.level}`);
+  if (c.laps) parts.push(`${c.laps} laps`);
+  if (c.rounds) parts.push(`${c.rounds} rounds`);
+  if (c.spm) parts.push(`${c.spm} spm`);
+  if (c.pace) parts.push(`${c.pace} min/km`);
+  if (c.calories) parts.push(`${c.calories} kcal`);
+  return parts.length > 0 ? parts.join(' · ') : 'Planned cardio · Tap to set targets';
+}
 
 export interface DayDetailModalProps {
   visible: boolean;
@@ -43,10 +62,13 @@ export interface DayDetailModalProps {
   isEditPlanMode: boolean;
   onExitDeleteMode?: () => void;
   handleDeleteExerciseFromPlan: (dayIndex: number, exIndex: number, exName: string) => void;
+  handleDeleteCardioFromPlan?: (dayIndex: number, cardioIndex: number, cardioName: string) => void;
   onAddExercise: () => void;
+  onAddCardio?: () => void;
   onSwapRoutine: (dayIndex: number) => void;
   onEditWorkout?: (activeDay: any) => void;
   onEditExercise?: (dayIndex: number, exIndex: number, ex: any) => void;
+  onEditCardio?: (dayIndex: number, cardioIndex: number, cardioItem: GymPlanCardio) => void;
 }
 
 export const DayDetailModal: React.FC<DayDetailModalProps> = React.memo(({
@@ -64,27 +86,44 @@ export const DayDetailModal: React.FC<DayDetailModalProps> = React.memo(({
   isEditPlanMode,
   onExitDeleteMode,
   handleDeleteExerciseFromPlan,
+  handleDeleteCardioFromPlan,
   onAddExercise,
+  onAddCardio,
   onSwapRoutine,
   onEditWorkout,
   onEditExercise,
+  onEditCardio,
 }) => {
   const { tokens, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useSplitsStyles();
   const palette = getSplitsPalette(tokens, isDark);
   const currentDay = useLatestNonNull(activeDay);
+  const [showAddChooser, setShowAddChooser] = useState(false);
+
+  useEffect(() => {
+    if (!visible) {
+      setShowAddChooser(false);
+    }
+  }, [visible]);
+
   const isRest = Boolean(currentDay?.planDay?.isRest);
   const isToday = currentDay?.dayIndex === (currentDayOfWeek === 0 ? 7 : currentDayOfWeek);
   const exercises = currentDay?.planDay?.exercises || [];
+  const cardio = currentDay?.planDay?.cardio || [];
 
   const displaySubtitle = useMemo(() => {
     if (!currentDay?.planDay) return '';
     if (isRest) return 'Scheduled rest & recovery';
     const totalSets = exercises.reduce((acc, ex) => acc + (Number(ex.targetSets) || 3), 0);
-    const estMins = Math.round(totalSets * 2.5);
-    return `${exercises.length} exercises · ${totalSets} sets · ~${estMins}m`;
-  }, [isRest, currentDay?.planDay, exercises]);
+    const cardioMins = cardio.reduce((acc, c) => acc + (Number(c.durationMinutes) || 0), 0);
+    const estMins = Math.round(totalSets * 2.5) + cardioMins;
+    const parts: string[] = [];
+    if (exercises.length > 0) parts.push(`${exercises.length} exercises · ${totalSets} sets`);
+    if (cardio.length > 0) parts.push(`${cardio.length} cardio`);
+    if (parts.length === 0) return 'No exercises or cardio added yet';
+    return `${parts.join(' · ')} · ~${estMins}m`;
+  }, [isRest, currentDay?.planDay, exercises, cardio]);
 
   if (!currentDay) return null;
 
@@ -206,7 +245,7 @@ export const DayDetailModal: React.FC<DayDetailModalProps> = React.memo(({
 
         <View style={styles.hairline} />
 
-        {isEditPlanMode && !isRest && exercises.length > 0 ? (
+        {isEditPlanMode && !isRest && (exercises.length > 0 || cardio.length > 0) ? (
           <View style={styles.deleteModeBanner}>
             <Text style={styles.deleteModeBannerText} numberOfLines={1}>
               Tap trash to remove from weekly plan
@@ -224,7 +263,7 @@ export const DayDetailModal: React.FC<DayDetailModalProps> = React.memo(({
           </View>
         ) : null}
 
-        {/* Modal Content: Scrollable Borderless Exercise Ledger OR Rest Presentation */}
+        {/* Modal Content: Scrollable Borderless Exercise & Cardio Ledger OR Rest Presentation */}
         <ScrollView
           showsVerticalScrollIndicator={false}
           style={{ flex: 1 }}
@@ -248,6 +287,22 @@ export const DayDetailModal: React.FC<DayDetailModalProps> = React.memo(({
                 <Dumbbell size={14} color={tokens.accent.onPrimary} strokeWidth={ICON.strokeWidth} />
                 <Text style={styles.switchWorkoutBtnText}>Make Workout Day</Text>
               </TactileButton>
+
+              <TactileButton
+                variant="custom"
+                onPress={() => {
+                  hapticLight();
+                  if (onAddCardio) {
+                    setShowAddChooser(true);
+                  } else {
+                    onAddExercise();
+                  }
+                }}
+                style={styles.restSecondaryAddBtn}
+              >
+                <Plus size={14} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                <Text style={styles.restSecondaryAddText}>Add Cardio or Exercise</Text>
+              </TactileButton>
             </View>
           ) : (
             <View>
@@ -260,7 +315,7 @@ export const DayDetailModal: React.FC<DayDetailModalProps> = React.memo(({
                       key={`${ex.name}-${idx}`}
                       style={[
                         styles.exerciseItemRow,
-                        idx === exercises.length - 1 && { borderBottomWidth: 0 },
+                        idx === exercises.length - 1 && cardio.length === 0 && { borderBottomWidth: 0 },
                       ]}
                     >
                       <Pressable
@@ -325,10 +380,70 @@ export const DayDetailModal: React.FC<DayDetailModalProps> = React.memo(({
                     </View>
                   ))}
 
-                  {exercises.length === 0 && (
+                  {cardio.length > 0 && (
+                    <View>
+                      {exercises.length > 0 && (
+                        <View style={styles.cardioSubHeaderRow}>
+                          <Text style={styles.cardioSubHeaderLabel}>CARDIO ({cardio.length})</Text>
+                        </View>
+                      )}
+                      {cardio.map((cItem, cIdx) => (
+                        <View
+                          key={`${cItem.id || cItem.type}-${cIdx}`}
+                          style={[
+                            styles.exerciseItemRow,
+                            cIdx === cardio.length - 1 && { borderBottomWidth: 0 },
+                          ]}
+                        >
+                          <Pressable
+                            disabled={isEditPlanMode || !onEditCardio}
+                            onPress={() => {
+                              if (!isEditPlanMode && onEditCardio) {
+                                hapticSelection();
+                                onEditCardio(currentDay.dayIndex, cIdx, cItem);
+                              }
+                            }}
+                            style={({ pressed }) => [
+                              { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
+                              pressed && !isEditPlanMode && onEditCardio && { opacity: 0.72 },
+                            ]}
+                          >
+                            <View style={styles.exCardioBadge}>
+                              <Activity size={13} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                            </View>
+
+                            <View style={{ flex: 1, minWidth: 0, paddingRight: SPACE[8] }}>
+                              <Text style={styles.exNameText} numberOfLines={1}>{cItem.type}</Text>
+                              <NumericText style={styles.exTargetText} numberOfLines={1}>
+                                {formatPlanCardioSummary(cItem)}
+                              </NumericText>
+                            </View>
+
+                            {!isEditPlanMode && onEditCardio ? (
+                              <Pencil size={13} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} style={{ marginLeft: SPACE[4] }} />
+                            ) : null}
+                          </Pressable>
+
+                          {isEditPlanMode && handleDeleteCardioFromPlan && (
+                            <TactileButton
+                              variant="custom"
+                              onPress={() => handleDeleteCardioFromPlan(currentDay.dayIndex, cIdx, cItem.type)}
+                              style={styles.planExDeleteBtn}
+                              hitSlop={TOUCH.hitSlop}
+                              accessibilityLabel={`Delete ${cItem.type}`}
+                            >
+                              <Trash2 size={15} color={tokens.status.danger} strokeWidth={ICON.strokeWidth} />
+                            </TactileButton>
+                          )}
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {exercises.length === 0 && cardio.length === 0 && (
                     <View style={{ alignItems: 'center', paddingVertical: SPACE[24] }}>
                       <Dumbbell size={26} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} style={{ marginBottom: SPACE[8] }} />
-                      <Text style={styles.emptyNote}>No exercises assigned to this day yet.</Text>
+                      <Text style={styles.emptyNote}>No exercises or cardio added to this day yet.</Text>
                     </View>
                   )}
                 </View>
@@ -385,7 +500,11 @@ export const DayDetailModal: React.FC<DayDetailModalProps> = React.memo(({
               size="md"
               onPress={() => {
                 hapticLight();
-                onAddExercise();
+                if (onAddCardio) {
+                  setShowAddChooser(true);
+                } else {
+                  onAddExercise();
+                }
               }}
               style={[styles.modalSecondaryAddBtn, { minWidth: 0 }]}
             >
@@ -399,6 +518,85 @@ export const DayDetailModal: React.FC<DayDetailModalProps> = React.memo(({
                 Add
               </Text>
             </TactileButton>
+          </View>
+        )}
+
+        {/* ── Add Exercise or Cardio Chooser Overlay ── */}
+        {showAddChooser && (
+          <View style={styles.addChooserBackdrop}>
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={() => setShowAddChooser(false)}
+              accessibilityLabel="Close add chooser"
+            />
+            <View
+              style={[
+                styles.addChooserSheet,
+                { paddingBottom: Math.max(insets.bottom, SPACE[16]) + SPACE[8] },
+              ]}
+            >
+              <View style={styles.addChooserHeader}>
+                <View style={{ flex: 1, paddingRight: SPACE[8] }}>
+                  <Text style={styles.addChooserTitle} numberOfLines={1}>
+                    Add to {currentDay.dayName}
+                  </Text>
+                  <Text style={styles.addChooserSub} numberOfLines={1}>
+                    Choose whether to add a lift or cardio session
+                  </Text>
+                </View>
+                <TactileButton
+                  variant="custom"
+                  onPress={() => setShowAddChooser(false)}
+                  style={styles.dayModalCloseBtn}
+                  hitSlop={TOUCH.hitSlop}
+                  accessibilityLabel="Dismiss"
+                >
+                  <X size={16} color={tokens.text.secondary} strokeWidth={ICON.strokeWidth} />
+                </TactileButton>
+              </View>
+
+              <TactileButton
+                variant="custom"
+                haptic="light"
+                style={styles.addChooserOption}
+                onPress={() => {
+                  setShowAddChooser(false);
+                  onAddExercise();
+                }}
+              >
+                <View style={[styles.addChooserIconWrap, { backgroundColor: tokens.accent.primaryDim }]}>
+                  <Dumbbell size={18} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.addChooserOptTitle}>Exercise</Text>
+                  <Text style={styles.addChooserOptSub} numberOfLines={1}>
+                    Strength, hypertrophy & bodyweight movements
+                  </Text>
+                </View>
+                <ChevronRight size={16} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />
+              </TactileButton>
+
+              <TactileButton
+                variant="custom"
+                haptic="light"
+                style={styles.addChooserOption}
+                onPress={() => {
+                  setShowAddChooser(false);
+                  onAddCardio?.();
+                }}
+              >
+                <View style={[styles.addChooserIconWrap, { backgroundColor: tokens.status.successDim }]}>
+                  <Activity size={18} color={tokens.status.success} strokeWidth={ICON.strokeWidth} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.addChooserOptTitle}>Cardio</Text>
+                  <Text style={styles.addChooserOptSub} numberOfLines={1}>
+                    Treadmill, cycling, stairmaster & duration goals
+                  </Text>
+                </View>
+                <ChevronRight size={16} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} />
+              </TactileButton>
+            </View>
           </View>
         )}
       </View>

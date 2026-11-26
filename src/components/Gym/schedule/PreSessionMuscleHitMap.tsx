@@ -197,7 +197,7 @@ export const PreSessionMuscleHitMap: React.FC<PreSessionMuscleHitMapProps> = Rea
           <View style={styles.avatarWrap}>
             {/* Front silhouette */}
             <View style={styles.svgSilhouetteBox}>
-              <Svg viewBox={frontView.vb} width="32" height="68">
+              <Svg viewBox={frontView.vb} width="28" height="60">
                 <G>
                   <Path d={frontView.inertD} fill={inertFill} stroke={inertStroke} strokeWidth={0.8} />
                   {frontView.slugs.map((slug) =>
@@ -209,7 +209,7 @@ export const PreSessionMuscleHitMap: React.FC<PreSessionMuscleHitMapProps> = Rea
 
             {/* Back silhouette */}
             <View style={styles.svgSilhouetteBox}>
-              <Svg viewBox={backView.vb} width="32" height="68">
+              <Svg viewBox={backView.vb} width="28" height="60">
                 <G>
                   <Path d={backView.inertD} fill={inertFill} stroke={inertStroke} strokeWidth={0.8} />
                   {backView.slugs.map((slug) =>
@@ -270,21 +270,28 @@ export const PreSessionMuscleHitMap: React.FC<PreSessionMuscleHitMapProps> = Rea
             </Animated.View>
           </View>
 
-          {/* Row 3: Clean Muscle Legend (No bulky pill soup) */}
+          {/* Row 3: Single-Line Muscle Legend */}
           <View style={styles.legendRow}>
-            {analysis.topMuscles.slice(0, 3).map(item => (
+            {analysis.topMuscles.slice(0, 3).map((item, idx) => (
               <View key={item.name} style={styles.legendItem}>
+                {idx > 0 && (
+                  <Text style={[styles.legendSep, { color: tokens.text.muted }]}>·</Text>
+                )}
                 <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-                <Text style={[styles.legendName, { color: tokens.text.primary }]}>
+                <Text
+                  style={[styles.legendName, { color: tokens.text.primary }]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
                   {item.name}
                 </Text>
-                <NumericText style={[styles.legendSets, { color: tokens.text.secondary }]}>
+                <NumericText style={[styles.legendSets, { color: tokens.text.secondary }]} numberOfLines={1}>
                   {item.sets}s
                 </NumericText>
               </View>
             ))}
             {analysis.topMuscles.length > 3 && (
-              <NumericText style={[styles.legendMore, { color: tokens.text.muted }]}>
+              <NumericText style={[styles.legendMore, { color: tokens.text.muted }]} numberOfLines={1}>
                 +{analysis.topMuscles.length - 3}
               </NumericText>
             )}
@@ -459,28 +466,33 @@ const makeStyles = (tokens: typeof DARK_TOKENS) => StyleSheet.create({
   avatarWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingRight: 10,
+    gap: 4,
+    paddingRight: 8,
     borderRightWidth: StyleSheet.hairlineWidth,
     borderRightColor: tokens.border.subtle,
+    flexShrink: 0,
   },
   svgSilhouetteBox: {
-    width: 32,
-    height: 68,
+    width: 28,
+    height: 60,
     alignItems: 'center',
     justifyContent: 'center',
   },
   dataWrap: {
     flex: 1,
-    gap: 7,
+    minWidth: 0,
+    gap: 6,
     justifyContent: 'center',
   },
   metricsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 4,
   },
   metricsText: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 12,
     fontFamily: FONT_FAMILY.medium,
     letterSpacing: -0.2,
@@ -499,30 +511,43 @@ const makeStyles = (tokens: typeof DARK_TOKENS) => StyleSheet.create({
   legendRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: SPACE.sm,
+    flexWrap: 'nowrap',
+    gap: 5,
+    minWidth: 0,
   },
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACE.xs,
+    gap: 4,
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  legendSep: {
+    fontSize: 11,
+    fontFamily: FONT_FAMILY.medium,
+    marginRight: 1,
+    flexShrink: 0,
   },
   legendDot: {
     width: 5,
     height: 5,
     borderRadius: 2.5,
+    flexShrink: 0,
   },
   legendName: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontFamily: FONT_FAMILY.bold,
+    flexShrink: 1,
   },
   legendSets: {
-    fontSize: 10.5,
+    fontSize: 10,
     fontFamily: FONT_FAMILY.medium,
+    flexShrink: 0,
   },
   legendMore: {
     fontSize: 10,
     fontFamily: FONT_FAMILY.medium,
+    flexShrink: 0,
   },
 
   // Sheet Styles

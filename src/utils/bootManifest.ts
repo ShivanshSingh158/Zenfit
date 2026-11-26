@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { InteractionManager, DeviceEventEmitter, AppState } from 'react-native';
+import { InteractionManager, DeviceEventEmitter } from 'react-native';
 import { User } from 'firebase/auth';
 import { formatLocalDateStr } from './dateUtils';
+import { seedAvatarMemoryCache, AVATAR_BOOT_RECORD_KEY } from '../services/userAvatarService';
 
 // ─── Pure JS RAM L1 Cache (0ms synchronous reads after boot) ──────────────────
 export const L1_RAM_CACHE = new Map<string, any>();
@@ -34,13 +35,6 @@ function getPartitionedGymLogs(logs: any[]): any[] {
 
 const _l1WriteTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const _pendingL1Values = new Map<string, any>();
-
-// Automatically flush pending debounced L1 writes when app goes to background / inactive (Issue #50)
-AppState.addEventListener('change', nextState => {
-  if (nextState === 'background' || nextState === 'inactive') {
-    flushL1WriteTimers();
-  }
-});
 
 export function flushL1WriteTimers(): void {
   for (const [key, timer] of _l1WriteTimers.entries()) {
@@ -140,7 +134,6 @@ const TIER_0_KEYS = [
   BOOT_KEYS.USER_GYM_PLAN,
   '@zenfit_guest_mode_v1',
   'gym_profile_v1',
-  BOOT_KEYS.WATER_LOGS,
   BOOT_KEYS.NAV_ROUTE,
   EXERCISE_LEDGER_KEY,
   ONBOARDING_FLOW_KEY,
@@ -148,10 +141,12 @@ const TIER_0_KEYS = [
   '@zentrack_active_workout_state',
   '@zenfit_global_rest_timer',
   'zentrack_gym_settings_prefs_v1',
+  AVATAR_BOOT_RECORD_KEY,
 ] as const;
 
 // Tier-1 heavy secondary domain caches hydrated after Frame 0 settles
 const TIER_1_KEYS = [
+  BOOT_KEYS.WATER_LOGS,
   BOOT_KEYS.SLEEP_LOGS,
   BOOT_KEYS.WEIGHT_LOGS,
 ] as const;
@@ -286,7 +281,7 @@ export async function loadBootManifest(): Promise<BootManifest> {
           }
         }
       } catch {}
-      const waterLogs = parseJsonArray(map.get(BOOT_KEYS.WATER_LOGS));
+      const waterLogs: any[] = [];
 
       let userGymPlan: any = null;
       const gymPlanRaw = map.get(BOOT_KEYS.USER_GYM_PLAN);
@@ -324,7 +319,6 @@ export async function loadBootManifest(): Promise<BootManifest> {
       if (themeMode) L1_RAM_CACHE.set(BOOT_KEYS.THEME_MODE, themeMode);
       L1_RAM_CACHE.set(BOOT_KEYS.GYM_LOGS, gymLogs);
       if (userGymPlan) L1_RAM_CACHE.set(BOOT_KEYS.USER_GYM_PLAN, userGymPlan);
-      L1_RAM_CACHE.set(BOOT_KEYS.WATER_LOGS, waterLogs);
       L1_RAM_CACHE.set('@zenfit_guest_mode_v1', isGuest);
       L1_RAM_CACHE.set(BOOT_KEYS.NAV_ROUTE, lastRoute);
 
@@ -346,6 +340,17 @@ export async function loadBootManifest(): Promise<BootManifest> {
       const gymPrefsRaw = map.get('zentrack_gym_settings_prefs_v1');
       if (gymPrefsRaw) {
         try { L1_RAM_CACHE.set('zentrack_gym_settings_prefs_v1', JSON.parse(gymPrefsRaw)); } catch {}
+      }
+
+      // Pre-seed cached local avatar URI synchronously in memory for 0ms Frame 0 paint
+      const avatarBootRaw = map.get(AVATAR_BOOT_RECORD_KEY);
+      if (avatarBootRaw && optimisticUser?.uid) {
+        try {
+          const parsedAvatar = JSON.parse(avatarBootRaw);
+          if (parsedAvatar?.uid === optimisticUser.uid && parsedAvatar?.path) {
+            seedAvatarMemoryCache(optimisticUser.uid, parsedAvatar.path);
+          }
+        } catch {}
       }
 
       const manifest: BootManifest = {
@@ -376,11 +381,19 @@ export async function loadBootManifest(): Promise<BootManifest> {
             }
           }
           if (_memoryBootCache) {
+            const hydratedWaterLogs = _liveUpdatedKeys.has('waterLogs')
+              ? _memoryBootCache.waterLogs
+              : parseJsonArray(t1.get(BOOT_KEYS.WATER_LOGS));
             _memoryBootCache = {
               ..._memoryBootCache,
+              waterLogs: hydratedWaterLogs,
               sleepLogs: _liveUpdatedKeys.has('sleepLogs') ? _memoryBootCache.sleepLogs : parseJsonArray(t1.get(BOOT_KEYS.SLEEP_LOGS)),
               weightLogs: _liveUpdatedKeys.has('weightLogs') ? _memoryBootCache.weightLogs : parseJsonArray(t1.get(BOOT_KEYS.WEIGHT_LOGS)),
             };
+            if (!_liveUpdatedKeys.has('waterLogs') && hydratedWaterLogs.length > 0) {
+              L1_RAM_CACHE.set(BOOT_KEYS.WATER_LOGS, hydratedWaterLogs);
+              DeviceEventEmitter.emit('gym_logs_changed', { waterLogs: hydratedWaterLogs });
+            }
           }
 
           // Hydrate Cold Archives partitioned by year

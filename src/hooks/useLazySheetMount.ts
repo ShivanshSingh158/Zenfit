@@ -33,6 +33,10 @@ export function LazySheet({
 }) {
   const shouldMount = useLazySheetMount(visible, holdMs);
   if (!shouldMount) return null;
-  return React.createElement(React.Fragment, null, render());
+  return React.createElement(
+    React.Suspense,
+    { fallback: null },
+    render()
+  );
 }
 

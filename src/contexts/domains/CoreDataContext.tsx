@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { DeviceEventEmitter } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import { auth } from '../../services/firebase';
+import { auth, db } from '../../services/firebase';
 import { onAuthStateChanged, signInAnonymously, User } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { signInWithGoogle, signOutGoogle, GoogleAuthResult } from '../../services/googleAuth';
 import { BOOT_KEYS, getBootManifestSync, updateL1Cache, getL1Sync, setL1Sync, deleteL1Sync, isL1BootHydrated } from '../../utils/bootManifest';
@@ -10,14 +11,14 @@ import { DOMAIN_CACHE_KEYS, clearAllDomainCaches } from '../../utils/domainCache
 import { clearSyncMeta } from '../../utils/syncMeta';
 import { queueBatchWrites, clearOfflineQueue } from '../../services/offlineSync';
 import { COLLECTION } from '../../config/constants';
-import { PROFILE_STORAGE_KEY } from '../../hooks/useGymProfile';
+import { PROFILE_STORAGE_KEY, clearGymProfileMemory, normalizeGymProfileAliases } from '../../hooks/useGymProfile';
 import { clearXPMemory, resetAllXP } from '../../services/xpSystem';
 import { clearWeeklyAnalysisCache } from '../../services/weeklyGymAnalysisEngine';
 import { clearVideoResolverCache } from '../../services/exerciseVideoResolver';
 import { clearGlobalRestTimer } from '../../services/restTimerService';
 import { clearScheduleCache, IdempotencyLedger, InAppNotificationStore } from '../../services/notifications';
 import { dismissActiveWorkoutNotification } from '../../services/activeWorkoutNotificationService';
-import { clearAvatarCache } from '../../services/userAvatarService';
+import { cacheUserAvatar, initAvatarCacheOnBoot, clearAvatarCache } from '../../services/userAvatarService';
 import { clearAllPRs } from '../../utils/progressiveOverload';
 import { setWorkoutActiveGlobal } from './WellnessContext';
 
@@ -90,6 +91,10 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
                 setUser(parsed as User);
                 setIsGuest(isAnon);
                 setLoading(false);
+                initAvatarCacheOnBoot(parsed.uid).catch(() => {});
+                if (parsed.photoURL) {
+                  cacheUserAvatar(parsed.uid, parsed.photoURL).catch(() => {});
+                }
               }
             } catch (_) {}
           } else if (guestPref === 'true' && isMountedRef.current) {
@@ -116,11 +121,12 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
           setUser(currentUser);
           setIsGuest(isAnon);
 
+          const resolvedPhoto = currentUser.photoURL || currentUser.providerData?.[0]?.photoURL || null;
           const optimisticPayload = {
             uid: currentUser.uid,
             email: currentUser.email,
             displayName: currentUser.displayName,
-            photoURL: currentUser.photoURL,
+            photoURL: resolvedPhoto,
             isAnonymous: isAnon,
           };
 
@@ -130,6 +136,10 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
 
           if (!isAnon) {
             deleteL1Sync(GUEST_STORAGE_KEY);
+          }
+          initAvatarCacheOnBoot(currentUser.uid).catch(() => {});
+          if (resolvedPhoto) {
+            cacheUserAvatar(currentUser.uid, resolvedPhoto).catch(() => {});
           }
         } else {
           // Only clear user if no local optimistic user exists or user explicitly signed out
@@ -168,11 +178,12 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
     setUser(signedInUser);
     setIsGuest(false);
 
+    const signedInPhoto = signedInUser.photoURL || signedInUser.providerData?.[0]?.photoURL || null;
     const optimisticPayload = {
       uid: signedInUser.uid,
       email: signedInUser.email,
       displayName: signedInUser.displayName,
-      photoURL: signedInUser.photoURL,
+      photoURL: signedInPhoto,
       isAnonymous: false,
     };
 
@@ -180,6 +191,10 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
     setL1Sync(BOOT_KEYS.OPTIMISTIC_USER, optimisticPayload);
     deleteL1Sync(GUEST_STORAGE_KEY);
     updateL1Cache('optimisticUser', optimisticPayload as any);
+
+    if (signedInPhoto) {
+      cacheUserAvatar(newUid, signedInPhoto).catch(() => {});
+    }
 
     // Migrate local cached data and offline queue ONLY when upgrading from guest/anon to signed-in account
     if (oldUid && oldUid !== newUid) {
@@ -192,39 +207,67 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
           docId?: string;
         }> = [];
 
-        // 1. Migrate Gym Logs (strength exercises AND cardio-only sessions)
+        const hasMeaningfulGymProgress = (l: any): boolean => {
+          if (!l || typeof l !== 'object') return false;
+          if (l.completed || l.workoutStartTime) return true;
+          if (l.notes && String(l.notes).trim()) return true;
+          const hasDoneSet = Array.isArray(l.exercises) && l.exercises.some((ex: any) =>
+            Array.isArray(ex?.setsLog) && ex.setsLog.some((s: any) => Boolean(s?.completed))
+          );
+          if (hasDoneSet) return true;
+          const hasDoneCardio = Array.isArray(l.cardio) && l.cardio.some((c: any) => Boolean(c?.completed));
+          return hasDoneCardio;
+        };
+
+        // Check existing cloud plan & profile first so guest defaults never overwrite an existing Gmail account
+        const [cloudPlanSnap, cloudProfileSnap] = await Promise.all([
+          getDoc(doc(db, COLLECTION.USER_GYM_PLANS, newUid)).catch(() => null),
+          getDoc(doc(db, COLLECTION.USER_PROFILES, newUid)).catch(() => null),
+        ]);
+
+        // 1. Migrate Gym Logs ONLY if they contain real workout progress (skip empty guest drafts)
         const rawLogs = await AsyncStorage.getItem(DOMAIN_CACHE_KEYS.GYM_LOGS);
         if (rawLogs) {
           const parsed = JSON.parse(rawLogs);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            const migrated = parsed.map((l: any) => {
-              if (!l.userId || l.userId === oldUid) {
-                const newId = l.date ? `${newUid}_${l.date}` : l.id;
-                return { ...l, userId: newUid, id: newId };
-              }
-              return l;
-            });
-            await AsyncStorage.setItem(DOMAIN_CACHE_KEYS.GYM_LOGS, JSON.stringify(migrated));
-            updateL1Cache('gymLogs', migrated);
+            const meaningfulLogs = parsed.filter(hasMeaningfulGymProgress);
+            if (meaningfulLogs.length > 0) {
+              const migrated = meaningfulLogs.map((l: any) => {
+                if (!l.userId || l.userId === oldUid) {
+                  const newId = l.date ? `${newUid}_${l.date}` : l.id;
+                  return { ...l, userId: newUid, id: newId };
+                }
+                return l;
+              });
+              await AsyncStorage.setItem(DOMAIN_CACHE_KEYS.GYM_LOGS, JSON.stringify(migrated));
+              updateL1Cache('gymLogs', migrated);
 
-            for (const logItem of migrated) {
-              const hasExercises = Array.isArray(logItem.exercises) && logItem.exercises.length > 0;
-              const hasCardio = Array.isArray(logItem.cardio) && logItem.cardio.length > 0;
-              if (logItem.id && (hasExercises || hasCardio)) {
-                batchQueueItems.push({
-                  collectionName: COLLECTION.GYM_LOGS,
-                  operation: 'set',
-                  data: logItem,
-                  docId: logItem.id,
-                });
+              for (const logItem of migrated) {
+                const hasExercises = Array.isArray(logItem.exercises) && logItem.exercises.length > 0;
+                const hasCardio = Array.isArray(logItem.cardio) && logItem.cardio.length > 0;
+                if (logItem.id && (hasExercises || hasCardio)) {
+                  batchQueueItems.push({
+                    collectionName: COLLECTION.GYM_LOGS,
+                    operation: 'set',
+                    data: logItem,
+                    docId: logItem.id,
+                  });
+                }
               }
+            } else {
+              await AsyncStorage.removeItem(DOMAIN_CACHE_KEYS.GYM_LOGS).catch(() => {});
+              updateL1Cache('gymLogs', []);
+              DeviceEventEmitter.emit('gym_logs_changed', { gymLogs: [] });
             }
           }
         }
 
-        // 2. Migrate User Gym Plan (Issue #55)
+        // 2. Migrate User Gym Plan ONLY if cloud account has no existing plan
         const rawPlan = await AsyncStorage.getItem(DOMAIN_CACHE_KEYS.USER_GYM_PLAN);
-        if (rawPlan) {
+        if (cloudPlanSnap && cloudPlanSnap.exists()) {
+          await AsyncStorage.removeItem(DOMAIN_CACHE_KEYS.USER_GYM_PLAN).catch(() => {});
+          updateL1Cache('userGymPlan', null);
+        } else if (rawPlan && cloudPlanSnap && !cloudPlanSnap.exists()) {
           const parsedPlan = JSON.parse(rawPlan);
           if (parsedPlan && typeof parsedPlan === 'object') {
             const migratedPlan = {
@@ -286,9 +329,22 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        // 5. Migrate Gym Profile (Issue #55)
+        // 5. Migrate Gym Profile ONLY if cloud account has no existing profile; otherwise hydrate cloud profile
         const rawProfile = await AsyncStorage.getItem(PROFILE_STORAGE_KEY);
-        if (rawProfile) {
+        if (cloudProfileSnap && cloudProfileSnap.exists()) {
+          const cloudData = cloudProfileSnap.data();
+          const cloudProf = cloudData?.gymProfile || cloudData;
+          clearGymProfileMemory();
+          if (cloudProf && typeof cloudProf === 'object') {
+            const normalizedCloud = normalizeGymProfileAliases(cloudProf);
+            await AsyncStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(normalizedCloud)).catch(() => {});
+            setL1Sync(PROFILE_STORAGE_KEY, normalizedCloud);
+            DeviceEventEmitter.emit('gym_profile_updated', normalizedCloud);
+          } else {
+            await AsyncStorage.removeItem(PROFILE_STORAGE_KEY).catch(() => {});
+            deleteL1Sync(PROFILE_STORAGE_KEY);
+          }
+        } else if (rawProfile && cloudProfileSnap && !cloudProfileSnap.exists()) {
           const parsedProfile = JSON.parse(rawProfile);
           if (parsedProfile && typeof parsedProfile === 'object') {
             const migratedProfile = {

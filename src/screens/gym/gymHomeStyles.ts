@@ -220,6 +220,11 @@ export const makeStyles = (
     dayColActive: {
       backgroundColor: isDark ? 'rgba(10, 132, 255, 0.14)' : t.accent.primaryDim,
     },
+    dayColToday: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: isDark ? 'rgba(10, 132, 255, 0.45)' : t.accent.primary,
+      backgroundColor: isDark ? 'rgba(10, 132, 255, 0.05)' : 'rgba(10, 132, 255, 0.04)',
+    },
     dayLetter: {
       fontSize: 11,
       color: t.text.muted,
@@ -227,6 +232,11 @@ export const makeStyles = (
       includeFontPadding: false,
     },
     dayLetterActive: {
+      color: t.accent.primary,
+      fontFamily: FONT_FAMILY.bold,
+      includeFontPadding: false,
+    },
+    dayLetterToday: {
       color: t.accent.primary,
       fontFamily: FONT_FAMILY.bold,
       includeFontPadding: false,
@@ -245,6 +255,18 @@ export const makeStyles = (
       textAlign: 'center',
       includeFontPadding: false,
       fontVariant: ['tabular-nums'],
+    },
+    dayNumToday: {
+      color: t.accent.primary,
+      fontFamily: FONT_FAMILY.bold,
+      textAlign: 'center',
+      includeFontPadding: false,
+      fontVariant: ['tabular-nums'],
+    },
+    dayIndicatorSlot: {
+      height: 11,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     dayDot: {
       width: 4,
@@ -754,6 +776,23 @@ export const makeStyles = (
     },
     cardioIconWrapDone: {
       backgroundColor: t.status.success,
+    },
+    emptyCardioBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      minHeight: 42,
+      borderRadius: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: cardBorder,
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.02)' : t.bg.surface,
+    },
+    emptyCardioBtnText: {
+      fontSize: 13,
+      fontFamily: FONT_FAMILY.bold,
+      color: t.accent.primary,
+      includeFontPadding: false,
     },
 
     // ── Target Muscles Strip (Borderless on Void Canvas) ──────────────────

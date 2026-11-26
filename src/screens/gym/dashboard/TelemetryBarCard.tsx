@@ -1,265 +1,205 @@
-import React from 'react';
-import { View, Text } from 'react-native';
-import { Activity, BarChart2, Calendar, TrendingDown, TrendingUp } from 'lucide-react-native';
-import { ICON, ThemeTokens } from '../../../theme/tokens';
-import { formatVolumeParts, useWeightUnit } from '../../../utils/weightUnit';
-import { TactileButton } from '../../../components/ui/TactileButton';
+import React, { useState } from 'react';
+import { View, Text, Pressable } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { Check, ChevronRight } from 'lucide-react-native';
+import { ICON, TOUCH, ThemeTokens } from '../../../theme/tokens';
+import { hapticLight } from '../../../utils/haptics';
 import { NumericText } from '../../../components/ui/NumericText';
-import { RollingNumber } from '../../../components/ui/RollingNumber';
+import { TactileButton } from '../../../components/ui/TactileButton';
 import { makeDashboardStyles } from './gymDashboardStyles';
 
-export interface TelemetryBarCardProps {
+export interface WeekDaySlot {
+  dateStr: string;
+  letter: string;
+  dayName: string;
+  isToday: boolean;
+  isDone: boolean;
+  isRest: boolean;
+  workoutName: string;
+  exerciseCount: number;
+  totalSets: number;
+}
+
+export interface WeeklySplitStripProps {
+  weekSlots: WeekDaySlot[];
   sessionsThisWeek: number;
   weeklyPlannedSessions: number;
-  weekDots?: boolean[];
-  todayDotIdx?: number;
-  todayTargetReadinessPct: number;
-  weeklyTotalVolumeKg: number;
-  volumeTrendDiffKg: number;
-  replayKey: number | string;
-  onPressSessions: () => void;
-  onPressReadiness: () => void;
-  onPressVolume: () => void;
+  onOpenPlan: () => void;
   tokens: ThemeTokens;
   styles: ReturnType<typeof makeDashboardStyles>;
 }
 
-export const TelemetryBarCard: React.FC<TelemetryBarCardProps> = React.memo(
-  function TelemetryBarCard({
+export const WeeklySplitStrip: React.FC<WeeklySplitStripProps> = React.memo(
+  function WeeklySplitStrip({
+    weekSlots,
     sessionsThisWeek,
     weeklyPlannedSessions,
-    weekDots,
-    todayDotIdx,
-    todayTargetReadinessPct,
-    weeklyTotalVolumeKg,
-    volumeTrendDiffKg,
-    replayKey,
-    onPressSessions,
-    onPressReadiness,
-    onPressVolume,
+    onOpenPlan,
     tokens,
     styles,
   }) {
-    const readinessColor =
-      todayTargetReadinessPct >= 85
-        ? tokens.status.success
-        : todayTargetReadinessPct >= 50
-        ? tokens.status.warning
-        : tokens.status.danger;
+    const [peekDateStr, setPeekDateStr] = useState<string | null>(null);
 
-    const readinessRatio = Math.min(100, Math.max(0, todayTargetReadinessPct));
-    const resolvedTodayDotIdx =
-      typeof todayDotIdx === 'number' ? todayDotIdx : (new Date().getDay() + 6) % 7;
-    const normalizedDots =
-      weekDots && weekDots.length === 7
-        ? weekDots
-        : [false, false, false, false, false, false, false];
-    const hasVolumeBaseline =
-      weeklyTotalVolumeKg > 0 || volumeTrendDiffKg !== 0;
-    const unitIsLbs = useWeightUnit();
-    const volDisplay = formatVolumeParts(weeklyTotalVolumeKg, unitIsLbs);
-    const diffPrefix = volumeTrendDiffKg >= 0 ? '+' : '-';
-    const diffDisplay = formatVolumeParts(Math.abs(volumeTrendDiffKg), unitIsLbs);
+    const peekSlot = peekDateStr
+      ? weekSlots.find((s) => s.dateStr === peekDateStr) || null
+      : null;
+
+    const allDone = sessionsThisWeek >= weeklyPlannedSessions && weeklyPlannedSessions > 0;
 
     return (
-      <View style={styles.telemetryBarCard}>
-        {/* Column 1: THIS WEEK */}
-        <TactileButton
-          variant="custom"
-          style={styles.telemetryCol}
-          onPress={onPressSessions}
-        >
-          <View style={styles.telemetryLabelRow}>
-            <Calendar size={11} color={tokens.status.success} strokeWidth={ICON.strokeWidth} />
-            <Text
-              style={styles.telemetryLabel}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.76}
-            >
-              THIS WEEK
-            </Text>
-          </View>
-          <View style={styles.telemetryFractionRow}>
-            <RollingNumber
-              value={sessionsThisWeek}
-              replayKey={replayKey}
-              cycles={0}
-              durationMs={420}
-              style={styles.telemetryVal}
-            />
-            <NumericText style={styles.telemetryValMuted} numberOfLines={1}>
-              /{weeklyPlannedSessions}
-            </NumericText>
-          </View>
-          <View style={styles.weekDotsRail}>
-            {normalizedDots.map((isDone, idx) => {
-              const isToday = idx === resolvedTodayDotIdx;
-              return (
-                <View
-                  key={idx}
+      <View style={styles.weekStripSection}>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionHeaderLabel} numberOfLines={1}>
+            THIS WEEK
+          </Text>
+          <NumericText
+            style={[
+              styles.weekSummaryFraction,
+              allDone && { color: tokens.status.success },
+            ]}
+          >
+            {sessionsThisWeek} / {weeklyPlannedSessions} done
+          </NumericText>
+        </View>
+
+        <View style={styles.weekNodesRow}>
+          {weekSlots.map((slot) => {
+            const isPeeked = peekSlot?.dateStr === slot.dateStr;
+            return (
+              <Pressable
+                key={slot.dateStr}
+                onPress={() => {
+                  hapticLight();
+                  setPeekDateStr((prev) =>
+                    prev === slot.dateStr ? null : slot.dateStr
+                  );
+                }}
+                hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+                style={styles.weekNodeCol}
+                accessibilityLabel={`${slot.dayName}: ${slot.workoutName}`}
+              >
+                <Text
                   style={[
-                    styles.weekDot,
-                    isDone
-                      ? { backgroundColor: tokens.status.success }
-                      : isToday
+                    styles.weekNodeLetter,
+                    (slot.isToday || isPeeked) && {
+                      color: tokens.text.primary,
+                    },
+                  ]}
+                >
+                  {slot.letter}
+                </Text>
+
+                <View
+                  style={[
+                    styles.weekNodeCircle,
+                    slot.isDone
                       ? {
-                          backgroundColor: 'transparent',
-                          borderWidth: 1.5,
+                          backgroundColor: tokens.status.successDim,
+                          borderColor: 'rgba(48, 209, 88, 0.45)',
+                        }
+                      : slot.isToday
+                      ? {
+                          backgroundColor: tokens.accent.primaryDim,
                           borderColor: tokens.accent.primary,
+                        }
+                      : slot.isRest
+                      ? {
+                          backgroundColor: tokens.isDark
+                            ? 'rgba(255, 255, 255, 0.03)'
+                            : 'rgba(9, 9, 11, 0.03)',
+                          borderColor: 'transparent',
                         }
                       : {
                           backgroundColor: tokens.isDark
-                            ? 'rgba(255, 255, 255, 0.14)'
-                            : 'rgba(9, 9, 11, 0.14)',
+                            ? 'rgba(255, 255, 255, 0.05)'
+                            : 'rgba(9, 9, 11, 0.05)',
+                          borderColor: tokens.isDark
+                            ? 'rgba(255, 255, 255, 0.12)'
+                            : 'rgba(9, 9, 11, 0.12)',
                         },
-                  ]}
-                />
-              );
-            })}
-          </View>
-        </TactileButton>
-
-        <View style={styles.verticalHairline} />
-
-        {/* Column 2: READINESS & PRIMING */}
-        <TactileButton
-          variant="custom"
-          style={styles.telemetryCol}
-          onPress={onPressReadiness}
-        >
-          <View style={styles.telemetryLabelRow}>
-            <Activity size={11} color={readinessColor} strokeWidth={ICON.strokeWidth} />
-            <Text
-              style={styles.telemetryLabel}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.76}
-            >
-              READINESS
-            </Text>
-          </View>
-          <View style={styles.telemetryFractionRow}>
-            <RollingNumber
-              value={todayTargetReadinessPct}
-              suffix="%"
-              replayKey={replayKey}
-              cycles={1}
-              durationMs={540}
-              style={[styles.telemetryVal, { color: readinessColor }]}
-            />
-          </View>
-          <View style={styles.telemetrySubRow}>
-            <View
-              style={[
-                styles.readinessGaugeTrack,
-                {
-                  backgroundColor: tokens.isDark
-                    ? 'rgba(255, 255, 255, 0.12)'
-                    : 'rgba(9, 9, 11, 0.10)',
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.readinessGaugeFill,
-                  {
-                    width: `${Math.max(8, readinessRatio)}%`,
-                    backgroundColor: readinessColor,
-                  },
-                ]}
-              />
-            </View>
-            <Text
-              style={[styles.readinessSubLabel, { color: readinessColor }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.76}
-            >
-              {todayTargetReadinessPct >= 85
-                ? 'Optimal'
-                : todayTargetReadinessPct >= 50
-                ? 'Restoring'
-                : 'Low'}
-            </Text>
-          </View>
-        </TactileButton>
-
-        <View style={styles.verticalHairline} />
-
-        {/* Column 3: 7D VOLUME */}
-        <TactileButton
-          variant="custom"
-          style={styles.telemetryCol}
-          onPress={onPressVolume}
-        >
-          <View style={styles.telemetryLabelRow}>
-            <BarChart2 size={11} color={tokens.accent.primary} strokeWidth={ICON.strokeWidth} />
-            <Text
-              style={styles.telemetryLabel}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.76}
-            >
-              7D VOLUME
-            </Text>
-          </View>
-          <View style={styles.telemetryFractionRow}>
-            <RollingNumber
-              value={volDisplay.numStr}
-              replayKey={replayKey}
-              cycles={1}
-              durationMs={600}
-              style={[styles.telemetryVal, { color: tokens.accent.primary }]}
-            />
-            <Text style={styles.telemetryValMuted} numberOfLines={1}> {volDisplay.suffix}</Text>
-          </View>
-          <View style={styles.telemetrySubRow}>
-            {hasVolumeBaseline ? (
-              <>
-                {volumeTrendDiffKg >= 0 ? (
-                  <TrendingUp size={11} color={tokens.status.success} strokeWidth={ICON.strokeWidth} />
-                ) : (
-                  <TrendingDown size={11} color={tokens.status.warning} strokeWidth={ICON.strokeWidth} />
-                )}
-                <NumericText
-                  style={[
-                    styles.volumeTrendText,
-                    {
-                      color:
-                        volumeTrendDiffKg >= 0 ? tokens.status.success : tokens.status.warning,
+                    isPeeked && {
+                      borderColor: tokens.text.primary,
                     },
                   ]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.76}
                 >
-                  {diffPrefix}{diffDisplay.numStr}
-                </NumericText>
-                <Text
-                  style={styles.telemetrySubMuted}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.76}
-                >
-                  vs 7d
-                </Text>
-              </>
-            ) : (
-              <Text
-                style={styles.telemetrySubMuted}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.76}
-              >
-                Baseline week
+                  {slot.isDone ? (
+                    <Check
+                      size={13}
+                      color={tokens.status.success}
+                      strokeWidth={2.5}
+                    />
+                  ) : slot.isToday ? (
+                    <View
+                      style={[
+                        styles.weekTodayInnerDot,
+                        { backgroundColor: tokens.accent.primary },
+                      ]}
+                    />
+                  ) : slot.isRest ? (
+                    <View
+                      style={[
+                        styles.weekRestDash,
+                        {
+                          backgroundColor: tokens.isDark
+                            ? 'rgba(255, 255, 255, 0.20)'
+                            : 'rgba(9, 9, 11, 0.20)',
+                        },
+                      ]}
+                    />
+                  ) : (
+                    <View
+                      style={[
+                        styles.weekUpcomingDot,
+                        {
+                          backgroundColor: tokens.isDark
+                            ? 'rgba(255, 255, 255, 0.16)'
+                            : 'rgba(9, 9, 11, 0.16)',
+                        },
+                      ]}
+                    />
+                  )}
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {peekSlot ? (
+          <Animated.View
+            entering={FadeInDown.duration(150)}
+            style={styles.weekPeekRow}
+          >
+            <View style={styles.weekPeekTextCol}>
+              <Text style={styles.weekPeekTitle} numberOfLines={1}>
+                {peekSlot.isToday ? 'Today' : peekSlot.dayName} · {peekSlot.workoutName}
               </Text>
-            )}
-          </View>
-        </TactileButton>
+              <NumericText style={styles.weekPeekSub} numberOfLines={1}>
+                {peekSlot.isRest
+                  ? 'Scheduled recovery day'
+                  : `${peekSlot.exerciseCount} lifts · ${peekSlot.totalSets} sets`}
+              </NumericText>
+            </View>
+            <TactileButton
+              variant="custom"
+              hitSlop={TOUCH.hitSlop}
+              onPress={() => {
+                setPeekDateStr(null);
+                onOpenPlan();
+              }}
+              style={styles.weekPeekAction}
+            >
+              <Text style={styles.sectionBadgeLink}>Plan</Text>
+              <ChevronRight
+                size={13}
+                color={tokens.accent.primary}
+                strokeWidth={ICON.strokeWidth}
+              />
+            </TactileButton>
+          </Animated.View>
+        ) : null}
       </View>
     );
   }
 );
 
-export default TelemetryBarCard;
+export default WeeklySplitStrip;
