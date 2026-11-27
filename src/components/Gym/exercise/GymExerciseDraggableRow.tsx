@@ -42,7 +42,7 @@ export const GymExerciseDraggableRow: React.FC<GymExerciseDraggableRowProps> = R
 
   const drag = itemParams?.drag;
   const isActive = itemParams?.isActive || false;
-  const originalIndex = index ?? ex.originalIndex ?? 0;
+  const originalIndex = index ?? itemParams?.getIndex?.() ?? ex._idx ?? ex.originalIndex ?? 0;
 
   const setsLog: any[] = ex.setsLog || [];
   const totalSets = setsLog.length || Number(ex.targetSets) || 3;

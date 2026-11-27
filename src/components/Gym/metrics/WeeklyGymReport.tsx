@@ -22,6 +22,7 @@ import Svg, { Circle, G } from 'react-native-svg';
 import {
   Activity,
   AlertCircle,
+  AlertTriangle,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -50,15 +51,17 @@ import { TactileButton } from '../../ui/TactileButton';
 import { NumericText } from '../../ui/NumericText';
 import { RollingNumber } from '../../ui/RollingNumber';
 import { AnimatedProgressBar } from '../../ui/AnimatedProgressBar';
+import AnimatedSvgDonutChart, { DonutSliceItem } from '../../ui/AnimatedSvgDonutChart';
 import { canonicalizeMuscle, isValidWorkoutSession, resolveExerciseTargetMuscle } from '../../../utils/gymUtils';
 import { formatVolumeParts, formatWeight, useWeightUnit } from '../../../utils/weightUnit';
-import { hapticLight, hapticMedium } from '../../../utils/haptics';
+import { hapticLight, hapticMedium, hapticSelection } from '../../../utils/haptics';
 import { resolvePlanDay } from '../../../data/gymPlan';
 import VolumeTrendLine from '../Charts/VolumeTrendLine';
 import StrengthProgressionChart from '../Charts/StrengthProgressionChart';
 import type { ExerciseSpark } from '../Charts/StrengthProgressionChart';
 import ExerciseDeepDiveModal from '../exercise/ExerciseDeepDiveModal';
 import AnatomicalBodyMapCard from './AnatomicalBodyMapCard';
+import MuscleTargetRangeCard from './MuscleTargetRangeCard';
 import {
   getOrGenerateWeeklyGymAnalysis,
   getCachedWeeklyGymAnalysis,
@@ -73,12 +76,15 @@ import { computeOrGetHotCache, generateDatasetFingerprint } from '../../../utils
 import WeeklyHighlightsCarousel, { WeeklyHighlightStats } from './WeeklyHighlightsCarousel';
 import {
   computeUnifiedAnalytics,
+  PeriodScopedSummary,
   WeekScopedSummary,
 } from '../../../services/gymAnalyticsEngine';
 
 
 
 // ── Types ────────────────────────────────────────────────────────────────────
+
+type ReportDonutTab = 'split' | 'effort' | 'reps';
 
 interface Props {
   gymLogs: Array<GymDayLog | any>;
@@ -92,6 +98,8 @@ interface Props {
   replayKey?: number | string;
   /** Pre-computed week-scoped stats from Analytics hub (avoids duplicate full scans & redundant cards) */
   weekScopedSummary?: WeekScopedSummary;
+  /** Generalized multi-period summary when rendered inside upgraded Analytics Report tab */
+  periodSummary?: PeriodScopedSummary;
   onPressBodyMap?: () => void;
 }
 
@@ -264,22 +272,29 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
   hideKpiRow = false,
   replayKey = 0,
   weekScopedSummary,
+  periodSummary,
   onPressBodyMap,
 }: Props) {
   const { colors, isDark, tokens } = useTheme();
   const unitIsLbs = useWeightUnit();
   const muscleColors = useMemo(() => getMuscleColors(tokens), [tokens]);
   const st = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
-  const weekDates = useMemo(() => getWeekRange(weekAnchorDate), [weekAnchorDate]);
-  const prevDates = useMemo(() => getPrevWeekRange(weekAnchorDate), [weekAnchorDate]);
+  const [donutTab, setDonutTab] = useState<ReportDonutTab>('split');
+  const [selectedDonutSlice, setSelectedDonutSlice] = useState<string | null>(null);
+  const [selectedCardioSlice, setSelectedCardioSlice] = useState<string | null>(null);
+  const activeSummary = periodSummary ?? weekScopedSummary;
+  const needStandaloneWeekStats = !activeSummary || !hideKpiRow || (periodSummary ? periodSummary.range.daySpan <= 8 : false);
+
+  const weekDates = useMemo(() => (needStandaloneWeekStats ? getWeekRange(weekAnchorDate) : []), [needStandaloneWeekStats, weekAnchorDate]);
+  const prevDates = useMemo(() => (needStandaloneWeekStats ? getPrevWeekRange(weekAnchorDate) : []), [needStandaloneWeekStats, weekAnchorDate]);
 
   const weekLogs = useMemo(
-    () => (gymLogs || []).filter(l => l?.date && weekDates.includes(l.date.slice(0, 10))),
-    [gymLogs, weekDates],
+    () => (needStandaloneWeekStats ? (gymLogs || []).filter(l => l?.date && weekDates.includes(l.date.slice(0, 10))) : []),
+    [needStandaloneWeekStats, gymLogs, weekDates],
   );
   const prevLogs = useMemo(
-    () => (gymLogs || []).filter(l => l?.date && prevDates.includes(l.date.slice(0, 10))),
-    [gymLogs, prevDates],
+    () => (needStandaloneWeekStats ? (gymLogs || []).filter(l => l?.date && prevDates.includes(l.date.slice(0, 10))) : []),
+    [needStandaloneWeekStats, gymLogs, prevDates],
   );
 
   // If user views the weekly report in-app, cancel pending follow-up notifications for this week
@@ -373,14 +388,16 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
   }
 
   const thisWeekMuscle = useMemo(() => {
+    if (!needStandaloneWeekStats) return {};
     const cacheKey = `weekly_muscle_cur_${weekAnchorDate}_${generateDatasetFingerprint(weekLogs)}`;
     return computeOrGetHotCache(cacheKey, () => computeMuscleStats(weekLogs));
-  }, [weekLogs, weekAnchorDate]);
+  }, [needStandaloneWeekStats, weekLogs, weekAnchorDate]);
 
   const prevWeekMuscle = useMemo(() => {
+    if (!needStandaloneWeekStats) return {};
     const cacheKey = `weekly_muscle_prev_${weekAnchorDate}_${generateDatasetFingerprint(prevLogs)}`;
     return computeOrGetHotCache(cacheKey, () => computeMuscleStats(prevLogs));
-  }, [prevLogs, weekAnchorDate]);
+  }, [needStandaloneWeekStats, prevLogs, weekAnchorDate]);
 
   // ── Global KPI Totals ──────────────────────────────────────────────────────
   const totalSets = useMemo(
@@ -413,6 +430,7 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
 
   // ── Weekly Highlights: Heaviest Lift & Top Volume Exercise ─────────────────
   const weeklyHighlights = useMemo(() => {
+    if (!needStandaloneWeekStats) return { topLift: null, topVolumeExercise: null };
     const cacheKey = `weekly_highlights_${weekAnchorDate}_${generateDatasetFingerprint(weekLogs)}`;
     return computeOrGetHotCache(cacheKey, () => {
       let topLift = { name: '', weight: 0, reps: 0 };
@@ -442,10 +460,21 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
 
       return { topLift: topLift.weight > 0 ? topLift : null, topVolumeExercise };
     });
-  }, [weekLogs, weekAnchorDate]);
+  }, [needStandaloneWeekStats, weekLogs, weekAnchorDate]);
 
   // ── Cardio Recap ───────────────────────────────────────────────────────────
   const cardioSummary = useMemo(() => {
+    if (activeSummary) {
+      return {
+        totalMinutes: 0,
+        totalKm: 0,
+        sessions: 0,
+        estCalories: 0,
+        avgDuration: 0,
+        avgSpeedKmh: 0,
+        avgPaceMinKm: 0,
+      };
+    }
     const cacheKey = `weekly_cardio_${weekAnchorDate}_${generateDatasetFingerprint(weekLogs)}`;
     return computeOrGetHotCache(cacheKey, () => {
       let totalMinutes = 0;
@@ -517,9 +546,9 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
     );
   }, [plannedMuscleTargets, thisWeekMuscle]);
 
-  // ── Daily Volume Bar Chart Data (Mon–Sun) ──────────────────────────────────
-  const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  // ── Daily Volume Bar Chart Data (Standalone fallback only) ──────────────────
   const dailyVolume = useMemo(() => {
+    if (activeSummary) return [];
     const cacheKey = `weekly_cur_daily_vol_${weekAnchorDate}_${generateDatasetFingerprint(weekLogs)}`;
     return computeOrGetHotCache(cacheKey, () => {
       return weekDates.map(date => {
@@ -536,22 +565,23 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
         }, 0);
       });
     });
-  }, [weekLogs, weekDates, weekAnchorDate]);
-
-  const maxDailyVol = useMemo(() => Math.max(1, ...dailyVolume), [dailyVolume]);
+  }, [activeSummary, weekLogs, weekDates, weekAnchorDate]);
 
   const totalPlannedSets = useMemo(
-    () => Object.values(plannedMuscleTargets).reduce((a, b) => a + b, 0),
-    [plannedMuscleTargets],
+    () => (needStandaloneWeekStats ? Object.values(plannedMuscleTargets).reduce((a, b) => a + b, 0) : 0),
+    [needStandaloneWeekStats, plannedMuscleTargets],
   );
   const adherenceRate = totalPlannedSets > 0 ? Math.round((totalSets / totalPlannedSets) * 100) : 100;
-  const hasData =
-    workoutDays > 0 ||
-    cardioSummary.sessions > 0 ||
-    weekLogs.some(l => (l.exercises?.length ?? 0) > 0 || (l.cardio?.length ?? 0) > 0);
+
+  const hasData = periodSummary
+    ? periodSummary.sessionsCount > 0 || periodSummary.cardio.sessions > 0
+    : workoutDays > 0 ||
+      cardioSummary.sessions > 0 ||
+      weekLogs.some(l => (l.exercises?.length ?? 0) > 0 || (l.cardio?.length ?? 0) > 0);
 
   // ── Estimated 1RM per exercise (Epley) ───────────────────────────────────
   const exerciseEstRMs = useMemo(() => {
+    if (!needStandaloneWeekStats) return {};
     const rmMap: Record<string, number> = {};
     for (const log of weekLogs) {
       for (const ex of log.exercises ?? []) {
@@ -562,10 +592,11 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
       }
     }
     return rmMap;
-  }, [weekLogs]);
+  }, [needStandaloneWeekStats, weekLogs]);
 
   // ── Muscle completion map for precomputed stats ───────────────────────────
   const muscleCompletionMap = useMemo(() => {
+    if (!needStandaloneWeekStats) return {};
     const map: Record<string, { done: number; planned: number; pct: number }> = {};
     for (const muscle of displayMuscles) {
       const done = thisWeekMuscle[muscle]?.sets ?? 0;
@@ -573,7 +604,7 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
       map[muscle] = { done, planned, pct: planned > 0 ? Math.round((done / planned) * 100) : 100 };
     }
     return map;
-  }, [displayMuscles, thisWeekMuscle, plannedMuscleTargets]);
+  }, [needStandaloneWeekStats, displayMuscles, thisWeekMuscle, plannedMuscleTargets]);
 
   // ── PrecomputedGymStats for AI prompt ────────────────────────────────────
   const precomputedStats = useMemo((): PrecomputedGymStats => {
@@ -605,6 +636,7 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
   // FIX 3: Guard the entire computation with computeOrGetHotCache so subsequent
   //         Firestore snapshots with identical data are free (0ms re-run).
   const strengthProgressionData = useMemo((): ExerciseSpark[] => {
+    if (periodSummary && periodSummary.range.daySpan > 31) return [];
     const cacheKey = `strength_prog_${weekAnchorDate}_${generateDatasetFingerprint(gymLogs)}`;
     return computeOrGetHotCache(cacheKey, () => {
       // Build 4-week date ranges (current + 3 previous)
@@ -671,36 +703,19 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
     });
   }, [gymLogs, weekAnchorDate, muscleColors, tokens.accent.secondary]);
 
-  // ── Heatmap data (90 days of volume) ─────────────────────────────────────
-  // FIX 2: Wrapped in computeOrGetHotCache — previously the only heavy memo
-  // NOT protected by the hot cache. Every Firestore snapshot (which replaces
-  // gymLogs by reference) caused a full re-scan of all 90+ historical sessions.
-  const heatmapData = useMemo(() => {
-    const cacheKey = `weekly_report_heatmap_${generateDatasetFingerprint(gymLogs)}`;
-    return computeOrGetHotCache(cacheKey, () => {
-      return gymLogs.map(log => {
-        const vol = (log.exercises ?? []).reduce((sum: number, ex: any) => {
-          if (ex.skipped) return sum;
-          return sum + (ex.setsLog ?? [])
-            .filter((s: any) => s.completed && !s.isWarmup)
-            .reduce((s2: number, s: any) => s2 + (Number(s.weight) || 0) * (Number(s.reps) || 0), 0);
-        }, 0);
-        return { date: log.date, volume: vol };
-      });
-    });
-  }, [gymLogs]);
-
   // ── Muscle distribution data for donut chart ─────────────────────────────
   const muscleDonutData = useMemo(() => {
+    if (activeSummary) return [];
     return Object.entries(thisWeekMuscle).map(([muscle, stats]) => ({
       muscle,
       sets: stats.sets,
       color: muscleColors[muscle] ?? tokens.accent.secondary,
     }));
-  }, [thisWeekMuscle, muscleColors, tokens.accent.secondary]);
+  }, [activeSummary, thisWeekMuscle, muscleColors, tokens.accent.secondary]);
 
   // ── Last week daily volume for trend overlay ──────────────────────────────
   const prevDailyVolume = useMemo(() => {
+    if (activeSummary) return [];
     const cacheKey = `weekly_prev_daily_vol_${weekAnchorDate}_${generateDatasetFingerprint(prevLogs)}`;
     return computeOrGetHotCache(cacheKey, () => {
       return prevDates.map(date => {
@@ -714,10 +729,11 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
         }, 0);
       });
     });
-  }, [prevLogs, prevDates, weekAnchorDate]);
+  }, [activeSummary, prevLogs, prevDates, weekAnchorDate]);
 
   // ── Story-Style Carousel Stats (Standalone fallback only; omitted in Analytics Hub) ──
-  const carouselStats: WeeklyHighlightStats = useMemo(() => {
+  const carouselStats: WeeklyHighlightStats | null = useMemo(() => {
+    if (activeSummary) return null;
     if (weekScopedSummary) {
       return {
         thisWeekVolume: Math.round(weekScopedSummary.volumeKg),
@@ -947,7 +963,7 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
           )}
 
           {/* Standalone Highlights Carousel & Body Map ONLY when rendered outside Analytics Hub */}
-          {!weekScopedSummary ? (
+          {!activeSummary && carouselStats ? (
             <>
               <WeeklyHighlightsCarousel
                 stats={carouselStats}
@@ -962,16 +978,155 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
             </>
           ) : null}
 
-          {/* Volume Trend (Mon–Sun vs last week) */}
+          {/* Training Balance, Effort (RIR), & Rep-Zone SVG Donuts (Analytics Hub) */}
+          {periodSummary && periodSummary.setsCount > 0 && (() => {
+            const activeTokens = isDark ? DARK_TOKENS : LIGHT_TOKENS;
+            const layer2Card = isDark ? '#0F1015' : activeTokens.bg.surface;
+
+            let slices: DonutSliceItem[] = [];
+            let centerVal = `${periodSummary.setsCount}`;
+            let centerLbl = 'SETS';
+            let headlineNote = '';
+
+            if (donutTab === 'split') {
+              const splitColors: Record<string, string> = {
+                push: activeTokens.status.success,
+                pull: activeTokens.accent.primary,
+                legs: activeTokens.status.warning,
+                core: activeTokens.accent.secondary,
+              };
+              slices = periodSummary.splitDistribution.slices.map(s => ({
+                id: s.id,
+                label: s.label,
+                value: s.value,
+                color: splitColors[s.id] || activeTokens.accent.primary,
+                subLabel: `${s.value} sets`,
+              }));
+              const ratio = periodSummary.splitDistribution.pushPullRatio;
+              headlineNote =
+                ratio !== null
+                  ? `Push:Pull ratio ${ratio}:1 ${ratio >= 0.7 && ratio <= 1.3 ? '(Balanced)' : ratio > 1.3 ? '(Push-heavy)' : '(Pull-heavy)'}`
+                  : 'Push, Pull, Legs & Core breakdown';
+            } else if (donutTab === 'effort') {
+              const ed = periodSummary.effortDistribution;
+              if (ed.loggedSets > 0) {
+                centerVal = `${ed.optimalPct ?? 0}%`;
+                centerLbl = 'STIMULUS';
+                headlineNote = '0–3 RIR stimulating hypertrophy zone';
+                slices = [
+                  { id: 'hard', label: '0–1 RIR Hard', value: ed.hardSets01, color: activeTokens.accent.crimson, subLabel: `${ed.hardSets01} sets` },
+                  { id: 'growth', label: '2–3 RIR Growth', value: ed.growthSets23, color: activeTokens.status.success, subLabel: `${ed.growthSets23} sets` },
+                  { id: 'light', label: '4+ RIR Warm', value: ed.lightSets4Plus, color: activeTokens.accent.secondary, subLabel: `${ed.lightSets4Plus} sets` },
+                ];
+              } else {
+                centerVal = '—';
+                centerLbl = 'NO RIR';
+                headlineNote = 'Select RIR during active workouts to unlock effort zone tracking';
+                slices = [];
+              }
+            } else {
+              const rz = periodSummary.repZoneDistribution;
+              centerVal = `${rz.totalSets}`;
+              centerLbl = 'SETS';
+              headlineNote = 'Repetition spectrum across working sets';
+              slices = [
+                { id: 'str', label: 'Strength (1–5)', value: rz.strength1to5, color: activeTokens.status.gold, subLabel: `${rz.strength1to5} sets` },
+                { id: 'hyp', label: 'Growth (6–12)', value: rz.hypertrophy6to12, color: activeTokens.accent.primary, subLabel: `${rz.hypertrophy6to12} sets` },
+                { id: 'end', label: 'Endure (13+)', value: rz.endurance13Plus, color: activeTokens.status.success, subLabel: `${rz.endurance13Plus} sets` },
+              ];
+            }
+
+            return (
+              <View
+                style={[
+                  st.muscleDistributionCard,
+                  {
+                    backgroundColor: layer2Card,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: activeTokens.border.subtle,
+                    marginTop: 0,
+                    marginBottom: 10,
+                    gap: 12,
+                  },
+                ]}
+              >
+                <View style={[st.cardHeaderRow, { marginBottom: 0, gap: 8 }]}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={st.cardSectionLabel}>TRAINING DISTRIBUTION</Text>
+                    <Text style={st.cardSubLabel} numberOfLines={1}>{headlineNote}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', backgroundColor: activeTokens.bg.elevated, padding: 2, borderRadius: RADIUS.sm, gap: 2 }}>
+                    {([
+                      { id: 'split' as const, label: 'Split' },
+                      { id: 'effort' as const, label: 'Effort' },
+                      { id: 'reps' as const, label: 'Reps' },
+                    ]).map(t => {
+                      const active = donutTab === t.id;
+                      return (
+                        <TactileButton
+                          key={t.id}
+                          lightweight
+                          variant="custom"
+                          onPress={() => {
+                            hapticSelection();
+                            setDonutTab(t.id);
+                            setSelectedDonutSlice(null);
+                          }}
+                          style={{
+                            paddingHorizontal: 9,
+                            paddingVertical: 4,
+                            borderRadius: 6,
+                            backgroundColor: active ? activeTokens.bg.surface : 'transparent',
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 10.5,
+                              fontFamily: active ? FONT_FAMILY.bold : FONT_FAMILY.semibold,
+                              color: active ? activeTokens.text.primary : activeTokens.text.muted,
+                            }}
+                          >
+                            {t.label}
+                          </Text>
+                        </TactileButton>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <AnimatedSvgDonutChart
+                  slices={slices}
+                  centerValue={centerVal}
+                  centerLabel={centerLbl}
+                  selectedSliceId={selectedDonutSlice}
+                  onSelectSlice={setSelectedDonutSlice}
+                  replayKey={replayKey}
+                  emptyText={headlineNote}
+                />
+              </View>
+            );
+          })()}
+
+          {/* Period Load Trend (Scrubbable Vol | Sets | Bars) */}
           <VolumeTrendLine
-            thisWeek={weekScopedSummary ? weekScopedSummary.dailyVolume : dailyVolume}
-            lastWeek={weekScopedSummary ? weekScopedSummary.prevDailyVolume : prevDailyVolume}
-            height={138}
+            thisWeek={periodSummary ? periodSummary.dailyVolume : weekScopedSummary ? weekScopedSummary.dailyVolume : dailyVolume}
+            lastWeek={periodSummary ? periodSummary.prevDailyVolume : weekScopedSummary ? weekScopedSummary.prevDailyVolume : prevDailyVolume}
+            buckets={periodSummary?.bucketSeries}
+            compareLabel={periodSummary && periodSummary.range.daySpan > 8 ? 'Prior period' : 'Last week'}
+            height={148}
             replayKey={replayKey}
           />
 
-          {/* Muscles Trained (Compact Bars + Direct Deep Link to Body Map) */}
-          {((weekScopedSummary ? weekScopedSummary.trainedMuscles : trainedMuscles).length > 0) && (() => {
+          {/* Muscles Trained (MEV-MRV Zone Bars in Hub, or Legacy Bars standalone) */}
+          {periodSummary ? (
+            <MuscleTargetRangeCard
+              rows={periodSummary.muscleVolumes}
+              daySpan={periodSummary.range.daySpan}
+              totalSets={periodSummary.setsCount}
+              cardBg={isDark ? '#0F1015' : (isDark ? DARK_TOKENS : LIGHT_TOKENS).bg.surface}
+              onPressBodyMap={onPressBodyMap}
+            />
+          ) : ((weekScopedSummary ? weekScopedSummary.trainedMuscles : trainedMuscles).length > 0) && (() => {
             const muscleRows = weekScopedSummary ? weekScopedSummary.trainedMuscles : trainedMuscles;
             const totalS = weekScopedSummary ? weekScopedSummary.setsCount : totalSets;
             const activeTokens = isDark ? DARK_TOKENS : LIGHT_TOKENS;
@@ -1047,8 +1202,67 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
             );
           })()}
 
-          {/* Top Lifts & Real PRs (Selected Week Only — Zero Fake Fallbacks) */}
-          {weekScopedSummary && weekScopedSummary.topLifts.length > 0 && (() => {
+          {/* Plateau Alert Strip (Only when exercises stalled 3+ sessions) */}
+          {periodSummary && periodSummary.plateauedLifts.length > 0 && (() => {
+            const activeTokens = isDark ? DARK_TOKENS : LIGHT_TOKENS;
+            const layer2Card = isDark ? '#0F1015' : activeTokens.bg.surface;
+            return (
+              <View
+                style={[
+                  st.muscleDistributionCard,
+                  {
+                    backgroundColor: layer2Card,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: activeTokens.status.warning,
+                    marginTop: 0,
+                    marginBottom: 10,
+                    gap: 8,
+                  },
+                ]}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                  <AlertTriangle size={14} color={activeTokens.status.warning} strokeWidth={ICON.strokeWidth} />
+                  <Text style={[st.cardSectionLabel, { color: activeTokens.status.warning }]}>
+                    STALLED LIFTS · CONSIDER VARIATION OR DELOAD
+                  </Text>
+                </View>
+                {periodSummary.plateauedLifts.map((pl, idx) => (
+                  <TactileButton
+                    key={pl.exerciseName}
+                    variant="custom"
+                    haptic="light"
+                    onPress={() => setSelectedDeepDiveEx(pl.exerciseName)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      paddingVertical: 8,
+                      borderTopWidth: idx === 0 ? 0 : StyleSheet.hairlineWidth,
+                      borderTopColor: activeTokens.border.subtle,
+                    }}
+                  >
+                    <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+                      <Text style={{ fontSize: 13, fontFamily: FONT_FAMILY.bold, color: activeTokens.text.primary }} numberOfLines={1}>
+                        {pl.exerciseName}
+                      </Text>
+                      <NumericText style={{ fontSize: 11, fontFamily: FONT_FAMILY.medium, color: activeTokens.text.secondary }}>
+                        Last: {pl.lastWeight > 0 ? `${formatWeight(pl.lastWeight, unitIsLbs, 1)} × ${pl.lastReps}` : `${pl.lastReps} reps`} · 3+ sessions flat
+                      </NumericText>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                      <Text style={{ fontSize: 11.5, fontFamily: FONT_FAMILY.bold, color: activeTokens.status.warning }}>
+                        Inspect
+                      </Text>
+                      <ChevronRight size={13} color={activeTokens.status.warning} strokeWidth={ICON.strokeWidth} />
+                    </View>
+                  </TactileButton>
+                ))}
+              </View>
+            );
+          })()}
+
+          {/* Top Lifts & Real PRs (Scoped to Active Period) */}
+          {activeSummary && activeSummary.topLifts.length > 0 && (() => {
             const activeTokens = isDark ? DARK_TOKENS : LIGHT_TOKENS;
             const layer2Card = isDark ? '#0F1015' : activeTokens.bg.surface;
             return (
@@ -1067,13 +1281,15 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
               >
                 <View style={[st.cardHeaderRow, { marginBottom: 6 }]}>
                   <View style={{ flex: 1 }}>
-                    <Text style={st.cardSectionLabel}>TOP LIFTS THIS WEEK</Text>
+                    <Text style={st.cardSectionLabel}>
+                      {periodSummary && periodSummary.range.daySpan > 8 ? 'TOP LIFTS IN RANGE' : 'TOP LIFTS THIS WEEK'}
+                    </Text>
                     <Text style={st.cardSubLabel}>Tap any lift for full history & PRs</Text>
                   </View>
                 </View>
 
-                {weekScopedSummary.topLifts.map((lift, lIdx) => {
-                  const isLast = lIdx === weekScopedSummary.topLifts.length - 1;
+                {activeSummary.topLifts.map((lift, lIdx) => {
+                  const isLast = lIdx === activeSummary.topLifts.length - 1;
                   return (
                     <TactileButton
                       key={lift.exerciseName}
@@ -1110,10 +1326,10 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
                               paddingHorizontal: 7,
                               paddingVertical: 3,
                               borderRadius: 6,
-                              backgroundColor: activeTokens.status.successDim,
+                              backgroundColor: activeTokens.status.goldDim,
                             }}
                           >
-                            <Text style={{ fontSize: 10.5, fontFamily: FONT_FAMILY.bold, color: activeTokens.status.success }}>
+                            <Text style={{ fontSize: 10.5, fontFamily: FONT_FAMILY.bold, color: activeTokens.status.gold }}>
                               {lift.prLabel}
                             </Text>
                           </View>
@@ -1131,8 +1347,9 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
             );
           })()}
 
-          {/* Standalone Strength Progression Sparklines (Outside Analytics Hub) */}
-          {!weekScopedSummary && strengthProgressionData.length > 0 && (
+          {/* Strength Progression Sparklines (1W / Cycle / 4W & Standalone) */}
+          {(!activeSummary || (periodSummary && periodSummary.range.daySpan <= 31)) &&
+            strengthProgressionData.length > 0 && (
             <StrengthProgressionChart
               exercises={strengthProgressionData}
               replayKey={replayKey}
@@ -1143,8 +1360,8 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
             />
           )}
 
-          {/* Weekly Summary Insights (Clean Plain Language) */}
-          {(() => {
+          {/* Weekly Summary Insights (Show for 1-week / standalone reports) */}
+          {(!periodSummary || periodSummary.range.daySpan <= 8) && (() => {
             const activeTokens = isDark ? DARK_TOKENS : LIGHT_TOKENS;
             const layer2Card = isDark ? '#0F1015' : activeTokens.bg.surface;
             return (
@@ -1284,10 +1501,13 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
 
           {/* Compact Cardio Strip (Only when cardio > 0) */}
           {(() => {
-            const cardio = weekScopedSummary ? weekScopedSummary.cardio : cardioSummary;
+            const cardio = periodSummary ? periodSummary.cardio : weekScopedSummary ? weekScopedSummary.cardio : cardioSummary;
             if (!cardio || cardio.sessions <= 0) return null;
             const activeTokens = isDark ? DARK_TOKENS : LIGHT_TOKENS;
             const layer2Card = isDark ? '#0F1015' : activeTokens.bg.surface;
+            const modalities = periodSummary?.cardio.modalities || [];
+            const modPalette = [activeTokens.status.warning, activeTokens.accent.primary, activeTokens.status.success, activeTokens.accent.secondary];
+
             return (
               <View
                 style={[
@@ -1298,13 +1518,14 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
                     borderColor: activeTokens.border.subtle,
                     marginBottom: 10,
                     paddingVertical: 14,
+                    gap: 12,
                   },
                 ]}
               >
-                <View style={[st.cardioHeaderRow, { marginBottom: 10 }]}>
+                <View style={[st.cardioHeaderRow, { marginBottom: 0 }]}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                     <Flame size={14} color={activeTokens.status.warning} strokeWidth={ICON.strokeWidth} />
-                    <Text style={st.cardioSectionTitle}>CARDIO</Text>
+                    <Text style={st.cardioSectionTitle}>CONDITIONING & CARDIO</Text>
                   </View>
                   <NumericText style={{ fontSize: 11.5, fontFamily: FONT_FAMILY.medium, color: activeTokens.text.secondary }}>
                     {cardio.sessions} {cardio.sessions === 1 ? 'session' : 'sessions'} · ~{cardio.estCalories} kcal
@@ -1323,10 +1544,39 @@ export const WeeklyGymReport = React.memo(function WeeklyGymReport({
                   </View>
                   <View style={{ width: StyleSheet.hairlineWidth, height: 26, backgroundColor: activeTokens.border.subtle }} />
                   <View style={{ flex: 1, alignItems: 'center' }}>
-                    <NumericText style={st.cardioPodValue}>{cardio.avgDuration > 0 ? `${cardio.avgDuration}m` : '—'}</NumericText>
-                    <Text style={st.cardioPodLabel}>Avg / Session</Text>
+                    <NumericText style={st.cardioPodValue}>
+                      {(cardio as any).avgPaceMinKm > 0
+                        ? `${(cardio as any).avgPaceMinKm}m/km`
+                        : cardio.avgDuration > 0
+                        ? `${cardio.avgDuration}m`
+                        : '—'}
+                    </NumericText>
+                    <Text style={st.cardioPodLabel}>
+                      {(cardio as any).avgPaceMinKm > 0 ? 'Avg Pace' : 'Avg / Sess'}
+                    </Text>
                   </View>
                 </View>
+
+                {modalities.length >= 2 && (
+                  <View style={{ paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: activeTokens.border.subtle }}>
+                    <AnimatedSvgDonutChart
+                      slices={modalities.map((m, idx) => ({
+                        id: m.type,
+                        label: m.type,
+                        value: m.minutes || m.sessions,
+                        color: modPalette[idx % modPalette.length],
+                        subLabel: m.minutes > 0 ? `${m.minutes}m` : `${m.sessions} sess`,
+                      }))}
+                      size={110}
+                      strokeWidth={14}
+                      centerValue={`${cardio.totalMinutes}m`}
+                      centerLabel="MIX"
+                      selectedSliceId={selectedCardioSlice}
+                      onSelectSlice={setSelectedCardioSlice}
+                      replayKey={replayKey}
+                    />
+                  </View>
+                )}
               </View>
             );
           })()}

@@ -8,9 +8,6 @@
  * - Auto pre-caching for scheduled weekly gym plans.
  */
 import * as FileSystem from 'expo-file-system/legacy';
-import rawExercises from '../data/exercises.json';
-import { EXERCISE_GIF_MAP } from '../data/exerciseGifMap';
-import { EXERCISE_DATABASE } from '../data/exerciseDatabase';
 import { getWorkoutActiveGlobal } from '../contexts/domains/WellnessContext';
 
 export interface ExerciseDefinition {
@@ -29,7 +26,21 @@ export interface ExerciseDefinition {
   mediaId: string;
 }
 
-const EXERCISES: ExerciseDefinition[] = rawExercises as ExerciseDefinition[];
+let _cachedExercisesData: ExerciseDefinition[] | null = null;
+function getExercisesData(): ExerciseDefinition[] {
+  if (!_cachedExercisesData) {
+    _cachedExercisesData = require('../data/exercises.json') as ExerciseDefinition[];
+  }
+  return _cachedExercisesData;
+}
+
+function getGifMapData(): Record<string, string> {
+  return require('../data/exerciseGifMap').EXERCISE_GIF_MAP;
+}
+
+function getCuratedDatabase(): Array<{ id: string; name: string; aliases?: string[] }> {
+  return require('../data/exerciseDatabase').EXERCISE_DATABASE;
+}
 
 // Lazy-initialized lookup maps (built on first resolveExercise/searchExercises call, zero cold-boot stall)
 let EXERCISE_BY_ID: Map<string, ExerciseDefinition> | null = null;
@@ -221,18 +232,22 @@ const SPECIAL_ROUTINE_NICKNAMES: Record<string, string> = {
 function ensureLookupIndexes(): void {
   if (EXERCISE_BY_ID && EXERCISE_BY_NORM_NAME && CANONICAL_ID_OR_NAME_TO_GIF && NORM_SYNONYM_MAP) return;
 
+  const exercises = getExercisesData();
+  const gifMap = getGifMapData();
+  const curatedDb = getCuratedDatabase();
+
   const byId = new Map<string, ExerciseDefinition>();
   const byNorm = new Map<string, ExerciseDefinition>();
-  for (let i = 0; i < EXERCISES.length; i++) {
-    const ex = EXERCISES[i];
+  for (let i = 0; i < exercises.length; i++) {
+    const ex = exercises[i];
     byId.set(ex.id, ex);
     byNorm.set(normalize(ex.name), ex);
   }
 
   const canonical = new Map<string, ExerciseDefinition>();
-  for (let i = 0; i < EXERCISE_DATABASE.length; i++) {
-    const curated = EXERCISE_DATABASE[i];
-    const gifId = EXERCISE_GIF_MAP[curated.id];
+  for (let i = 0; i < curatedDb.length; i++) {
+    const curated = curatedDb[i];
+    const gifId = gifMap[curated.id];
     if (gifId && byId.has(gifId)) {
       const gifDef = byId.get(gifId)!;
       canonical.set(curated.id, gifDef);
@@ -265,16 +280,17 @@ function ensureLookupIndexes(): void {
 
 function getExercisesWithNorm() {
   if (!EXERCISES_WITH_NORM) {
-    EXERCISES_WITH_NORM = EXERCISES.map(ex => ({ ex, normName: normalize(ex.name) }));
+    EXERCISES_WITH_NORM = getExercisesData().map(ex => ({ ex, normName: normalize(ex.name) }));
   }
   return EXERCISES_WITH_NORM;
 }
 
 function getExerciseTokensMap(): Map<string, string[]> {
   if (!EXERCISE_TOKENS) {
+    const exercises = getExercisesData();
     const tokensMap = new Map<string, string[]>();
-    for (let i = 0; i < EXERCISES.length; i++) {
-      const ex = EXERCISES[i];
+    for (let i = 0; i < exercises.length; i++) {
+      const ex = exercises[i];
       tokensMap.set(ex.id, tokenize(ex.name));
     }
     EXERCISE_TOKENS = tokensMap;
@@ -284,7 +300,7 @@ function getExerciseTokensMap(): Map<string, string[]> {
 
 function getSearchCorpus() {
   if (!SEARCH_CORPUS) {
-    SEARCH_CORPUS = EXERCISES.map(ex => ({
+    SEARCH_CORPUS = getExercisesData().map(ex => ({
       ex,
       lowerName: (ex.name || '').toLowerCase(),
       lowerTarget: (ex.target || '').toLowerCase(),
@@ -543,7 +559,8 @@ export function resolveExercise(nameOrId: string): ExerciseDefinition | null {
   let bestMatch: ExerciseDefinition | null = null;
   let bestScore = 0;
 
-  for (const ex of EXERCISES) {
+  const exercises = getExercisesData();
+  for (const ex of exercises) {
     const exTokens = exerciseTokensMap.get(ex.id) || [];
     if (exTokens.length === 0) continue;
     let rawScore = 0;
@@ -811,7 +828,7 @@ export async function preCacheAllCuratedExercises(onProgress?: (done: number, to
   abortPreCacheFlag = false;
   await ensureCacheDir();
 
-  const allNames = EXERCISE_DATABASE.map(e => e.name);
+  const allNames = getCuratedDatabase().map(e => e.name);
   let totalCached = 0;
 
   // Process in small batches of 4 with breathing intervals to protect UI 60 FPS

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -19,8 +19,8 @@ import { AppIcon } from '../ui/AppIcon';
 export interface WorkoutKeypadProps {
   visible: boolean;
   field: 'weight' | 'reps';
-  currentWeight: string;
-  currentReps: string;
+  currentWeight?: string;
+  currentReps?: string;
   setNumber?: number;
   stepSize?: number;
   selectedRir?: number;
@@ -36,6 +36,56 @@ export interface WorkoutKeypadProps {
   onNextOrComplete: () => void;
   onDismiss: () => void;
 }
+
+const KEYPAD_DIGIT_ROWS = [
+  ['1', '2', '3'],
+  ['4', '5', '6'],
+  ['7', '8', '9'],
+] as const;
+
+const DigitKeyCell = React.memo(function DigitKeyCell({
+  digit,
+  onPressDigit,
+  buttonHeight,
+  keyBg,
+  borderRadius,
+  borderColor,
+  textColor,
+}: {
+  digit: string;
+  onPressDigit: (digit: string) => void;
+  buttonHeight: number;
+  keyBg: string;
+  borderRadius: number;
+  borderColor: string;
+  textColor: string;
+}) {
+  const handlePress = useCallback(() => {
+    onPressDigit(digit);
+  }, [digit, onPressDigit]);
+
+  return (
+    <TactileButton
+      lightweight
+      variant="custom"
+      onPress={handlePress}
+      style={[
+        styles.numKey,
+        {
+          minHeight: buttonHeight,
+          height: buttonHeight,
+          backgroundColor: keyBg,
+          borderRadius,
+          borderColor,
+        },
+      ]}
+    >
+      <NumericText style={[styles.numKeyText, { color: textColor }]}>
+        {digit}
+      </NumericText>
+    </TactileButton>
+  );
+});
 
 const RIR_OPTIONS = [
   { val: 0, label: '0 (Max)' },
@@ -74,6 +124,46 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
     const [showRirMenu, setShowRirMenu] = useState(false);
     const isWeight = field === 'weight';
 
+    const handleKeyTap = useCallback(
+      (k: string) => {
+        onKeyPress(k);
+      },
+      [onKeyPress]
+    );
+
+    const handleBackspaceTap = useCallback(() => {
+      onBackspace();
+    }, [onBackspace]);
+
+    const handleClearLongPress = useCallback(() => {
+      hapticSelection();
+      onClear();
+    }, [onClear]);
+
+    const handleLogTap = useCallback(() => {
+      onNextOrComplete();
+    }, [onNextOrComplete]);
+
+    const handleToggleRirMenu = useCallback(() => {
+      setShowRirMenu((prev) => !prev);
+    }, []);
+
+    const handleCloseRirMenu = useCallback(() => {
+      setShowRirMenu(false);
+    }, []);
+
+    const handleSelectWeightField = useCallback(() => {
+      onSelectField('weight');
+    }, [onSelectField]);
+
+    const handleSelectRepsField = useCallback(() => {
+      onSelectField('reps');
+    }, [onSelectField]);
+
+    const handleToggleField = useCallback(() => {
+      onSelectField(isWeight ? 'reps' : 'weight');
+    }, [isWeight, onSelectField]);
+
     if (!visible) return null;
 
     const trayBg = tokens.isDark ? '#0B0C10' : tokens.bg.canvas;
@@ -83,23 +173,6 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
     const largeStep = stepSize === 2.5 ? 5 : stepSize * 2;
     const stepMinW = isNarrow ? 30 : 36;
     const repsStepMinW = isNarrow ? 36 : 42;
-
-    const handleKeyTap = (k: string) => {
-      onKeyPress(k);
-    };
-
-    const handleBackspaceTap = () => {
-      onBackspace();
-    };
-
-    const handleClearLongPress = () => {
-      hapticSelection();
-      onClear();
-    };
-
-    const handleLogTap = () => {
-      onNextOrComplete();
-    };
 
     return (
       <View
@@ -137,6 +210,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
                 ]}
               >
                 <TactileButton
+                  lightweight
                   variant="custom"
                   onPress={() => onStepAdjust(-largeStep)}
                   style={[styles.stepBtnCompact, { minWidth: stepMinW, paddingHorizontal: isNarrow ? 3 : 6 }]}
@@ -150,6 +224,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
                 <View style={[styles.stepperDivider, { backgroundColor: tokens.border.subtle }]} />
 
                 <TactileButton
+                  lightweight
                   variant="custom"
                   onPress={() => onStepAdjust(-smallStep)}
                   style={[styles.stepBtnCompact, { minWidth: stepMinW, paddingHorizontal: isNarrow ? 3 : 6 }]}
@@ -163,6 +238,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
                 <View style={[styles.stepperDivider, { backgroundColor: tokens.border.subtle }]} />
 
                 <TactileButton
+                  lightweight
                   variant="custom"
                   onPress={() => onStepAdjust(smallStep)}
                   style={[styles.stepBtnCompact, { minWidth: stepMinW, paddingHorizontal: isNarrow ? 3 : 6 }]}
@@ -176,6 +252,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
                 <View style={[styles.stepperDivider, { backgroundColor: tokens.border.subtle }]} />
 
                 <TactileButton
+                  lightweight
                   variant="custom"
                   onPress={() => onStepAdjust(largeStep)}
                   style={[styles.stepBtnCompact, { minWidth: stepMinW, paddingHorizontal: isNarrow ? 3 : 6 }]}
@@ -199,6 +276,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
                   ]}
                 >
                   <TactileButton
+                    lightweight
                     variant="custom"
                     onPress={() => onStepAdjust(-1)}
                     style={[styles.stepBtn, { minWidth: repsStepMinW }]}
@@ -212,6 +290,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
                   <View style={[styles.stepperDivider, { backgroundColor: tokens.border.subtle }]} />
 
                   <TactileButton
+                    lightweight
                     variant="custom"
                     onPress={() => onStepAdjust(1)}
                     style={[styles.stepBtn, { minWidth: repsStepMinW }]}
@@ -225,9 +304,10 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
 
                 {Boolean(onSelectRir) && (
                   <TactileButton
+                    lightweight
                     variant="custom"
                     haptic="selection"
-                    onPress={() => setShowRirMenu((prev) => !prev)}
+                    onPress={handleToggleRirMenu}
                     style={[
                       styles.toolChip,
                       {
@@ -257,6 +337,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
 
             {isWeight && !isNarrow && lastSessionWeight != null && Number(lastSessionWeight) > 0 && onQuickFillWeight && (
               <TactileButton
+                lightweight
                 variant="custom"
                 haptic="selection"
                 onPress={() => onQuickFillWeight(Number(lastSessionWeight))}
@@ -287,9 +368,10 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
             ]}
           >
             <TactileButton
+              lightweight
               variant="custom"
               haptic="selection"
-              onPress={() => onSelectField('weight')}
+              onPress={handleSelectWeightField}
               style={[
                 styles.fieldSegPill,
                 { borderRadius: tokens.radius.sm, paddingHorizontal: isNarrow ? 7 : 10 },
@@ -310,9 +392,10 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
               </Text>
             </TactileButton>
             <TactileButton
+              lightweight
               variant="custom"
               haptic="selection"
-              onPress={() => onSelectField('reps')}
+              onPress={handleSelectRepsField}
               style={[
                 styles.fieldSegPill,
                 { borderRadius: tokens.radius.sm, paddingHorizontal: isNarrow ? 7 : 10 },
@@ -358,6 +441,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
                 return (
                   <TactileButton
                     key={`inline-rir-${opt.val}`}
+                    lightweight
                     variant="custom"
                     haptic="selection"
                     style={[
@@ -387,8 +471,9 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
               })}
             </View>
             <TactileButton
+              lightweight
               variant="icon"
-              onPress={() => setShowRirMenu(false)}
+              onPress={handleCloseRirMenu}
               style={{ borderWidth: 0, backgroundColor: 'transparent' }}
               accessibilityLabel="Close RIR selector"
             >
@@ -400,38 +485,26 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
         {/* 4-Column Responsive Numpad Grid */}
         <View style={[styles.gridContainer, { padding: isNarrow ? 6 : 8, gap: 6 }]}>
           <View style={[styles.numColumns, { gap: 6 }]}>
-            {[
-              ['1', '2', '3'],
-              ['4', '5', '6'],
-              ['7', '8', '9'],
-            ].map((row, rIdx) => (
+            {KEYPAD_DIGIT_ROWS.map((row, rIdx) => (
               <View key={`row-${rIdx}`} style={[styles.keyRow, { gap: 6 }]}>
                 {row.map((digit) => (
-                  <TactileButton
+                  <DigitKeyCell
                     key={digit}
-                    variant="custom"
-                    onPress={() => handleKeyTap(digit)}
-                    style={[
-                      styles.numKey,
-                      {
-                        minHeight: keypadButtonHeight,
-                        height: keypadButtonHeight,
-                        backgroundColor: keyBg,
-                        borderRadius: tokens.radius.inner,
-                        borderColor: tokens.border.subtle,
-                      },
-                    ]}
-                  >
-                    <NumericText style={[styles.numKeyText, { color: tokens.text.primary }]}>
-                      {digit}
-                    </NumericText>
-                  </TactileButton>
+                    digit={digit}
+                    onPressDigit={handleKeyTap}
+                    buttonHeight={keypadButtonHeight}
+                    keyBg={keyBg}
+                    borderRadius={tokens.radius.inner}
+                    borderColor={tokens.border.subtle}
+                    textColor={tokens.text.primary}
+                  />
                 ))}
               </View>
             ))}
 
             <View style={[styles.keyRow, { gap: 6 }]}>
               <TactileButton
+                lightweight
                 variant="custom"
                 disabled={!isWeight}
                 onPress={() => handleKeyTap('.')}
@@ -456,26 +529,18 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
                 </NumericText>
               </TactileButton>
 
-              <TactileButton
-                variant="custom"
-                onPress={() => handleKeyTap('0')}
-                style={[
-                  styles.numKey,
-                  {
-                    minHeight: keypadButtonHeight,
-                    height: keypadButtonHeight,
-                    backgroundColor: keyBg,
-                    borderRadius: tokens.radius.inner,
-                    borderColor: tokens.border.subtle,
-                  },
-                ]}
-              >
-                <NumericText style={[styles.numKeyText, { color: tokens.text.primary }]}>
-                  0
-                </NumericText>
-              </TactileButton>
+              <DigitKeyCell
+                digit="0"
+                onPressDigit={handleKeyTap}
+                buttonHeight={keypadButtonHeight}
+                keyBg={keyBg}
+                borderRadius={tokens.radius.inner}
+                borderColor={tokens.border.subtle}
+                textColor={tokens.text.primary}
+              />
 
               <TactileButton
+                lightweight
                 variant="custom"
                 haptic="selection"
                 onPress={onDismiss}
@@ -498,6 +563,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
 
           <View style={[styles.actionColumn, { gap: 6 }]}>
             <TactileButton
+              lightweight
               variant="custom"
               haptic="medium"
               onPress={handleBackspaceTap}
@@ -518,9 +584,10 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
             </TactileButton>
 
             <TactileButton
+              lightweight
               variant="custom"
               haptic="selection"
-              onPress={() => onSelectField(isWeight ? 'reps' : 'weight')}
+              onPress={handleToggleField}
               style={[
                 styles.actionKeyTop,
                 {
@@ -544,6 +611,7 @@ export const WorkoutKeypad: React.FC<WorkoutKeypadProps> = React.memo(
             </TactileButton>
 
             <TactileButton
+              lightweight
               variant="primary"
               haptic="success"
               onPress={handleLogTap}

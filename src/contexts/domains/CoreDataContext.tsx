@@ -6,10 +6,22 @@ import { onAuthStateChanged, signInAnonymously, User } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { signInWithGoogle, signOutGoogle, GoogleAuthResult } from '../../services/googleAuth';
-import { BOOT_KEYS, getBootManifestSync, updateL1Cache, getL1Sync, setL1Sync, deleteL1Sync, isL1BootHydrated } from '../../utils/bootManifest';
+import {
+  BOOT_KEYS,
+  GUEST_STORAGE_KEY,
+  getAuthBootSync,
+  getBootManifestSync,
+  updateL1Cache,
+  getL1Sync,
+  setL1Sync,
+  deleteL1Sync,
+  isAuthBootHydrated,
+  isL1BootHydrated,
+  loadAuthBootSlice,
+} from '../../utils/bootManifest';
 import { DOMAIN_CACHE_KEYS, clearAllDomainCaches } from '../../utils/domainCache';
 import { clearSyncMeta } from '../../utils/syncMeta';
-import { queueBatchWrites, clearOfflineQueue } from '../../services/offlineSync';
+import { queueBatchWrites, clearOfflineQueue, migrateOfflineQueueUser } from '../../services/offlineSync';
 import { COLLECTION } from '../../config/constants';
 import { PROFILE_STORAGE_KEY, clearGymProfileMemory, normalizeGymProfileAliases } from '../../hooks/useGymProfile';
 import { clearXPMemory, resetAllXP } from '../../services/xpSystem';
@@ -21,8 +33,6 @@ import { dismissActiveWorkoutNotification } from '../../services/activeWorkoutNo
 import { cacheUserAvatar, initAvatarCacheOnBoot, clearAvatarCache } from '../../services/userAvatarService';
 import { clearAllPRs } from '../../utils/progressiveOverload';
 import { setWorkoutActiveGlobal } from './WellnessContext';
-
-const GUEST_STORAGE_KEY = '@zenfit_guest_mode_v1';
 
 interface CoreDataContextType {
   user: User | null;
@@ -46,14 +56,25 @@ const CoreDataContext = createContext<CoreDataContextType>({
 
 export function CoreDataProvider({ children }: { children: React.ReactNode }) {
   // Frame 0 synchronous cache hydration: instant 0ms startup
+  const initialAuthBoot = getAuthBootSync();
   const initialManifest = getBootManifestSync();
-  const initialUser: User | null = initialManifest?.optimisticUser ?? getL1Sync<User | null>(BOOT_KEYS.OPTIMISTIC_USER, null) ?? auth.currentUser ?? null;
-  const initialGuest: boolean = getL1Sync<boolean>(GUEST_STORAGE_KEY, false);
+  const initialUser: User | null =
+    initialAuthBoot?.optimisticUser ??
+    initialManifest?.optimisticUser ??
+    getL1Sync<User | null>(BOOT_KEYS.OPTIMISTIC_USER, null) ??
+    auth.currentUser ??
+    null;
+  const initialGuest: boolean =
+    Boolean(initialAuthBoot?.isGuest) ||
+    getL1Sync<boolean>(GUEST_STORAGE_KEY, false) ||
+    Boolean((initialUser as any)?.isAnonymous);
 
   const [user, setUser] = useState<User | null>(initialUser);
   const [isGuest, setIsGuest] = useState<boolean>(initialGuest);
-  // Frame 0: never block UI if initial user/guest is already in RAM; otherwise hold for the 5ms storage check
-  const [loading, setLoading] = useState<boolean>(!(initialUser || initialGuest));
+  // Hold loading=true until initial auth storage slice settles (never route prematurely on Frame 0)
+  const [loading, setLoading] = useState<boolean>(
+    !(initialUser || initialGuest || isAuthBootHydrated() || isL1BootHydrated())
+  );
 
   const isMountedRef = useRef(true);
   const userRef = useRef<User | null>(initialUser);
@@ -68,46 +89,52 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
     isMountedRef.current = true;
 
     async function initFastAuth() {
-      // If Frame 0 L1 hydration already resolved initial user or guest, avoid redundant bridge multiGet!
-      if (initialUser || initialGuest || isL1BootHydrated()) {
-        if (isMountedRef.current) setLoading(false);
-      } else {
+      // 1. Always join the shared lightweight auth boot slice so a mid-render hydration never skips setUser/setIsGuest
+      if (!(initialUser || initialGuest)) {
         try {
-          const pairs = await AsyncStorage.multiGet([
-            BOOT_KEYS.OPTIMISTIC_USER,
-            BOOT_KEYS.FIREBASE_AUTH_USER,
-            GUEST_STORAGE_KEY,
-          ]);
-          const map = new Map<string, string | null>(pairs);
-          const optimisticRaw = map.get(BOOT_KEYS.OPTIMISTIC_USER) || map.get(BOOT_KEYS.FIREBASE_AUTH_USER);
-          const guestPref = map.get(GUEST_STORAGE_KEY);
+          const authSlice = await loadAuthBootSlice();
+          if (!isMountedRef.current) return;
 
-          if (optimisticRaw) {
-            try {
-              const parsed = JSON.parse(optimisticRaw);
-              if (parsed && parsed.uid && isMountedRef.current) {
-                const isAnon = Boolean(parsed.isAnonymous);
-                if (isAnon) lastGuestUidRef.current = parsed.uid;
-                setUser(parsed as User);
-                setIsGuest(isAnon);
-                setLoading(false);
-                initAvatarCacheOnBoot(parsed.uid).catch(() => {});
-                if (parsed.photoURL) {
-                  cacheUserAvatar(parsed.uid, parsed.photoURL).catch(() => {});
-                }
-              }
-            } catch (_) {}
-          } else if (guestPref === 'true' && isMountedRef.current) {
-            lastGuestUidRef.current = 'guest_local_user';
-            setIsGuest(true);
-            setLoading(false);
-          } else if (isMountedRef.current) {
-            setLoading(false);
+          const l1User = getL1Sync<User | null>(BOOT_KEYS.OPTIMISTIC_USER, null);
+          const l1Guest = getL1Sync<boolean>(GUEST_STORAGE_KEY, false);
+          const resolvedUser =
+            userRef.current ??
+            authSlice.optimisticUser ??
+            l1User ??
+            auth.currentUser ??
+            null;
+          const resolvedGuest = Boolean(
+            isGuestRef.current ||
+            authSlice.isGuest ||
+            l1Guest ||
+            (resolvedUser as any)?.isAnonymous
+          );
+
+          if (resolvedUser && !userRef.current) {
+            userRef.current = resolvedUser;
+            setUser(resolvedUser);
+            initAvatarCacheOnBoot(resolvedUser.uid).catch(() => {});
+            if (resolvedUser.photoURL) {
+              cacheUserAvatar(resolvedUser.uid, resolvedUser.photoURL).catch(() => {});
+            }
           }
-        } catch (_) {
-          if (isMountedRef.current) setLoading(false);
-        }
+
+          if (resolvedGuest) {
+            if (!lastGuestUidRef.current) {
+              lastGuestUidRef.current = resolvedUser?.uid || 'guest_local_user';
+            }
+            if (!isGuestRef.current) {
+              isGuestRef.current = true;
+              setIsGuest(true);
+            }
+          }
+        } catch (_) {}
       }
+
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+      if (!isMountedRef.current) return;
 
       // 2. Background Firebase Auth listener (always attached, never blocks UI)
       const unsub = onAuthStateChanged(auth, async (currentUser) => {
@@ -131,7 +158,7 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
           };
 
           AsyncStorage.setItem(BOOT_KEYS.OPTIMISTIC_USER, JSON.stringify(optimisticPayload)).catch(() => {});
-          setL1Sync(BOOT_KEYS.OPTIMISTIC_USER, optimisticPayload);
+          setL1Sync(BOOT_KEYS.OPTIMISTIC_USER, optimisticPayload, true);
           updateL1Cache('optimisticUser', optimisticPayload as any);
 
           if (!isAnon) {
@@ -142,9 +169,16 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
             cacheUserAvatar(currentUser.uid, resolvedPhoto).catch(() => {});
           }
         } else {
-          // Only clear user if no local optimistic user exists or user explicitly signed out
-          const raw = await AsyncStorage.getItem(BOOT_KEYS.OPTIMISTIC_USER).catch(() => null);
-          if (!raw && isMountedRef.current) {
+          // Only clear user if no local optimistic user, persisted Firebase session, or guest flag exists
+          const pairs = await AsyncStorage.multiGet([
+            BOOT_KEYS.OPTIMISTIC_USER,
+            BOOT_KEYS.FIREBASE_AUTH_USER,
+            GUEST_STORAGE_KEY,
+          ]).catch(() => []);
+          const pairMap = new Map<string, string | null>(pairs);
+          const hasOptimistic = Boolean(pairMap.get(BOOT_KEYS.OPTIMISTIC_USER) || pairMap.get(BOOT_KEYS.FIREBASE_AUTH_USER));
+          const hasGuest = pairMap.get(GUEST_STORAGE_KEY) === 'true';
+          if (!hasOptimistic && !hasGuest && isMountedRef.current) {
             setUser(null);
             setIsGuest(false);
           }
@@ -308,27 +342,6 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        // 4. Migrate Water Logs (Issue #55)
-        const rawWater = await AsyncStorage.getItem(DOMAIN_CACHE_KEYS.WATER_LOGS);
-        if (rawWater) {
-          const parsedWater = JSON.parse(rawWater);
-          if (Array.isArray(parsedWater) && parsedWater.length > 0) {
-            const migratedWater = parsedWater.map((w: any) => ({ ...w, userId: newUid }));
-            await AsyncStorage.setItem(DOMAIN_CACHE_KEYS.WATER_LOGS, JSON.stringify(migratedWater));
-            updateL1Cache('waterLogs', migratedWater);
-            for (const w of migratedWater) {
-              if (w.id) {
-                batchQueueItems.push({
-                  collectionName: COLLECTION.WATER_LOGS,
-                  operation: 'set',
-                  data: w,
-                  docId: w.id,
-                });
-              }
-            }
-          }
-        }
-
         // 5. Migrate Gym Profile ONLY if cloud account has no existing profile; otherwise hydrate cloud profile
         const rawProfile = await AsyncStorage.getItem(PROFILE_STORAGE_KEY);
         if (cloudProfileSnap && cloudProfileSnap.exists()) {
@@ -363,27 +376,8 @@ export function CoreDataProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        // 6. Migrate Pending Offline Write Queue
-        const rawQueue = await AsyncStorage.getItem('@zentrack_offline_write_queue');
-        if (rawQueue) {
-          const queue = JSON.parse(rawQueue);
-          if (Array.isArray(queue) && queue.length > 0) {
-            const migratedQueue = queue.map((item: any) => {
-              if (item?.data && typeof item.data === 'object') {
-                if (!item.data.userId || item.data.userId === oldUid) {
-                  const newDocId = item.docId && item.data.date ? `${newUid}_${item.data.date}` : item.docId;
-                  return {
-                    ...item,
-                    docId: newDocId,
-                    data: { ...item.data, userId: newUid, id: newDocId }
-                  };
-                }
-              }
-              return item;
-            });
-            await AsyncStorage.setItem('@zentrack_offline_write_queue', JSON.stringify(migratedQueue));
-          }
-        }
+        // 6. Migrate Pending Offline Write Queue in RAM + Disk cleanly (preserving collection docId rules)
+        await migrateOfflineQueueUser(oldUid, newUid);
 
         // Batch-enqueue all migrated items in ONE atomic disk pass (Issue #56)
         if (batchQueueItems.length > 0) {

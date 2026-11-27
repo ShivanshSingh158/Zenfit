@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { FlatList, Pressable, View, Text, TextInput, StyleSheet, Keyboard, ScrollView } from 'react-native';
+import { FlatList, Pressable, View, Text, TextInput, StyleSheet, Keyboard, ScrollView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image as ExpoImage } from 'expo-image';
 import {
@@ -19,8 +19,14 @@ import {
   BiomechanicalSwapRecommendation,
 } from '../../services/biomechanicalMatchingEngine';
 import { resolveExerciseEquipment } from '../../utils/equipmentResolver';
-import { getExerciseCatalogue } from '../Gym/exercise/AddExerciseModal';
-import { CreateCustomExerciseModal, CustomExerciseItem } from '../Gym/exercise/CreateCustomExerciseModal';
+import { getUnifiedExerciseCatalogue as getExerciseCatalogue } from '../../services/exerciseCatalogService';
+import { useLazySheetMount, LazySheet } from '../../hooks/useLazySheetMount';
+import type { CustomExerciseItem } from '../Gym/exercise/CreateCustomExerciseModal';
+const CreateCustomExerciseModal = React.lazy(() =>
+  import('../Gym/exercise/CreateCustomExerciseModal').then((m) => ({
+    default: m.CreateCustomExerciseModal,
+  }))
+);
 import { hapticSuccess, hapticSelection } from '../../utils/haptics';
 import {
   resolveExercise,
@@ -46,6 +52,13 @@ export interface ActiveSwapModalProps {
 
 const EQUIPMENT_CHIPS = ['All', 'Dumbbell', 'Barbell', 'Cable', 'Machine', 'Bodyweight'];
 const MUSCLE_PILLS = ['All Muscles', 'Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Legs', 'Abs'];
+
+type SwapRowItem =
+  | { type: 'header'; key: string; title: string; subtitle?: string; accent?: boolean }
+  | { type: 'item'; key: string; item: BiomechanicalSwapRecommendation }
+  | { type: 'empty'; key: string };
+
+const swapKeyExtractor = (row: SwapRowItem) => row.key;
 
 export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(
   ({ visible, exercise, onClose, onSelectSwap }) => {
@@ -173,13 +186,8 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(
     const directSubstitutes = swapResult?.directSubstitutes || [];
     const equipmentVariants = swapResult?.equipmentVariants || [];
 
-    const swapRows = useMemo(() => {
-      type RowItem =
-        | { type: 'header'; key: string; title: string; subtitle?: string; accent?: boolean }
-        | { type: 'item'; key: string; item: BiomechanicalSwapRecommendation }
-        | { type: 'empty'; key: string };
-
-      const rows: RowItem[] = [];
+    const swapRows = useMemo<SwapRowItem[]>(() => {
+      const rows: SwapRowItem[] = [];
       if (isFiltering) {
         rows.push({
           type: 'header',
@@ -217,6 +225,83 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(
       }
       return rows;
     }, [isFiltering, searchResults, directSubstitutes, equipmentVariants, swapResult?.targetDivision]);
+
+    const handleOpenCreateModal = useCallback(() => {
+      setShowCreateModal(true);
+    }, []);
+
+    const renderSwapRow = useCallback(
+      ({ item: row }: { item: SwapRowItem }) => {
+        if (row.type === 'header') {
+          return (
+            <View style={modalStyles.sectionHeaderRow}>
+              <Text
+                style={[
+                  tokens.typography.overline,
+                  { color: row.accent ? tokens.accent.primary : tokens.text.secondary },
+                ]}
+              >
+                {row.title}
+              </Text>
+              {row.subtitle ? (
+                <Text
+                  style={[
+                    tokens.typography.caption,
+                    { color: tokens.text.secondary, marginTop: 2 },
+                  ]}
+                >
+                  {row.subtitle}
+                </Text>
+              ) : null}
+            </View>
+          );
+        }
+        if (row.type === 'empty') {
+          return (
+            <View style={modalStyles.emptySearchBox}>
+              <AppIcon icon={Search} size={28} color={tokens.text.muted} />
+              <Text
+                style={[
+                  tokens.typography.title,
+                  { color: tokens.text.primary, marginTop: 8 },
+                ]}
+              >
+                No matching exercises
+              </Text>
+              <Text
+                style={[
+                  tokens.typography.caption,
+                  { color: tokens.text.secondary, textAlign: 'center' },
+                ]}
+              >
+                Try typing a different muscle or movement pattern.
+              </Text>
+              <TactileButton
+                variant="primary"
+                size="sm"
+                haptic="selection"
+                onPress={handleOpenCreateModal}
+                style={{ marginTop: 14 }}
+              >
+                <AppIcon icon={Plus} size={14} color={tokens.accent.onPrimary} />
+                <Text style={[tokens.typography.label, { color: tokens.accent.onPrimary, marginLeft: 4 }]}>
+                  Create Custom Exercise
+                </Text>
+              </TactileButton>
+            </View>
+          );
+        }
+        return (
+          <SwapRecommendationCard
+            item={row.item}
+            cardBg={cardBg}
+            hairline={hairline}
+            onSelectItem={handleSelect}
+          />
+        );
+      },
+      [tokens, cardBg, hairline, handleSelect, handleOpenCreateModal]
+    );
 
     // Rules of Hooks: conditional return placed AFTER all hooks
     if (!activeExercise) return null;
@@ -376,7 +461,7 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(
           <FlatList
             style={{ flex: 1 }}
             data={swapRows}
-            keyExtractor={(row) => row.key}
+            keyExtractor={swapKeyExtractor}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
@@ -384,82 +469,20 @@ export const ActiveSwapModal: React.FC<ActiveSwapModalProps> = React.memo(
             initialNumToRender={10}
             maxToRenderPerBatch={10}
             windowSize={5}
+            removeClippedSubviews={Platform.OS === 'android'}
             contentContainerStyle={modalStyles.scrollContainer}
-            renderItem={({ item: row }) => {
-              if (row.type === 'header') {
-                return (
-                  <View style={modalStyles.sectionHeaderRow}>
-                    <Text
-                      style={[
-                        tokens.typography.overline,
-                        { color: row.accent ? tokens.accent.primary : tokens.text.secondary },
-                      ]}
-                    >
-                      {row.title}
-                    </Text>
-                    {row.subtitle ? (
-                      <Text
-                        style={[
-                          tokens.typography.caption,
-                          { color: tokens.text.secondary, marginTop: 2 },
-                        ]}
-                      >
-                        {row.subtitle}
-                      </Text>
-                    ) : null}
-                  </View>
-                );
-              }
-              if (row.type === 'empty') {
-                return (
-                  <View style={modalStyles.emptySearchBox}>
-                    <AppIcon icon={Search} size={28} color={tokens.text.muted} />
-                    <Text
-                      style={[
-                        tokens.typography.title,
-                        { color: tokens.text.primary, marginTop: 8 },
-                      ]}
-                    >
-                      No matching exercises
-                    </Text>
-                    <Text
-                      style={[
-                        tokens.typography.caption,
-                        { color: tokens.text.secondary, textAlign: 'center' },
-                      ]}
-                    >
-                      Try typing a different muscle or movement pattern.
-                    </Text>
-                    <TactileButton
-                      variant="primary"
-                      size="sm"
-                      haptic="selection"
-                      onPress={() => setShowCreateModal(true)}
-                      style={{ marginTop: 14 }}
-                    >
-                      <AppIcon icon={Plus} size={14} color={tokens.accent.onPrimary} />
-                      <Text style={[tokens.typography.label, { color: tokens.accent.onPrimary, marginLeft: 4 }]}>
-                        Create Custom Exercise
-                      </Text>
-                    </TactileButton>
-                  </View>
-                );
-              }
-              return (
-                <SwapRecommendationCard
-                  item={row.item}
-                  cardBg={cardBg}
-                  hairline={hairline}
-                  onSelect={() => handleSelect(row.item)}
-                />
-              );
-            }}
+            renderItem={renderSwapRow}
           />
         </View>
-        <CreateCustomExerciseModal
+        <LazySheet
           visible={showCreateModal}
-          onClose={() => setShowCreateModal(false)}
-          onCreated={handleCreatedCustom}
+          render={() => (
+            <CreateCustomExerciseModal
+              visible={showCreateModal}
+              onClose={() => setShowCreateModal(false)}
+              onCreated={handleCreatedCustom}
+            />
+          )}
         />
       </AppBottomSheet>
     );
@@ -470,8 +493,8 @@ const SwapRecommendationCard: React.FC<{
   item: BiomechanicalSwapRecommendation;
   cardBg?: string;
   hairline?: string;
-  onSelect: () => void;
-}> = React.memo(({ item, cardBg, hairline, onSelect }) => {
+  onSelectItem: (item: BiomechanicalSwapRecommendation) => void;
+}> = React.memo(({ item, cardBg, hairline, onSelectItem }) => {
   const { tokens, isDark } = useTheme();
   const def = resolveExercise(item.name);
   const stillUrl = def ? getExerciseStillPosterUrl(def) : '';
@@ -479,9 +502,13 @@ const SwapRecommendationCard: React.FC<{
   const resolvedCardBg = cardBg || (isDark ? '#14161D' : '#FFFFFF');
   const resolvedHairline = hairline || (isDark ? 'rgba(255,255,255,0.08)' : tokens.border.subtle);
 
+  const handlePress = useCallback(() => {
+    onSelectItem(item);
+  }, [item, onSelectItem]);
+
   return (
     <Pressable
-      onPress={onSelect}
+      onPress={handlePress}
       style={({ pressed }) => [
         modalStyles.card,
         {

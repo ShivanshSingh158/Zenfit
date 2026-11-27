@@ -40,7 +40,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { springs, durations } from '../../theme/motion';
 import { useGymLog, todayStr } from '../../hooks/useGymLog';
-import { useGymLogs, setWorkoutActiveGlobal, getWorkoutDateGlobal } from '../../contexts/domains/WellnessContext';
+import { useGymLogs, useGymPlan, setWorkoutActiveGlobal, getWorkoutDateGlobal } from '../../contexts/domains/WellnessContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { calculateExerciseMaxWeight, getPreviousExerciseSession, getExerciseSwapAlternatives, normalizeExerciseKey } from '../../utils/gymUtils';
 import { hapticLight, hapticMedium, hapticSuccess, hapticSelection, hapticError } from '../../utils/haptics';
@@ -65,12 +65,13 @@ import ActiveLoggingHeader from './active/ActiveLoggingHeader';
 import ExerciseSelectorStrip, { ExerciseFooterNav } from './active/ExerciseSelectorStrip';
 import type { PendingSwapPermanent } from './active/ActiveConfirmSheets';
 
-// ── Lazy-loaded Heavy Active Modals & Sheets (0ms cold/entrance cost) ──
+// ── Lazy-loaded Heavy Active Modals & Sheets (0ms cold/entrance cost + clean 380ms unmount) ──
 const AddExerciseModal = React.lazy(() => import('../../components/Gym/exercise/AddExerciseModal'));
 const SupersetPickerModal = React.lazy(() => import('../../components/Gym/exercise/SupersetPickerModal'));
 const ActiveSwapModal = React.lazy(() => import('../../components/Gym/active/ActiveSwapModal'));
 const ActiveWorkoutModals = React.lazy(() => import('./active/ActiveWorkoutModals'));
 const ActiveConfirmSheets = React.lazy(() => import('./active/ActiveConfirmSheets'));
+import { LazySheet } from '../../hooks/useLazySheetMount';
 import { afterSheetDismiss } from '../../utils/sheetCoordinator';
 import { resolveExerciseEquipment } from '../../utils/equipmentResolver';
 import { insertWarmupLadder } from '../../utils/warmupGenerator';
@@ -92,34 +93,39 @@ import {
   setDefaultRestSecsGlobal,
   getDefaultRestSecsSync,
 } from '../../hooks/useGymProfile';
-import { formatWeight, useWeightUnit, unitLabel } from '../../utils/weightUnit';
+import { formatWeight, useWeightUnit, unitLabel, kgToDisplay, displayToKg } from '../../utils/weightUnit';
 
 export { parseUpperTargetReps };
 
-function computeExerciseBaselinePR(exerciseName: string | undefined, pastLogs: any[]) {
-  if (!exerciseName || !pastLogs.length) return { maxWeight: 0, max1RM: 0 };
-  const targetKey = normalizeExerciseKey(exerciseName);
-  let maxWeight = 0;
-  let max1RM = 0;
+const computeExerciseBaselineMap = (pastLogs: any[]): Map<string, { maxWeight: number; max1RM: number }> => {
+  const map = new Map<string, { maxWeight: number; max1RM: number }>();
+  if (!pastLogs?.length) return map;
   for (let i = 0; i < pastLogs.length; i++) {
     const exs = pastLogs[i].exercises || [];
     for (let j = 0; j < exs.length; j++) {
       const ex = exs[j];
-      if (ex.skipped || normalizeExerciseKey(ex.name) !== targetKey) continue;
+      if (!ex || ex.skipped) continue;
+      const key = normalizeExerciseKey(ex.name);
+      if (!key) continue;
+      let entry = map.get(key);
       const sets = ex.setsLog || [];
       for (let k = 0; k < sets.length; k++) {
         const s = sets[k];
         if (!s.completed) continue;
         const w = Number(s.weight) || 0;
         const r = Number(s.reps) || 0;
-        if (w > maxWeight) maxWeight = w;
+        if (!entry) {
+          entry = { maxWeight: 0, max1RM: 0 };
+          map.set(key, entry);
+        }
+        if (w > entry.maxWeight) entry.maxWeight = w;
         const e1rm = w * (1 + r / 30);
-        if (e1rm > max1RM) max1RM = e1rm;
+        if (e1rm > entry.max1RM) entry.max1RM = e1rm;
       }
     }
   }
-  return { maxWeight, max1RM };
-}
+  return map;
+};
 
 export default function ActiveLoggingScreen() {
   const { colors, isDark, tokens } = useTheme();
@@ -304,14 +310,15 @@ export default function ActiveLoggingScreen() {
   const targetParamIndex = route.params?.initialIndex ?? (route.params as any)?.exerciseIndex ?? 0;
   const [activeExIndex, setActiveExIndex] = useState(targetParamIndex);
   const [visualExIndex, setVisualExIndex] = useState(targetParamIndex);
+  const visualExIndexRef = useRef(visualExIndex);
+  visualExIndexRef.current = visualExIndex;
 
   // ── Native Stack Entrance + Pull-to-Dismiss Support ────────────────────────
   const fullSlideHeight = screenHeight > 0 ? screenHeight : 860;
   const sheetTranslateY = useSharedValue(0);
   const sheetBackdrop = useSharedValue(1);
   const isClosingRef = useRef(false);
-  const [secondaryModalsActivated, setSecondaryModalsActivated] = useState(false);
-  const [addModalEverShown, setAddModalEverShown] = useState(false);
+  const [hasRemoveConfirmOpen, setHasRemoveConfirmOpen] = useState(false);
 
   const sheetModalAnimStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: sheetTranslateY.value }],
@@ -424,11 +431,6 @@ export default function ActiveLoggingScreen() {
   }, [route.params?.initialIndex, (route.params as any)?.exerciseIndex]);
 
   const [showVideo, setShowVideo] = useState(false);
-  // ── FIX 4: Lazy-mount modals — don't track 'ever shown' as the same flag as 'currently visible'.
-  // SupersetPickerModal and ActiveSwapModal are only inserted into the React tree
-  // once the user has opened them for the first time — saving initial module evaluation.
-  const [swapModalEverShown, setSwapModalEverShown] = useState(false);
-  const [supersetPickerEverShown, setSupersetPickerEverShown] = useState(false);
   const [showSwapModal, setShowSwapModal] = useState(false);
   const [aiSwapList, setAiSwapList] = useState<any[]>([]);
   const [isAiSwapLoading, setIsAiSwapLoading] = useState(false);
@@ -473,6 +475,9 @@ export default function ActiveLoggingScreen() {
   }, [activeExIndex]);
 
   const { gymLogs } = useGymLogs();
+  const { userGymPlan } = useGymPlan();
+  const activeProgramme = userGymPlan?.activeProgramme?.status === 'active' ? userGymPlan.activeProgramme : null;
+  const activeProgrammeWeek = activeProgramme?.weeks?.[activeProgramme.currentWeek];
 
   const activeExercises = useMemo(() => log?.exercises?.filter(ex => !ex.skipped) || [], [log?.exercises]);
   const safeIdx = Math.min(activeExIndex, Math.max(0, activeExercises.length - 1));
@@ -517,7 +522,7 @@ export default function ActiveLoggingScreen() {
   const liveInputsRef = useRef<{ [idx: number]: { weight?: string; reps?: string } }>({});
   const prevSetsLengthRef = useRef<number>(exercise?.setsLog?.length ?? -1);
   const [setInputs, setSetInputs] = useState<SetInputState[]>(() =>
-    computeInitialSetInputs(exercise, gymLogs, date, historyIndexRef.current)
+    computeInitialSetInputs(exercise, gymLogs, date, historyIndexRef.current, unitIsLbs)
   );
 
   // Synchronous Frame-0 overload & history baseline (eliminates 225ms + 80ms pop-in jump)
@@ -651,15 +656,35 @@ export default function ActiveLoggingScreen() {
     return past;
   }, [gymLogs, targetDateStr]);
 
-  const currentExKey = exercise ? `${exercise.exerciseId || exercise.name || ''}-${activeExIndex}` : '';
+  const baselinePRMap = useMemo(() => computeExerciseBaselineMap(pastGymLogs), [pastGymLogs]);
 
-  // Frame-0 synchronous overload & last-session readout (0ms layout flicker on open/swipe)
+  const currentExKey = exercise ? `${exercise.exerciseId || exercise.name || ''}-${activeExIndex}` : '';
+  const currentExKeyRef = useRef(currentExKey);
+  currentExKeyRef.current = currentExKey;
+
+  const programmeRecoveryContext = useMemo(() => {
+    if (!activeProgramme || !activeProgrammeWeek) return undefined;
+    return {
+      programme: {
+        weekNumber: activeProgramme.currentWeek,
+        phaseName: activeProgrammeWeek.phaseName,
+        phaseType: activeProgrammeWeek.phaseType,
+        targetRir: activeProgrammeWeek.targetRir,
+        intensityPercentage1RM: activeProgrammeWeek.intensityPercentage1RM,
+        volumeModifierSets: activeProgrammeWeek.volumeModifierSets,
+      },
+    };
+  }, [activeProgramme, activeProgrammeWeek]);
+
+  // Frame-0 synchronous overload & last-session readout (reuses historyIndex O(1) lookup)
   const computedBannerMeta = useMemo(() => {
     if (!exercise) {
       return { suggestion: null as any, lastTimeData: null as string | null };
     }
     lastBannerExKeyRef.current = currentExKey;
-    const prevSession = getPreviousExerciseSession(exercise.name, pastGymLogs, targetDateStr);
+    const prevSession =
+      historyIndexRef.current?.get(normalizeExerciseKey(exercise.name)) ||
+      getPreviousExerciseSession(exercise.name, gymLogs, targetDateStr);
     const curWeight =
       calculateExerciseMaxWeight(exercise as any) ||
       prevSession?.lastWeight ||
@@ -671,7 +696,8 @@ export default function ActiveLoggingScreen() {
       curWeight,
       exercise.targetSets || 3,
       String(exercise.targetReps || '8'),
-      pastGymLogs
+      pastGymLogs,
+      programmeRecoveryContext
     );
 
     let lastTimeStr: string | null = null;
@@ -683,7 +709,7 @@ export default function ActiveLoggingScreen() {
       lastTimeStr = `Last: ${prevSession.sets.length} sets ${repsPart ? `× ${repsPart}` : ''} ${weightPart}`.trim();
     }
     return { suggestion, lastTimeData: lastTimeStr };
-  }, [exercise?.exerciseId, exercise?.name, exercise?.targetSets, exercise?.targetReps, exercise?.progressionPolicy, currentExKey, pastGymLogs, targetDateStr, unitIsLbs]);
+  }, [exercise?.exerciseId, exercise?.name, exercise?.targetSets, exercise?.targetReps, exercise?.progressionPolicy, currentExKey, pastGymLogs, gymLogs, targetDateStr, unitIsLbs, programmeRecoveryContext]);
 
   const overloadSuggestion =
     liveOverloadOverride && liveOverloadOverride.exKey === currentExKey
@@ -691,28 +717,31 @@ export default function ActiveLoggingScreen() {
       : computedBannerMeta.suggestion;
   const lastTimeData = computedBannerMeta.lastTimeData;
 
-  // ── FIX 1 (continued): Sync setInputs when exercise changes or setsLog mutates.
-  // This replaces the old 'initialize from scratch' useEffect with a lightweight
-  // sync that only updates inputs for changed/added sets, preserving live edits.
+  const lastUnitIsLbsRef = useRef<boolean>(unitIsLbs);
+
+  // Sync setInputs when exercise switches, set count changes, or display unit changes.
   useEffect(() => {
     if (!exercise || !exercise.setsLog) return;
 
     const currentExId = exercise.exerciseId || exercise.name || '';
     const key = `${currentExId}-${activeExIndex}`;
     const currentLen = exercise.setsLog.length;
+    const unitChanged = lastUnitIsLbsRef.current !== unitIsLbs;
+    lastUnitIsLbsRef.current = unitIsLbs;
 
-    // Exercise switched → reset edit tracking & recompute from scratch
-    if (key !== lastExerciseKeyRef.current) {
+    // Exercise switched or display unit switched → reset edit tracking & recompute in display unit
+    if (key !== lastExerciseKeyRef.current || unitChanged) {
       lastExerciseKeyRef.current = key;
       prevSetsLengthRef.current = currentLen;
       userEditedFieldsRef.current = {};
       liveInputsRef.current = {};
-      setSetInputs(computeInitialSetInputs(exercise, gymLogs, date, historyIndexRef.current));
+      setSetInputs(computeInitialSetInputs(exercise, stateRef.current.gymLogs, date, historyIndexRef.current, unitIsLbs));
       return;
     }
 
     // Check if there are unfilled incomplete set inputs that can now be populated from resolvedLastSessionSets
-    const hasUnfilled = setInputs.some(
+    const curInputs = stateRef.current.setInputs || [];
+    const hasUnfilled = curInputs.some(
       (inp, i) => !exercise.setsLog[i]?.completed && (!inp.weight || !inp.reps) && !userEditedFieldsRef.current[i]?.weight
     );
     const shouldBackfillFromHistory = hasUnfilled && resolvedLastSessionSets.length > 0;
@@ -723,12 +752,14 @@ export default function ActiveLoggingScreen() {
     }
     prevSetsLengthRef.current = currentLen;
 
+    const toDisplayW = (kgVal: number) => String(kgToDisplay(kgVal, unitIsLbs, 1));
+
     // Same exercise, set count changed (add/remove) or history backfill:
     setSetInputs(prev => {
       const lastValidPastSet = resolvedLastSessionSets.length > 0 ? resolvedLastSessionSets[resolvedLastSessionSets.length - 1] : null;
       return exercise.setsLog.map((s, idx) => {
         if (s.completed) {
-          const savedW = (s.weight !== null && s.weight !== undefined && Number(s.weight) > 0) ? String(s.weight) : '';
+          const savedW = (s.weight !== null && s.weight !== undefined && Number(s.weight) > 0) ? toDisplayW(Number(s.weight)) : '';
           const savedR = (s.reps !== null && s.reps !== undefined && Number(s.reps) > 0) ? String(s.reps) : '';
           return {
             weight: savedW || prev?.[idx]?.weight || '',
@@ -747,9 +778,9 @@ export default function ActiveLoggingScreen() {
         }
         // Fallback to previous session set or existing set weight/reps
         const lastSet = resolvedLastSessionSets[idx] || lastValidPastSet;
-        const fallbackWeight = lastSet?.weight != null && Number(lastSet.weight) > 0 ? String(lastSet.weight) : '';
+        const fallbackWeight = lastSet?.weight != null && Number(lastSet.weight) > 0 ? toDisplayW(Number(lastSet.weight)) : '';
         const setWeight = (s.weight !== null && s.weight !== undefined && Number(s.weight) > 0)
-          ? String(s.weight)
+          ? toDisplayW(Number(s.weight))
           : (fallbackWeight || prev?.[idx]?.weight || '');
         const defaultTargetReps = String(parseUpperTargetReps(exercise.targetReps));
         const setReps = (s.reps !== null && s.reps !== undefined && Number(s.reps) > 0)
@@ -759,7 +790,7 @@ export default function ActiveLoggingScreen() {
         return { weight: setWeight, reps: setReps };
       });
     });
-  }, [exercise?.exerciseId, exercise?.name, activeExIndex, exercise?.setsLog?.length, date, resolvedLastSessionSets, gymLogs]);
+  }, [exercise?.exerciseId, exercise?.name, activeExIndex, exercise?.setsLog?.length, date, resolvedLastSessionSets, unitIsLbs]);
 
   // Load Instant Database Swaps on modal open
   useEffect(() => {
@@ -831,6 +862,9 @@ export default function ActiveLoggingScreen() {
     }
   }, [exercise, isRefreshingVideo, realExerciseIndex, updateExercise]);
 
+  const exercisesLengthRef = useRef(exercises.length);
+  exercisesLengthRef.current = exercises.length;
+
   const stateRef = useRef({
     setInputs,
     exercise,
@@ -841,6 +875,8 @@ export default function ActiveLoggingScreen() {
     activeExIndex,
     pastGymLogs,
     gymLogs,
+    baselinePRMap,
+    unitIsLbs,
   });
   stateRef.current = {
     setInputs,
@@ -852,15 +888,18 @@ export default function ActiveLoggingScreen() {
     activeExIndex,
     pastGymLogs,
     gymLogs,
+    baselinePRMap,
+    unitIsLbs,
   };
 
   const handleTextChange = useCallback((setIdx: number, field: 'reps' | 'weight', text: string) => {
     let sanitized = text.trim();
 
     if (field === 'weight') {
+      const maxDisplayW = stateRef.current.unitIsLbs ? 2200 : 1000;
       const num = parseFloat(sanitized);
-      if (!isNaN(num) && num > 1000) {
-        sanitized = '1000';
+      if (!isNaN(num) && num > maxDisplayW) {
+        sanitized = String(maxDisplayW);
       }
     } else if (field === 'reps') {
       if (/[-–—]/.test(sanitized)) {
@@ -880,11 +919,12 @@ export default function ActiveLoggingScreen() {
 
     // High-performance single-set input update (zero cascading overhead on keystroke)
     const curSets = stateRef.current.exercise?.setsLog || [];
+    const uLbs = stateRef.current.unitIsLbs;
     setSetInputs(prev => {
       const next = [...prev];
       const curSet = curSets[setIdx];
       const current = next[setIdx] || {
-        weight: curSet?.weight != null ? String(curSet.weight) : '',
+        weight: curSet?.weight != null ? String(kgToDisplay(Number(curSet.weight), uLbs, 1)) : '',
         reps: curSet?.reps != null ? String(curSet.reps) : ''
       };
       next[setIdx] = { ...current, [field]: sanitized };
@@ -893,7 +933,7 @@ export default function ActiveLoggingScreen() {
   }, []);
 
   const handleBlur = useCallback((setIdx: number) => {
-    const { exercise, setInputs: curInputs, overloadSuggestion: curOverload, realExerciseIndex: curRealIdx, resolvedLastSessionSets: pastSets } = stateRef.current;
+    const { exercise, setInputs: curInputs, overloadSuggestion: curOverload, realExerciseIndex: curRealIdx, resolvedLastSessionSets: pastSets, unitIsLbs: uLbs } = stateRef.current;
     if (!exercise) return;
     const input = curInputs[setIdx];
     const curSet = exercise.setsLog[setIdx];
@@ -912,7 +952,8 @@ export default function ActiveLoggingScreen() {
       isWeightEdited,
       isRepsEdited,
       lastSessionSet,
-      setIdx
+      setIdx,
+      uLbs
     );
 
     // If neither weight nor reps changed, bail out immediately with zero re-renders or updates
@@ -930,7 +971,7 @@ export default function ActiveLoggingScreen() {
   }, [updateExercise]);
 
   const flushPendingInputs = useCallback(() => {
-    const { exercise, setInputs: curInputs, overloadSuggestion: curOverload, realExerciseIndex: curRealIdx, resolvedLastSessionSets: pastSets } = stateRef.current;
+    const { exercise, setInputs: curInputs, overloadSuggestion: curOverload, realExerciseIndex: curRealIdx, resolvedLastSessionSets: pastSets, unitIsLbs: uLbs } = stateRef.current;
     if (!exercise || !exercise.setsLog) return;
     let hasChanges = false;
     const updatedSets = exercise.setsLog.map((curSet, idx) => {
@@ -949,7 +990,8 @@ export default function ActiveLoggingScreen() {
         isWeightEdited,
         isRepsEdited,
         lastSessionSet,
-        idx
+        idx,
+        uLbs
       );
       if (curSet.weight !== resolved.weight || curSet.reps !== resolved.reps) {
         hasChanges = true;
@@ -966,8 +1008,10 @@ export default function ActiveLoggingScreen() {
   activeKeypadRef.current = activeKeypad;
 
   const finishCloseScreen = useCallback(() => {
-    runPendingAutoStart();
-    flushPendingInputs();
+    if (!isDiscardingRef.current) {
+      runPendingAutoStart();
+      flushPendingInputs();
+    }
     navigation.goBack();
   }, [runPendingAutoStart, flushPendingInputs, navigation]);
 
@@ -997,6 +1041,7 @@ export default function ActiveLoggingScreen() {
 
   const commitExerciseSwitch = useCallback((nextIdx: number, dir: 1 | -1, seq: number) => {
     if (seq !== switchSeqRef.current) return;
+    flushPendingInputs();
     pendingEnterDirRef.current = dir;
     bodyScrollRef.current?.scrollTo({ y: 0, animated: false });
 
@@ -1008,18 +1053,19 @@ export default function ActiveLoggingScreen() {
       prevSetsLengthRef.current = nextEx.setsLog?.length || 0;
       userEditedFieldsRef.current = {};
       liveInputsRef.current = {};
-      setSetInputs(computeInitialSetInputs(nextEx, stateRef.current.gymLogs, date, historyIndexRef.current));
+      setSetInputs(computeInitialSetInputs(nextEx, stateRef.current.gymLogs, date, historyIndexRef.current, stateRef.current.unitIsLbs));
     }
     setShowCompletedWarmups(false);
     setActiveKeypad(null);
     setActiveExIndex(nextIdx);
-  }, [date]);
+  }, [date, flushPendingInputs]);
 
   const switchToExercise = useCallback(
     (rawTargetIdx: number) => {
       const maxIdx = Math.max(0, (stateRef.current.exercises?.length || 1) - 1);
       const nextIdx = Math.max(0, Math.min(maxIdx, rawTargetIdx));
-      if (nextIdx === visualExIndex && nextIdx === stateRef.current.activeExIndex) {
+      const curVisualIdx = visualExIndexRef.current;
+      if (nextIdx === curVisualIdx && nextIdx === stateRef.current.activeExIndex) {
         headerSlideX.value = withSpring(0, springs.snappy);
         setsSlideX.value = withSpring(0, springs.snappy);
         return;
@@ -1032,9 +1078,8 @@ export default function ActiveLoggingScreen() {
         clearTimeout(autoAdvanceTimerRef.current);
         autoAdvanceTimerRef.current = null;
       }
-      flushPendingInputs();
 
-      const dir: 1 | -1 = nextIdx >= visualExIndex ? 1 : -1;
+      const dir: 1 | -1 = nextIdx >= curVisualIdx ? 1 : -1;
       setVisualExIndex(nextIdx);
       switchSeqRef.current += 1;
       const seq = switchSeqRef.current;
@@ -1063,9 +1108,7 @@ export default function ActiveLoggingScreen() {
       );
     },
     [
-      visualExIndex,
       screenWidth,
-      flushPendingInputs,
       commitExerciseSwitch,
       headerSlideX,
       headerOpacity,
@@ -1101,25 +1144,27 @@ export default function ActiveLoggingScreen() {
         .activeOffsetX([-18, 18])
         .failOffsetY([-10, 10])
         .onUpdate((e) => {
-          const total = exercises.length;
-          const atStart = visualExIndex === 0 && e.translationX > 0;
-          const atEnd = visualExIndex >= total - 1 && e.translationX < 0;
+          const total = exercisesLengthRef.current;
+          const curIdx = visualExIndexRef.current;
+          const atStart = curIdx === 0 && e.translationX > 0;
+          const atEnd = curIdx >= total - 1 && e.translationX < 0;
           const factor = atStart || atEnd ? 0.28 : 1;
           headerSlideX.value = e.translationX * factor;
           setsSlideX.value = e.translationX * factor * 0.78;
         })
         .onEnd((e) => {
-          const total = exercises.length;
-          if ((e.translationX < -52 || e.velocityX < -460) && visualExIndex < total - 1) {
-            runOnJS(switchToExercise)(visualExIndex + 1);
-          } else if ((e.translationX > 52 || e.velocityX > 460) && visualExIndex > 0) {
-            runOnJS(switchToExercise)(visualExIndex - 1);
+          const total = exercisesLengthRef.current;
+          const curIdx = visualExIndexRef.current;
+          if ((e.translationX < -52 || e.velocityX < -460) && curIdx < total - 1) {
+            runOnJS(switchToExercise)(curIdx + 1);
+          } else if ((e.translationX > 52 || e.velocityX > 460) && curIdx > 0) {
+            runOnJS(switchToExercise)(curIdx - 1);
           } else {
             headerSlideX.value = withSpring(0, springs.snappy);
             setsSlideX.value = withSpring(0, springs.snappy);
           }
         }),
-    [exercises.length, visualExIndex, switchToExercise, headerSlideX, setsSlideX]
+    [switchToExercise, headerSlideX, setsSlideX]
   );
 
   useEffect(() => {
@@ -1139,15 +1184,19 @@ export default function ActiveLoggingScreen() {
   // Flush any typed inputs when the screen unmounts so background navigation never loses typed data
   useEffect(() => {
     return () => {
-      flushPendingInputs();
+      if (!isDiscardingRef.current) {
+        flushPendingInputs();
+      }
     };
   }, [flushPendingInputs]);
 
   // Auto-finish watchdog: if workout reaches the 120-minute limit and autocompletes, transition to summary
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('gym_workout_completed', (event: any) => {
+      if (isFinishingRef.current) return;
       const sessionDate = date || lockedSessionDateRef.current;
       if (event?.date && event.date === sessionDate) {
+        isFinishingRef.current = true;
         clearRestTimer();
         navigation.replace('WorkoutSummary', { date: sessionDate, log: event?.log });
       }
@@ -1156,6 +1205,7 @@ export default function ActiveLoggingScreen() {
   }, [date, clearRestTimer, navigation]);
 
   const isFinishingRef = useRef(false);
+  const isDiscardingRef = useRef(false);
   const handleFinishAndSave = useCallback(async () => {
     if (isFinishingRef.current) return;
     isFinishingRef.current = true;
@@ -1177,6 +1227,7 @@ export default function ActiveLoggingScreen() {
   }, []);
 
   const handleConfirmDiscardWorkout = useCallback(async () => {
+    isDiscardingRef.current = true;
     setShowDiscardConfirmSheet(false);
     clearRestTimer();
     setActiveKeypad(null);
@@ -1243,7 +1294,7 @@ export default function ActiveLoggingScreen() {
 
   const handleLogSet = useCallback(() => {
     if (isLoggingSetRef.current) return;
-    const { exercise, setInputs: curInputs, overloadSuggestion: curOverload, realExerciseIndex: curRealIdx, exercises: allExs, activeExIndex: curActiveIdx, resolvedLastSessionSets: pastSets } = stateRef.current;
+    const { exercise, setInputs: curInputs, overloadSuggestion: curOverload, realExerciseIndex: curRealIdx, exercises: allExs, activeExIndex: curActiveIdx, resolvedLastSessionSets: pastSets, unitIsLbs: uLbs } = stateRef.current;
     const curActiveSetIndex = exercise ? exercise.setsLog.findIndex(s => !s.completed) : -1;
     if (!exercise || curActiveSetIndex === -1) return;
 
@@ -1268,7 +1319,8 @@ export default function ActiveLoggingScreen() {
       isWeightEdited,
       isRepsEdited,
       lastSessionSet,
-      curActiveSetIndex
+      curActiveSetIndex,
+      uLbs
     );
 
     const newEx = {
@@ -1279,7 +1331,12 @@ export default function ActiveLoggingScreen() {
     };
 
     setSetInputs(prev => prev.map((inp, i) =>
-      i === curActiveSetIndex ? { weight: resolved.weight !== null ? String(resolved.weight) : '', reps: String(resolved.reps) } : inp
+      i === curActiveSetIndex
+        ? {
+            weight: resolved.weight !== null ? String(kgToDisplay(resolved.weight, uLbs, 1)) : '',
+            reps: String(resolved.reps),
+          }
+        : inp
     ));
 
     const nextJumpIdx = findNextSupersetExerciseIndex(allExs, curActiveIdx, exercise.supersetGroup);
@@ -1289,7 +1346,7 @@ export default function ActiveLoggingScreen() {
 
     if (resolved.weight && resolved.reps && resolved.weight > 0 && resolved.reps > 0) {
       InteractionManager.runAfterInteractions(() => {
-        const baselinePR = computeExerciseBaselinePR(exercise.name, stateRef.current.pastGymLogs);
+        const baselinePR = stateRef.current.baselinePRMap.get(normalizeExerciseKey(exercise.name));
         const w = resolved.weight!;
         const r = resolved.reps!;
         const est1RM = Math.round(w * (1 + r / 30) * 10) / 10;
@@ -1298,9 +1355,9 @@ export default function ActiveLoggingScreen() {
         if (isPR) {
           hapticSuccess();
           if (prToastTimerRef.current) clearTimeout(prToastTimerRef.current);
-          const uLbs = stateRef.current ? unitIsLbs : false;
+          const curULbs = stateRef.current.unitIsLbs;
           setPrToast({
-            message: `${exercise.name}: ${formatWeight(w, uLbs, 1)} × ${r} (Est. 1RM: ${formatWeight(est1RM, uLbs, 1)})`,
+            message: `${exercise.name}: ${formatWeight(w, curULbs, 1)} × ${r} (Est. 1RM: ${formatWeight(est1RM, curULbs, 1)})`,
           });
           prToastTimerRef.current = setTimeout(() => {
             setPrToast(null);
@@ -1332,7 +1389,7 @@ export default function ActiveLoggingScreen() {
   }, [logSetAndStartTimer, promptFinishWorkout, switchToExercise]);
 
   const handleAdjustWeight = useCallback((delta: number) => {
-    const { exercise, setInputs: curInputs, overloadSuggestion: curOverload } = stateRef.current;
+    const { exercise, setInputs: curInputs, overloadSuggestion: curOverload, unitIsLbs: uLbs } = stateRef.current;
     if (!exercise) return;
     const curActiveSetIndex = exercise.setsLog.findIndex(s => !s.completed);
     const targetIdx = curActiveSetIndex !== -1 ? curActiveSetIndex : exercise.setsLog.length - 1;
@@ -1347,14 +1404,15 @@ export default function ActiveLoggingScreen() {
     if (curInput?.weight !== '' && curInput?.weight !== undefined) {
       baseWeight = parseFloat(curInput.weight) || 0;
     } else if (curSet?.weight != null && Number(curSet.weight) > 0) {
-      baseWeight = Number(curSet.weight);
+      baseWeight = kgToDisplay(Number(curSet.weight), uLbs, 1);
     } else if (prevSet?.weight != null && Number(prevSet.weight) > 0) {
-      baseWeight = Number(prevSet.weight);
+      baseWeight = kgToDisplay(Number(prevSet.weight), uLbs, 1);
     } else if (curOverload?.recommended) {
-      baseWeight = Number(curOverload.recommended);
+      baseWeight = kgToDisplay(Number(curOverload.recommended), uLbs, 1);
     }
 
-    const newWeight = Math.min(1000, Math.max(0, Math.round((baseWeight + delta) * 10) / 10));
+    const maxDispW = uLbs ? 2200 : 1000;
+    const newWeight = Math.min(maxDispW, Math.max(0, Math.round((baseWeight + delta) * 10) / 10));
     handleTextChange(targetIdx, 'weight', String(newWeight));
   }, [handleTextChange]);
 
@@ -1386,7 +1444,7 @@ export default function ActiveLoggingScreen() {
   }, [handleTextChange]);
 
   const handleRepeatPreviousSet = useCallback(() => {
-    const { exercise, setInputs: curInputs, overloadSuggestion: curOverload } = stateRef.current;
+    const { exercise, setInputs: curInputs, overloadSuggestion: curOverload, unitIsLbs: uLbs } = stateRef.current;
     if (!exercise) return;
     const curActiveSetIndex = exercise.setsLog.findIndex(s => !s.completed);
     const targetIdx = curActiveSetIndex !== -1 ? curActiveSetIndex : exercise.setsLog.length - 1;
@@ -1396,13 +1454,14 @@ export default function ActiveLoggingScreen() {
     const prevSet = targetIdx > 0 ? exercise.setsLog[targetIdx - 1] : null;
     const prevInput = targetIdx > 0 ? curInputs[targetIdx - 1] : null;
 
+    const maxDispW = uLbs ? 2200 : 1000;
     let repWeight = '';
     if (prevInput?.weight) {
       repWeight = prevInput.weight;
     } else if (prevSet?.weight != null && Number(prevSet.weight) > 0) {
-      repWeight = String(prevSet.weight);
+      repWeight = String(kgToDisplay(Number(prevSet.weight), uLbs, 1));
     } else if (curOverload?.recommended) {
-      repWeight = String(Math.min(1000, Number(curOverload.recommended)));
+      repWeight = String(Math.min(maxDispW, kgToDisplay(Number(curOverload.recommended), uLbs, 1)));
     }
 
     let repReps = '';
@@ -1517,6 +1576,7 @@ export default function ActiveLoggingScreen() {
   const handleAutoWarmup = useCallback(() => {
     if (!exercise) return;
     hapticMedium();
+    const uLbs = stateRef.current.unitIsLbs;
 
     const existingWarmups = exercise.setsLog.filter(s => s.isWarmup);
     if (existingWarmups.length > 0) {
@@ -1533,7 +1593,9 @@ export default function ActiveLoggingScreen() {
       };
       updateExercise(realExerciseIndex, newEx);
       setSetInputs(workingSetsOnly.map(s => ({
-        weight: (s.weight !== null && s.weight !== undefined && Number(s.weight) > 0) ? String(s.weight) : '',
+        weight: (s.weight !== null && s.weight !== undefined && Number(s.weight) > 0)
+          ? String(kgToDisplay(Number(s.weight), uLbs, 1))
+          : '',
         reps: (s.reps !== null && s.reps !== undefined && Number(s.reps) > 0) ? String(s.reps) : '',
       })));
       userEditedFieldsRef.current = {};
@@ -1541,24 +1603,47 @@ export default function ActiveLoggingScreen() {
       return;
     }
 
-    // Determine target working weight: check liveInputsRef / setInputs first!
-    let targetW = 40;
+    // Determine target working weight in canonical KG, converting display units if typed
+    let targetWKg = 40;
     const firstWorkingIdx = exercise.setsLog.findIndex(s => !s.isWarmup);
     const liveFirstWorkingWeight = firstWorkingIdx >= 0 ? (liveInputsRef.current[firstWorkingIdx]?.weight || setInputs[firstWorkingIdx]?.weight) : undefined;
-    const parsedLiveWeight = liveFirstWorkingWeight ? parseFloat(liveFirstWorkingWeight) : null;
+    const parsedLiveDisplay = liveFirstWorkingWeight ? parseFloat(liveFirstWorkingWeight) : null;
 
     const firstWorking = exercise.setsLog.find(s => !s.isWarmup && s.weight != null && Number(s.weight) > 0);
-    if (parsedLiveWeight && parsedLiveWeight > 0) {
-      targetW = parsedLiveWeight;
+    if (parsedLiveDisplay && parsedLiveDisplay > 0) {
+      targetWKg = displayToKg(parsedLiveDisplay, uLbs);
     } else if (firstWorking?.weight) {
-      targetW = Number(firstWorking.weight);
+      targetWKg = Number(firstWorking.weight);
     } else if (overloadSuggestion?.recommended) {
-      targetW = Number(overloadSuggestion.recommended);
+      targetWKg = Number(overloadSuggestion.recommended);
     } else if (exercise.lastSessionSets?.[0]?.weight) {
-      targetW = Number(exercise.lastSessionSets[0].weight);
+      targetWKg = Number(exercise.lastSessionSets[0].weight);
     }
 
-    const updatedSets = insertWarmupLadder(exercise.setsLog, targetW);
+    const updatedSetsRaw = insertWarmupLadder(
+      exercise.setsLog,
+      uLbs
+        ? {
+            workingWeight: kgToDisplay(targetWKg, true, 1),
+            exerciseName: exercise.name,
+            isLbs: true,
+            weightStep: equipmentCategory === 'Machine' ? 10 : 5,
+          }
+        : {
+            workingWeight: targetWKg,
+            exerciseName: exercise.name,
+            isLbs: false,
+          }
+    );
+
+    const updatedSets = uLbs
+      ? updatedSetsRaw.map(s =>
+          s.isWarmup && s.weight != null && Number(s.weight) > 0
+            ? { ...s, weight: displayToKg(Number(s.weight), true) }
+            : s
+        )
+      : updatedSetsRaw;
+
     const newEx = {
       ...exercise,
       setsLog: updatedSets,
@@ -1566,12 +1651,14 @@ export default function ActiveLoggingScreen() {
 
     updateExercise(realExerciseIndex, newEx);
     setSetInputs(updatedSets.map(s => ({
-      weight: (s.weight !== null && s.weight !== undefined && Number(s.weight) > 0) ? String(s.weight) : '',
+      weight: (s.weight !== null && s.weight !== undefined && Number(s.weight) > 0)
+        ? String(kgToDisplay(Number(s.weight), uLbs, 1))
+        : '',
       reps: (s.reps !== null && s.reps !== undefined && Number(s.reps) > 0) ? String(s.reps) : '',
     })));
     userEditedFieldsRef.current = {};
     liveInputsRef.current = {};
-  }, [exercise, overloadSuggestion, lastTimeData, realExerciseIndex, updateExercise, setInputs]);
+  }, [exercise, overloadSuggestion, realExerciseIndex, updateExercise, setInputs, equipmentCategory]);
 
   const handleAddSet = useCallback(() => {
     if (!exercise) return;
@@ -1580,12 +1667,15 @@ export default function ActiveLoggingScreen() {
       autoAdvanceTimerRef.current = null;
     }
     hapticLight();
+    const uLbs = stateRef.current.unitIsLbs;
     const lastIdx = exercise.setsLog.length - 1;
     const lastSet = exercise.setsLog[lastIdx];
     const liveW = liveInputsRef.current[lastIdx]?.weight ?? setInputs[lastIdx]?.weight;
     const liveR = liveInputsRef.current[lastIdx]?.reps ?? setInputs[lastIdx]?.reps;
 
-    const weightVal = (liveW !== undefined && liveW !== '') ? parseFloat(liveW) : (lastSet?.weight ?? null);
+    const weightVal = (liveW !== undefined && liveW !== '' && !isNaN(parseFloat(liveW)))
+      ? displayToKg(parseFloat(liveW), uLbs)
+      : (lastSet?.weight ?? null);
     const repsVal = (liveR !== undefined && liveR !== '') ? parseInt(liveR, 10) : (lastSet?.reps ?? parseUpperTargetReps(exercise.targetReps));
 
     const newEx = {
@@ -1604,7 +1694,7 @@ export default function ActiveLoggingScreen() {
     setSetInputs(prev => [
       ...prev,
       {
-        weight: weightVal != null ? String(weightVal) : '',
+        weight: weightVal != null ? String(kgToDisplay(weightVal, uLbs, 1)) : '',
         reps: repsVal != null ? String(repsVal) : '',
       },
     ]);
@@ -1620,6 +1710,7 @@ export default function ActiveLoggingScreen() {
       exercises: allExs,
       activeExIndex: curActiveIdx,
       resolvedLastSessionSets: pastSets,
+      unitIsLbs: uLbs,
     } = stateRef.current;
     if (!exercise) return;
 
@@ -1646,7 +1737,8 @@ export default function ActiveLoggingScreen() {
       isWeightEdited,
       isRepsEdited,
       lastSessionSet,
-      setIdx
+      setIdx,
+      uLbs
     );
 
     const newEx = {
@@ -1661,40 +1753,46 @@ export default function ActiveLoggingScreen() {
     setSetInputs(prev =>
       prev.map((inp, i) =>
         i === setIdx
-          ? { weight: resolved.weight !== null ? String(resolved.weight) : '', reps: String(resolved.reps) }
+          ? {
+              weight: resolved.weight !== null ? String(kgToDisplay(resolved.weight, uLbs, 1)) : '',
+              reps: String(resolved.reps),
+            }
           : inp
       )
     );
 
-    // Live Intra-Workout Recalculation (adapting remaining unlogged sets to performance on set k)
-    const completedSetsToday = newEx.setsLog
-      .filter(s => s.completed)
-      .map((s, idx) => ({
-        setNumber: s.setNumber || idx + 1,
-        weight: Number(s.weight) || 0,
-        reps: Number(s.reps) || 0,
-        rir: s.rir,
-        isWarmup: !!s.isWarmup,
-        completed: true,
-      }));
+    // Defer intra-workout overload recalculation & PR check behind frame interactions so set checkmark toggles instantaneously
+    const exKeyForOverride = currentExKeyRef.current;
+    InteractionManager.runAfterInteractions(() => {
+      const completedSetsToday = newEx.setsLog
+        .filter(s => s.completed)
+        .map((s, idx) => ({
+          setNumber: s.setNumber || idx + 1,
+          weight: Number(s.weight) || 0,
+          reps: Number(s.reps) || 0,
+          rir: s.rir,
+          isWarmup: !!s.isWarmup,
+          completed: true,
+        }));
 
-    const curWeight =
-      calculateExerciseMaxWeight(exercise as any) ||
-      Number(newEx.setsLog[0]?.weight) ||
-      0;
+      const curWeight =
+        calculateExerciseMaxWeight(exercise as any) ||
+        Number(newEx.setsLog[0]?.weight) ||
+        0;
 
-    const liveSuggestion = getOverloadSuggestion(
-      exercise,
-      curWeight,
-      exercise.targetSets || 3,
-      String(exercise.targetReps || '8'),
-      pastGymLogs,
-      undefined,
-      completedSetsToday
-    );
-    if (liveSuggestion) {
-      setLiveOverloadOverride({ exKey: currentExKey, suggestion: liveSuggestion });
-    }
+      const liveSuggestion = getOverloadSuggestion(
+        exercise,
+        curWeight,
+        exercise.targetSets || 3,
+        String(exercise.targetReps || '8'),
+        stateRef.current.pastGymLogs,
+        programmeRecoveryContext,
+        completedSetsToday
+      );
+      if (liveSuggestion && currentExKeyRef.current === exKeyForOverride) {
+        setLiveOverloadOverride({ exKey: exKeyForOverride, suggestion: liveSuggestion });
+      }
+    });
 
     if (targetCompleted) {
       hapticMedium();
@@ -1722,7 +1820,7 @@ export default function ActiveLoggingScreen() {
 
       if (resolved.weight && resolved.reps && resolved.weight > 0 && resolved.reps > 0) {
         InteractionManager.runAfterInteractions(() => {
-          const baselinePR = computeExerciseBaselinePR(exercise.name, stateRef.current.pastGymLogs);
+          const baselinePR = stateRef.current.baselinePRMap.get(normalizeExerciseKey(exercise.name));
           const w = resolved.weight!;
           const r = resolved.reps!;
           const est1RM = Math.round(w * (1 + r / 30) * 10) / 10;
@@ -1731,8 +1829,9 @@ export default function ActiveLoggingScreen() {
           if (isPR) {
             hapticSuccess();
             if (prToastTimerRef.current) clearTimeout(prToastTimerRef.current);
+            const uLbs = stateRef.current.unitIsLbs;
             setPrToast({
-              message: `${exercise.name}: ${formatWeight(w, unitIsLbs, 1)} × ${r} (Est. 1RM: ${formatWeight(est1RM, unitIsLbs, 1)})`,
+              message: `${exercise.name}: ${formatWeight(w, uLbs, 1)} × ${r} (Est. 1RM: ${formatWeight(est1RM, uLbs, 1)})`,
             });
             prToastTimerRef.current = setTimeout(() => {
               setPrToast(null);
@@ -1769,7 +1868,7 @@ export default function ActiveLoggingScreen() {
       hapticLight();
       updateExercise(curRealIdx, newEx);
     }
-  }, [logSetAndStartTimer, updateExercise, promptFinishWorkout, switchToExercise, currentExKey]);
+  }, [logSetAndStartTimer, updateExercise, promptFinishWorkout, switchToExercise]);
 
   const handleSelectProgressionPolicy = useCallback((policy: 'linear' | 'double' | 'triple' | 'top_backoff') => {
     const { exercise, realExerciseIndex: curRealIdx } = stateRef.current;
@@ -1789,12 +1888,13 @@ export default function ActiveLoggingScreen() {
       curWeight,
       updatedEx.targetSets || 3,
       String(updatedEx.targetReps || '8'),
-      pastGymLogs
+      pastGymLogs,
+      programmeRecoveryContext
     );
     if (newSuggestion) {
       setLiveOverloadOverride({ exKey: currentExKey, suggestion: newSuggestion });
     }
-  }, [updateExercise, pastGymLogs, currentExKey]);
+  }, [updateExercise, pastGymLogs, currentExKey, programmeRecoveryContext]);
 
   const handleCycleSetType = useCallback((setIdx: number) => {
     const { exercise, realExerciseIndex: curRealIdx } = stateRef.current;
@@ -1851,10 +1951,12 @@ export default function ActiveLoggingScreen() {
   }, [updateExercise]);
 
   const handleCopyPrev = useCallback((idx: number, payload?: any) => {
-    const { exercise, resolvedLastSessionSets: pastSets } = stateRef.current;
+    const { exercise, resolvedLastSessionSets: pastSets, unitIsLbs: uLbs } = stateRef.current;
     const prevSessionSet = pastSets?.[idx] || exercise?.lastSessionSets?.[idx];
     if (prevSessionSet) {
-      if (prevSessionSet.weight != null) handleTextChange(idx, 'weight', String(prevSessionSet.weight));
+      if (prevSessionSet.weight != null) {
+        handleTextChange(idx, 'weight', String(kgToDisplay(Number(prevSessionSet.weight), uLbs, 1)));
+      }
       if (prevSessionSet.reps != null) handleTextChange(idx, 'reps', String(prevSessionSet.reps));
     } else if (payload && typeof payload === 'string' && payload.includes('×')) {
       const parts = payload.split('×');
@@ -1912,10 +2014,11 @@ export default function ActiveLoggingScreen() {
     }
   }, [handleTextChange, handleBlur, handleToggleSetComplete, handleDeleteSet, handleCycleSetType, handleCopyPrev]);
 
-  // Keypad Handlers (Hevy / Lyfta typing area)
+  // Keypad Handlers (reads activeKeypadRef so keystrokes & field focus never break React.memo)
   const handleKeypadPress = useCallback((key: string) => {
-    if (!activeKeypad) return;
-    const { setIndex, field } = activeKeypad;
+    const curKeypad = activeKeypadRef.current;
+    if (!curKeypad) return;
+    const { setIndex, field } = curKeypad;
 
     // If field is currently selected (first keypress upon opening/focusing), overwrite immediately!
     if (isFieldSelectedRef.current) {
@@ -1943,11 +2046,12 @@ export default function ActiveLoggingScreen() {
     if (curVal.length >= 6) return;
     const nextVal = curVal === '0' ? key : curVal + key;
     handleTextChange(setIndex, field, nextVal);
-  }, [activeKeypad, handleTextChange]);
+  }, [handleTextChange]);
 
   const handleKeypadBackspace = useCallback(() => {
-    if (!activeKeypad) return;
-    const { setIndex, field } = activeKeypad;
+    const curKeypad = activeKeypadRef.current;
+    if (!curKeypad) return;
+    const { setIndex, field } = curKeypad;
 
     const curVal = liveInputsRef.current[setIndex]?.[field] ?? stateRef.current.setInputs[setIndex]?.[field] ?? '';
     if (!curVal) {
@@ -1961,17 +2065,19 @@ export default function ActiveLoggingScreen() {
     }
     const nextVal = curVal.slice(0, -1);
     handleTextChange(setIndex, field, nextVal);
-  }, [activeKeypad, handleTextChange]);
+  }, [handleTextChange]);
 
   const handleKeypadClear = useCallback(() => {
-    if (!activeKeypad) return;
-    const { setIndex, field } = activeKeypad;
+    const curKeypad = activeKeypadRef.current;
+    if (!curKeypad) return;
+    const { setIndex, field } = curKeypad;
     handleTextChange(setIndex, field, '');
-  }, [activeKeypad, handleTextChange]);
+  }, [handleTextChange]);
 
   const handleKeypadStepAdjust = useCallback((delta: number) => {
-    if (!activeKeypad) return;
-    const { setIndex, field } = activeKeypad;
+    const curKeypad = activeKeypadRef.current;
+    if (!curKeypad) return;
+    const { setIndex, field } = curKeypad;
     const { exercise, setInputs: curInputs, overloadSuggestion: curOverload } = stateRef.current;
     if (!exercise) return;
     hapticSelection();
@@ -1983,17 +2089,19 @@ export default function ActiveLoggingScreen() {
     const prevSet = setIndex > 0 ? exercise.setsLog[setIndex - 1] : null;
 
     if (field === 'weight') {
+      const uLbs = stateRef.current.unitIsLbs;
       let baseWeight = 0;
       if (curInput?.weight !== '' && curInput?.weight !== undefined) {
         baseWeight = parseFloat(curInput.weight) || 0;
       } else if (curSet?.weight != null && Number(curSet.weight) > 0) {
-        baseWeight = Number(curSet.weight);
+        baseWeight = kgToDisplay(Number(curSet.weight), uLbs, 1);
       } else if (prevSet?.weight != null && Number(prevSet.weight) > 0) {
-        baseWeight = Number(prevSet.weight);
+        baseWeight = kgToDisplay(Number(prevSet.weight), uLbs, 1);
       } else if (curOverload?.recommended) {
-        baseWeight = Number(curOverload.recommended);
+        baseWeight = kgToDisplay(Number(curOverload.recommended), uLbs, 1);
       }
-      const newWeight = Math.min(1000, Math.max(0, Math.round((baseWeight + delta) * 10) / 10));
+      const maxDispW = uLbs ? 2200 : 1000;
+      const newWeight = Math.min(maxDispW, Math.max(0, Math.round((baseWeight + delta) * 10) / 10));
       handleTextChange(setIndex, 'weight', String(newWeight));
     } else {
       let baseReps = 10;
@@ -2009,11 +2117,12 @@ export default function ActiveLoggingScreen() {
       const newReps = Math.min(999, Math.max(1, baseReps + delta));
       handleTextChange(setIndex, 'reps', String(newReps));
     }
-  }, [activeKeypad, handleTextChange]);
+  }, [handleTextChange]);
 
   const handleKeypadNextOrComplete = useCallback(() => {
-    if (!activeKeypad) return;
-    const { setIndex, field } = activeKeypad;
+    const curKeypad = activeKeypadRef.current;
+    if (!curKeypad) return;
+    const { setIndex, field } = curKeypad;
     const curEx = stateRef.current.exercise;
     if (!curEx) return;
 
@@ -2050,7 +2159,28 @@ export default function ActiveLoggingScreen() {
       hapticSuccess();
       handleToggleSetComplete(setIndex);
     }
-  }, [activeKeypad, handleToggleSetComplete]);
+  }, [handleToggleSetComplete]);
+
+  const handleKeypadQuickFillWeight = useCallback((w: number) => {
+    const curKeypad = activeKeypadRef.current;
+    if (!curKeypad) return;
+    isFieldSelectedRef.current = false;
+    setIsFieldSelected(false);
+    handleTextChange(curKeypad.setIndex, 'weight', String(w));
+  }, [handleTextChange]);
+
+  const handleKeypadSelectField = useCallback((f: 'weight' | 'reps') => {
+    const curKeypad = activeKeypadRef.current;
+    const curEx = stateRef.current.exercise;
+    if (!curKeypad || curEx?.setsLog?.[curKeypad.setIndex]?.completed) return;
+    isFieldSelectedRef.current = true;
+    setIsFieldSelected(true);
+    setActiveKeypad({ setIndex: curKeypad.setIndex, field: f });
+  }, []);
+
+  const handleKeypadDismiss = useCallback(() => {
+    setActiveKeypad(null);
+  }, []);
 
   // Reset custom workout keypad when switching exercises so Mode 1 (Sticky Dock) is shown by default
   useEffect(() => {
@@ -2075,13 +2205,11 @@ export default function ActiveLoggingScreen() {
   // ── All Hooks MUST be declared BEFORE any conditional early returns (React Rules of Hooks) ──
   const handleSwapPress = useCallback(() => {
     hapticMedium();
-    setSwapModalEverShown(true);
     setShowSwapModal(true);
   }, []);
 
   const handleSupersetPress = useCallback(() => {
     hapticMedium();
-    setSupersetPickerEverShown(true);
     setShowSupersetPicker(true);
   }, []);
 
@@ -2130,18 +2258,57 @@ export default function ActiveLoggingScreen() {
     (idx: number, e: LayoutChangeEvent) => {
       const { x, width } = e.nativeEvent.layout;
       pillLayoutsRef.current[idx] = { x, width };
-      if (idx === visualExIndex && !hasScrolledInitialPillRef.current) {
+      if (idx === visualExIndexRef.current && !hasScrolledInitialPillRef.current) {
         hasScrolledInitialPillRef.current = true;
         if (idx > 0) {
           scrollToActivePill(idx, false);
         }
       }
     },
-    [visualExIndex, scrollToActivePill]
+    [scrollToActivePill]
   );
 
+  const handleOpenWorkoutMenu = useCallback(() => {
+    setShowWorkoutMenuSheet(true);
+  }, []);
+
+  const handleOpenWhatHits = useCallback(() => {
+    setShowWhatHitsSheet(true);
+  }, []);
+
+  const handleOpenExerciseMenu = useCallback(() => {
+    setShowExerciseMenuSheet(true);
+  }, []);
+
+  const handleToggleShowWarmups = useCallback(() => {
+    setShowCompletedWarmups((prev) => !prev);
+  }, []);
+
+  const handleFooterPrev = useCallback(() => {
+    switchToExercise(Math.max(0, visualExIndexRef.current - 1));
+  }, [switchToExercise]);
+
+  const handleFooterNextOrFinish = useCallback(() => {
+    const total = stateRef.current.exercises?.length || 0;
+    if (visualExIndexRef.current < total - 1) {
+      switchToExercise(visualExIndexRef.current + 1);
+    } else {
+      promptFinishWorkout();
+    }
+  }, [switchToExercise, promptFinishWorkout]);
+
+  const handleEditRestDuration = useCallback((currentRemainingSecs?: number) => {
+    const rem =
+      currentRemainingSecs != null && currentRemainingSecs > 0
+        ? currentRemainingSecs
+        : (stateRef.current.exercise?.restTimeSecs || 90);
+    setSheetInitialSecs(rem);
+    const ex = stateRef.current.exercise;
+    const curActive = ex?.setsLog ? ex.setsLog.findIndex((s: any) => !s.completed) : -1;
+    setRestPickerSetIdx(curActive !== -1 ? curActive : 0);
+  }, []);
+
   const openAddExerciseModal = useCallback(() => {
-    setAddModalEverShown(true);
     setShowAddExerciseModal(true);
   }, []);
 
@@ -2156,21 +2323,9 @@ export default function ActiveLoggingScreen() {
       restPickerSetIdx !== null
   );
 
-  useEffect(() => {
-    if (anySecondaryModalVisible && !secondaryModalsActivated) {
-      setSecondaryModalsActivated(true);
-    }
-  }, [anySecondaryModalVisible, secondaryModalsActivated]);
-
   const hasAnyConfirmSheetOpen = Boolean(
     showDiscardConfirmSheet || deleteSetConfirmIdx !== null || pendingSwapPermanent
   );
-  const [confirmSheetsEverShown, setConfirmSheetsEverShown] = useState(hasAnyConfirmSheetOpen);
-  useEffect(() => {
-    if (hasAnyConfirmSheetOpen && !confirmSheetsEverShown) {
-      setConfirmSheetsEverShown(true);
-    }
-  }, [hasAnyConfirmSheetOpen, confirmSheetsEverShown]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -2247,7 +2402,7 @@ export default function ActiveLoggingScreen() {
                   sessionProgressStyle={sessionProgressStyle}
                   onTrackLayout={handleSessionTrackLayout}
                   onBack={handleBack}
-                  onOpenMenu={() => setShowWorkoutMenuSheet(true)}
+                  onOpenMenu={handleOpenWorkoutMenu}
                   onPromptFinish={promptFinishWorkout}
                   styles={styles}
                 />
@@ -2259,7 +2414,7 @@ export default function ActiveLoggingScreen() {
                   carouselScrollRef={carouselScrollRef}
                   onPillLayout={handlePillLayout}
                   onSelectIndex={switchToExercise}
-                  onOpenWhatHits={() => setShowWhatHitsSheet(true)}
+                  onOpenWhatHits={handleOpenWhatHits}
                 />
 
                 {/* Scrollable Content with Dual-Layer Synchronized Rolling Transitions */}
@@ -2293,7 +2448,7 @@ export default function ActiveLoggingScreen() {
                           onVideoToggle={handleVideoToggle}
                           onSwitchToPartner={handleSwitchToPartner}
                           onNoteChange={handleNoteChange}
-                          onOpenExerciseMenu={() => setShowExerciseMenuSheet(true)}
+                          onOpenExerciseMenu={handleOpenExerciseMenu}
                         />
                       </Animated.View>
                     </GestureDetector>
@@ -2311,7 +2466,7 @@ export default function ActiveLoggingScreen() {
                         allWarmupsCompleted={allWarmupsCompleted}
                         showCompletedWarmups={showCompletedWarmups}
                         overloadSuggestion={overloadSuggestion}
-                        onToggleShowWarmups={() => setShowCompletedWarmups((prev) => !prev)}
+                        onToggleShowWarmups={handleToggleShowWarmups}
                         onSetAction={handleSetAction}
                         activeKeypadField={activeKeypad}
                         isFieldSelected={isFieldSelected}
@@ -2324,24 +2479,18 @@ export default function ActiveLoggingScreen() {
                       <ExerciseFooterNav
                         visualExIndex={visualExIndex}
                         exercises={exercises}
-                        onPrev={() => switchToExercise(Math.max(0, visualExIndex - 1))}
-                        onNextOrFinish={() => {
-                          if (visualExIndex < exercises.length - 1) {
-                            switchToExercise(visualExIndex + 1);
-                          } else {
-                            promptFinishWorkout();
-                          }
-                        }}
+                        onPrev={handleFooterPrev}
+                        onNextOrFinish={handleFooterNextOrFinish}
                       />
                     </Animated.View>
                   </ScrollView>
                 </View>
 
 
-        {/* ── FIX 4: Lazy-mount Superset Modal — only inserted into the tree on first open.
-             Before first open: zero JS evaluation, zero layout cost, zero PanResponder init. */}
-        {supersetPickerEverShown && (
-          <React.Suspense fallback={null}>
+        {/* ── Lazy-mount & Auto-Unmount Superset Modal (380ms closing grace) ── */}
+        <LazySheet
+          visible={showSupersetPicker}
+          render={() => (
             <SupersetPickerModal
               visible={showSupersetPicker}
               exercise={exercise}
@@ -2365,90 +2514,91 @@ export default function ActiveLoggingScreen() {
                 setShowSupersetPicker(false);
               }}
             />
-          </React.Suspense>
-        )}
+          )}
+        />
 
-        {/* ── FIX 4: Lazy-mount Swap Modal — same pattern. Zero mount cost until user first taps Swap. */}
-        {swapModalEverShown && (
-          <React.Suspense fallback={null}>
+        {/* ── Lazy-mount & Auto-Unmount Swap Modal (380ms closing grace) ── */}
+        <LazySheet
+          visible={showSwapModal}
+          render={() => (
             <ActiveSwapModal
-            visible={showSwapModal}
-            exercise={exercise}
-            aiSwapList={aiSwapList}
-            isAiSwapLoading={isAiSwapLoading}
-            onClose={() => setShowSwapModal(false)}
-            onSelectSwap={(alt) => {
-              const oldName = exercise.name;
-              hapticSuccess();
-              setShowSwapModal(false);
+              visible={showSwapModal}
+              exercise={exercise}
+              aiSwapList={aiSwapList}
+              isAiSwapLoading={isAiSwapLoading}
+              onClose={() => setShowSwapModal(false)}
+              onSelectSwap={(alt) => {
+                const oldName = exercise.name;
+                hapticSuccess();
+                setShowSwapModal(false);
 
-              let resolvedVideoId = alt.videoId || '';
-              if (!resolvedVideoId) {
-                autoResolveExerciseVideoId(alt.name).then(vid => {
-                  if (vid) {
-                    const curEx = stateRef.current.exercise;
-                    if (curEx && curEx.name === alt.name) {
-                      updateExercise(stateRef.current.realExerciseIndex, { ...curEx, videoId: vid });
+                let resolvedVideoId = alt.videoId || '';
+                if (!resolvedVideoId) {
+                  autoResolveExerciseVideoId(alt.name).then(vid => {
+                    if (vid) {
+                      const curEx = stateRef.current.exercise;
+                      if (curEx && curEx.name === alt.name) {
+                        updateExercise(stateRef.current.realExerciseIndex, { ...curEx, videoId: vid });
+                      }
                     }
-                  }
-                }).catch(() => {});
-              }
+                  }).catch(() => {});
+                }
 
-              const targetDateStr = lockedSessionDateRef.current;
-              const prevSession = getPreviousExerciseSession(alt.name, gymLogs, targetDateStr);
-              const lastSets = prevSession?.sets || [];
-              const lastValidSet = lastSets.length > 0 ? lastSets[lastSets.length - 1] : null;
-              const targetSetsCount = alt.targetSets || 3;
-              const defaultTargetReps = parseUpperTargetReps(alt.targetReps || '8-12');
+                const targetDateStr = lockedSessionDateRef.current;
+                const prevSession = getPreviousExerciseSession(alt.name, gymLogs, targetDateStr);
+                const lastSets = prevSession?.sets || [];
+                const lastValidSet = lastSets.length > 0 ? lastSets[lastSets.length - 1] : null;
+                const targetSetsCount = alt.targetSets || 3;
+                const defaultTargetReps = parseUpperTargetReps(alt.targetReps || '8-12');
 
-              const initialSetsLog = Array.from({ length: targetSetsCount }, (_, i) => {
-                const lastSet = lastSets[i] || lastValidSet;
-                const setWeight = (lastSet?.weight != null && !isNaN(Number(lastSet.weight)) && Number(lastSet.weight) >= 0) ? Number(lastSet.weight) : null;
-                return {
-                  setNumber: i + 1,
-                  reps: lastSet?.reps ? Number(lastSet.reps) : defaultTargetReps,
-                  weight: setWeight,
-                  completed: false,
-                };
-              });
-
-              const updatedEx = {
-                ...exercise,
-                exerciseId: `swap_${Date.now()}`,
-                name: alt.name,
-                muscle: alt.muscle || exercise.muscle,
-                targetSets: targetSetsCount,
-                targetReps: alt.targetReps || '8-12',
-                restTimeSecs: alt.restTimeSecs || 90,
-                videoId: resolvedVideoId,
-                lastSessionSets: lastSets.length > 0 ? lastSets : undefined,
-                setsLog: initialSetsLog,
-              };
-
-              updateExercise(realExerciseIndex, updatedEx);
-              setSetInputs(initialSetsLog.map(s => ({
-                weight: s.weight != null ? String(s.weight) : '',
-                reps: s.reps != null ? String(s.reps) : '',
-              })));
-              userEditedFieldsRef.current = {};
-              liveInputsRef.current = {};
-
-              setShowSwapModal(false);
-              afterSheetDismiss(() => {
-                setPendingSwapPermanent({
-                  oldName,
-                  newName: alt.name,
-                  videoId: resolvedVideoId || alt.videoId,
-                  muscle: alt.muscle || exercise.muscle,
-                  targetSets: alt.targetSets,
-                  targetReps: alt.targetReps,
-                  restTimeSecs: alt.restTimeSecs,
+                const initialSetsLog = Array.from({ length: targetSetsCount }, (_, i) => {
+                  const lastSet = lastSets[i] || lastValidSet;
+                  const setWeight = (lastSet?.weight != null && !isNaN(Number(lastSet.weight)) && Number(lastSet.weight) >= 0) ? Number(lastSet.weight) : null;
+                  return {
+                    setNumber: i + 1,
+                    reps: lastSet?.reps ? Number(lastSet.reps) : defaultTargetReps,
+                    weight: setWeight,
+                    completed: false,
+                  };
                 });
-              });
-            }}
-          />
-          </React.Suspense>
-        )}
+
+                const updatedEx = {
+                  ...exercise,
+                  exerciseId: `swap_${Date.now()}`,
+                  name: alt.name,
+                  muscle: alt.muscle || exercise.muscle,
+                  targetSets: targetSetsCount,
+                  targetReps: alt.targetReps || '8-12',
+                  restTimeSecs: alt.restTimeSecs || 90,
+                  videoId: resolvedVideoId,
+                  lastSessionSets: lastSets.length > 0 ? lastSets : undefined,
+                  setsLog: initialSetsLog,
+                };
+
+                updateExercise(realExerciseIndex, updatedEx);
+                setSetInputs(initialSetsLog.map(s => ({
+                  weight: s.weight != null ? String(kgToDisplay(Number(s.weight), unitIsLbs, 1)) : '',
+                  reps: s.reps != null ? String(s.reps) : '',
+                })));
+                userEditedFieldsRef.current = {};
+                liveInputsRef.current = {};
+
+                setShowSwapModal(false);
+                afterSheetDismiss(() => {
+                  setPendingSwapPermanent({
+                    oldName,
+                    newName: alt.name,
+                    videoId: resolvedVideoId || alt.videoId,
+                    muscle: alt.muscle || exercise.muscle,
+                    targetSets: alt.targetSets,
+                    targetReps: alt.targetReps,
+                    restTimeSecs: alt.restTimeSecs,
+                  });
+                });
+              }}
+            />
+          )}
+        />
 
       </View>
 
@@ -2458,52 +2608,35 @@ export default function ActiveLoggingScreen() {
           <WorkoutKeypad
             visible={true}
             field={activeKeypad?.field ?? 'weight'}
-            currentWeight={
-              activeKeypad
-                ? (setInputs[activeKeypad.setIndex]?.weight ?? '')
-                : ''
-            }
-            currentReps={
-              activeKeypad
-                ? (setInputs[activeKeypad.setIndex]?.reps ?? '')
-                : ''
-            }
-            setNumber={activeKeypad ? (exercise?.setsLog?.[activeKeypad.setIndex]?.setNumber || activeKeypad.setIndex + 1) : 1}
             stepSize={smartWeightStep}
             unit={unitLabel(unitIsLbs)}
             selectedRir={
               activeKeypad
-                ? (exercise?.setsLog?.[activeKeypad.setIndex]?.rir ?? 1)
-                : 1
+                ? (exercise?.setsLog?.[activeKeypad.setIndex]?.rir ?? activeProgrammeWeek?.targetRir ?? 1)
+                : (activeProgrammeWeek?.targetRir ?? 1)
             }
             lastSessionWeight={
               activeKeypad
-                ? (resolvedLastSessionSets?.[activeKeypad.setIndex]?.weight ??
-                   resolvedLastSessionSets?.[resolvedLastSessionSets.length - 1]?.weight ??
-                   null)
+                ? (() => {
+                    const rawLast =
+                      resolvedLastSessionSets?.[activeKeypad.setIndex]?.weight ??
+                      resolvedLastSessionSets?.[resolvedLastSessionSets.length - 1]?.weight ??
+                      null;
+                    return rawLast != null && Number(rawLast) > 0
+                      ? kgToDisplay(Number(rawLast), unitIsLbs, 1)
+                      : rawLast;
+                  })()
                 : null
             }
-            onQuickFillWeight={(w) => {
-              if (activeKeypad) {
-                isFieldSelectedRef.current = false;
-                setIsFieldSelected(false);
-                handleTextChange(activeKeypad.setIndex, 'weight', String(w));
-              }
-            }}
+            onQuickFillWeight={handleKeypadQuickFillWeight}
             onKeyPress={handleKeypadPress}
             onBackspace={handleKeypadBackspace}
             onClear={handleKeypadClear}
             onStepAdjust={handleKeypadStepAdjust}
-            onSelectField={(f) => {
-              if (activeKeypad && !exercise?.setsLog?.[activeKeypad.setIndex]?.completed) {
-                isFieldSelectedRef.current = true;
-                setIsFieldSelected(true);
-                setActiveKeypad({ setIndex: activeKeypad.setIndex, field: f });
-              }
-            }}
+            onSelectField={handleKeypadSelectField}
             onSelectRir={handleSetRIR}
             onNextOrComplete={handleKeypadNextOrComplete}
-            onDismiss={() => setActiveKeypad(null)}
+            onDismiss={handleKeypadDismiss}
           />
         </View>
       ) : null}
@@ -2517,134 +2650,135 @@ export default function ActiveLoggingScreen() {
           onAdd={handleTimerAdd}
           onSubtract={handleTimerSubtract}
           onSkip={handleTimerSkip}
-          onEditDuration={(currentRemainingSecs) => {
-            const rem = currentRemainingSecs != null && currentRemainingSecs > 0
-              ? currentRemainingSecs
-              : (exercise?.restTimeSecs || 90);
-            setSheetInitialSecs(rem);
-            setRestPickerSetIdx(activeSetIndex !== -1 ? activeSetIndex : 0);
-          }}
+          onEditDuration={handleEditRestDuration}
         />
       ) : null}
 
-              {(secondaryModalsActivated || anySecondaryModalVisible || addModalEverShown || showAddExerciseModal || confirmSheetsEverShown || hasAnyConfirmSheetOpen) && (
-                <React.Suspense fallback={null}>
-                  {(secondaryModalsActivated || anySecondaryModalVisible) && (
-                    <ActiveWorkoutModals
-                      deepDiveVisible={deepDiveVisible}
-                      setDeepDiveVisible={setDeepDiveVisible}
-                      deepDiveInitialTab={deepDiveTab}
-                      setDeepDiveInitialTab={setDeepDiveTab}
-                      showWhatHitsSheet={showWhatHitsSheet}
-                      setShowWhatHitsSheet={setShowWhatHitsSheet}
-                      showWorkoutMenuSheet={showWorkoutMenuSheet}
-                      setShowWorkoutMenuSheet={setShowWorkoutMenuSheet}
-                      showWorkoutSettingsSheet={showWorkoutSettingsSheet}
-                      setShowWorkoutSettingsSheet={setShowWorkoutSettingsSheet}
-                      showExerciseMenuSheet={showExerciseMenuSheet}
-                      setShowExerciseMenuSheet={setShowExerciseMenuSheet}
-                      showFinishEarlySheet={showFinishEarlySheet}
-                      setShowFinishEarlySheet={setShowFinishEarlySheet}
-                      noteModalConfig={noteModalConfig}
-                      setNoteModalConfig={setNoteModalConfig}
-                      restPickerSetIdx={restPickerSetIdx}
-                      setRestPickerSetIdx={setRestPickerSetIdx}
-                      sheetInitialSecs={sheetInitialSecs}
-                      exercise={exercise}
-                      exercises={exercises}
-                      activeExIndex={activeExIndex}
-                      setActiveExIndex={switchToExercise}
-                      activeSetIndex={activeSetIndex}
-                      overloadSuggestion={overloadSuggestion}
-                      gymLogs={gymLogs || []}
-                      sessionNote={sessionNote}
-                      soundEnabled={soundEnabled}
-                      setSoundEnabled={setSoundEnabled}
-                      autoTimerEnabled={autoTimerEnabled}
-                      setAutoTimerEnabled={setAutoTimerEnabled}
-                      keepAwakeEnabled={keepAwakeEnabled}
-                      setKeepAwakeEnabled={(val: boolean) => {
-                        setKeepAwakeEnabled(val);
-                        setKeepAwakeEnabledGlobal(val);
-                        saveGymProfile({ keepAwake: val }).catch(() => {});
-                      }}
-                      uncheckedSetsCount={uncheckedSetsCount}
-                      completedSetsCount={completedSetsCount}
-                      hasWarmups={hasWarmups}
-                      onSupersetPress={handleSupersetPress}
-                      onAddExercise={openAddExerciseModal}
-                      onSelectDefaultRest={(secs) => {
-                        setDefaultRestSecsGlobal(secs);
-                        saveGymProfile({ defaultRestSecs: secs }).catch(() => {});
-                        const curRealIdx = stateRef.current.realExerciseIndex;
-                        const curEx = stateRef.current.exercise;
-                        if (curEx && curRealIdx !== undefined) {
-                          updateExercise(curRealIdx, { ...curEx, restTimeSecs: secs });
-                        }
-                      }}
-                      onToggleAutoTimerGlobal={(val) => {
-                        setAutoTimerEnabledGlobal(val);
-                        saveGymProfile({ autoTimer: val }).catch(() => {});
-                      }}
-                      onToggleAudioGlobal={(val) => {
-                        setAudioCuesEnabledGlobal(val);
-                        saveGymProfile({ audioCues: val }).catch(() => {});
-                      }}
-                      onSwapPress={handleSwapPress}
-                      onAutoWarmup={handleAutoWarmup}
-                      onShowVideo={() => setShowVideo(true)}
-                      onRemoveExercise={handleRemoveExercise}
-                      onFinishAndSave={handleFinishAndSave}
-                      onDiscardWorkout={handleDiscardWorkout}
-                      onSaveNote={handleSaveNote}
-                      onSelectRest={handleSelectRest}
-                      onTimerSkip={handleTimerSkip}
-                    />
-                  )}
-
-                  {(addModalEverShown || showAddExerciseModal) && (
-                    <AddExerciseModal
-                      visible={showAddExerciseModal}
-                      onClose={() => setShowAddExerciseModal(false)}
-                      onAdd={(newEx: any) => {
-                        addExercise(newEx);
-                        setShowAddExerciseModal(false);
-                      }}
-                      existingExerciseIds={activeExercises.map((e: any) => e.exerciseId || e.id || e.name)}
-                    />
-                  )}
-
-                  {(confirmSheetsEverShown || hasAnyConfirmSheetOpen) && (
-                    <ActiveConfirmSheets
-                      showDiscardConfirmSheet={showDiscardConfirmSheet}
-                      onCloseDiscard={() => setShowDiscardConfirmSheet(false)}
-                      onConfirmDiscard={handleConfirmDiscardWorkout}
-                      deleteSetConfirmIdx={deleteSetConfirmIdx}
-                      exerciseName={exercise?.name}
-                      deleteSetNumber={
-                        deleteSetConfirmIdx !== null
-                          ? exercise?.setsLog?.[deleteSetConfirmIdx]?.setNumber || deleteSetConfirmIdx + 1
-                          : undefined
+              <LazySheet
+                visible={anySecondaryModalVisible || hasRemoveConfirmOpen}
+                holdMs={550}
+                render={() => (
+                  <ActiveWorkoutModals
+                    deepDiveVisible={deepDiveVisible}
+                    setDeepDiveVisible={setDeepDiveVisible}
+                    deepDiveInitialTab={deepDiveTab}
+                    setDeepDiveInitialTab={setDeepDiveTab}
+                    showWhatHitsSheet={showWhatHitsSheet}
+                    setShowWhatHitsSheet={setShowWhatHitsSheet}
+                    showWorkoutMenuSheet={showWorkoutMenuSheet}
+                    setShowWorkoutMenuSheet={setShowWorkoutMenuSheet}
+                    showWorkoutSettingsSheet={showWorkoutSettingsSheet}
+                    setShowWorkoutSettingsSheet={setShowWorkoutSettingsSheet}
+                    showExerciseMenuSheet={showExerciseMenuSheet}
+                    setShowExerciseMenuSheet={setShowExerciseMenuSheet}
+                    showFinishEarlySheet={showFinishEarlySheet}
+                    setShowFinishEarlySheet={setShowFinishEarlySheet}
+                    noteModalConfig={noteModalConfig}
+                    setNoteModalConfig={setNoteModalConfig}
+                    restPickerSetIdx={restPickerSetIdx}
+                    setRestPickerSetIdx={setRestPickerSetIdx}
+                    sheetInitialSecs={sheetInitialSecs}
+                    exercise={exercise}
+                    exercises={exercises}
+                    activeExIndex={activeExIndex}
+                    setActiveExIndex={switchToExercise}
+                    activeSetIndex={activeSetIndex}
+                    overloadSuggestion={overloadSuggestion}
+                    gymLogs={gymLogs || []}
+                    sessionNote={sessionNote}
+                    soundEnabled={soundEnabled}
+                    setSoundEnabled={setSoundEnabled}
+                    autoTimerEnabled={autoTimerEnabled}
+                    setAutoTimerEnabled={setAutoTimerEnabled}
+                    keepAwakeEnabled={keepAwakeEnabled}
+                    setKeepAwakeEnabled={(val: boolean) => {
+                      setKeepAwakeEnabled(val);
+                      setKeepAwakeEnabledGlobal(val);
+                      saveGymProfile({ keepAwake: val }).catch(() => {});
+                    }}
+                    uncheckedSetsCount={uncheckedSetsCount}
+                    completedSetsCount={completedSetsCount}
+                    hasWarmups={hasWarmups}
+                    onSupersetPress={handleSupersetPress}
+                    onAddExercise={openAddExerciseModal}
+                    onSelectDefaultRest={(secs) => {
+                      setDefaultRestSecsGlobal(secs);
+                      saveGymProfile({ defaultRestSecs: secs }).catch(() => {});
+                      const curRealIdx = stateRef.current.realExerciseIndex;
+                      const curEx = stateRef.current.exercise;
+                      if (curEx && curRealIdx !== undefined) {
+                        updateExercise(curRealIdx, { ...curEx, restTimeSecs: secs });
                       }
-                      onCloseDeleteSet={() => setDeleteSetConfirmIdx(null)}
-                      onConfirmDeleteSet={handleDeleteSet}
-                      pendingSwapPermanent={pendingSwapPermanent}
-                      onCloseSwapPermanent={() => setPendingSwapPermanent(null)}
-                      onConfirmSwapPermanent={(p) =>
-                        makeSwapPermanent(
-                          p.oldName,
-                          p.newName,
-                          p.videoId,
-                          p.muscle,
-                          p.targetSets,
-                          p.targetReps,
-                          p.restTimeSecs
-                        )
-                      }
-                    />
-                  )}
-                </React.Suspense>
-              )}
+                    }}
+                    onToggleAutoTimerGlobal={(val) => {
+                      setAutoTimerEnabledGlobal(val);
+                      saveGymProfile({ autoTimer: val }).catch(() => {});
+                    }}
+                    onToggleAudioGlobal={(val) => {
+                      setAudioCuesEnabledGlobal(val);
+                      saveGymProfile({ audioCues: val }).catch(() => {});
+                    }}
+                    onSwapPress={handleSwapPress}
+                    onAutoWarmup={handleAutoWarmup}
+                    onShowVideo={() => setShowVideo(true)}
+                    onRemoveExercise={handleRemoveExercise}
+                    onFinishAndSave={handleFinishAndSave}
+                    onDiscardWorkout={handleDiscardWorkout}
+                    onSaveNote={handleSaveNote}
+                    onSelectRest={handleSelectRest}
+                    onTimerSkip={handleTimerSkip}
+                    onRemoveConfirmVisibilityChange={setHasRemoveConfirmOpen}
+                  />
+                )}
+              />
+
+              <LazySheet
+                visible={showAddExerciseModal}
+                render={() => (
+                  <AddExerciseModal
+                    visible={showAddExerciseModal}
+                    onClose={() => setShowAddExerciseModal(false)}
+                    onAdd={(newEx: any) => {
+                      addExercise(newEx);
+                      setShowAddExerciseModal(false);
+                    }}
+                    existingExerciseIds={activeExercises.map((e: any) => e.exerciseId || e.id || e.name)}
+                  />
+                )}
+              />
+
+              <LazySheet
+                visible={hasAnyConfirmSheetOpen}
+                render={() => (
+                  <ActiveConfirmSheets
+                    showDiscardConfirmSheet={showDiscardConfirmSheet}
+                    onCloseDiscard={() => setShowDiscardConfirmSheet(false)}
+                    onConfirmDiscard={handleConfirmDiscardWorkout}
+                    deleteSetConfirmIdx={deleteSetConfirmIdx}
+                    exerciseName={exercise?.name}
+                    deleteSetNumber={
+                      deleteSetConfirmIdx !== null
+                        ? exercise?.setsLog?.[deleteSetConfirmIdx]?.setNumber || deleteSetConfirmIdx + 1
+                        : undefined
+                    }
+                    onCloseDeleteSet={() => setDeleteSetConfirmIdx(null)}
+                    onConfirmDeleteSet={handleDeleteSet}
+                    pendingSwapPermanent={pendingSwapPermanent}
+                    onCloseSwapPermanent={() => setPendingSwapPermanent(null)}
+                    onConfirmSwapPermanent={(p) =>
+                      makeSwapPermanent(
+                        p.oldName,
+                        p.newName,
+                        p.videoId,
+                        p.muscle,
+                        p.targetSets,
+                        p.targetReps,
+                        p.restTimeSecs
+                      )
+                    }
+                  />
+                )}
+              />
 
               {/* High-Contrast Screen Flash Rest Alert Overlay */}
               <Animated.View

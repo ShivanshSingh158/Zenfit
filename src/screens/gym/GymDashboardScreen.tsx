@@ -51,7 +51,7 @@ import { useGymLogs, useGymPlan, useBodyMetrics, useActiveWorkoutState } from '.
 import { useGymLog, todayStr } from '../../hooks/useGymLog';
 import { useGymProfile } from '../../hooks/useGymProfile';
 import { parseLocalDate } from '../../utils/dateCore';
-import { getRotationNextDayIndex } from '../../services/gymRotationService';
+import { getRotationNextDayIndex, getWorkoutDaysInRotation, getRotationLetterForDay } from '../../services/gymRotationService';
 import {
   buildExerciseHistoryIndex,
   calculateGymStreak,
@@ -85,7 +85,7 @@ import { UserAvatar } from '../../components/ui/UserAvatar';
 import { auth } from '../../services/firebase';
 import { getL1Sync } from '../../utils/bootManifest';
 import { makeDashboardStyles } from './dashboard/gymDashboardStyles';
-import { SwapRoutineModal } from '../../components/Gym/schedule/SwapRoutineModal';
+const SwapRoutineModal = React.lazy(() => import('../../components/Gym/schedule/SwapRoutineModal'));
 import WeeklySplitStrip, { WeekDaySlot } from './dashboard/TelemetryBarCard';
 import OrbitalChronometerHero, { HeroLiftPreviewItem } from './dashboard/OrbitalChronometerHero';
 
@@ -295,9 +295,25 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
   }, [logsByDateMap, gymLogs, selectedDate]);
 
   const effectiveLog = useMemo(() => {
-    if (liveLog && liveLog.date === selectedDate) return liveLog;
-    if (todayLogInList) return todayLogInList;
-    return activeLog;
+    const candidates = [liveLog, todayLogInList, activeLog].filter(
+      (l): l is any => Boolean(l && l.date === selectedDate)
+    );
+    if (candidates.length === 0) return liveLog || todayLogInList || activeLog;
+    let best = candidates[0];
+    for (let i = 1; i < candidates.length; i++) {
+      const cur = candidates[i];
+      const bestTs = Number(best?.updatedAt || 0);
+      const curTs = Number(cur?.updatedAt || 0);
+      const bestRev = Number(best?.revertedAt || 0);
+      const curRev = Number(cur?.revertedAt || 0);
+      if (
+        curTs > bestTs ||
+        (!cur?.completed && curRev > bestRev && curRev >= bestTs)
+      ) {
+        best = cur;
+      }
+    }
+    return best;
   }, [liveLog, todayLogInList, activeLog, selectedDate]);
 
   const hasCompletedWork = useMemo(() => {
@@ -343,9 +359,25 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
         setLiveLog(event.log);
       }
     });
+    const sub3 = DeviceEventEmitter.addListener('gym_workout_reverted', (event: any) => {
+      if (event?.date && event.date === selectedDate) {
+        setLiveLog(event?.log || null);
+      }
+    });
+    const sub4 = DeviceEventEmitter.addListener('gym_logs_purged', (event: any) => {
+      const dates: string[] = Array.isArray(event?.dates) ? event.dates : [];
+      if (!dates.includes(selectedDate)) return;
+      setLiveLog((prev: any) => {
+        if (!prev || prev.date !== selectedDate) return prev;
+        if (prev.completed || prev.workoutStartTime) return prev;
+        return null;
+      });
+    });
     return () => {
       sub.remove();
       sub2.remove();
+      sub3.remove();
+      sub4.remove();
     };
   }, [selectedDate]);
 
@@ -425,6 +457,14 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
     return () => handle.cancel();
   }, [isScreenFocused, gymLogs, fetchPRs, latestPR]);
 
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('gym_prs_updated', () => {
+      lastPRLogsRef.current = null;
+      fetchPRs();
+    });
+    return () => sub.remove();
+  }, [fetchPRs]);
+
   const focusDraftSyncRef = useRef({
     userUid: user?.uid,
     selectedDate,
@@ -466,14 +506,22 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
             prev && prev.date === draft.date && prev.updatedAt === draft.updatedAt ? prev : draft
           );
         } else {
-          const completedInList = dateMap?.get(dateKey);
-          if (completedInList && completedInList.completed) {
-            setLiveLog((prev: any) =>
-              prev === completedInList ||
-              (prev && prev.date === completedInList.date && prev.completed === completedInList.completed && prev.updatedAt === completedInList.updatedAt)
-                ? prev
-                : completedInList
-            );
+          const listLog = dateMap?.get(dateKey) || todayLog;
+          if (listLog) {
+            setLiveLog((prev: any) => {
+              if (!prev || prev.date !== dateKey) return listLog;
+              const listTs = Number(listLog.updatedAt || 0);
+              const prevTs = Number(prev.updatedAt || 0);
+              const listRev = Number((listLog as any).revertedAt || 0);
+              const prevRev = Number((prev as any).revertedAt || 0);
+              const isNewerRevert = !listLog.completed && listRev > prevRev && listRev >= prevTs;
+              if (listTs > prevTs || isNewerRevert) {
+                return listLog;
+              }
+              return prev;
+            });
+          } else {
+            setLiveLog((prev: any) => (prev && prev.date === dateKey ? null : prev));
           }
         }
       } catch {}
@@ -539,6 +587,10 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
   }, [gymLogs, userGymPlan]);
 
   const weeklyPlannedSessions = useMemo(() => {
+    if (userGymPlan?.scheduleMode === 'rotation') {
+      const rotCount = getWorkoutDaysInRotation(userGymPlan).length;
+      return rotCount > 0 ? Math.min(7, rotCount) : 4;
+    }
     let count = 0;
     for (let i = 1; i <= 7; i++) {
       const customDay = getCustomPlanDay(userGymPlan?.customDays, i);
@@ -557,6 +609,13 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
 
     const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
     const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const isRotation = userGymPlan?.scheduleMode === 'rotation';
+    const rotationDays = isRotation ? getWorkoutDaysInRotation(userGymPlan) : [];
+    const rotTodayPos = isRotation && activePlanDay
+      ? Math.max(0, rotationDays.findIndex(d => d.dayIndex === activePlanDay.dayIndex))
+      : 0;
+    let futureRotOffset = 0;
+
     const slots: WeekDaySlot[] = [];
     let sessions = 0;
 
@@ -577,26 +636,48 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
       );
       if (isDone) sessions++;
 
-      const planDayIdx = i + 1;
-      const customDay = getCustomPlanDay(userGymPlan?.customDays, planDayIdx);
-      const resolvedDay = isToday
-        ? activePlanDay
-        : (customDay || resolvePlanDay(userGymPlan, planDayIdx));
-      const isRest = Boolean(resolvedDay ? resolvedDay.isRest : i === 6);
+      let resolvedDay: any;
+      if (isRotation && rotationDays.length > 0) {
+        if (isToday) {
+          resolvedDay = activePlanDay;
+        } else if (dateStr < today) {
+          resolvedDay = dayLog?.dayPlanIndex != null
+            ? resolvePlanDay(userGymPlan, dayLog.dayPlanIndex)
+            : null;
+        } else {
+          futureRotOffset += 1;
+          resolvedDay = rotationDays[(rotTodayPos + futureRotOffset) % rotationDays.length];
+        }
+      } else {
+        const planDayIdx = i + 1;
+        const customDay = getCustomPlanDay(userGymPlan?.customDays, planDayIdx);
+        resolvedDay = isToday
+          ? activePlanDay
+          : (customDay || resolvePlanDay(userGymPlan, planDayIdx));
+      }
+
+      const isRest = isRotation
+        ? (dateStr < today && !isDone)
+        : Boolean(resolvedDay ? resolvedDay.isRest : i === 6);
       const exList = !isRest && Array.isArray(resolvedDay?.exercises) ? resolvedDay!.exercises : [];
       const totalDaySets = exList.reduce(
         (acc: number, ex: any) => acc + (Number(ex.targetSets) || 3),
         0
       );
+      const rotLetter = isRotation && resolvedDay && !isRest
+        ? getRotationLetterForDay(resolvedDay.dayIndex, rotationDays)
+        : null;
 
       slots.push({
         dateStr,
-        letter: LETTERS[i],
-        dayName: DAY_NAMES[i],
+        letter: rotLetter && !isToday && dateStr > today ? `${LETTERS[i]}·${rotLetter}` : LETTERS[i],
+        dayName: rotLetter && !isRest ? `${DAY_NAMES[i]} · Workout ${rotLetter}` : DAY_NAMES[i],
         isToday,
         isDone,
         isRest,
-        workoutName: isRest ? 'Rest & Rebuild' : (resolvedDay?.name || 'Training Day'),
+        workoutName: isRest
+          ? (isRotation && dateStr < today ? 'Rest / Unlogged' : 'Rest & Rebuild')
+          : (resolvedDay?.name || 'Training Day'),
         exerciseCount: exList.length,
         totalSets: totalDaySets,
       });
@@ -1383,11 +1464,14 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
       </Animated.ScrollView>
 
       {/* ── TODAY'S SESSION PREVIEW SHEET ── */}
-      <BottomSheet
+      <LazySheet
         visible={showPreviewSheet}
-        onClose={() => setShowPreviewSheet(false)}
-        avoidKeyboard={false}
-      >
+        render={() => (
+          <BottomSheet
+            visible={showPreviewSheet}
+            onClose={() => setShowPreviewSheet(false)}
+            avoidKeyboard={false}
+          >
         <View style={{ gap: 12 }}>
           <View style={styles.goalModalHeader}>
             <View style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
@@ -1465,7 +1549,9 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
               size="md"
               onPress={() => {
                 setShowPreviewSheet(false);
-                navigation.navigate('ActiveLogging', { date: selectedDate, autoStart: 'start' });
+                afterSheetDismiss(() => {
+                  navigation.navigate('ActiveLogging', { date: selectedDate, autoStart: 'start' });
+                });
               }}
               style={{ flex: 1.35, borderRadius: RADIUS.md }}
             >
@@ -1478,7 +1564,9 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
             </TactileButton>
           </View>
         </View>
-      </BottomSheet>
+          </BottomSheet>
+        )}
+      />
 
       {/* ── EMBEDDED MODALS ── */}
       {/* ── PR VAULT MODAL SHEET ── */}
@@ -1563,65 +1651,75 @@ export const GymDashboardScreen: React.FC = React.memo(function GymDashboardScre
       />
 
       {/* ── Quick Session Confirmation Sheet (Replaces Native Alert) ── */}
-      <BottomSheet
+      <LazySheet
         visible={dashConfirm !== null}
-        onClose={() => setDashConfirm(null)}
-        avoidKeyboard={false}
-        noPadding={true}
-      >
-        {activeDashConfirm ? (
-          <View style={{ paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: SPACE.md, gap: SPACE.md }}>
-            <View
-              style={{
-                backgroundColor: tokens.bg.surface,
-                borderRadius: RADIUS.card,
-                padding: SPACE.md,
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: tokens.border.subtle,
-                gap: SPACE.xs,
-              }}
-            >
-              <Text style={{ fontSize: 17, fontFamily: FONT_FAMILY.bold, color: tokens.text.primary }}>
-                {activeDashConfirm.title}
-              </Text>
-              <Text style={{ fontSize: 13.5, lineHeight: 19, fontFamily: FONT_FAMILY.regular, color: tokens.text.secondary }}>
-                {activeDashConfirm.message}
-              </Text>
-            </View>
+        render={() => (
+          <BottomSheet
+            visible={dashConfirm !== null}
+            onClose={() => setDashConfirm(null)}
+            avoidKeyboard={false}
+            noPadding={true}
+          >
+            {activeDashConfirm ? (
+              <View style={{ paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: SPACE.md, gap: SPACE.md }}>
+                <View
+                  style={{
+                    backgroundColor: tokens.bg.surface,
+                    borderRadius: RADIUS.card,
+                    padding: SPACE.md,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: tokens.border.subtle,
+                    gap: SPACE.xs,
+                  }}
+                >
+                  <Text style={{ fontSize: 17, fontFamily: FONT_FAMILY.bold, color: tokens.text.primary }}>
+                    {activeDashConfirm.title}
+                  </Text>
+                  <Text style={{ fontSize: 13.5, lineHeight: 19, fontFamily: FONT_FAMILY.regular, color: tokens.text.secondary }}>
+                    {activeDashConfirm.message}
+                  </Text>
+                </View>
 
-            <View style={{ gap: SPACE.sm }}>
-              <TactileButton
-                variant={activeDashConfirm.destructive ? 'danger' : 'primary'}
-                size="lg"
-                label={activeDashConfirm.confirmLabel}
-                onPress={async () => {
-                  const action = activeDashConfirm.onConfirm;
-                  setDashConfirm(null);
-                  await action();
-                }}
-              />
-              <TactileButton
-                variant="secondary"
-                size="lg"
-                label="Cancel"
-                onPress={() => setDashConfirm(null)}
-              />
-            </View>
-          </View>
-        ) : null}
-      </BottomSheet>
+                <View style={{ gap: SPACE.sm }}>
+                  <TactileButton
+                    variant={activeDashConfirm.destructive ? 'danger' : 'primary'}
+                    size="lg"
+                    label={activeDashConfirm.confirmLabel}
+                    onPress={() => {
+                      const action = activeDashConfirm.onConfirm;
+                      setDashConfirm(null);
+                      void action();
+                    }}
+                  />
+                  <TactileButton
+                    variant="secondary"
+                    size="lg"
+                    label="Cancel"
+                    onPress={() => setDashConfirm(null)}
+                  />
+                </View>
+              </View>
+            ) : null}
+          </BottomSheet>
+        )}
+      />
 
       {/* ── SWAP TODAY ROUTINE SHEET ── */}
-      <SwapRoutineModal
+      <LazySheet
         visible={showSwapModal}
-        selectedDate={selectedDate}
-        currentPlanDayIndex={activePlanDay?.dayIndex}
-        onClose={() => setShowSwapModal(false)}
-        onSelectDay={(idx: number) => {
-          setLiveLog(null);
-          swapDayRoutine(idx);
-          setShowSwapModal(false);
-        }}
+        render={() => (
+          <SwapRoutineModal
+            visible={showSwapModal}
+            selectedDate={selectedDate}
+            currentPlanDayIndex={activePlanDay?.dayIndex}
+            onClose={() => setShowSwapModal(false)}
+            onSelectDay={(idx: number) => {
+              setLiveLog(null);
+              swapDayRoutine(idx);
+              setShowSwapModal(false);
+            }}
+          />
+        )}
       />
 
       {/* ── BODYWEIGHT & METRICS QUICK-LOG SHEET ── */}

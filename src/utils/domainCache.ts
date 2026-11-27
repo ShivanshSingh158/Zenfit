@@ -110,8 +110,12 @@ export async function flushDomainCache(domainKey?: string): Promise<void> {
                 byYear[yr].push(cl);
               }
               const years = Object.keys(byYear);
-              const allYears = Array.from(new Set([...existingYears, ...years]));
-              pairs.push([GYM_ARCHIVE_YEARS_KEY, JSON.stringify(allYears)]);
+              const yearSet = new Set(years);
+              const orphanedYears = existingYears.filter(yr => !yearSet.has(yr));
+              if (orphanedYears.length > 0) {
+                AsyncStorage.multiRemove(orphanedYears.map(yr => `@zentrack_cache_gym_archive_${yr}`)).catch(() => {});
+              }
+              pairs.push([GYM_ARCHIVE_YEARS_KEY, JSON.stringify(years)]);
               for (const [yr, yrLogs] of Object.entries(byYear)) {
                 // Deduplicate cold logs by id or date to guarantee idempotency
                 const dedupMap = new Map<string, any>();
@@ -121,8 +125,11 @@ export async function flushDomainCache(domainKey?: string): Promise<void> {
                 pairs.push([`@zentrack_cache_gym_archive_${yr}`, JSON.stringify(Array.from(dedupMap.values()))]);
               }
             } else {
+              if (existingYears.length > 0) {
+                AsyncStorage.multiRemove(existingYears.map(yr => `@zentrack_cache_gym_archive_${yr}`)).catch(() => {});
+              }
               // Issue #52: Ensure GYM_ARCHIVE_YEARS_KEY is always persisted (at least []) so rawYears === null never forces getAllKeys()
-              pairs.push([GYM_ARCHIVE_YEARS_KEY, JSON.stringify(existingYears || [])]);
+              pairs.push([GYM_ARCHIVE_YEARS_KEY, JSON.stringify([])]);
             }
             continue;
           }

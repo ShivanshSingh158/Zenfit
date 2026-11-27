@@ -1371,10 +1371,14 @@ export function mergeGymLogMonotonic(local: GymDayLog | null, remote: GymDayLog)
   const localTs = Number(local.updatedAt) || 0;
   const remoteTs = Number(remote.updatedAt) || 0;
 
-  // Fix #67: If one state has a strictly newer non-zero timestamp (> 0), respect its explicit set/exercise structure!
+  // Fix #67 & Revert safety: Respect strictly newer timestamps OR explicit revert over older completed docs
   const primary = localTs >= remoteTs ? local : remote;
   const secondary = localTs >= remoteTs ? remote : local;
-  const isStrictlyNewer = (localTs > 0 && remoteTs > 0 && localTs !== remoteTs);
+  const pRevertedAt = Number((primary as any).revertedAt || 0);
+  const primaryExplicitlyReverted = Boolean(
+    !primary.completed && !primary.workoutStartTime && pRevertedAt > 0 && pRevertedAt >= Number(secondary.updatedAt || 0)
+  );
+  const isStrictlyNewer = (localTs > 0 && remoteTs > 0 && localTs !== remoteTs) || primaryExplicitlyReverted;
 
   // Fix #186: Track matched secondary exercises by index so duplicate-named exercises never collide!
   const matchedSecondaryIndices = new Set<number>();
@@ -1480,6 +1484,16 @@ export function mergeGymLogMonotonic(local: GymDayLog | null, remote: GymDayLog)
 
   if (isCompleted) {
     delete (result as any).workoutStartTime;
+    delete (result as any).restTimerStartTime;
+    delete (result as any).restTimerDurationSecs;
+    delete (result as any).restTimerExerciseName;
+    delete (result as any).revertedAt;
+  } else if (primaryExplicitlyReverted) {
+    delete (result as any).workoutStartTime;
+    delete (result as any).workoutDurationMinutes;
+    delete (result as any).workoutDurationSeconds;
+    delete (result as any).startTime;
+    delete (result as any).endTime;
     delete (result as any).restTimerStartTime;
     delete (result as any).restTimerDurationSecs;
     delete (result as any).restTimerExerciseName;

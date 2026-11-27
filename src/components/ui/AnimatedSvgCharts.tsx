@@ -53,6 +53,8 @@ export interface AnimatedSvgLineChartProps {
   replayKey?: number | string;
   durationMs?: number;
   gradientId?: string;
+  prMarkerIndices?: number[];
+  showLinearTrend?: boolean;
 }
 
 /**
@@ -77,6 +79,8 @@ export const AnimatedSvgLineChart: React.FC<AnimatedSvgLineChartProps> = React.m
     replayKey = 0,
     durationMs = 650,
     gradientId,
+    prMarkerIndices,
+    showLinearTrend = false,
   }) {
     const { tokens } = useTheme();
     const generatedId = React.useId();
@@ -142,8 +146,9 @@ export const AnimatedSvgLineChart: React.FC<AnimatedSvgLineChartProps> = React.m
       };
     }, [points, width, plotH, plotW, padX, padY]);
 
-    const drawProgress = useSharedValue(0);
-    const areaOpacity = useSharedValue(0);
+    const drawProgress = useSharedValue(1);
+    const areaOpacity = useSharedValue(1);
+    const prevReplayRef = useRef<number | string | null>(null);
     const scrubActive = useSharedValue(0);
     const scrubX = useSharedValue(0);
     const scrubY = useSharedValue(0);
@@ -155,24 +160,32 @@ export const AnimatedSvgLineChart: React.FC<AnimatedSvgLineChartProps> = React.m
     const activeIdx = selectedIndex !== undefined ? selectedIndex : internalIdx;
 
     useEffect(() => {
+      if (prevReplayRef.current === replayKey) return;
+      const isInitial = prevReplayRef.current === null;
+      prevReplayRef.current = replayKey;
+
       cancelAnimation(drawProgress);
       cancelAnimation(areaOpacity);
 
-      drawProgress.value = 0;
-      areaOpacity.value = 0;
-
-      drawProgress.value = withTiming(1, {
-        duration: durationMs,
-        easing: iosEasing.decel,
-      });
-      areaOpacity.value = withDelay(
-        Math.round(durationMs * 0.2),
-        withTiming(1, {
-          duration: Math.round(durationMs * 0.65),
+      if (isInitial) {
+        drawProgress.value = 0;
+        areaOpacity.value = 0;
+        drawProgress.value = withTiming(1, {
+          duration: Math.min(360, durationMs),
           easing: iosEasing.decel,
-        })
-      );
-    }, [replayKey, linePath, durationMs, points.length, drawProgress, areaOpacity]);
+        });
+        areaOpacity.value = withDelay(
+          80,
+          withTiming(1, {
+            duration: 280,
+            easing: iosEasing.decel,
+          })
+        );
+      } else {
+        drawProgress.value = 1;
+        areaOpacity.value = 1;
+      }
+    }, [replayKey, durationMs, drawProgress, areaOpacity]);
 
     useEffect(() => {
       if (activeIdx != null && coords[activeIdx]) {
@@ -208,9 +221,9 @@ export const AnimatedSvgLineChart: React.FC<AnimatedSvgLineChartProps> = React.m
       const spanX = Math.max(1, lastX - firstX);
 
       return Gesture.Pan()
-        .activeOffsetX([-6, 6])
-        .failOffsetY([-10, 10])
-        .onBegin((e) => {
+        .activeOffsetX([-14, 14])
+        .failOffsetY([-6, 6])
+        .onStart((e) => {
           scrubActive.value = 1;
           const norm = Math.max(0, Math.min(1, (e.x - firstX) / spanX));
           const nearest = Math.round(norm * (coords.length - 1));
@@ -249,7 +262,30 @@ export const AnimatedSvgLineChart: React.FC<AnimatedSvgLineChartProps> = React.m
       ] as const,
     }));
 
-    if (coords.length === 0) return null;
+      const prSet = useMemo(() => new Set(prMarkerIndices || []), [prMarkerIndices]);
+      const trendCoords = useMemo(() => {
+        if (!showLinearTrend || coords.length < 3) return null;
+        const n = coords.length;
+        let sumX = 0;
+        let sumY = 0;
+        let sumXY = 0;
+        let sumXX = 0;
+        for (let i = 0; i < n; i++) {
+          sumX += i;
+          sumY += coords[i].y;
+          sumXY += i * coords[i].y;
+          sumXX += i * i;
+        }
+        const denom = n * sumXX - sumX * sumX;
+        if (denom === 0) return null;
+        const m = (n * sumXY - sumX * sumY) / denom;
+        const b = (sumY - m * sumX) / n;
+        const y0 = Math.max(padY, Math.min(plotH - 4, b));
+        const y1 = Math.max(padY, Math.min(plotH - 4, m * (n - 1) + b));
+        return { x0: coords[0].x, y0, x1: coords[n - 1].x, y1 };
+      }, [showLinearTrend, coords, padY, plotH]);
+
+      if (coords.length === 0) return null;
 
     return (
       <GestureDetector gesture={panGesture}>
@@ -288,6 +324,19 @@ export const AnimatedSvgLineChart: React.FC<AnimatedSvgLineChartProps> = React.m
                 />
               ) : null}
 
+              {trendCoords ? (
+                <Line
+                  x1={trendCoords.x0}
+                  y1={trendCoords.y0}
+                  x2={trendCoords.x1}
+                  y2={trendCoords.y1}
+                  stroke={tokens.text.muted}
+                  strokeWidth={1.3}
+                  strokeDasharray="4 4"
+                  opacity={0.7}
+                />
+              ) : null}
+
               {linePath ? (
                 <Path
                   d={linePath}
@@ -300,22 +349,35 @@ export const AnimatedSvgLineChart: React.FC<AnimatedSvgLineChartProps> = React.m
               ) : null}
 
               {showDots &&
-                coords.map((pt, idx) => (
-                  <Circle
-                    key={idx}
-                    cx={pt.x}
-                    cy={pt.y}
-                    r={activeIdx === idx ? 5.5 : 3.5}
-                    fill={activeIdx === idx ? resolvedStroke : tokens.bg.surface}
-                    stroke={resolvedStroke}
-                    strokeWidth={2}
-                    onPress={() => {
-                      hapticLight();
-                      setInternalIdx(idx);
-                      onSelectIndex?.(idx);
-                    }}
-                  />
-                ))}
+                coords.map((pt, idx) => {
+                  const isPr = prSet.has(idx);
+                  const dotColor = isPr ? tokens.status.gold : resolvedStroke;
+                  return (
+                    <React.Fragment key={idx}>
+                      {isPr && (
+                        <Circle
+                          cx={pt.x}
+                          cy={pt.y}
+                          r={8}
+                          fill={tokens.status.goldDim}
+                        />
+                      )}
+                      <Circle
+                        cx={pt.x}
+                        cy={pt.y}
+                        r={activeIdx === idx ? 5.5 : isPr ? 4.5 : 3.5}
+                        fill={activeIdx === idx || isPr ? dotColor : tokens.bg.surface}
+                        stroke={dotColor}
+                        strokeWidth={2}
+                        onPress={() => {
+                          hapticLight();
+                          setInternalIdx(idx);
+                          onSelectIndex?.(idx);
+                        }}
+                      />
+                    </React.Fragment>
+                  );
+                })}
 
               {showXLabels &&
                 xTicks.map((idx) => {

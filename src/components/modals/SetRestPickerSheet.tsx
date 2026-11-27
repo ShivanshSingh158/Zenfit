@@ -42,6 +42,43 @@ const REST_PRESETS = [
   { secs: 180, label: '3:00' },
 ];
 
+const PickerWheelItem = React.memo(function PickerWheelItem({
+  value,
+  suffix,
+  isSelected,
+  distance,
+  textColor,
+  fontFamily,
+  onSelect,
+}: {
+  value: number;
+  suffix: string;
+  isSelected: boolean;
+  distance: number;
+  textColor: string;
+  fontFamily: string;
+  onSelect: (v: number) => void;
+}) {
+  const handlePress = useCallback(() => {
+    onSelect(value);
+  }, [value, onSelect]);
+
+  return (
+    <Pressable style={styles.itemRow} onPress={handlePress}>
+      <NumericText
+        style={{
+          fontSize: isSelected ? 21 : distance === 1 ? 17 : 15,
+          fontFamily,
+          color: textColor,
+        }}
+      >
+        {value}
+        {isSelected ? suffix : ''}
+      </NumericText>
+    </Pressable>
+  );
+});
+
 export const SetRestPickerSheet: React.FC<SetRestPickerSheetProps> = ({
   visible,
   initialRestSecs,
@@ -250,26 +287,22 @@ export const SetRestPickerSheet: React.FC<SetRestPickerSheetProps> = ({
                 const isSelected = min === selectedMin;
                 const distance = Math.abs(min - selectedMin);
                 return (
-                  <Pressable
+                  <PickerWheelItem
                     key={`min-${min}`}
-                    style={styles.itemRow}
-                    onPress={() => handleSelectMin(min)}
-                  >
-                    <NumericText
-                      style={{
-                        fontSize: isSelected ? 21 : distance === 1 ? 17 : 15,
-                        fontFamily: isSelected ? tokens.font.bold : tokens.font.medium,
-                        color: isSelected
-                          ? tokens.text.primary
-                          : distance === 1
-                          ? tokens.text.secondary
-                          : tokens.text.muted,
-                      }}
-                    >
-                      {min}
-                      {isSelected ? ' min' : ''}
-                    </NumericText>
-                  </Pressable>
+                    value={min}
+                    suffix=" min"
+                    isSelected={isSelected}
+                    distance={distance}
+                    fontFamily={isSelected ? tokens.font.bold : tokens.font.medium}
+                    textColor={
+                      isSelected
+                        ? tokens.text.primary
+                        : distance === 1
+                        ? tokens.text.secondary
+                        : tokens.text.muted
+                    }
+                    onSelect={handleSelectMin}
+                  />
                 );
               })}
             </ScrollView>
@@ -293,26 +326,22 @@ export const SetRestPickerSheet: React.FC<SetRestPickerSheetProps> = ({
                 const isSelected = sec === selectedSec;
                 const distance = Math.abs(sec - selectedSec);
                 return (
-                  <Pressable
+                  <PickerWheelItem
                     key={`sec-${sec}`}
-                    style={styles.itemRow}
-                    onPress={() => handleSelectSec(sec)}
-                  >
-                    <NumericText
-                      style={{
-                        fontSize: isSelected ? 21 : distance === 1 ? 17 : 15,
-                        fontFamily: isSelected ? tokens.font.bold : tokens.font.medium,
-                        color: isSelected
-                          ? tokens.text.primary
-                          : distance === 1
-                          ? tokens.text.secondary
-                          : tokens.text.muted,
-                      }}
-                    >
-                      {sec}
-                      {isSelected ? ' sec' : ''}
-                    </NumericText>
-                  </Pressable>
+                    value={sec}
+                    suffix=" sec"
+                    isSelected={isSelected}
+                    distance={distance}
+                    fontFamily={isSelected ? tokens.font.bold : tokens.font.medium}
+                    textColor={
+                      isSelected
+                        ? tokens.text.primary
+                        : distance === 1
+                        ? tokens.text.secondary
+                        : tokens.text.muted
+                    }
+                    onSelect={handleSelectSec}
+                  />
                 );
               })}
             </ScrollView>

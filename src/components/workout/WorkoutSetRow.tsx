@@ -24,7 +24,6 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { GymSet } from '../../types/gym.types';
 import { useTheme } from '../../contexts/ThemeContext';
-import { useResponsiveMetrics } from '../../theme/responsive';
 import { springs, durations } from '../../theme/motion';
 import {
   hapticLight,
@@ -93,6 +92,7 @@ export interface WorkoutSetRowProps {
   idx: number;
   isActive: boolean;
   isCompleted: boolean;
+  isNarrow?: boolean;
   displayWeight: string;
   displayReps: string;
   colors?: any;
@@ -129,6 +129,7 @@ export const WorkoutSetRow: React.FC<WorkoutSetRowProps> = React.memo(
     idx,
     isActive,
     isCompleted,
+    isNarrow = false,
     displayWeight,
     displayReps,
     placeholderWeight,
@@ -142,6 +143,13 @@ export const WorkoutSetRow: React.FC<WorkoutSetRowProps> = React.memo(
     const { tokens, isDark } = useTheme();
     const checkScale = useSharedValue(1);
     const translateX = useSharedValue(0);
+    const isCompletedSV = useSharedValue(isCompleted ? 1 : 0);
+    const isCompletedRef = React.useRef(isCompleted);
+    isCompletedRef.current = isCompleted;
+
+    React.useEffect(() => {
+      isCompletedSV.value = isCompleted ? 1 : 0;
+    }, [isCompleted, isCompletedSV]);
 
     const animatedCheckStyle = useAnimatedStyle(() => ({
       transform: [{ scale: checkScale.value }],
@@ -190,7 +198,7 @@ export const WorkoutSetRow: React.FC<WorkoutSetRowProps> = React.memo(
     }));
 
     const handleToggleCompleteInternal = useCallback(() => {
-      if (!isCompleted) {
+      if (!isCompletedRef.current) {
         hapticSuccess();
         checkScale.value = withSequence(
           withTiming(0.84, { duration: durations.tactilePressIn }),
@@ -209,10 +217,10 @@ export const WorkoutSetRow: React.FC<WorkoutSetRowProps> = React.memo(
       } else if (onToggleComplete) {
         onToggleComplete();
       }
-    }, [idx, isCompleted, onAction, onToggleComplete, checkScale]);
+    }, [idx, onAction, onToggleComplete, checkScale]);
 
     const onSwipeComplete = useCallback(() => {
-      if (!isCompleted) {
+      if (!isCompletedRef.current) {
         hapticSuccess();
         checkScale.value = withSequence(
           withTiming(0.84, { duration: 60 }),
@@ -227,7 +235,7 @@ export const WorkoutSetRow: React.FC<WorkoutSetRowProps> = React.memo(
           }
         });
       }
-    }, [idx, isCompleted, onAction, onToggleComplete, checkScale]);
+    }, [idx, onAction, onToggleComplete, checkScale]);
 
     const handleDeleteInternal = useCallback(() => {
       hapticMedium();
@@ -241,7 +249,6 @@ export const WorkoutSetRow: React.FC<WorkoutSetRowProps> = React.memo(
     }, []);
 
     // Native UI-thread RNGH v2 Pan Gesture (memoized to prevent per-render object churn)
-    const { isNarrow } = useResponsiveMetrics();
     const panGesture = useMemo(
       () =>
         Gesture.Pan()
@@ -253,20 +260,21 @@ export const WorkoutSetRow: React.FC<WorkoutSetRowProps> = React.memo(
           })
           .onUpdate((event) => {
             'worklet';
-            translateX.value = isCompleted
+            translateX.value = isCompletedSV.value === 1
               ? Math.max(-MAX_SWIPE, Math.min(0, event.translationX))
               : Math.max(-MAX_SWIPE, Math.min(MAX_SWIPE, event.translationX));
           })
           .onEnd(() => {
             'worklet';
-            if (!isCompleted && translateX.value >= SWIPE_THRESHOLD) {
+            const completedNow = isCompletedSV.value === 1;
+            if (!completedNow && translateX.value >= SWIPE_THRESHOLD) {
               runOnJS(onSwipeComplete)();
             } else if (translateX.value <= -SWIPE_THRESHOLD) {
               runOnJS(handleDeleteInternal)();
             }
             translateX.value = withSpring(0, springs.tactile);
           }),
-      [isCompleted, triggerHapticLight, translateX, onSwipeComplete, handleDeleteInternal]
+      [triggerHapticLight, translateX, isCompletedSV, onSwipeComplete, handleDeleteInternal]
     );
 
     const handleLongPressInternal = useCallback(() => {
@@ -557,6 +565,7 @@ export const WorkoutSetRow: React.FC<WorkoutSetRowProps> = React.memo(
     prev.idx === next.idx &&
     prev.isActive === next.isActive &&
     prev.isCompleted === next.isCompleted &&
+    prev.isNarrow === next.isNarrow &&
     prev.activeKeypadField === next.activeKeypadField &&
     prev.isFieldSelected === next.isFieldSelected &&
     prev.displayWeight === next.displayWeight &&

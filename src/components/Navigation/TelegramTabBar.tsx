@@ -25,7 +25,8 @@ import {
 import { planDayIndexForDate, resolvePlanDay, todayStr } from '../../data/gymPlan';
 import { useGlobalRestTimer } from '../../services/restTimerService';
 import { RestTimerBar as AnimatedRestTimer } from '../workout/RestTimerBar';
-import { SetRestPickerSheet } from '../modals/SetRestPickerSheet';
+import { LazySheet } from '../../hooks/useLazySheetMount';
+const SetRestPickerSheet = React.lazy(() => import('../modals/SetRestPickerSheet'));
 import { hapticLight, hapticMedium, hapticSelection } from '../../utils/haptics';
 import { getDefaultRestSecsSync } from '../../hooks/useGymProfile';
 import { TactileButton } from '../ui/TactileButton';
@@ -464,22 +465,25 @@ const TabBarRestOverlay = React.memo(function TabBarRestOverlay({
           </View>
         )}
 
-      {isMainTabsFocused && pickerVisible && (
-        <SetRestPickerSheet
-          visible={pickerVisible}
-          initialRestSecs={pickerInitialSecs}
-          defaultRestSecs={getDefaultRestSecsSync()}
-          onSelectRestSecs={(secs) => {
-            setRestDuration(secs);
-            setPickerVisible(false);
-          }}
-          onSkip={() => {
-            skipRestTimer();
-            setPickerVisible(false);
-          }}
-          onClose={() => setPickerVisible(false)}
-        />
-      )}
+      <LazySheet
+        visible={isMainTabsFocused && pickerVisible}
+        render={() => (
+          <SetRestPickerSheet
+            visible={pickerVisible}
+            initialRestSecs={pickerInitialSecs}
+            defaultRestSecs={getDefaultRestSecsSync()}
+            onSelectRestSecs={(secs) => {
+              setRestDuration(secs);
+              setPickerVisible(false);
+            }}
+            onSkip={() => {
+              skipRestTimer();
+              setPickerVisible(false);
+            }}
+            onClose={() => setPickerVisible(false)}
+          />
+        )}
+      />
     </>
   );
 });
@@ -600,7 +604,7 @@ export const TelegramTabBar = React.memo(function TelegramTabBar({
           navigation={navigation}
         />
 
-        {activeWorkout.active && (
+        {activeWorkout.active && isMainTabsFocused && !shouldHide && (
           <Animated.View
             entering={FadeIn.duration(180)}
             exiting={FadeOut.duration(140)}

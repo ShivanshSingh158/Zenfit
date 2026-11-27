@@ -27,9 +27,12 @@ import {
   getVolumeMultiplier,
   formatIndianDatePretty,
   calculateGymStreak,
+  isValidWorkoutSession,
 } from '../utils/gymUtils';
 import { computeOrGetHotCache, generateDatasetFingerprint } from '../utils/hotCacheStore';
-import { dateStrOffset, todayStr } from '../data/gymPlan';
+import { dateStrOffset, todayStr, resolvePlanDay, WEEKDAY_TO_PLAN } from '../data/gymPlan';
+import { parseLocalDate, toYMD } from '../utils/dateCore';
+import { getWorkoutDaysInRotation } from './gymRotationService';
 import { formatWeight, getUnitIsLbsSync, kgToDisplay, unitLabel } from '../utils/weightUnit';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -1427,6 +1430,1198 @@ export function computeWeekScopedSummary(
       },
       dailyVolume,
       prevDailyVolume,
+    };
+  });
+}
+
+// ── Scoped Timeframes, Donuts, Muscle Zone Targets & Multi-Range Analytics ───
+
+export type AnalyticsRangePreset =
+  | '1w'
+  | 'cycle'
+  | '4w'
+  | 'meso'
+  | '8w'
+  | '12w'
+  | '6m'
+  | '1y'
+  | 'all'
+  | 'custom';
+
+export interface AnalyticsDateRange {
+  preset: AnalyticsRangePreset;
+  startDate: string;
+  endDate: string;
+  compareStartDate: string;
+  compareEndDate: string;
+  label: string;
+  daySpan: number;
+  isCurrentWeek?: boolean;
+  canGoForward?: boolean;
+}
+
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export function formatShortDateRange(startDate: string, endDate: string): string {
+  const s = parseLocalDate(startDate);
+  const e = parseLocalDate(endDate);
+  const sMon = SHORT_MONTHS[s.getMonth()] || '';
+  const eMon = SHORT_MONTHS[e.getMonth()] || '';
+  if (startDate === endDate) return `${sMon} ${s.getDate()}`;
+  if (s.getFullYear() !== e.getFullYear()) {
+    return `${sMon} ${s.getDate()} '${String(s.getFullYear()).slice(-2)} – ${eMon} ${e.getDate()} '${String(e.getFullYear()).slice(-2)}`;
+  }
+  return sMon === eMon
+    ? `${sMon} ${s.getDate()} – ${e.getDate()}`
+    : `${sMon} ${s.getDate()} – ${eMon} ${e.getDate()}`;
+}
+
+export function diffDaysInclusive(startDate: string, endDate: string): number {
+  const s = parseLocalDate(startDate);
+  const e = parseLocalDate(endDate);
+  s.setHours(0, 0, 0, 0);
+  e.setHours(0, 0, 0, 0);
+  const diff = Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+  return Math.max(1, diff);
+}
+
+export function getPlannedWeeklySessionCount(userGymPlan?: any | null): number {
+  if (userGymPlan?.scheduleMode === 'rotation') {
+    const rotCount = getWorkoutDaysInRotation(userGymPlan).length;
+    return rotCount > 0 ? Math.min(7, rotCount) : 5;
+  }
+  let count = 0;
+  for (let dayIdx = 1; dayIdx <= 7; dayIdx++) {
+    const day = resolvePlanDay(userGymPlan, dayIdx);
+    if (day && !day.isRest && ((day.exercises?.length ?? 0) > 0 || (day.cardio?.length ?? 0) > 0)) {
+      count++;
+    }
+  }
+  return count > 0 ? count : 5;
+}
+
+/**
+ * Counts how many planned training sessions fall inside [startDate..endDate]
+ * respecting exact weekday vs rest days in calendar mode and rotation cycles in rotation mode.
+ */
+export function countPlannedSessionsInRange(
+  startDate: string,
+  endDate: string,
+  userGymPlan?: any | null
+): number {
+  const span = diffDaysInclusive(startDate, endDate);
+  const weeklyCount = getPlannedWeeklySessionCount(userGymPlan);
+  if (userGymPlan?.scheduleMode === 'rotation') {
+    return Math.max(1, Math.round((weeklyCount * span) / 7));
+  }
+
+  let hasConfiguredTrainingDays = false;
+  const plannedByDow = [0, 1, 2, 3, 4, 5, 6].map(dow => {
+    const planIdx = WEEKDAY_TO_PLAN[dow] ?? 7;
+    const day = resolvePlanDay(userGymPlan, planIdx);
+    const active = Boolean(
+      day && !day.isRest && ((day.exercises?.length ?? 0) > 0 || (day.cardio?.length ?? 0) > 0)
+    );
+    if (active) hasConfiguredTrainingDays = true;
+    return active;
+  });
+
+  if (!hasConfiguredTrainingDays) {
+    return Math.max(1, Math.round((weeklyCount * span) / 7));
+  }
+
+  const fullWeeks = Math.floor(span / 7);
+  const rem = span % 7;
+  let total = fullWeeks * weeklyCount;
+  if (rem > 0) {
+    const startDt = parseLocalDate(startDate);
+    for (let i = 0; i < rem; i++) {
+      const dow = (startDt.getDay() + i) % 7;
+      if (plannedByDow[dow]) total++;
+    }
+  }
+  return Math.max(1, total);
+}
+
+function getMondayForDate(dateStr: string): string {
+  const d = parseLocalDate(dateStr);
+  const dow = d.getDay();
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - ((dow + 6) % 7));
+  return toYMD(monday);
+}
+
+export function buildAnalyticsDateRange(
+  preset: AnalyticsRangePreset,
+  options?: {
+    anchorDate?: string;
+    cycleOffset?: number;
+    customStart?: string;
+    customEnd?: string;
+    userGymPlan?: any | null;
+    gymLogs?: GymDayLog[];
+  }
+): AnalyticsDateRange {
+  const today = todayStr();
+  const anchor = options?.anchorDate || today;
+  const currentMonday = getMondayForDate(today);
+  const clampEnd = (dStr: string) => (dStr > today ? today : dStr);
+
+  let startDate = currentMonday;
+  let endDate = dateStrOffset(6, currentMonday);
+  let label = formatShortDateRange(startDate, endDate);
+  let isCurrentWeek = false;
+  let canGoForward = false;
+
+  if (preset === '1w') {
+    startDate = getMondayForDate(anchor);
+    endDate = dateStrOffset(6, startDate);
+    isCurrentWeek = startDate === currentMonday;
+    canGoForward = !isCurrentWeek;
+    label = formatShortDateRange(startDate, endDate);
+  } else if (preset === 'cycle') {
+    const rotationDays = getWorkoutDaysInRotation(options?.userGymPlan || null);
+    const cycleWorkoutsCount = Math.max(2, rotationDays.length || 4);
+    const offset = Math.max(0, options?.cycleOffset ?? 0);
+    const sortedWorkoutDates = Array.from(
+      new Set(
+        (options?.gymLogs || [])
+          .filter(isValidWorkoutSession)
+          .map(l => String(l.date).slice(0, 10))
+          .filter(Boolean)
+      )
+    ).sort((a, b) => b.localeCompare(a));
+
+    const endIdx = offset * cycleWorkoutsCount;
+    const startIdx = endIdx + cycleWorkoutsCount - 1;
+    if (sortedWorkoutDates[startIdx]) {
+      endDate = offset === 0 ? today : sortedWorkoutDates[endIdx];
+      startDate = sortedWorkoutDates[startIdx];
+    } else {
+      const approxDays = Math.max(6, cycleWorkoutsCount + 2);
+      endDate = offset === 0 ? today : dateStrOffset(-(offset * approxDays), today);
+      startDate = dateStrOffset(-(approxDays - 1), endDate);
+    }
+    if (startDate > endDate) {
+      const tmp = startDate;
+      startDate = endDate;
+      endDate = tmp;
+    }
+    isCurrentWeek = offset === 0;
+    canGoForward = offset > 0;
+    label = `Cycle · ${formatShortDateRange(startDate, endDate)}`;
+  } else if (preset === '4w') {
+    endDate = today;
+    startDate = dateStrOffset(-27, endDate);
+    label = `Last 4 Weeks`;
+  } else if (preset === 'meso') {
+    const prog = options?.userGymPlan?.activeProgramme;
+    const rawStart = prog?.startDate ? String(prog.startDate).slice(0, 10) : dateStrOffset(-27, today);
+    startDate = rawStart > today ? dateStrOffset(-27, today) : rawStart;
+    endDate = today;
+    label = prog?.name ? `${prog.name} (W${prog.currentWeek}/${prog.totalWeeks})` : 'Mesocycle';
+  } else if (preset === '8w' || preset === '12w' || preset === '6m' || preset === '1y') {
+    const weeks = preset === '8w' ? 8 : preset === '12w' ? 12 : preset === '6m' ? 26 : 52;
+    endDate = today;
+    startDate = dateStrOffset(-((weeks - 1) * 7), currentMonday);
+    label =
+      preset === '8w'
+        ? 'Last 8 Weeks'
+        : preset === '12w'
+        ? 'Last 12 Weeks'
+        : preset === '6m'
+        ? 'Last 6 Months'
+        : 'Last 12 Months';
+  } else if (preset === 'all') {
+    const dates = (options?.gymLogs || [])
+      .map(l => String(l?.date || '').slice(0, 10))
+      .filter(Boolean)
+      .sort();
+    endDate = today;
+    startDate = dates[0] && dates[0] <= today ? dates[0] : dateStrOffset(-89, today);
+    label = 'All Time';
+  } else {
+    const rawS = options?.customStart ? clampEnd(options.customStart.slice(0, 10)) : dateStrOffset(-13, today);
+    const rawE = options?.customEnd ? clampEnd(options.customEnd.slice(0, 10)) : today;
+    startDate = rawS <= rawE ? rawS : rawE;
+    endDate = rawS <= rawE ? rawE : rawS;
+    label = formatShortDateRange(startDate, endDate);
+  }
+
+  const daySpan = diffDaysInclusive(startDate, endDate);
+  const compareEndDate = dateStrOffset(-1, startDate);
+  const compareStartDate = dateStrOffset(-(daySpan - 1), compareEndDate);
+
+  return {
+    preset,
+    startDate,
+    endDate,
+    compareStartDate,
+    compareEndDate,
+    label,
+    daySpan,
+    isCurrentWeek,
+    canGoForward,
+  };
+}
+
+export interface MuscleTargetZoneRow {
+  muscle: string;
+  directSets: number;
+  synergistSets: number;
+  effectiveSets: number;
+  weeklyAvgEffective: number;
+  mev: number;
+  mrv: number;
+  weeklyTarget: number;
+  status: 'low' | 'optimal' | 'high';
+  pctOfTotal: number;
+}
+
+export interface PeriodTrendBucket {
+  label: string;
+  fullLabel: string;
+  startDate: string;
+  endDate: string;
+  volumeKg: number;
+  prevVolumeKg: number;
+  setsCount: number;
+  prevSetsCount: number;
+}
+
+export interface PeriodScopedSummary {
+  range: AnalyticsDateRange;
+  sessionsCount: number;
+  plannedSessionsInPeriod: number;
+  volumeKg: number;
+  prevVolumeKg: number;
+  volumeDeltaPct: number | null;
+  setsCount: number;
+  prevSetsCount: number;
+  durationMins: number;
+  evaluatedCount: number;
+  progressedCount: number;
+  overloadRatePct: number | null;
+  weightUnlocks: number;
+  repBuilds: number;
+  plateaus: number;
+  topLifts: WeekScopedTopLift[];
+  plateauedLifts: Array<{
+    exerciseName: string;
+    muscle: string;
+    lastWeight: number;
+    lastReps: number;
+  }>;
+  splitDistribution: {
+    pushSets: number;
+    pullSets: number;
+    legSets: number;
+    armCoreSets: number;
+    totalSets: number;
+    pushPullRatio: number | null;
+    slices: Array<{
+      id: 'push' | 'pull' | 'legs' | 'core';
+      label: string;
+      value: number;
+      pct: number;
+    }>;
+  };
+  effortDistribution: {
+    hardSets01: number;
+    growthSets23: number;
+    lightSets4Plus: number;
+    unloggedSets: number;
+    optimalPct: number | null;
+    loggedSets: number;
+  };
+  repZoneDistribution: {
+    strength1to5: number;
+    hypertrophy6to12: number;
+    endurance13Plus: number;
+    totalSets: number;
+  };
+  muscleVolumes: MuscleTargetZoneRow[];
+  trainedMuscles: Array<{
+    muscle: string;
+    sets: number;
+    pctOfTotal: number;
+  }>;
+  cardio: {
+    sessions: number;
+    totalMinutes: number;
+    totalKm: number;
+    estCalories: number;
+    avgDuration: number;
+    avgPaceMinKm: number;
+    avgSpeedKmh: number;
+    modalities: Array<{ type: string; minutes: number; sessions: number; pct: number }>;
+  };
+  dailyVolume: number[];
+  prevDailyVolume: number[];
+  bucketSeries: PeriodTrendBucket[];
+  sessionsWithDelta: Array<{
+    session: DetailedSessionLog;
+    vsPrevSameSplitPct: number | null;
+  }>;
+}
+
+const MUSCLE_MEV_MRV: Record<string, { mev: number; mrv: number; target: number }> = {
+  Chest: { mev: 8, mrv: 20, target: 14 },
+  Back: { mev: 8, mrv: 22, target: 16 },
+  Shoulders: { mev: 6, mrv: 20, target: 14 },
+  Quads: { mev: 6, mrv: 18, target: 12 },
+  'Glutes & Hams': { mev: 6, mrv: 18, target: 12 },
+  Arms: { mev: 6, mrv: 20, target: 14 },
+  Core: { mev: 4, mrv: 16, target: 8 },
+};
+
+function mapCanonicalToZoneMuscle(canonical: string): string {
+  if (canonical === 'Chest') return 'Chest';
+  if (['Back', 'Lats', 'Traps'].includes(canonical)) return 'Back';
+  if (canonical === 'Shoulders') return 'Shoulders';
+  if (canonical === 'Quads') return 'Quads';
+  if (['Hamstrings', 'Glutes', 'Glutes/Abductors'].includes(canonical)) return 'Glutes & Hams';
+  if (['Arms', 'Biceps', 'Triceps', 'Forearms'].includes(canonical)) return 'Arms';
+  if (canonical === 'Abs' || canonical === 'Calves') return canonical === 'Abs' ? 'Core' : 'Glutes & Hams';
+  return 'Other';
+}
+
+export function computePeriodScopedSummary(
+  gymLogs: GymDayLog[],
+  analyticsData: UnifiedAnalyticsData,
+  range: AnalyticsDateRange,
+  userGymPlan?: any | null
+): PeriodScopedSummary {
+  const planSig = userGymPlan ? `${userGymPlan.scheduleMode || 'c'}_${userGymPlan.updatedAt || 0}` : 'def';
+  const cacheKey = `period_scoped_v2_${range.preset}_${range.startDate}_${range.endDate}_${planSig}_${generateDatasetFingerprint(gymLogs)}`;
+
+  return computeOrGetHotCache(cacheKey, () => {
+    const safeLogs = gymLogs || [];
+    const { startDate, endDate, compareStartDate, compareEndDate, daySpan } = range;
+
+    const inPeriod = (d?: string) => {
+      const ds = d ? String(d).slice(0, 10) : '';
+      return Boolean(ds && ds >= startDate && ds <= endDate);
+    };
+    const inCompare = (d?: string) => {
+      const ds = d ? String(d).slice(0, 10) : '';
+      return Boolean(ds && ds >= compareStartDate && ds <= compareEndDate);
+    };
+
+    const periodLogs = safeLogs.filter(l => inPeriod(l?.date));
+    const compareLogs = safeLogs.filter(l => inCompare(l?.date));
+    const periodDetailed = analyticsData.detailedLogs.filter(s => inPeriod(s.date));
+    const compareDetailed = analyticsData.detailedLogs.filter(s => inCompare(s.date));
+
+    const sessionsCount = periodDetailed.length;
+    const weeklyTargetSessions = getPlannedWeeklySessionCount(userGymPlan);
+    const periodWeeks = Math.max(1, daySpan / 7);
+    const plannedSessionsInPeriod =
+      daySpan <= 8 && (range.preset === '1w' || range.preset === 'cycle')
+        ? weeklyTargetSessions
+        : countPlannedSessionsInRange(startDate, endDate, userGymPlan);
+
+    const volumeKg = periodDetailed.reduce((sum, s) => sum + s.totalVolumeKg, 0);
+    const prevVolumeKg = compareDetailed.reduce((sum, s) => sum + s.totalVolumeKg, 0);
+    const setsCount = periodDetailed.reduce((sum, s) => sum + s.totalSets, 0);
+    const prevSetsCount = compareDetailed.reduce((sum, s) => sum + s.totalSets, 0);
+    const volumeDeltaPct =
+      prevVolumeKg > 0 ? Math.round(((volumeKg - prevVolumeKg) / prevVolumeKg) * 1000) / 10 : null;
+
+    const durationMins = periodDetailed.reduce((sum, s) => {
+      const raw = s.durationMinutes || 0;
+      const sane = raw > 180 ? Math.min(Math.max((s.totalSets || 0) * 3.5, 20), 90) : raw;
+      return sum + Math.round(sane);
+    }, 0);
+
+    // Build daily map across period and comparison period
+    const dailyVolMap = new Map<string, number>();
+    const dailySetsMap = new Map<string, number>();
+    for (const d of periodDetailed) {
+      const k = d.date.slice(0, 10);
+      dailyVolMap.set(k, (dailyVolMap.get(k) || 0) + d.totalVolumeKg);
+      dailySetsMap.set(k, (dailySetsMap.get(k) || 0) + d.totalSets);
+    }
+    const compDailyVolMap = new Map<string, number>();
+    const compDailySetsMap = new Map<string, number>();
+    for (const d of compareDetailed) {
+      const k = d.date.slice(0, 10);
+      compDailyVolMap.set(k, (compDailyVolMap.get(k) || 0) + d.totalVolumeKg);
+      compDailySetsMap.set(k, (compDailySetsMap.get(k) || 0) + d.totalSets);
+    }
+
+    const dailyVolume: number[] = [];
+    const prevDailyVolume: number[] = [];
+    for (let i = 0; i < Math.min(daySpan, 7); i++) {
+      dailyVolume.push(dailyVolMap.get(dateStrOffset(i, startDate)) || 0);
+      prevDailyVolume.push(compDailyVolMap.get(dateStrOffset(i, compareStartDate)) || 0);
+    }
+
+    // Dynamic Trend Buckets for multi-day or multi-week charts
+    const bucketSize = daySpan <= 10 ? 1 : daySpan <= 28 ? 3 : 7;
+    const bucketSeries: PeriodTrendBucket[] = [];
+    const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    for (let offset = 0; offset < daySpan; offset += bucketSize) {
+      const bStart = dateStrOffset(offset, startDate);
+      const bLen = Math.min(bucketSize, daySpan - offset);
+      const bEnd = dateStrOffset(bLen - 1, bStart);
+      const cStart = dateStrOffset(offset, compareStartDate);
+
+      let bVol = 0;
+      let bPrevVol = 0;
+      let bSets = 0;
+      let bPrevSets = 0;
+      for (let d = 0; d < bLen; d++) {
+        const curKey = dateStrOffset(d, bStart);
+        const cmpKey = dateStrOffset(d, cStart);
+        bVol += dailyVolMap.get(curKey) || 0;
+        bPrevVol += compDailyVolMap.get(cmpKey) || 0;
+        bSets += dailySetsMap.get(curKey) || 0;
+        bPrevSets += compDailySetsMap.get(cmpKey) || 0;
+      }
+
+      const dt = parseLocalDate(bStart);
+      const label =
+        bucketSize === 1
+          ? SHORT_DAYS[dt.getDay()] || bStart.slice(5)
+          : `${SHORT_MONTHS[dt.getMonth()]} ${dt.getDate()}`;
+      const fullLabel = bucketSize === 1 ? formatIndianDatePretty(bStart) : formatShortDateRange(bStart, bEnd);
+      bucketSeries.push({
+        label,
+        fullLabel,
+        startDate: bStart,
+        endDate: bEnd,
+        volumeKg: Math.round(bVol),
+        prevVolumeKg: Math.round(bPrevVol),
+        setsCount: bSets,
+        prevSetsCount: bPrevSets,
+      });
+    }
+
+    // Split balance, Effort RIR, Rep-Zone Stimulus, & Direct/Synergist Muscle Sets
+    let pushSets = 0;
+    let pullSets = 0;
+    let legSets = 0;
+    let armCoreSets = 0;
+
+    let hardSets01 = 0;
+    let growthSets23 = 0;
+    let lightSets4Plus = 0;
+    let unloggedSets = 0;
+
+    let strength1to5 = 0;
+    let hypertrophy6to12 = 0;
+    let endurance13Plus = 0;
+
+    const directByZone: Record<string, number> = {};
+    const synByZone: Record<string, number> = {};
+    const legacyMuscleSets: Record<string, number> = {};
+
+    for (const log of periodLogs) {
+      for (const ex of log.exercises || []) {
+        if (ex.skipped) continue;
+        const completed = (ex.setsLog || []).filter(
+          s => s && s.completed && !s.isWarmup && s.setType !== 'warmup'
+        );
+        if (completed.length === 0) continue;
+
+        const resolved = resolveExerciseTargetMuscle(ex.name, ex.muscle);
+        const canonical =
+          resolved.canonicalGroup && resolved.canonicalGroup !== 'Mixed'
+            ? resolved.canonicalGroup
+            : 'Other';
+        legacyMuscleSets[canonical] = (legacyMuscleSets[canonical] || 0) + completed.length;
+
+        const zoneMuscle = mapCanonicalToZoneMuscle(canonical);
+        directByZone[zoneMuscle] = (directByZone[zoneMuscle] || 0) + completed.length;
+
+        const isCompoundPress = /\b(press|bench|push-?up|dip)\b/i.test(ex.name);
+        const isCompoundPull = /\b(row|pull-?up|chin-?up|pulldown|deadlift)\b/i.test(ex.name);
+        const isCompoundLeg = /\b(squat|press|lunge|split squat|hack|thrust|deadlift)\b/i.test(ex.name);
+
+        if (canonical === 'Chest' && isCompoundPress) {
+          synByZone.Shoulders = (synByZone.Shoulders || 0) + completed.length * 0.5;
+          synByZone.Arms = (synByZone.Arms || 0) + completed.length * 0.5;
+        } else if (['Back', 'Lats', 'Traps'].includes(canonical) && isCompoundPull) {
+          synByZone.Arms = (synByZone.Arms || 0) + completed.length * 0.5;
+        } else if (canonical === 'Quads' && isCompoundLeg) {
+          synByZone['Glutes & Hams'] = (synByZone['Glutes & Hams'] || 0) + completed.length * 0.3;
+        } else if (canonical === 'Shoulders' && isCompoundPress) {
+          synByZone.Arms = (synByZone.Arms || 0) + completed.length * 0.3;
+        }
+
+        const cat = categorizeMuscleGroup(canonical);
+        if (cat === 'Push') pushSets += completed.length;
+        else if (cat === 'Pull') pullSets += completed.length;
+        else if (cat === 'Legs') legSets += completed.length;
+        else armCoreSets += completed.length;
+
+        for (const st of completed) {
+          const rirVal = (st as any).rir;
+          if (typeof rirVal === 'number' && Number.isFinite(rirVal)) {
+            if (rirVal <= 1) hardSets01++;
+            else if (rirVal <= 3) growthSets23++;
+            else lightSets4Plus++;
+          } else {
+            unloggedSets++;
+          }
+
+          const reps = Number(st.reps) || 0;
+          if (reps > 0) {
+            if (reps <= 5) strength1to5++;
+            else if (reps <= 12) hypertrophy6to12++;
+            else endurance13Plus++;
+          }
+        }
+      }
+    }
+
+    const totalSplitSets = pushSets + pullSets + legSets + armCoreSets;
+    const splitSlices: PeriodScopedSummary['splitDistribution']['slices'] = [
+      {
+        id: 'push',
+        label: 'Push',
+        value: pushSets,
+        pct: totalSplitSets > 0 ? Math.round((pushSets / totalSplitSets) * 100) : 0,
+      },
+      {
+        id: 'pull',
+        label: 'Pull',
+        value: pullSets,
+        pct: totalSplitSets > 0 ? Math.round((pullSets / totalSplitSets) * 100) : 0,
+      },
+      {
+        id: 'legs',
+        label: 'Legs',
+        value: legSets,
+        pct: totalSplitSets > 0 ? Math.round((legSets / totalSplitSets) * 100) : 0,
+      },
+      {
+        id: 'core',
+        label: 'Arms & Core',
+        value: armCoreSets,
+        pct: totalSplitSets > 0 ? Math.round((armCoreSets / totalSplitSets) * 100) : 0,
+      },
+    ];
+    const pushPullRatio =
+      pullSets > 0 ? Math.round((pushSets / pullSets) * 10) / 10 : pushSets > 0 ? 9.9 : null;
+
+    const loggedRirSets = hardSets01 + growthSets23 + lightSets4Plus;
+    const optimalRirSets = hardSets01 + growthSets23; // 0-3 RIR stimulating
+    const optimalPct = loggedRirSets > 0 ? Math.round((optimalRirSets / loggedRirSets) * 100) : null;
+
+    const zoneKeys = Array.from(
+      new Set([...Object.keys(MUSCLE_MEV_MRV), ...Object.keys(directByZone)])
+    ).filter(k => k !== 'Other');
+    const totalEffectiveSum = zoneKeys.reduce(
+      (sum, m) => sum + (directByZone[m] || 0) + (synByZone[m] || 0),
+      0
+    );
+
+    const muscleVolumes: MuscleTargetZoneRow[] = zoneKeys
+      .map(m => {
+        const directSets = directByZone[m] || 0;
+        const synergistSets = Math.round((synByZone[m] || 0) * 10) / 10;
+        const effectiveSets = Math.round((directSets + synergistSets) * 10) / 10;
+        const weeklyAvgEffective = Math.round((effectiveSets / periodWeeks) * 10) / 10;
+        const cfg = MUSCLE_MEV_MRV[m] || { mev: 6, mrv: 18, target: 12 };
+        let status: 'low' | 'optimal' | 'high' = 'optimal';
+        if (weeklyAvgEffective < cfg.mev) status = 'low';
+        else if (weeklyAvgEffective > cfg.mrv) status = 'high';
+        return {
+          muscle: m,
+          directSets,
+          synergistSets,
+          effectiveSets,
+          weeklyAvgEffective,
+          mev: cfg.mev,
+          mrv: cfg.mrv,
+          weeklyTarget: cfg.target,
+          status,
+          pctOfTotal: totalEffectiveSum > 0 ? Math.round((effectiveSets / totalEffectiveSum) * 100) : 0,
+        };
+      })
+      .filter(row => row.effectiveSets > 0)
+      .sort((a, b) => b.effectiveSets - a.effectiveSets);
+
+    const totalLegacySets = Object.values(legacyMuscleSets).reduce((a, b) => a + b, 0);
+    const trainedMuscles = Object.entries(legacyMuscleSets)
+      .filter(([, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([muscle, sets]) => ({
+        muscle,
+        sets,
+        pctOfTotal: totalLegacySets > 0 ? Math.round((sets / totalLegacySets) * 100) : 0,
+      }));
+
+    // Scoped Overload Progression & PR Unlocks + Plateaued Lifts
+    let evaluatedCount = 0;
+    let progressedCount = 0;
+    let weightUnlocks = 0;
+    let repBuilds = 0;
+    let plateaus = 0;
+    const periodLiftsPool: WeekScopedTopLift[] = [];
+    const plateauedLifts: PeriodScopedSummary['plateauedLifts'] = [];
+
+    for (const prof of analyticsData.exerciseProfiles) {
+      const thisPeriodSess = prof.sessions.filter(s => inPeriod(s.date));
+      if (thisPeriodSess.length === 0) continue;
+
+      const priorSessAll = prof.sessions.filter(s => s.date.slice(0, 10) < startDate);
+
+      let bestW = 0;
+      let bestR = 0;
+      let bestE1rm = 0;
+      for (const sess of thisPeriodSess) {
+        for (const st of sess.sets) {
+          const w = Number(st.weight) || 0;
+          const r = Number(st.reps) || 0;
+          const rm = w > 0 && r > 0 ? Math.round(estimate1RM(w, r, 'hybrid', st.rir)) : 0;
+          if (rm > bestE1rm || (rm === bestE1rm && w > bestW)) {
+            bestE1rm = rm;
+            bestW = w;
+            bestR = r;
+          } else if (bestW === 0 && r > bestR) {
+            bestR = r;
+          }
+        }
+      }
+
+      let prLabel: 'Weight PR' | 'e1RM PR' | null = null;
+      if (priorSessAll.length > 0) {
+        let priorBestW = 0;
+        let priorBestE1rm = 0;
+        for (const ps of priorSessAll) {
+          if (ps.topWeight > priorBestW) priorBestW = ps.topWeight;
+          for (const st of ps.sets) {
+            const w = Number(st.weight) || 0;
+            const r = Number(st.reps) || 0;
+            const rm = w > 0 && r > 0 ? Math.round(estimate1RM(w, r, 'hybrid', st.rir)) : 0;
+            if (rm > priorBestE1rm) priorBestE1rm = rm;
+          }
+        }
+
+        if (bestW > priorBestW && priorBestW > 0) {
+          prLabel = 'Weight PR';
+        } else if (bestE1rm > priorBestE1rm && priorBestE1rm > 0) {
+          prLabel = 'e1RM PR';
+        }
+
+        const lastPrior = priorSessAll[priorSessAll.length - 1];
+        const lastPriorE1rm =
+          lastPrior.topWeight > 0 && lastPrior.topReps > 0
+            ? estimate1RM(lastPrior.topWeight, lastPrior.topReps, 'hybrid')
+            : 0;
+
+        if (lastPriorE1rm > 0 && bestE1rm > 0) {
+          evaluatedCount++;
+          const pctDelta = ((bestE1rm - lastPriorE1rm) / lastPriorE1rm) * 100;
+          if (bestW > lastPrior.topWeight || pctDelta >= 1.5) {
+            progressedCount++;
+            weightUnlocks++;
+          } else if (pctDelta > 0 || (bestW === lastPrior.topWeight && bestR > lastPrior.topReps)) {
+            progressedCount++;
+            repBuilds++;
+          } else {
+            plateaus++;
+            if (prof.progressionStatus.status === 'stalled') {
+              plateauedLifts.push({
+                exerciseName: prof.name,
+                muscle: prof.muscle,
+                lastWeight: bestW,
+                lastReps: bestR,
+              });
+            }
+          }
+        }
+      } else if (thisPeriodSess.length >= 2) {
+        // Inside multi-week or All-Time ranges where the baseline started in-range,
+        // compare latest in-range session against the earliest baseline session in range.
+        const firstInPeriod = thisPeriodSess[0];
+        const latestInPeriod = thisPeriodSess[thisPeriodSess.length - 1];
+        const firstE1rm =
+          firstInPeriod.topWeight > 0 && firstInPeriod.topReps > 0
+            ? estimate1RM(firstInPeriod.topWeight, firstInPeriod.topReps, 'hybrid')
+            : 0;
+        const latestE1rm =
+          latestInPeriod.topWeight > 0 && latestInPeriod.topReps > 0
+            ? estimate1RM(latestInPeriod.topWeight, latestInPeriod.topReps, 'hybrid')
+            : 0;
+        if (firstE1rm > 0 && latestE1rm > 0) {
+          evaluatedCount++;
+          const pctDelta = ((latestE1rm - firstE1rm) / firstE1rm) * 100;
+          if (latestInPeriod.topWeight > firstInPeriod.topWeight || pctDelta >= 1.5) {
+            progressedCount++;
+            weightUnlocks++;
+          } else if (
+            pctDelta > 0 ||
+            (latestInPeriod.topWeight === firstInPeriod.topWeight &&
+              latestInPeriod.topReps > firstInPeriod.topReps)
+          ) {
+            progressedCount++;
+            repBuilds++;
+          } else {
+            plateaus++;
+          }
+        }
+      }
+
+      if (bestR > 0 || bestW > 0) {
+        periodLiftsPool.push({
+          exerciseName: prof.name,
+          muscle: prof.muscle,
+          weight: bestW,
+          reps: bestR,
+          e1rm: bestE1rm,
+          prLabel,
+        });
+      }
+    }
+
+    periodLiftsPool.sort((a, b) => {
+      const aPr = a.prLabel ? 1 : 0;
+      const bPr = b.prLabel ? 1 : 0;
+      if (aPr !== bPr) return bPr - aPr;
+      return b.e1rm - a.e1rm;
+    });
+
+    const overloadRatePct =
+      evaluatedCount > 0 ? Math.round((progressedCount / evaluatedCount) * 100) : null;
+
+    // Cardio breakdown & modality percentages
+    let cardioSessions = 0;
+    let totalMinutes = 0;
+    let totalKm = 0;
+    let loggedCals = 0;
+    const modalityMap = new Map<string, { minutes: number; sessions: number }>();
+
+    for (const log of periodLogs) {
+      for (const c of log.cardio || []) {
+        if (c && c.completed) {
+          cardioSessions++;
+          const mins = Number(c.durationMinutes) || 0;
+          totalMinutes += mins;
+          totalKm += Number(c.distanceKm) || 0;
+          loggedCals += Number((c as any).calories) || 0;
+          const mName = (c.type || 'Cardio').trim() || 'Cardio';
+          const prevMod = modalityMap.get(mName) || { minutes: 0, sessions: 0 };
+          modalityMap.set(mName, { minutes: prevMod.minutes + mins, sessions: prevMod.sessions + 1 });
+        }
+      }
+    }
+    const roundedKm = Math.round(totalKm * 10) / 10;
+    const avgPaceMinKm = roundedKm > 0 && totalMinutes > 0 ? Math.round((totalMinutes / roundedKm) * 10) / 10 : 0;
+    const avgSpeedKmh = totalMinutes > 0 && roundedKm > 0 ? Math.round((roundedKm / (totalMinutes / 60)) * 10) / 10 : 0;
+    const modalities = Array.from(modalityMap.entries())
+      .map(([type, v]) => ({
+        type,
+        minutes: Math.round(v.minutes),
+        sessions: v.sessions,
+        pct: totalMinutes > 0 ? Math.round((v.minutes / totalMinutes) * 100) : Math.round((v.sessions / Math.max(1, cardioSessions)) * 100),
+      }))
+      .sort((a, b) => b.minutes - a.minutes);
+
+    // Session-over-Session Split Delta (compares each completed session vs the most recent prior session of same splitTag)
+    const sessionsWithDelta = periodDetailed.map(sess => {
+      const priorSameSplit = analyticsData.detailedLogs.find(
+        cand => cand.date < sess.date && cand.splitTag === sess.splitTag && cand.totalVolumeKg > 0
+      );
+      const vsPrevSameSplitPct =
+        priorSameSplit && priorSameSplit.totalVolumeKg > 0
+          ? Math.round(((sess.totalVolumeKg - priorSameSplit.totalVolumeKg) / priorSameSplit.totalVolumeKg) * 1000) / 10
+          : null;
+      return { session: sess, vsPrevSameSplitPct };
+    });
+
+    return {
+      range,
+      sessionsCount,
+      plannedSessionsInPeriod,
+      volumeKg,
+      prevVolumeKg,
+      volumeDeltaPct,
+      setsCount,
+      prevSetsCount,
+      durationMins,
+      evaluatedCount,
+      progressedCount,
+      overloadRatePct,
+      weightUnlocks,
+      repBuilds,
+      plateaus,
+      topLifts: periodLiftsPool.slice(0, 6),
+      plateauedLifts: plateauedLifts.slice(0, 4),
+      splitDistribution: {
+        pushSets,
+        pullSets,
+        legSets,
+        armCoreSets,
+        totalSets: totalSplitSets,
+        pushPullRatio,
+        slices: splitSlices,
+      },
+      effortDistribution: {
+        hardSets01,
+        growthSets23,
+        lightSets4Plus,
+        unloggedSets,
+        optimalPct,
+        loggedSets: loggedRirSets,
+      },
+      repZoneDistribution: {
+        strength1to5,
+        hypertrophy6to12,
+        endurance13Plus,
+        totalSets: strength1to5 + hypertrophy6to12 + endurance13Plus,
+      },
+      muscleVolumes,
+      trainedMuscles,
+      cardio: {
+        sessions: cardioSessions,
+        totalMinutes: Math.round(totalMinutes),
+        totalKm: roundedKm,
+        estCalories: loggedCals > 0 ? Math.round(loggedCals) : Math.round(totalMinutes * 8.5),
+        avgDuration: cardioSessions > 0 ? Math.round(totalMinutes / cardioSessions) : 0,
+        avgPaceMinKm,
+        avgSpeedKmh,
+        modalities,
+      },
+      dailyVolume,
+      prevDailyVolume,
+      bucketSeries,
+      sessionsWithDelta,
+    };
+  });
+}
+
+export interface ConsistencyWeekBucket extends WeeklyTrendItem {
+  movingAvgVolKg: number;
+  setsCount: number;
+  cardioDistanceKm: number;
+}
+
+export interface ScopedConsistencySummary {
+  range: AnalyticsDateRange;
+  sessionsInRange: number;
+  plannedSessionsInRange: number;
+  streakDays: number;
+  longestStreakDays: number;
+  adherenceRatePct: number;
+  plannedWeeklySessions: number;
+  weeksOnTargetCount: number;
+  totalWeeksCount: number;
+  avgWorkoutsPerWeek: number;
+  weeklyBuckets: ConsistencyWeekBucket[];
+  weekdayFrequency: Array<{
+    dayIndex: number;
+    shortLabel: string;
+    count: number;
+    pctOfMax: number;
+    planned: boolean;
+  }>;
+  cardioPeriod: {
+    totalMinutes: number;
+    totalKm: number;
+    sessions: number;
+    avgMinsPerWeek: number;
+  };
+}
+
+/**
+ * Computes BOTH the ending/active streak and longest streak strictly within [startDate..endDate],
+ * respecting planned rest days (calendar or rotation mode) and 1 grace day per 7 days.
+ */
+export function computeRangeStreakMetrics(
+  gymLogs: GymDayLog[],
+  startDate: string,
+  endDate: string,
+  userGymPlan?: any | null
+): { streakDays: number; longestStreakDays: number } {
+  const today = todayStr();
+  const effectiveEnd = endDate > today ? today : endDate;
+  if (effectiveEnd < startDate) return { streakDays: 0, longestStreakDays: 0 };
+
+  const validDates = Array.from(
+    new Set(
+      (gymLogs || [])
+        .filter(isValidWorkoutSession)
+        .map(l => String(l?.date || '').slice(0, 10))
+        .filter(ds => Boolean(ds && ds >= startDate && ds <= effectiveEnd))
+    )
+  ).sort();
+  if (validDates.length === 0) return { streakDays: 0, longestStreakDays: 0 };
+
+  const dateSet = new Set(validDates);
+  const isRotation = userGymPlan?.scheduleMode === 'rotation';
+  const restByDow = [0, 1, 2, 3, 4, 5, 6].map(dow => {
+    const planIdx = WEEKDAY_TO_PLAN[dow] ?? 7;
+    return resolvePlanDay(userGymPlan, planIdx)?.isRest === true;
+  });
+
+  // 1. Longest consecutive training streak within [startDate..effectiveEnd]
+  const first = parseLocalDate(validDates[0]);
+  const last = parseLocalDate(validDates[validDates.length - 1]);
+  const walkDays = Math.min(1825, diffDaysInclusive(toYMD(first), toYMD(last)));
+
+  let best = 1;
+  let cur = 0;
+  let gapRest = 0;
+  let graceUsed = 0;
+  let daysSinceGrace = 0;
+
+  for (let i = 0; i < walkDays; i++) {
+    const d = new Date(first);
+    d.setDate(first.getDate() + i);
+    const dStr = toYMD(d);
+    daysSinceGrace++;
+    if (daysSinceGrace >= 7) graceUsed = 0;
+
+    if (dateSet.has(dStr)) {
+      cur++;
+      gapRest = 0;
+      if (cur > best) best = cur;
+    } else if (isRotation) {
+      gapRest++;
+      if (gapRest > 2) cur = 0;
+    } else if (restByDow[d.getDay()]) {
+      gapRest = 0;
+    } else if (graceUsed < 1 && cur > 0) {
+      graceUsed++;
+      daysSinceGrace = 0;
+    } else {
+      cur = 0;
+      graceUsed = 0;
+    }
+  }
+
+  // 2. Ending / active streak inside [startDate..effectiveEnd] walking backwards from effectiveEnd
+  let activeStreak = 0;
+  let backRestGap = 0;
+  let backGraceUsed = 0;
+  const maxBackDays = Math.min(1825, diffDaysInclusive(startDate, effectiveEnd));
+  const endDt = parseLocalDate(effectiveEnd);
+
+  for (let i = 0; i < maxBackDays; i++) {
+    const d = new Date(endDt);
+    d.setDate(endDt.getDate() - i);
+    const dStr = toYMD(d);
+    if (dStr < startDate) break;
+
+    if (dateSet.has(dStr)) {
+      activeStreak++;
+      backRestGap = 0;
+    } else if (i === 0 && effectiveEnd === today) {
+      // Today is still in progress: don't reset streak yet if user hasn't finished today's session
+      continue;
+    } else if (isRotation) {
+      backRestGap++;
+      if (backRestGap > 2) break;
+    } else if (restByDow[d.getDay()]) {
+      continue;
+    } else if (backGraceUsed < 1) {
+      backGraceUsed++;
+    } else {
+      break;
+    }
+  }
+
+  return {
+    streakDays: activeStreak,
+    longestStreakDays: Math.max(activeStreak, best),
+  };
+}
+
+export function computeLongestStreakDays(gymLogs: GymDayLog[], userGymPlan?: any | null): number {
+  const validDates = Array.from(
+    new Set(
+      (gymLogs || [])
+        .filter(isValidWorkoutSession)
+        .map(l => String(l?.date || '').slice(0, 10))
+        .filter(Boolean)
+    )
+  ).sort();
+  if (validDates.length === 0) return 0;
+  return computeRangeStreakMetrics(gymLogs, validDates[0], validDates[validDates.length - 1], userGymPlan)
+    .longestStreakDays;
+}
+
+export function computeScopedConsistency(
+  analyticsData: UnifiedAnalyticsData,
+  gymLogs: GymDayLog[],
+  range: AnalyticsDateRange,
+  userGymPlan?: any | null
+): ScopedConsistencySummary {
+  const planSig = userGymPlan ? `${userGymPlan.scheduleMode || 'c'}_${userGymPlan.updatedAt || 0}` : 'def';
+  const cacheKey = `consistency_v2_${range.preset}_${range.startDate}_${range.endDate}_${planSig}_${generateDatasetFingerprint(gymLogs)}`;
+
+  return computeOrGetHotCache(cacheKey, () => {
+    const safeLogs = gymLogs || [];
+    const plannedWeeklySessions = getPlannedWeeklySessionCount(userGymPlan);
+    const isRotation = userGymPlan?.scheduleMode === 'rotation';
+
+    const dayVolumeMap = new Map<string, { volumeKg: number; sets: number; workout: number; cardioMins: number; cardioDist: number; cardioSess: number }>();
+    for (const s of analyticsData.detailedLogs) {
+      const dKey = s.date.slice(0, 10);
+      if (dKey < range.startDate || dKey > range.endDate) continue;
+      const prev = dayVolumeMap.get(dKey) || { volumeKg: 0, sets: 0, workout: 0, cardioMins: 0, cardioDist: 0, cardioSess: 0 };
+      let cDist = 0;
+      let cMins = 0;
+      let cSess = 0;
+      for (const c of s.cardio || []) {
+        cSess++;
+        cMins += Number(c.durationMinutes) || 0;
+        cDist += Number(c.distanceKm) || 0;
+      }
+      dayVolumeMap.set(dKey, {
+        volumeKg: prev.volumeKg + s.totalVolumeKg,
+        sets: prev.sets + s.totalSets,
+        workout: 1,
+        cardioMins: prev.cardioMins + cMins,
+        cardioDist: prev.cardioDist + cDist,
+        cardioSess: prev.cardioSess + cSess,
+      });
+    }
+
+    // Build Mon-Sun week buckets clamped strictly inside [range.startDate..range.endDate]
+    const startMon = getMondayForDate(range.startDate);
+    const endMon = getMondayForDate(range.endDate);
+    const curMon = getMondayForDate(todayStr());
+
+    const rawBuckets: Array<WeeklyTrendItem & { setsCount: number; cardioDistanceKm: number; weekTarget: number }> = [];
+    let cursor = startMon;
+    let guard = 0;
+    while (cursor <= endMon && guard < 520) {
+      guard++;
+      const sun = dateStrOffset(6, cursor);
+      const effStart = cursor > range.startDate ? cursor : range.startDate;
+      const effEnd = sun < range.endDate ? sun : range.endDate;
+      const weekTarget =
+        effStart === cursor && effEnd === sun
+          ? plannedWeeklySessions
+          : countPlannedSessionsInRange(effStart, effEnd, userGymPlan);
+
+      let workoutCount = 0;
+      let totalVolumeKg = 0;
+      let cardioMinutes = 0;
+      let setsCount = 0;
+      let cardioDistanceKm = 0;
+
+      for (let i = 0; i < 7; i++) {
+        const dStr = dateStrOffset(i, cursor);
+        if (dStr < range.startDate || dStr > range.endDate) continue;
+        const rec = dayVolumeMap.get(dStr);
+        if (rec) {
+          workoutCount += rec.workout;
+          totalVolumeKg += rec.volumeKg;
+          cardioMinutes += rec.cardioMins;
+          setsCount += rec.sets;
+          cardioDistanceKm += rec.cardioDist;
+        }
+      }
+      const dt = parseLocalDate(cursor);
+      const isCurrentWeek = cursor === curMon;
+      rawBuckets.push({
+        startMonday: cursor,
+        endSunday: sun,
+        weekLabel: isCurrentWeek ? 'This Wk' : `${SHORT_MONTHS[dt.getMonth()]} ${dt.getDate()}`,
+        workoutCount,
+        totalVolumeKg: Math.round(totalVolumeKg),
+        cardioMinutes: Math.round(cardioMinutes),
+        setsCount,
+        cardioDistanceKm: Math.round(cardioDistanceKm * 10) / 10,
+        isCurrentWeek,
+        weekTarget,
+      });
+      cursor = dateStrOffset(7, cursor);
+    }
+
+    // 4-week trailing moving average for smooth trend overlay
+    const weeklyBuckets: ConsistencyWeekBucket[] = rawBuckets.map((b, idx) => {
+      const from = Math.max(0, idx - 3);
+      const slice = rawBuckets.slice(from, idx + 1);
+      const avg = slice.reduce((sum, x) => sum + x.totalVolumeKg, 0) / slice.length;
+      const { weekTarget: _wt, ...rest } = b;
+      return { ...rest, movingAvgVolKg: Math.round(avg) };
+    });
+
+    const totalWeeksCount = Math.max(1, weeklyBuckets.length);
+    const sessionsInRange = rawBuckets.reduce((s, w) => s + w.workoutCount, 0);
+    const plannedSessionsInRange = countPlannedSessionsInRange(range.startDate, range.endDate, userGymPlan);
+    const adherenceRatePct =
+      plannedSessionsInRange > 0
+        ? Math.min(100, Math.round((sessionsInRange / plannedSessionsInRange) * 100))
+        : 0;
+    const weeksOnTargetCount = rawBuckets.filter(
+      w => w.workoutCount >= Math.max(1, w.weekTarget)
+    ).length;
+    const elapsedWeeks = Math.max(1, range.daySpan / 7);
+    const avgWorkoutsPerWeek = Math.round((sessionsInRange / elapsedWeeks) * 10) / 10;
+
+    // Mon..Sun weekday frequency in range
+    const monToSunCounts = [0, 0, 0, 0, 0, 0, 0];
+    const MON_SUN_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    for (const s of analyticsData.detailedLogs) {
+      const ds = s.date.slice(0, 10);
+      if (ds < range.startDate || ds > range.endDate) continue;
+      const dow = parseLocalDate(ds).getDay();
+      const monIdx = (dow + 6) % 7;
+      monToSunCounts[monIdx] += 1;
+    }
+    const maxWd = Math.max(1, ...monToSunCounts);
+    const weekdayFrequency = MON_SUN_LABELS.map((shortLabel, idx) => {
+      const planDayIdx = idx + 1; // 1=Mon..7=Sun
+      const planned = isRotation ? true : resolvePlanDay(userGymPlan, planDayIdx)?.isRest !== true;
+      return {
+        dayIndex: planDayIdx,
+        shortLabel,
+        count: monToSunCounts[idx],
+        pctOfMax: Math.round((monToSunCounts[idx] / maxWd) * 100),
+        planned,
+      };
+    });
+
+    // Scoped Cardio Period Summary
+    let cMins = 0;
+    let cDist = 0;
+    let cSess = 0;
+    for (const log of safeLogs) {
+      const ds = log?.date ? String(log.date).slice(0, 10) : '';
+      if (!ds || ds < range.startDate || ds > range.endDate) continue;
+      for (const c of log.cardio || []) {
+        if (c && c.completed) {
+          cSess++;
+          cMins += Number(c.durationMinutes) || 0;
+          cDist += Number(c.distanceKm) || 0;
+        }
+      }
+    }
+
+    const { streakDays, longestStreakDays } = computeRangeStreakMetrics(
+      safeLogs,
+      range.startDate,
+      range.endDate,
+      userGymPlan
+    );
+
+    return {
+      range,
+      sessionsInRange,
+      plannedSessionsInRange,
+      streakDays,
+      longestStreakDays,
+      adherenceRatePct,
+      plannedWeeklySessions,
+      weeksOnTargetCount,
+      totalWeeksCount,
+      avgWorkoutsPerWeek,
+      weeklyBuckets,
+      weekdayFrequency,
+      cardioPeriod: {
+        totalMinutes: Math.round(cMins),
+        totalKm: Math.round(cDist * 10) / 10,
+        sessions: cSess,
+        avgMinsPerWeek: Math.round(cMins / elapsedWeeks),
+      },
     };
   });
 }

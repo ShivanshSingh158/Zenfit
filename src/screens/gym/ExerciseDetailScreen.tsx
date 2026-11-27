@@ -343,7 +343,7 @@ export default function ExerciseDetailScreen() {
               videoId: updated.videoId,
             });
           }
-          await updateMasterPlan(planIdx, { ...currentMasterDay, exercises: updatedExercises });
+          await updateMasterPlan(planIdx, { ...currentMasterDay, exercises: updatedExercises }, true);
         }
       }
     }

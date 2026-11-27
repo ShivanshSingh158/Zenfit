@@ -2,16 +2,17 @@ import React, { useEffect, useCallback, useRef, useState } from 'react';
 import {
   StyleSheet,
   Pressable,
+  View,
   ViewStyle,
   StyleProp,
   BackHandler,
   Keyboard,
   Platform,
-  KeyboardAvoidingView,
   useWindowDimensions,
 } from 'react-native';
 import Animated, {
   cancelAnimation,
+  useAnimatedKeyboard,
   useSharedValue,
   useAnimatedStyle,
   withTiming,
@@ -49,24 +50,14 @@ export default function FadeModal({
   const { tokens, isDark } = useTheme();
   const { height: windowHeight } = useWindowDimensions();
   const styles = React.useMemo(() => makeStyles(tokens, isDark), [tokens, isDark]);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const animatedKeyboard = useAnimatedKeyboard();
+  const avoidKeyboardSV = useSharedValue(avoidKeyboard ? 1 : 0);
 
   useEffect(() => {
-    if (!avoidKeyboard) return;
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const subShow = Keyboard.addListener(showEvt, (e: any) => {
-      setKeyboardHeight(Math.max(0, Math.round(e?.endCoordinates?.height || 0)));
-    });
-    const subHide = Keyboard.addListener(hideEvt, () => setKeyboardHeight(0));
-    return () => {
-      subShow.remove();
-      subHide.remove();
-    };
-  }, [avoidKeyboard]);
+    avoidKeyboardSV.value = avoidKeyboard ? 1 : 0;
+  }, [avoidKeyboard, avoidKeyboardSV]);
 
-  const effectiveWindowHeight = Math.max(240, windowHeight - (avoidKeyboard ? keyboardHeight : 0));
-  const maxCardHeight = Math.max(240, Math.round(effectiveWindowHeight * 0.88));
+  const maxCardHeight = Math.max(240, Math.round(windowHeight * 0.88));
 
   const [mounted, setMounted] = useState(visible);
   const isMountedRef = useRef(visible);
@@ -213,10 +204,13 @@ export default function FadeModal({
     opacity: backdropOpacity.value,
   }));
 
-  const cardStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [{ translateY: translateY.value }, { scale: scale.value }] as const,
-  }));
+  const cardStyle = useAnimatedStyle(() => {
+    const kbShift = avoidKeyboardSV.value === 1 ? Math.round(animatedKeyboard.height.value * 0.45) : 0;
+    return {
+      opacity: opacity.value,
+      transform: [{ translateY: translateY.value - kbShift }, { scale: scale.value }] as const,
+    };
+  });
 
   if (!mounted) return null;
 
@@ -245,11 +239,9 @@ export default function FadeModal({
         )}
       </Animated.View>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      <View
         style={styles.centerWrapper}
         pointerEvents="box-none"
-        enabled={avoidKeyboard}
       >
         <Animated.View
           style={[
@@ -261,7 +253,7 @@ export default function FadeModal({
         >
           {children}
         </Animated.View>
-      </KeyboardAvoidingView>
+      </View>
     </Portal>
   );
 }

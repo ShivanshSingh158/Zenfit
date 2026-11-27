@@ -74,10 +74,12 @@ function restoreFirestoreSentinels(obj: any): any {
 
 function mergeOfflinePayloads(prevData: any, nextData: any, now: number): any {
   if (!isPlainRecord(prevData) || !isPlainRecord(nextData)) return nextData;
-  const merged: Record<string, any> = { ...prevData, ...nextData, clientUpdatedAt: now, updatedAt: now };
-  for (const key of Object.keys(nextData)) {
-    const prevVal = prevData[key];
-    const nextVal = nextData[key];
+  const expandedPrev = unflattenDotNotation(prevData);
+  const expandedNext = unflattenDotNotation(nextData);
+  const merged: Record<string, any> = { ...expandedPrev, ...expandedNext, clientUpdatedAt: now, updatedAt: now };
+  for (const key of Object.keys(expandedNext)) {
+    const prevVal = expandedPrev[key];
+    const nextVal = expandedNext[key];
     const prevInc = prevVal?.__zentrackIncrement ?? (prevVal?._methodName === 'increment' ? prevVal._operand : undefined);
     const nextInc = nextVal?.__zentrackIncrement ?? (nextVal?._methodName === 'increment' ? nextVal._operand : undefined);
     if (typeof prevInc === 'number' && typeof nextInc === 'number') {
@@ -87,6 +89,21 @@ function mergeOfflinePayloads(prevData: any, nextData: any, now: number): any {
       } else {
         merged[key] = { __zentrackIncrement: totalInc };
       }
+    } else if (isPlainRecord(prevVal) && isPlainRecord(nextVal) && !nextVal.__zentrackDeleteField && !nextVal._methodName && !nextVal.__zentrackServerTimestamp) {
+      merged[key] = { ...prevVal, ...nextVal };
+      for (const subKey of Object.keys(nextVal)) {
+        const subPrev = prevVal[subKey];
+        const subNext = nextVal[subKey];
+        const subPrevInc = subPrev?.__zentrackIncrement ?? (subPrev?._methodName === 'increment' ? subPrev._operand : undefined);
+        const subNextInc = subNext?.__zentrackIncrement ?? (subNext?._methodName === 'increment' ? subNext._operand : undefined);
+        if (typeof subPrevInc === 'number' && typeof subNextInc === 'number') {
+          if (subPrevInc + subNextInc === 0) {
+            delete merged[key][subKey];
+          } else {
+            merged[key][subKey] = { __zentrackIncrement: subPrevInc + subNextInc };
+          }
+        }
+      }
     }
   }
   return merged;
@@ -94,6 +111,7 @@ function mergeOfflinePayloads(prevData: any, nextData: any, now: number): any {
 
 export interface OfflineQueueItem {
   id: string;
+  seq?: number;
   collection: string;
   operation: 'add' | 'update' | 'delete' | 'set';
   data: any;
@@ -111,9 +129,19 @@ export type QueueItem = OfflineQueueItem;
 const OFFLINE_QUEUE_KEY = '@zentrack_offline_write_queue';
 
 let _memoryQueue: OfflineQueueItem[] | null = null;
+let _initPromise: Promise<OfflineQueueItem[]> | null = null;
+let _nextQueueSeq = 1;
 let _queueDiskFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let _diskFlushChain: Promise<void> = Promise.resolve();
 let _retryWakeupTimer: ReturnType<typeof setTimeout> | null = null;
+
+function allocateQueueSeq(): number {
+  return _nextQueueSeq++;
+}
+
+function getItemSignature(item: OfflineQueueItem): string {
+  return item.seq != null ? `seq_${item.seq}` : `${item.id}_${item.clientUpdatedAt}`;
+}
 
 export function flushOfflineQueueDisk(): Promise<void> {
   if (_queueDiskFlushTimer || (_memoryQueue && _memoryQueue.length > 0)) {
@@ -165,13 +193,26 @@ function scheduleQueueDiskFlush(): void {
 
 export async function initMemoryQueue(): Promise<OfflineQueueItem[]> {
   if (_memoryQueue !== null) return _memoryQueue;
-  try {
-    const raw = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
-    _memoryQueue = raw ? JSON.parse(raw) : [];
-  } catch {
-    _memoryQueue = [];
-  }
-  return _memoryQueue ?? [];
+  if (_initPromise) return _initPromise;
+  _initPromise = (async () => {
+    try {
+      const raw = await AsyncStorage.getItem(OFFLINE_QUEUE_KEY);
+      const parsed: OfflineQueueItem[] = raw ? JSON.parse(raw) : [];
+      const arr = Array.isArray(parsed) ? parsed : [];
+      for (const item of arr) {
+        if (typeof item?.seq === 'number' && item.seq >= _nextQueueSeq) {
+          _nextQueueSeq = item.seq + 1;
+        }
+      }
+      _memoryQueue = arr;
+    } catch {
+      _memoryQueue = [];
+    } finally {
+      _initPromise = null;
+    }
+    return _memoryQueue ?? [];
+  })();
+  return _initPromise;
 }
 
 initMemoryQueue().catch(() => {});
@@ -258,6 +299,8 @@ export function applyPendingQueueOverlay<T extends { id?: string }>(
 }
 
 let isSyncing = false;
+let _resyncRequested = false;
+let _resyncSilent = true;
 let wasOfflineInSession = false;
 
 type QueueChangeListener = (count: number) => void;
@@ -317,11 +360,17 @@ export async function queueWrite(
   data: any,
   docId?: string,
   triggerImmediateSync: boolean = false,
-  inFlightUntil: number = 0
-) {
+  inFlightUntil: number = 0,
+  explicitNow?: number
+): Promise<{ seq: number; clientUpdatedAt: number } | null> {
   try {
     const queue = _memoryQueue ?? (await initMemoryQueue());
-    const now = typeof data?.updatedAt === 'number' && data.updatedAt > 0 ? data.updatedAt : Date.now();
+    const now =
+      typeof data?.updatedAt === 'number' && data.updatedAt > 0
+        ? data.updatedAt
+        : typeof explicitNow === 'number' && explicitNow > 0
+        ? explicitNow
+        : Date.now();
     const currentUser = auth.currentUser;
 
     // Mint a deterministic docId for 'add' so network retries are 100% idempotent (#37)
@@ -352,63 +401,83 @@ export async function queueWrite(
           _memoryQueue = queue;
           scheduleQueueDiskFlush();
           await notifyQueueChange();
-          return;
+          return null;
         }
+        const seq = allocateQueueSeq();
         queue[existingIndex] = {
           ...prev,
           id: deterministicId,
+          seq,
           operation: 'delete',
           data: null,
           createdAt: now,
           clientUpdatedAt: now,
           retryCount: 0,
           inFlightUntil,
+          isLocalGenesis: false,
         };
         _memoryQueue = queue;
         scheduleQueueDiskFlush();
         await notifyQueueChange();
         if (triggerImmediateSync && auth.currentUser) syncOfflineQueue(true);
-        return;
+        return { seq, clientUpdatedAt: now };
       }
     }
 
-    // ── Rapid update/set coalescing with increment sentinel summing (#2) ──
-    if (resolvedDocId && (operation === 'update' || operation === 'set')) {
+    // ── Rapid update/set/add coalescing (including superseding prior queued delete) ──
+    if (resolvedDocId && (operation === 'update' || operation === 'set' || operation === 'add')) {
       const existingIndex = queue.findIndex(
-        q => q.collection === collectionName && q.docId === resolvedDocId && (q.operation === 'update' || q.operation === 'set' || q.operation === 'add')
+        q => q.collection === collectionName && q.docId === resolvedDocId
       );
 
       if (existingIndex !== -1) {
         const prev = queue[existingIndex];
-        if (
-          typeof prev.data?.updatedAt === 'number' &&
-          typeof payload?.updatedAt === 'number' &&
-          payload.updatedAt < prev.data.updatedAt
-        ) {
-          return;
+        const prevTs = typeof prev.data?.updatedAt === 'number' ? prev.data.updatedAt : prev.clientUpdatedAt;
+        if (typeof prevTs === 'number' && now < prevTs) {
+          return { seq: prev.seq || 0, clientUpdatedAt: prev.clientUpdatedAt };
         }
 
-        const mergedData = mergeOfflinePayloads(prev.data, payload, now);
-        queue[existingIndex] = {
-          ...prev,
-          data: mergedData,
-          operation: operation === 'set' || prev.operation === 'add' ? 'set' : prev.operation,
-          createdAt: now,
-          clientUpdatedAt: now,
-          retryCount: 0,
-          inFlightUntil: Math.max(prev.inFlightUntil || 0, inFlightUntil),
-        };
+        const seq = allocateQueueSeq();
+        if (prev.operation === 'delete') {
+          queue[existingIndex] = {
+            ...prev,
+            id: deterministicId,
+            seq,
+            operation: operation === 'update' ? 'set' : operation,
+            data: payload,
+            createdAt: now,
+            clientUpdatedAt: now,
+            retryCount: 0,
+            inFlightUntil: Math.max(prev.inFlightUntil || 0, inFlightUntil),
+            isLocalGenesis: false,
+          };
+        } else {
+          const mergedData = mergeOfflinePayloads(prev.data, payload, now);
+          queue[existingIndex] = {
+            ...prev,
+            id: deterministicId,
+            seq,
+            data: mergedData,
+            operation: operation === 'set' || prev.operation === 'add' ? 'set' : prev.operation,
+            createdAt: now,
+            clientUpdatedAt: now,
+            retryCount: 0,
+            inFlightUntil: Math.max(prev.inFlightUntil || 0, inFlightUntil),
+          };
+        }
 
         _memoryQueue = queue;
         scheduleQueueDiskFlush();
         await notifyQueueChange();
         if (triggerImmediateSync && auth.currentUser) syncOfflineQueue(true);
-        return;
+        return { seq, clientUpdatedAt: now };
       }
     }
 
+    const seq = allocateQueueSeq();
     queue.push({
       id: deterministicId,
+      seq,
       collection: collectionName,
       operation,
       data: payload,
@@ -427,8 +496,10 @@ export async function queueWrite(
     if (triggerImmediateSync && auth.currentUser) {
       syncOfflineQueue(true);
     }
+    return { seq, clientUpdatedAt: now };
   } catch (e) {
     console.warn('[OfflineSync] Failed to queue operation', e);
+    return null;
   }
 }
 
@@ -469,8 +540,10 @@ export async function queueBatchWrites(
         );
         if (existingIndex !== -1) {
           const prev = queue[existingIndex];
+          const seq = allocateQueueSeq();
           queue[existingIndex] = {
             ...prev,
+            seq,
             data: mergeOfflinePayloads(prev.data, payload, now),
             operation: operation === 'set' ? 'set' : prev.operation,
             createdAt: now,
@@ -483,6 +556,7 @@ export async function queueBatchWrites(
 
       queue.push({
         id: deterministicId,
+        seq: allocateQueueSeq(),
         collection: collectionName,
         operation,
         data: payload,
@@ -508,9 +582,72 @@ export async function queueGymLogOffline(log: any) {
   await queueWrite(COLLECTION.GYM_LOGS, 'set', log, log.id || `${log.userId}_${log.date}`);
 }
 
-export async function markQueueItemRetryable(collectionName: string, docId?: string): Promise<void> {
+export async function migrateOfflineQueueUser(
+  oldUid: string,
+  newUid: string
+): Promise<void> {
+  if (!oldUid || !newUid || oldUid === newUid) return;
+  const queue = await initMemoryQueue();
+  if (!queue || queue.length === 0) return;
+
+  const isLegacyOwner = (uid?: string | null) =>
+    !uid || uid === oldUid || uid === 'local_user' || uid === 'guest_local_user';
+
+  let changed = false;
+  const migrated = queue.map(item => {
+    let nextDocId = item.docId;
+    const itemData = item.data && typeof item.data === 'object' ? { ...item.data } : item.data;
+
+    if (
+      item.collection === COLLECTION.USER_GYM_PLANS ||
+      item.collection === COLLECTION.USER_PROFILES
+    ) {
+      if (isLegacyOwner(item.docId)) {
+        nextDocId = newUid;
+      }
+    } else if (item.collection === COLLECTION.GYM_LOGS) {
+      const dateSuffix =
+        itemData?.date ||
+        (item.docId && item.docId.startsWith(`${oldUid}_`) ? item.docId.slice(oldUid.length + 1) : undefined);
+      if (dateSuffix && (isLegacyOwner(itemData?.userId) || item.docId?.startsWith(`${oldUid}_`))) {
+        nextDocId = `${newUid}_${dateSuffix}`;
+      }
+    }
+
+    if (itemData && typeof itemData === 'object' && isLegacyOwner(itemData.userId)) {
+      itemData.userId = newUid;
+      if (nextDocId && item.collection === COLLECTION.GYM_LOGS) {
+        itemData.id = nextDocId;
+      } else if (nextDocId && (item.collection === COLLECTION.USER_GYM_PLANS || item.collection === COLLECTION.USER_PROFILES)) {
+        itemData.id = nextDocId;
+      }
+      changed = true;
+    } else if (nextDocId !== item.docId) {
+      changed = true;
+    }
+
+    if (nextDocId !== item.docId || (itemData && itemData !== item.data)) {
+      return {
+        ...item,
+        docId: nextDocId,
+        data: itemData,
+      };
+    }
+    return item;
+  });
+
+  if (changed) {
+    _memoryQueue = migrated;
+    await persistMemoryQueueToDisk();
+    await notifyQueueChange();
+  }
+}
+
+export async function markQueueItemRetryable(collectionName: string, docId?: string, seq?: number): Promise<void> {
   if (!_memoryQueue || !docId) return;
-  const item = _memoryQueue.find(q => q.collection === collectionName && q.docId === docId);
+  const item = _memoryQueue.find(
+    q => q.collection === collectionName && q.docId === docId && (seq === undefined || q.seq === seq)
+  );
   if (item) {
     item.inFlightUntil = 0;
     scheduleQueueDiskFlush();
@@ -521,18 +658,23 @@ export async function removeQueuedFallback(
   collectionName: string,
   operation: string,
   docId?: string,
-  maxClientUpdatedAt?: number
+  maxClientUpdatedAt?: number,
+  seq?: number
 ): Promise<boolean> {
   const queue = _memoryQueue;
   if (!queue || queue.length === 0 || !docId) return false;
 
-  const idx = queue.findIndex(
-    q =>
-      q.collection === collectionName &&
-      q.docId === docId &&
-      (q.operation === operation || q.operation === 'set') &&
-      (!maxClientUpdatedAt || q.clientUpdatedAt <= maxClientUpdatedAt)
-  );
+  const idx = queue.findIndex(q => {
+    if (seq !== undefined && seq > 0 && q.seq === seq) {
+      return true;
+    }
+    if (q.collection !== collectionName || q.docId !== docId) return false;
+    const opMatch =
+      q.operation === operation ||
+      (operation === 'add' && q.operation === 'set');
+    if (!opMatch) return false;
+    return !maxClientUpdatedAt || q.clientUpdatedAt <= maxClientUpdatedAt;
+  });
 
   if (idx !== -1) {
     queue.splice(idx, 1);
@@ -545,8 +687,14 @@ export async function removeQueuedFallback(
 }
 
 export async function syncOfflineQueue(silent = false): Promise<number> {
-  if (isSyncing) return 0;
+  if (isSyncing) {
+    _resyncRequested = true;
+    _resyncSilent = _resyncSilent && silent;
+    return 0;
+  }
   isSyncing = true;
+  _resyncRequested = false;
+  _resyncSilent = true;
 
   let syncedCount = 0;
 
@@ -584,7 +732,6 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
     const nowTs = Date.now();
     const queue = fullQueue.filter(q => !q.inFlightUntil || nowTs >= q.inFlightUntil);
     if (queue.length === 0) {
-      isSyncing = false;
       return 0;
     }
 
@@ -629,12 +776,16 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
     const BATCH_LIMIT = 400;
     try {
       const dedupedMap = new Map<string, OfflineQueueItem>();
+      const sourceSigsByKey = new Map<string, string[]>();
       const nonDedupeQueue: OfflineQueueItem[] = [];
 
-      const remainingQueueForFallback = _memoryQueue ? [..._memoryQueue] : queue;
-    for (const item of remainingQueueForFallback) {
+      for (const item of queue) {
         if (item.docId && (item.operation === 'set' || item.operation === 'update' || item.operation === 'delete' || item.operation === 'add')) {
           const key = `${item.collection}/${item.docId}`;
+          const sigList = sourceSigsByKey.get(key) || [];
+          sigList.push(getItemSignature(item));
+          sourceSigsByKey.set(key, sigList);
+
           const existing = dedupedMap.get(key);
           if (!existing || (item.clientUpdatedAt || item.createdAt) >= (existing.clientUpdatedAt || existing.createdAt)) {
             if (existing && item.operation !== 'delete' && existing.operation !== 'delete') {
@@ -656,12 +807,6 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
       const queueToProcess = [...Array.from(dedupedMap.values()), ...nonDedupeQueue];
       const syncedItemSignatures = new Set<string>();
 
-      for (const orig of queue) {
-        if (orig.docId && dedupedMap.has(`${orig.collection}/${orig.docId}`)) {
-          syncedItemSignatures.add(`${orig.id}_${orig.clientUpdatedAt}`);
-        }
-      }
-
       for (let i = 0; i < queueToProcess.length; i += BATCH_LIMIT) {
         const chunk = queueToProcess.slice(i, i + BATCH_LIMIT);
         const batch = writeBatch(db);
@@ -681,23 +826,25 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
           } else if (item.operation === 'delete' && item.docId) {
             batch.delete(doc(db, item.collection, item.docId));
           }
-          const sig = `${item.id}_${item.clientUpdatedAt}`;
-          chunkSignatures.add(sig);
-          syncedItemSignatures.add(sig);
+          const sigs = item.docId ? (sourceSigsByKey.get(`${item.collection}/${item.docId}`) || [getItemSignature(item)]) : [getItemSignature(item)];
+          for (const s of sigs) {
+            chunkSignatures.add(s);
+            syncedItemSignatures.add(s);
+          }
         }
         await batch.commit();
         syncedCount += chunk.length;
 
         // Prune committed chunk items from _memoryQueue immediately AFTER EACH successful commit
         if (_memoryQueue) {
-          _memoryQueue = _memoryQueue.filter(q => !chunkSignatures.has(`${q.id}_${q.clientUpdatedAt}`));
+          _memoryQueue = _memoryQueue.filter(q => !chunkSignatures.has(getItemSignature(q)));
           await persistMemoryQueueToDisk();
           await notifyQueueChange();
         }
       }
 
       const currentMem = _memoryQueue || [];
-      const remaining = currentMem.filter(q => !syncedItemSignatures.has(`${q.id}_${q.clientUpdatedAt}`));
+      const remaining = currentMem.filter(q => !syncedItemSignatures.has(getItemSignature(q)));
       _memoryQueue = remaining;
       await persistMemoryQueueToDisk();
       if (remaining.length === 0) wasOfflineInSession = false;
@@ -714,8 +861,7 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
     const now = Date.now();
     let minNextBackoffMs = Infinity;
 
-    const remainingQueueForFallback = _memoryQueue ? [..._memoryQueue] : queue;
-    for (const item of remainingQueueForFallback) {
+    for (const item of queue) {
       try {
         if (item.retryCount > 0 && item.lastAttemptAt) {
           const backoffDelay = Math.min(30000, 1500 * Math.pow(2, item.retryCount - 1));
@@ -753,7 +899,7 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
           await deleteDoc(doc(db, item.collection, item.docId));
         }
         syncedCount++;
-        seqSyncedSignatures.add(`${item.id}_${item.clientUpdatedAt}`);
+        seqSyncedSignatures.add(getItemSignature(item));
       } catch (e: any) {
         const code = String(e?.code || e?.message || '').toLowerCase();
         const isPermanentFailure = code.includes('permission-denied') || code.includes('invalid-argument') || code.includes('permission');
@@ -765,7 +911,7 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
           failedQueue.push({ ...item, retryCount, lastAttemptAt: Date.now() });
         } else {
           deadLetters.push({ ...item, failedAt: Date.now(), error: code });
-          seqSyncedSignatures.add(`${item.id}_${item.clientUpdatedAt}`);
+          seqSyncedSignatures.add(getItemSignature(item));
         }
       }
     }
@@ -780,6 +926,7 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
     }
 
     // Preserve any newer mutations in _memoryQueue that arrived while sequential drain was running (#84)
+    const processedSigs = new Set(queue.map(getItemSignature));
     const currentMem = _memoryQueue || [];
     const failedByKey = new Map<string, OfflineQueueItem>();
     for (const f of failedQueue) {
@@ -788,15 +935,22 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
 
     const remaining: OfflineQueueItem[] = [];
     for (const q of currentMem) {
-      if (seqSyncedSignatures.has(`${q.id}_${q.clientUpdatedAt}`)) continue;
+      const qSig = getItemSignature(q);
+      if (seqSyncedSignatures.has(qSig)) continue;
+      if (!processedSigs.has(qSig)) {
+        // Newer write arrived mid-drain — keep it ahead cleanly without overwriting with older failed item
+        remaining.push(q);
+        const key = `${q.collection}/${q.docId || q.id}`;
+        const fm = failedByKey.get(key);
+        if (fm && (q.clientUpdatedAt || 0) >= (fm.clientUpdatedAt || 0)) {
+          failedByKey.delete(key);
+        }
+        continue;
+      }
       const key = `${q.collection}/${q.docId || q.id}`;
       const failedMatch = failedByKey.get(key);
       if (failedMatch) {
-        if (q.clientUpdatedAt > failedMatch.clientUpdatedAt) {
-          remaining.push(q); // Newer mutation arrived during drain — keep newer!
-        } else {
-          remaining.push(failedMatch);
-        }
+        remaining.push(failedMatch);
         failedByKey.delete(key);
       } else {
         remaining.push(q);
@@ -825,9 +979,102 @@ export async function syncOfflineQueue(silent = false): Promise<number> {
     console.warn('[OfflineSync] Error during sync drain', e);
   } finally {
     isSyncing = false;
+    if (_resyncRequested) {
+      const nextSilent = _resyncSilent;
+      _resyncRequested = false;
+      _resyncSilent = true;
+      queueMicrotask(() => {
+        syncOfflineQueue(nextSilent).catch(() => {});
+      });
+    }
   }
 
   return syncedCount;
+}
+
+const PENDING_PHOTO_UPLOADS_KEY = '@zentrack_pending_photo_uploads';
+
+export interface PendingPhotoUploadItem {
+  docId: string;
+  userId: string;
+  date: string;
+  pose: 'front' | 'back' | 'side';
+  weightKg: number;
+  localUri: string;
+  createdAt: number;
+}
+
+export async function queuePendingPhotoUpload(item: PendingPhotoUploadItem): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(PENDING_PHOTO_UPLOADS_KEY);
+    const list: PendingPhotoUploadItem[] = raw ? JSON.parse(raw) : [];
+    const arr = Array.isArray(list) ? list : [];
+    const filtered = arr.filter(x => x.docId !== item.docId);
+    filtered.push(item);
+    await AsyncStorage.setItem(PENDING_PHOTO_UPLOADS_KEY, JSON.stringify(filtered));
+  } catch (err) {
+    console.warn('[OfflineSync] Failed to queue pending photo upload:', err);
+  }
+}
+
+export async function syncPendingPhotoUploads(): Promise<number> {
+  try {
+    const raw = await AsyncStorage.getItem(PENDING_PHOTO_UPLOADS_KEY);
+    if (!raw) return 0;
+    const pending: PendingPhotoUploadItem[] = JSON.parse(raw);
+    if (!Array.isArray(pending) || pending.length === 0) return 0;
+
+    const net = await NetInfo.fetch();
+    if (!net.isConnected) return 0;
+    const uid = auth.currentUser?.uid;
+    if (!uid) return 0;
+
+    const { uploadFileToCloudinary } = await import('./cloudinary');
+    const remaining: PendingPhotoUploadItem[] = [];
+    let uploadedCount = 0;
+
+    for (const item of pending) {
+      try {
+        const res = await uploadFileToCloudinary(
+          item.localUri,
+          'image/jpeg',
+          `checkin_${item.date}_${item.pose || 'front'}.jpg`,
+          () => {}
+        );
+        if (res?.url) {
+          const targetDocId = item.docId.replace(/^local_user_/, `${uid}_`);
+          await setDoc(
+            doc(db, COLLECTION.WEIGHT_LOGS, targetDocId),
+            {
+              userId: uid,
+              weightKg: item.weightKg,
+              weight: item.weightKg,
+              photoUrl: res.url,
+              pose: item.pose || 'front',
+              entryType: 'photo',
+              date: item.date,
+              updatedAt: Date.now(),
+            },
+            { merge: true }
+          );
+          uploadedCount++;
+        } else {
+          remaining.push(item);
+        }
+      } catch {
+        remaining.push(item);
+      }
+    }
+
+    if (remaining.length > 0) {
+      await AsyncStorage.setItem(PENDING_PHOTO_UPLOADS_KEY, JSON.stringify(remaining));
+    } else {
+      await AsyncStorage.removeItem(PENDING_PHOTO_UPLOADS_KEY);
+    }
+    return uploadedCount;
+  } catch {
+    return 0;
+  }
 }
 
 export function setupNetworkListener(): () => void {
@@ -838,12 +1085,14 @@ export function setupNetworkListener(): () => void {
       if (wasOfflineInSession || (_memoryQueue && _memoryQueue.length > 0)) {
         syncOfflineQueue(!wasOfflineInSession);
       }
+      syncPendingPhotoUploads().catch(() => {});
     }
   });
 
   const authUnsubscribe = onAuthStateChanged(auth, user => {
     if (user) {
       syncOfflineQueue(true);
+      syncPendingPhotoUploads().catch(() => {});
     }
   });
 
@@ -851,6 +1100,7 @@ export function setupNetworkListener(): () => void {
     const state = await NetInfo.fetch();
     if (state.isConnected && auth.currentUser) {
       await syncOfflineQueue(true);
+      await syncPendingPhotoUploads().catch(() => {});
     }
   };
   bootDrain();

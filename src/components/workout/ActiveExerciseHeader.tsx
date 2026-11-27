@@ -1,10 +1,12 @@
 import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import {
-  View,
-  Text,
+  ActivityIndicator,
+  InteractionManager,
+  LayoutChangeEvent,
   Pressable,
   StyleSheet,
-  ActivityIndicator,
+  Text,
+  View,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -12,7 +14,6 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { Video, ResizeMode } from 'expo-av';
 import { Image as ExpoImage } from 'expo-image';
 import {
   AlertCircle,
@@ -48,6 +49,35 @@ import { useWeightUnit, kgToDisplay, unitLabel } from '../../utils/weightUnit';
 const YoutubeIframe = React.lazy<React.ComponentType<any>>(
   () => import('react-native-youtube-iframe')
 );
+const LazyVideoPlayer = React.lazy(() => import('./ActiveExerciseVideoPlayer'));
+
+type MediaUrls = { clipUrl: string; gifUrl: string; stillUrl: string };
+const EMPTY_MEDIA: MediaUrls = { clipUrl: '', gifUrl: '', stillUrl: '' };
+const _mediaQuickCache = new Map<string, MediaUrls>();
+
+function getMediaCacheKey(ex: any): string {
+  return `${ex?.exerciseId || ex?.id || ''}::${ex?.name || ''}`;
+}
+
+function resolveExerciseMediaCached(ex: any): MediaUrls {
+  const key = getMediaCacheKey(ex);
+  const hit = _mediaQuickCache.get(key);
+  if (hit) return hit;
+  const def = resolveExercise(ex?.exerciseId || ex?.id) || resolveExercise(ex?.name);
+  const res: MediaUrls = !def
+    ? EMPTY_MEDIA
+    : {
+        clipUrl: getExerciseClipVideoUrl(def),
+        gifUrl: getExerciseGifCdnUrl(def),
+        stillUrl: getExerciseStillPosterUrl(def),
+      };
+  if (_mediaQuickCache.size >= 200) {
+    const oldest = _mediaQuickCache.keys().next().value;
+    if (oldest) _mediaQuickCache.delete(oldest);
+  }
+  _mediaQuickCache.set(key, res);
+  return res;
+}
 
 export interface ActiveExerciseHeaderProps {
   exercise: any;
@@ -104,7 +134,6 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
     );
     const [isLoadingVideo, setIsLoadingVideo] = useState(false);
     const [containerWidth, setContainerWidth] = useState(expandedWTarget);
-    const videoRef = useRef<Video>(null);
 
     const mediaRevealScale = useSharedValue(1);
     useEffect(() => {
@@ -126,14 +155,39 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
     }));
 
     const overlayBarAnimStyle = useAnimatedStyle(() => ({
-      opacity: showVideo ? 1 : 0,
+      opacity: 1 - expandBadgeAlpha.value,
     }));
+
+    const mediaCacheKey = getMediaCacheKey(exercise);
+    const [{ clipUrl, gifUrl, stillUrl }, setResolvedMedia] = useState<MediaUrls>(
+      () => _mediaQuickCache.get(mediaCacheKey) ?? EMPTY_MEDIA
+    );
 
     useEffect(() => {
       setShowYoutube(false);
       setIsPlaying(true);
       setResolvedVideoId(exercise?.videoId || null);
-    }, [exercise?.name, exercise?.videoId]);
+
+      const cached = _mediaQuickCache.get(mediaCacheKey);
+      if (cached) {
+        setResolvedMedia(cached);
+        return;
+      }
+      if (showVideo) {
+        setResolvedMedia(resolveExerciseMediaCached(exercise));
+        return;
+      }
+      setResolvedMedia(EMPTY_MEDIA);
+      let active = true;
+      const task = InteractionManager.runAfterInteractions(() => {
+        if (!active) return;
+        setResolvedMedia(resolveExerciseMediaCached(exercise));
+      });
+      return () => {
+        active = false;
+        task.cancel();
+      };
+    }, [mediaCacheKey, exercise?.videoId, showVideo]);
 
     const handleTogglePlay = useCallback(() => {
       hapticLight();
@@ -160,15 +214,16 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
       }
     }, [showYoutube, resolvedVideoId, exercise?.videoId, exercise?.name]);
 
-    const { clipUrl, gifUrl, stillUrl } = useMemo(() => {
-      const def = resolveExercise(exercise.exerciseId || exercise.id) || resolveExercise(exercise.name);
-      if (!def) return { clipUrl: '', gifUrl: '', stillUrl: '' };
-      return {
-        clipUrl: getExerciseClipVideoUrl(def),
-        gifUrl: getExerciseGifCdnUrl(def),
-        stillUrl: getExerciseStillPosterUrl(def),
-      };
-    }, [exercise.exerciseId, exercise.id, exercise.name]);
+    const handleOpenMenuPress = useCallback(() => {
+      onOpenExerciseMenu?.();
+    }, [onOpenExerciseMenu]);
+
+    const handleCardLayout = useCallback((e: LayoutChangeEvent) => {
+      const w = Math.round(e.nativeEvent.layout.width - 8);
+      if (w > 160) {
+        setContainerWidth((prev) => (Math.abs(w - prev) > 2 ? w : prev));
+      }
+    }, []);
 
     const smartCueText = useMemo(() => {
       if (!lastTimeData && (!overloadSuggestion || overloadSuggestion.state === 'BASELINE')) {
@@ -239,7 +294,7 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
             variant="icon"
             size="sm"
             haptic="selection"
-            onPress={() => onOpenExerciseMenu?.()}
+            onPress={handleOpenMenuPress}
             accessibilityLabel="Exercise options"
           >
             <AppIcon icon={MoreHorizontal} size={16} color={tokens.text.primary} />
@@ -261,12 +316,7 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
     return (
       <View
         style={headerStyles.cardHeader}
-        onLayout={(e) => {
-          const w = Math.round(e.nativeEvent.layout.width - 8);
-          if (w > 160 && Math.abs(w - containerWidth) > 2) {
-            setContainerWidth(w);
-          }
-        }}
+        onLayout={handleCardLayout}
       >
         <Animated.View
           style={showVideo ? headerStyles.expandedContainer : headerStyles.heroRow}
@@ -359,19 +409,20 @@ export const ActiveExerciseHeader: React.FC<ActiveExerciseHeaderProps> = React.m
                   </View>
                 )
               ) : clipUrl && showVideo ? (
-                <Video
-                  ref={videoRef}
-                  source={{ uri: clipUrl }}
-                  style={[
-                    headerStyles.mediaFull,
-                    { backgroundColor: tokens.bg.mediaLight },
-                  ]}
-                  resizeMode={ResizeMode.CONTAIN}
-                  isLooping
-                  isMuted
-                  shouldPlay={isPlaying}
-                  useNativeControls={false}
-                />
+                <React.Suspense
+                  fallback={
+                    <ActivityIndicator size="small" color={tokens.accent.primary} />
+                  }
+                >
+                  <LazyVideoPlayer
+                    uri={clipUrl}
+                    isPlaying={isPlaying}
+                    style={[
+                      headerStyles.mediaFull,
+                      { backgroundColor: tokens.bg.mediaLight },
+                    ]}
+                  />
+                </React.Suspense>
               ) : (gifUrl || stillUrl) ? (
                 <ExpoImage
                   source={{ uri: showVideo ? (gifUrl || stillUrl) : (stillUrl || gifUrl) }}

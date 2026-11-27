@@ -1,6 +1,7 @@
 import { todayStr } from '../hooks/useGymLog';
 import { getPreviousExerciseSession, normalizeExerciseKey } from './gymUtils';
 import { getExerciseLedgerSetsSync } from './exerciseLedger';
+import { displayToKg, kgToDisplay } from './weightUnit';
 
 export interface SetInputState {
   weight: string;
@@ -41,7 +42,9 @@ export function parseTargetRepsDefault(targetRepsStr?: string | number | null): 
 }
 
 /**
- * Pure Helper: Resolve Set Weight & Reps across fallback tiers
+ * Pure Helper: Resolve Set Weight (stored canonically in KG) & Reps across fallback tiers.
+ * UI inputs (`input?.weight` / `prevInput?.weight`) are interpreted in `unitIsLbs` display units
+ * and normalized back to KG before returning.
  */
 export function resolveSetWeightAndReps(
   input?: SetInputState,
@@ -53,13 +56,14 @@ export function resolveSetWeightAndReps(
   isWeightEdited?: boolean,
   isRepsEdited?: boolean,
   lastSessionSet?: any | null,
-  setIndex?: number
+  setIndex?: number,
+  unitIsLbs: boolean = false
 ): { weight: number | null; reps: number | null } {
-  // 1. Resolve Weight (Clamped 0 - 1000 kg, supports 0 kg bodyweight)
+  // 1. Resolve Weight (Canonical KG; clamped 0 - 1000 kg, supports 0 kg bodyweight)
   let weight: number | null = null;
   if (input?.weight !== '' && input?.weight !== undefined) {
     const parsed = parseFloat(input.weight);
-    weight = !isNaN(parsed) ? parsed : (isWeightEdited ? null : null);
+    weight = !isNaN(parsed) ? displayToKg(parsed, unitIsLbs) : null;
   } else if (isWeightEdited) {
     weight = null;
   } else if (currentSet?.weight != null && !isNaN(Number(currentSet.weight)) && Number(currentSet.weight) >= 0) {
@@ -68,7 +72,7 @@ export function resolveSetWeightAndReps(
     weight = Number(lastSessionSet.weight);
   } else if (prevInput?.weight !== '' && prevInput?.weight !== undefined) {
     const parsedPrev = parseFloat(prevInput.weight);
-    weight = !isNaN(parsedPrev) ? parsedPrev : null;
+    weight = !isNaN(parsedPrev) ? displayToKg(parsedPrev, unitIsLbs) : null;
   } else if (prevSet?.weight != null && !isNaN(Number(prevSet.weight)) && Number(prevSet.weight) >= 0) {
     weight = Number(prevSet.weight);
   } else if (setIndex != null && overloadSuggestion?.prescribedSets?.[setIndex]?.targetWeight != null) {
@@ -136,7 +140,8 @@ export function computeInitialSetInputs(
   exercise: any,
   gymLogs: any[] | null | undefined,
   date: string | undefined,
-  historyIndex?: Map<string, any>
+  historyIndex?: Map<string, any>,
+  unitIsLbs: boolean = false
 ): SetInputState[] {
   if (!exercise || !exercise.setsLog) return [];
   let lastSessionSets = (Array.isArray(exercise.lastSessionSets) && exercise.lastSessionSets.length > 0)
@@ -152,17 +157,18 @@ export function computeInitialSetInputs(
   }
 
   const lastValidPastSet = lastSessionSets.length > 0 ? lastSessionSets[lastSessionSets.length - 1] : null;
+  const formatDisplayW = (kgVal: number) => String(kgToDisplay(kgVal, unitIsLbs, 1));
   return exercise.setsLog.map((s: any, idx: number) => {
     if (s.completed) {
       return {
-        weight: (s.weight !== null && s.weight !== undefined && Number(s.weight) >= 0) ? String(s.weight) : '',
+        weight: (s.weight !== null && s.weight !== undefined && Number(s.weight) >= 0) ? formatDisplayW(Number(s.weight)) : '',
         reps: (s.reps !== null && s.reps !== undefined && Number(s.reps) >= 0) ? String(s.reps) : '',
       };
     }
     const lastSet = lastSessionSets[idx] || lastValidPastSet;
-    let initialWeight = (s.weight !== null && s.weight !== undefined && Number(s.weight) >= 0) ? String(s.weight) : '';
+    let initialWeight = (s.weight !== null && s.weight !== undefined && Number(s.weight) >= 0) ? formatDisplayW(Number(s.weight)) : '';
     if (!initialWeight && lastSet?.weight != null && Number(lastSet.weight) >= 0) {
-      initialWeight = String(lastSet.weight);
+      initialWeight = formatDisplayW(Number(lastSet.weight));
     }
     const defaultTargetReps = String(parseTargetRepsDefault(exercise.targetReps));
     const initialReps = (s.reps !== null && s.reps !== undefined && Number(s.reps) > 0)

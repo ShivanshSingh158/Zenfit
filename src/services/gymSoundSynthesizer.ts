@@ -17,7 +17,7 @@ async function safeSetAudioMode(options: any): Promise<void> {
     try {
       const { Audio } = require('expo-av');
       if (Audio?.setAudioModeAsync) {
-        await safeSetAudioMode(options);
+        await Audio.setAudioModeAsync(options);
       }
     } catch (_) {}
   }).catch(() => {});

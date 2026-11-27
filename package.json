@@ -57,7 +57,8 @@
     "go": "expo start --go -c",
     "android": "expo start --android -c",
     "ios": "expo start --ios -c",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "test": "node --test tests/databaseSync.test.mjs tests/analyticsOverhaul.test.mjs"
   },
   "private": true
 }

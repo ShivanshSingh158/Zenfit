@@ -22,17 +22,20 @@ import { dateStrOffset, todayStr } from '../../hooks/useGymLog';
 import { LazySheet } from '../../hooks/useLazySheetMount';
 import { springs } from '../../theme/motion';
 import { feedback } from '../../utils/haptics';
-import { useGymLogs } from '../../contexts/domains/WellnessContext';
+import { useGymLogs, useGymPlan } from '../../contexts/domains/WellnessContext';
+import { resolvePlanDay } from '../../hooks/useGymLog';
+import { getWorkoutDaysInRotation } from '../../services/gymRotationService';
 import { useTheme } from '../../contexts/ThemeContext';
 import { awardXP } from '../../services/xpSystem';
 import { estimate1RM } from '../../services/oneRepMaxEngine';
 import { computeOrGetHotCache, generateDatasetFingerprint } from '../../utils/hotCacheStore';
 import { getL1Sync } from '../../utils/bootManifest';
+import { CheckCircle2 } from 'lucide-react-native';
 
 // Extracted Sub-Components & Styles
 import { makeWorkoutSummaryStyles } from './workoutSummaryStyles';
 import WorkoutSummaryProgressionChart from '../../components/Gym/metrics/WorkoutSummaryProgressionChart';
-import ExerciseDeepDiveModal from '../../components/Gym/exercise/ExerciseDeepDiveModal';
+const ExerciseDeepDiveModal = React.lazy(() => import('../../components/Gym/exercise/ExerciseDeepDiveModal'));
 
 export default function WorkoutSummaryScreen() {
   const insets = useSafeAreaInsets();
@@ -46,6 +49,8 @@ export default function WorkoutSummaryScreen() {
   const targetDate = route.params?.date;
   const passedLog = (route.params as any)?.log;
   const { gymLogs } = useGymLogs();
+  const { userGymPlan, setActiveProgramme } = useGymPlan();
+  const [advancingProgrammeWeek, setAdvancingProgrammeWeek] = useState(false);
 
   const [showConfetti, setShowConfetti] = useState(!readOnly);
   const [showAllExercises, setShowAllExercises] = useState(false);
@@ -268,6 +273,84 @@ export default function WorkoutSummaryScreen() {
   const streakStyle = useAnimatedStyle(() => ({ transform: [{ scale: streakScale.value }], opacity: streakOpacity.value }));
 
   const { width: screenWidth } = useWindowDimensions();
+
+  const programmeWeekPrompt = useMemo(() => {
+    const prog = userGymPlan?.activeProgramme;
+    if (readOnly || !prog || prog.status !== 'active') return null;
+
+    let plannedPerWeek = 0;
+    if (userGymPlan?.scheduleMode === 'rotation') {
+      plannedPerWeek = getWorkoutDaysInRotation(userGymPlan).length;
+    } else {
+      for (let d = 1; d <= 7; d++) {
+        const pd = resolvePlanDay(userGymPlan, d);
+        if (pd && !pd.isRest && (pd.exercises?.length ?? 0) > 0) {
+          plannedPerWeek++;
+        }
+      }
+    }
+    if (plannedPerWeek <= 0) plannedPerWeek = 3;
+
+    const startDateStr = prog.startDate
+      ? String(prog.startDate).slice(0, 10)
+      : dateStrOffset(-((prog.currentWeek - 1) * 7 + 7), todayStr());
+
+    const completedDates = new Set<string>();
+    const considerLog = (l: any) => {
+      if (!l || !l.completed || !l.date || l.date < startDateStr) return;
+      const hasCompletedSets = (l.exercises || []).some((ex: any) =>
+        (ex.setsLog || []).some((s: any) => s.completed === true)
+      );
+      if (hasCompletedSets) {
+        completedDates.add(l.date);
+      }
+    };
+    (gymLogs || []).forEach(considerLog);
+    considerLog(targetLog);
+
+    const targetCumulative = prog.currentWeek * plannedPerWeek;
+    if (completedDates.size < targetCumulative) return null;
+
+    const currentWeekCfg = prog.weeks?.[prog.currentWeek];
+    const nextWeekCfg = prog.weeks?.[prog.currentWeek + 1];
+    return {
+      programme: prog,
+      plannedPerWeek,
+      completedSinceStart: completedDates.size,
+      isFinalWeek: prog.currentWeek >= prog.totalWeeks,
+      currentWeekName: currentWeekCfg?.phaseName || `Week ${prog.currentWeek}`,
+      nextWeekName: nextWeekCfg?.phaseName || (prog.currentWeek < prog.totalWeeks ? `Week ${prog.currentWeek + 1}` : null),
+    };
+  }, [readOnly, userGymPlan, gymLogs, targetLog]);
+
+  const handleAdvanceProgrammeWeek = useCallback(async (action: 'advance' | 'restart' | 'finish') => {
+    const prog = userGymPlan?.activeProgramme;
+    if (!prog || advancingProgrammeWeek) return;
+    setAdvancingProgrammeWeek(true);
+    try {
+      feedback.success();
+      if (action === 'finish') {
+        await setActiveProgramme(null);
+      } else if (action === 'restart') {
+        await setActiveProgramme({
+          ...prog,
+          currentWeek: 1,
+          startDate: new Date().toISOString(),
+          updatedAt: Date.now(),
+        });
+      } else if (prog.currentWeek < prog.totalWeeks) {
+        await setActiveProgramme({
+          ...prog,
+          currentWeek: prog.currentWeek + 1,
+          updatedAt: Date.now(),
+        });
+      } else {
+        await setActiveProgramme(null);
+      }
+    } finally {
+      setAdvancingProgrammeWeek(false);
+    }
+  }, [userGymPlan?.activeProgramme, advancingProgrammeWeek, setActiveProgramme]);
 
   const chartData = useMemo(() => {
     if (!gymLogs || gymLogs.length === 0) return null;
@@ -556,6 +639,77 @@ export default function WorkoutSummaryScreen() {
             <Text style={styles.notesText}>{sessionData.notes}</Text>
           </View>
         ) : null}
+
+        {programmeWeekPrompt && (
+          <View
+            style={[
+              styles.prCard,
+              {
+                borderColor: tokens.accent.primary,
+                flexDirection: 'column',
+                alignItems: 'stretch',
+                marginTop: 12,
+                gap: 10,
+              },
+            ]}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={[styles.prIconBox, { backgroundColor: tokens.accent.primaryDim }]}>
+                <AppIcon icon={CheckCircle2} size={18} color={tokens.accent.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.prTag, { color: tokens.accent.primary }]}>
+                  MESOCYCLE WEEK {programmeWeekPrompt.programme.currentWeek}/{programmeWeekPrompt.programme.totalWeeks} COMPLETE
+                </Text>
+                <Text style={styles.prText}>
+                  {programmeWeekPrompt.isFinalWeek
+                    ? `Finished all ${programmeWeekPrompt.programme.totalWeeks} weeks of ${programmeWeekPrompt.programme.name}`
+                    : `Ready for Week ${programmeWeekPrompt.programme.currentWeek + 1}: ${programmeWeekPrompt.nextWeekName}`}
+                </Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {programmeWeekPrompt.isFinalWeek ? (
+                <>
+                  <TactileButton
+                    variant="secondary"
+                    size="sm"
+                    disabled={advancingProgrammeWeek}
+                    style={{ flex: 1, height: 38, borderRadius: 10 }}
+                    onPress={() => handleAdvanceProgrammeWeek('restart')}
+                  >
+                    <Text style={[styles.shareBtnText, { fontSize: 13 }]}>Restart W1</Text>
+                  </TactileButton>
+                  <TactileButton
+                    variant="primary"
+                    size="sm"
+                    disabled={advancingProgrammeWeek}
+                    style={{ flex: 1.4, height: 38, borderRadius: 10 }}
+                    onPress={() => handleAdvanceProgrammeWeek('finish')}
+                  >
+                    <Text style={[styles.doneBtnText, { fontSize: 13 }]}>
+                      {advancingProgrammeWeek ? 'Saving...' : 'Finish Plan'}
+                    </Text>
+                  </TactileButton>
+                </>
+              ) : (
+                <TactileButton
+                  variant="primary"
+                  size="sm"
+                  disabled={advancingProgrammeWeek}
+                  style={{ flex: 1, height: 38, borderRadius: 10 }}
+                  onPress={() => handleAdvanceProgrammeWeek('advance')}
+                >
+                  <Text style={[styles.doneBtnText, { fontSize: 13 }]}>
+                    {advancingProgrammeWeek
+                      ? 'Advancing...'
+                      : `Start Week ${programmeWeekPrompt.programme.currentWeek + 1} →`}
+                  </Text>
+                </TactileButton>
+              )}
+            </View>
+          </View>
+        )}
       </ScrollView>
 
       {!readOnly && (

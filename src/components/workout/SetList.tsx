@@ -3,7 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Flame, Dumbbell, ChevronUp, ChevronDown, Plus, CheckCircle2 } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useResponsiveMetrics } from '../../theme/responsive';
-import { unitLabel, useWeightUnit } from '../../utils/weightUnit';
+import { kgToDisplay, unitLabel, useWeightUnit } from '../../utils/weightUnit';
 import type { SetInputState } from '../../utils/activeLoggingMath';
 import { WorkoutSetRow } from './WorkoutSetRow';
 import { TactileButton } from '../ui/TactileButton';
@@ -174,7 +174,7 @@ export const SetList: React.FC<SetListProps> = React.memo(
             set.weight !== undefined &&
             !isNaN(Number(set.weight)) &&
             Number(set.weight) >= 0
-              ? String(set.weight)
+              ? String(kgToDisplay(Number(set.weight), unitIsLbs, 1))
               : '';
           const setRepsStr =
             set.reps !== null &&
@@ -203,7 +203,7 @@ export const SetList: React.FC<SetListProps> = React.memo(
           const prescription = overloadSuggestion?.prescribedSets?.[idx];
           const placeholderWeight =
             prescription && prescription.targetWeight > 0
-              ? String(prescription.targetWeight)
+              ? String(kgToDisplay(Number(prescription.targetWeight), unitIsLbs, 1))
               : undefined;
           const placeholderReps =
             prescription && prescription.targetReps > 0
@@ -241,6 +241,7 @@ export const SetList: React.FC<SetListProps> = React.memo(
                 idx={idx}
                 isActive={isActive}
                 isCompleted={!!set.completed}
+                isNarrow={isNarrow}
                 displayWeight={displayWeight}
                 displayReps={displayReps}
                 placeholderWeight={placeholderWeight}

@@ -75,11 +75,15 @@ import { AlertsStep, RevealStep } from './steps/AlertsAndRevealSteps';
 
 interface AthleteOnboardingFlowProps {
   onComplete: () => void;
+  onReady?: () => void;
 }
 
 const AUTO_ADVANCE_MS = 235;
 
-export default function AthleteOnboardingFlow({ onComplete }: AthleteOnboardingFlowProps) {
+export default function AthleteOnboardingFlow({ onComplete, onReady }: AthleteOnboardingFlowProps) {
+  useEffect(() => {
+    onReady?.();
+  }, [onReady]);
   const { tokens, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(tokens, isDark), [tokens, isDark]);
   const { user, performGoogleSignIn, continueAsGuest } = useCoreData();

@@ -18,8 +18,17 @@ SplashScreen.preventAutoHideAsync().catch(() => { });
 enableScreens(true);
 enableFreeze(true);
 
-// Pre-warm L1 memory cache via atomic multiGet BEFORE React renders Frame 0
-import { loadBootManifest, isL1BootHydrated, getL1Sync, setL1Sync, ONBOARDING_FLOW_KEY } from './src/utils/bootManifest';
+// Pre-warm L1 auth slice first (<15ms), then Tier-0 workout domain cache in parallel BEFORE Frame 0
+import {
+  loadAuthBootSlice,
+  loadBootManifest,
+  isAuthBootHydrated,
+  isL1BootHydrated,
+  getL1Sync,
+  setL1Sync,
+  ONBOARDING_FLOW_KEY,
+} from './src/utils/bootManifest';
+loadAuthBootSlice().catch(() => { });
 loadBootManifest().catch(() => { });
 
 import { registerDeferredOtaSync } from './src/services/otaUpdateService';
@@ -35,12 +44,13 @@ import { getGymProfileSync, PROFILE_STORAGE_KEY } from './src/hooks/useGymProfil
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { PortalProvider } from './src/contexts/PortalContext';
 import { CoreDataProvider, useCoreData } from './src/contexts/domains/CoreDataContext';
-import { WellnessProvider } from './src/contexts/domains/WellnessContext';
+import { WellnessProvider, getWorkoutActiveGlobal } from './src/contexts/domains/WellnessContext';
 import GymStack from './src/navigation/GymStack';
 import { getAllPRs } from './src/utils/progressiveOverload';
 import { preloadModuleNow } from './src/utils/ModulePrefetcher';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import { setupLifecycleHygiene } from './src/services/lifecycleHygiene';
+import { setupNetworkListener } from './src/services/offlineSync';
 
 const LazyAthleteOnboardingFlow = React.lazy(
   () => import('./src/screens/onboarding/AthleteOnboardingFlow')
@@ -81,31 +91,43 @@ const ZEN_LIGHT_THEME = {
   },
 };
 
-function MainNavigator({ bootHydrated }: { bootHydrated: boolean }) {
-  const { user, isGuest } = useCoreData();
+function MainNavigator({
+  authBootHydrated,
+  onOnboardingReady,
+}: {
+  authBootHydrated: boolean;
+  onOnboardingReady: () => void;
+}) {
+  const { user, isGuest, loading: authLoading } = useCoreData();
   const { isDark, colors } = useTheme();
-  const initialOnboarded = getL1Sync<boolean>(ONBOARDING_FLOW_KEY, false) ||
-    Boolean(getGymProfileSync()?.onboardingCompleted || (getGymProfileSync()?.heightCm && getGymProfileSync()?.weightKg));
-  const [onboardingCompleted, setOnboardingCompleted] = useState<boolean>(Boolean(initialOnboarded));
+  const profileSnapshot = getGymProfileSync();
+  const l1Onboarded =
+    getL1Sync<boolean>(ONBOARDING_FLOW_KEY, false) ||
+    Boolean(
+      profileSnapshot?.onboardingCompleted ||
+      (profileSnapshot?.heightCm && profileSnapshot?.weightKg) ||
+      profileSnapshot?.goal
+    );
+  const [onboardingCompleted, setOnboardingCompleted] = useState<boolean>(Boolean(l1Onboarded));
+  const isOnboarded = onboardingCompleted || l1Onboarded;
+  const authReady = authBootHydrated && !authLoading;
 
-  // Sync onboarding flag immediately when L1 boot manifest finishes in parallel with Frame 0
+  // Keep local state synchronized once L1 auth slice resolves
   React.useEffect(() => {
-    if (!bootHydrated || onboardingCompleted) return;
-    const synced = getL1Sync<boolean>(ONBOARDING_FLOW_KEY, false) ||
-      Boolean(getGymProfileSync()?.onboardingCompleted || (getGymProfileSync()?.heightCm && getGymProfileSync()?.weightKg));
-    if (synced) setOnboardingCompleted(true);
-  }, [bootHydrated, onboardingCompleted]);
+    if (!authReady || onboardingCompleted) return;
+    if (l1Onboarded) setOnboardingCompleted(true);
+  }, [authReady, onboardingCompleted, l1Onboarded]);
 
-  // Reset onboarding flag if user signed out and local onboarding state was wiped
+  // Reset onboarding flag only after auth settles and confirms user signed out cleanly
   React.useEffect(() => {
-    if (!bootHydrated) return;
-    if (!user && !isGuest && !getL1Sync<boolean>(ONBOARDING_FLOW_KEY, false)) {
+    if (!authReady) return;
+    if (!user && !isGuest && !l1Onboarded) {
       setOnboardingCompleted(false);
     }
-  }, [bootHydrated, user, isGuest]);
+  }, [authReady, user, isGuest, l1Onboarded]);
 
   React.useEffect(() => {
-    if (onboardingCompleted) return;
+    if (!authReady || isOnboarded) return;
     let cancelled = false;
 
     async function checkBackgroundOnboarding() {
@@ -165,20 +187,27 @@ function MainNavigator({ bootHydrated }: { bootHydrated: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [onboardingCompleted, user, isGuest]);
+  }, [authReady, isOnboarded, user, isGuest]);
 
-  // Hold empty canvas only if neither user/onboarding L1 nor boot hydration is known yet (native splash stays visible above)
-  if (!bootHydrated && (!onboardingCompleted || (!user && !isGuest))) {
-    return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  // Wait on auth resolution behind SplashScreen so Get Started never flashes for returning users
+  if (!authReady) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
+      </View>
+    );
   }
 
-  // Flagship Athlete Onboarding Flow (shown until all 7 steps are finished, or if signed out)
-  if (!onboardingCompleted || (!user && !isGuest)) {
+  // Only route to Get Started / Onboarding once auth & onboarding storage have definitively settled
+  if (!isOnboarded || (!user && !isGuest)) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
         <React.Suspense fallback={<View style={{ flex: 1, backgroundColor: colors.background }} />}>
-          <LazyAthleteOnboardingFlow onComplete={() => setOnboardingCompleted(true)} />
+          <LazyAthleteOnboardingFlow
+            onComplete={() => setOnboardingCompleted(true)}
+            onReady={onOnboardingReady}
+          />
         </React.Suspense>
       </View>
     );
@@ -194,16 +223,31 @@ function MainNavigator({ bootHydrated }: { bootHydrated: boolean }) {
   );
 }
 
-function MainRoot({ fontsReady, bootHydrated }: { fontsReady: boolean; bootHydrated: boolean }) {
+function MainRoot({
+  fontsReady,
+  authBootHydrated,
+  bootHydrated,
+}: {
+  fontsReady: boolean;
+  authBootHydrated: boolean;
+  bootHydrated: boolean;
+}) {
+  const { loading: authLoading } = useCoreData();
   const { isDark, colors } = useTheme();
   const [navReady, setNavReady] = useState(false);
+  const [onboardingReady, setOnboardingReady] = useState(false);
   const warmTimersRef = React.useRef<ReturnType<typeof setTimeout>[]>([]);
 
+  const handleOnboardingReady = React.useCallback(() => {
+    setOnboardingReady(true);
+  }, []);
+
   React.useEffect(() => {
-    if (bootHydrated && navReady && fontsReady) {
+    if (!authBootHydrated || authLoading || !fontsReady) return;
+    if ((bootHydrated && navReady) || onboardingReady) {
       SplashScreen.hideAsync().catch(() => { });
     }
-  }, [bootHydrated, navReady, fontsReady]);
+  }, [authBootHydrated, authLoading, bootHydrated, navReady, onboardingReady, fontsReady]);
 
   React.useEffect(() => {
     return () => {
@@ -223,25 +267,38 @@ function MainRoot({ fontsReady, bootHydrated }: { fontsReady: boolean; bootHydra
           InteractionManager.runAfterInteractions(() => {
             warmTimersRef.current.forEach(clearTimeout);
             warmTimersRef.current = [
-              setTimeout(() => preloadModuleNow('Today'), 450),
-              setTimeout(() => preloadModuleNow('ActiveLogging'), 1100),
+              setTimeout(() => preloadModuleNow('Today'), 350),
+              setTimeout(() => preloadModuleNow('ActiveLogging'), 850),
               setTimeout(() => {
-                import('./src/components/Gym/exercise/AddExerciseModal')
-                  .then((m) => m.warmExerciseCatalogue?.())
-                  .catch(() => {});
-                getAllPRs().catch(() => {});
-              }, 2000),
+                if (!getWorkoutActiveGlobal()) preloadModuleNow('Plan');
+              }, 1450),
+              setTimeout(() => {
+                if (!getWorkoutActiveGlobal()) preloadModuleNow('Analytics');
+              }, 2050),
+              setTimeout(() => {
+                if (!getWorkoutActiveGlobal()) preloadModuleNow('Body');
+              }, 2650),
+              setTimeout(() => {
+                if (!getWorkoutActiveGlobal()) {
+                  preloadModuleNow('WorkoutSummary');
+                  import('./src/services/exerciseCatalogService')
+                    .then((m) => m.warmUnifiedExerciseCatalogue?.())
+                    .catch(() => {});
+                  getAllPRs().catch(() => {});
+                }
+              }, 3250),
             ];
           });
         }}
       >
-        <MainNavigator bootHydrated={bootHydrated} />
+        <MainNavigator authBootHydrated={authBootHydrated} onOnboardingReady={handleOnboardingReady} />
       </NavigationContainer>
     </View>
   );
 }
 
 export default function App() {
+  const [authBootHydrated, setAuthBootHydrated] = useState<boolean>(() => isAuthBootHydrated() || isL1BootHydrated());
   const [bootHydrated, setBootHydrated] = useState<boolean>(() => isL1BootHydrated());
 
   // Load fonts and capture load state to prevent font swap jitter on cold start
@@ -258,22 +315,35 @@ export default function App() {
 
   React.useEffect(() => {
     let active = true;
+
+    // Fast tiny auth + onboarding + theme hydration (<15ms, never blocked by heavy workout logs)
+    loadAuthBootSlice()
+      .catch(() => {})
+      .finally(() => {
+        if (active) setAuthBootHydrated(true);
+      });
+
     const bootCapTimer = setTimeout(() => {
       if (active) setBootHydrated(true);
-    }, 600);
+    }, 2200);
 
     // Parallel L1 boot manifest hydration (never blocks ThemeProvider / NavigationContainer mounting)
     loadBootManifest()
       .catch(() => {})
       .finally(() => {
         clearTimeout(bootCapTimer);
-        if (active) setBootHydrated(true);
+        if (active) {
+          setAuthBootHydrated(true);
+          setBootHydrated(true);
+        }
       });
 
-    // Safety splash fallback: only triggers if nav/fonts stall over 800ms
+    // Safety splash fallback: never uncover UI prematurely at 600ms/800ms mid-auth read;
+    // only force-hide after 2500ms if storage, fonts, or navigation genuinely stall.
     const splashFallbackTimer = setTimeout(() => {
+      if (active) setAuthBootHydrated(true);
       SplashScreen.hideAsync().catch(() => { });
-    }, 800);
+    }, 2500);
 
     // Ensure silent Android notification channels on startup (permission prompt is deferred to onboarding end)
     InteractionManager.runAfterInteractions(() => {
@@ -290,6 +360,9 @@ export default function App() {
     // Centralized OS background/foreground flush hygiene (1 AppState listener instead of 4)
     const unsubscribeLifecycle = setupLifecycleHygiene();
 
+    // Wire NetInfo & Auth restore auto-drain for queued offline writes
+    const unsubscribeNetwork = setupNetworkListener();
+
     return () => {
       active = false;
       clearTimeout(bootCapTimer);
@@ -297,6 +370,7 @@ export default function App() {
       unsubscribeOta?.();
       unsubscribeNotif?.();
       unsubscribeLifecycle?.();
+      unsubscribeNetwork?.();
     };
   }, []);
 
@@ -313,7 +387,11 @@ export default function App() {
           <ThemeProvider>
             <PortalProvider>
               <CoreDataProvider>
-                <MainRoot fontsReady={fontsReady} bootHydrated={bootHydrated} />
+                <MainRoot
+                  fontsReady={fontsReady}
+                  authBootHydrated={authBootHydrated}
+                  bootHydrated={bootHydrated}
+                />
               </CoreDataProvider>
             </PortalProvider>
           </ThemeProvider>

@@ -12,11 +12,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { DeviceEventEmitter } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { db, auth } from '../services/firebase';
 import { useCoreData } from '../contexts/domains/CoreDataContext';
 import { GymProfile } from '../types/gym.types';
 import { getL1Sync, setL1Sync } from '../utils/bootManifest';
 import { COLLECTION } from '../config/constants';
+import { getMonotonicTimestamp } from '../utils/firebaseUtils';
+import { applyPendingQueueOverlay } from '../services/offlineSync';
 import { safeWrite } from '../utils/safeWrite';
 
 export { GymProfile };
@@ -148,10 +150,15 @@ export const DEFAULT_PROFILE: GymProfile = {
 
 let _activeProfileUid: string | null = null;
 let _profileUnsub: (() => void) | null = null;
+let _profileRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
 function ensureProfileSubscription(uid?: string | null) {
   if (!uid || uid === 'guest_local_user') return;
   if (uid === _activeProfileUid) return;
+  if (_profileRetryTimer) {
+    clearTimeout(_profileRetryTimer);
+    _profileRetryTimer = null;
+  }
   if (_profileUnsub) {
     _profileUnsub();
     _profileUnsub = null;
@@ -159,13 +166,18 @@ function ensureProfileSubscription(uid?: string | null) {
   _activeProfileUid = uid;
   const docRef = doc(db, COLLECTION.USER_PROFILES, uid);
   _profileUnsub = onSnapshot(docRef, snap => {
+    if ((snap as any)?.metadata?.hasPendingWrites) return;
     if (snap.exists()) {
-      const cloudData = (snap.data()?.gymProfile || snap.data()) as Partial<GymProfile> & { updatedAt?: number };
+      const rawData = snap.data();
+      const rawProfile = (rawData?.gymProfile || rawData) as Partial<GymProfile> & { updatedAt?: number };
+      const overlaid = applyPendingQueueOverlay(COLLECTION.USER_PROFILES, [{ id: uid, gymProfile: rawProfile, updatedAt: rawProfile?.updatedAt }]);
+      const cloudDoc = overlaid[0] as any;
+      const cloudData = (cloudDoc?.gymProfile || cloudDoc) as Partial<GymProfile> & { updatedAt?: number };
       const current = memoryProfile || getL1Sync<GymProfile>(PROFILE_KEY, DEFAULT_PROFILE);
       const currentTs = (current as any)?.updatedAt || 0;
-      const cloudTs = cloudData?.updatedAt || 0;
+      const cloudTs = Math.max(cloudData?.updatedAt || 0, cloudDoc?.updatedAt || 0);
 
-      // Issue #23: Let cloud win when its timestamp is newer/equal, or when hydrating completed onboarding profile over uncompleted defaults
+      // Issue #23: Let cloud (with offline WAL overlay) win when its timestamp is newer/equal, or when hydrating completed onboarding profile over uncompleted defaults
       if (cloudTs >= currentTs || (!current?.onboardingCompleted && Boolean(cloudData?.onboardingCompleted))) {
         const merged = normalizeGymProfileAliases({
           ...DEFAULT_PROFILE,
@@ -180,6 +192,13 @@ function ensureProfileSubscription(uid?: string | null) {
     }
   }, () => {
     _activeProfileUid = null;
+    if (_profileRetryTimer) clearTimeout(_profileRetryTimer);
+    _profileRetryTimer = setTimeout(() => {
+      _profileRetryTimer = null;
+      if (auth.currentUser?.uid === uid && !auth.currentUser?.isAnonymous) {
+        ensureProfileSubscription(uid);
+      }
+    }, 5000);
   });
 }
 
@@ -206,6 +225,10 @@ export function useGymProfile() {
       setGymProfile(updated);
     });
     const subLogout = DeviceEventEmitter.addListener('auth_state_changed', () => {
+      if (_profileRetryTimer) {
+        clearTimeout(_profileRetryTimer);
+        _profileRetryTimer = null;
+      }
       if (_profileUnsub) {
         _profileUnsub();
         _profileUnsub = null;
@@ -221,7 +244,7 @@ export function useGymProfile() {
   }, []);
 
   const saveGymProfile = useCallback(async (profile: Partial<GymProfile>) => {
-    const now = Date.now();
+    const now = getMonotonicTimestamp(Number((profileRef.current as any)?.updatedAt || 0));
     const normalizedPatch = normalizeGymProfileAliases(profile);
     const next = normalizeGymProfileAliases({ ...profileRef.current, ...normalizedPatch, updatedAt: now }) as GymProfile;
     memoryProfile = next;

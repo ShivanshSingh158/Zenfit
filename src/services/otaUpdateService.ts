@@ -8,6 +8,7 @@ export interface UpdateInfo {
   updateId: string | null;
   channel: string | null;
   runtimeVersion: string | null;
+  createdAt: Date | null;
 }
 
 let _activeOtaPromise: Promise<boolean> | null = null;
@@ -33,6 +34,7 @@ export function getOTAUpdateInfo(): UpdateInfo {
       updateId: Updates.updateId ?? null,
       channel: Updates.channel ?? null,
       runtimeVersion: Updates.runtimeVersion ?? null,
+      createdAt: Updates.createdAt ?? null,
     };
   } catch (_) {
     return {
@@ -41,6 +43,7 @@ export function getOTAUpdateInfo(): UpdateInfo {
       updateId: null,
       channel: null,
       runtimeVersion: null,
+      createdAt: null,
     };
   }
 }
@@ -134,18 +137,48 @@ export function registerDeferredOtaSync(): () => void {
 export const initAutoBackgroundUpdate = registerDeferredOtaSync;
 
 /**
- * Checks for OTA updates manually, downloads if available, and gives user option to restart now.
+ * Reloads the app cleanly to activate an already-downloaded OTA update bundle.
+ */
+export async function applyDownloadedOTAUpdate(): Promise<{ success: boolean; message: string }> {
+  try {
+    if (__DEV__ || !Updates.isEnabled) {
+      return {
+        success: false,
+        message: 'OTA updates can only be reloaded in standalone release builds.',
+      };
+    }
+    if (isWorkoutActive()) {
+      return {
+        success: false,
+        message: 'Finish your active workout before restarting for an update.',
+      };
+    }
+    await Updates.reloadAsync();
+    return { success: true, message: 'Restarting ZenFit...' };
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error?.message || 'Could not restart to apply update. Reopen ZenFit manually.',
+    };
+  }
+}
+
+export type OtaManualStatus = 'idle' | 'checking' | 'downloading' | 'ready';
+
+/**
+ * Checks for OTA updates manually, downloads if available (including rollbacks),
+ * and optionally prompts the user to restart right away.
  */
 export async function checkAndApplyOTAUpdate(
-  onStatusChange?: (status: 'idle' | 'checking' | 'downloading' | 'ready') => void,
+  onStatusChange?: (status: OtaManualStatus) => void,
   confirmRestart?: () => Promise<boolean>
-): Promise<{ success: boolean; updated: boolean; message: string }> {
+): Promise<{ success: boolean; updated: boolean; pendingRestart?: boolean; message: string }> {
   try {
     if (__DEV__ || !Updates.isEnabled) {
       return {
         success: true,
         updated: false,
-        message: 'OTA updates are active only in standalone/release APK builds.',
+        message: 'Running in dev / Expo Go mode. Install an EAS preview or production build to receive cloud updates.',
       };
     }
 
@@ -153,29 +186,47 @@ export async function checkAndApplyOTAUpdate(
       return {
         success: false,
         updated: false,
-        message: 'Cannot check or apply updates during an active workout session.',
+        message: 'Finish your active workout before checking or applying updates.',
       };
     }
 
     if (_activeOtaPromise) {
-      await _activeOtaPromise;
+      onStatusChange?.('checking');
+      const bgDownloaded = await _activeOtaPromise;
+      if (bgDownloaded) {
+        onStatusChange?.('ready');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        if (confirmRestart) {
+          const shouldRestart = await confirmRestart();
+          if (shouldRestart) {
+            await Updates.reloadAsync().catch(() => {});
+            return { success: true, updated: true, pendingRestart: false, message: 'App restarted.' };
+          }
+        }
+        return {
+          success: true,
+          updated: true,
+          pendingRestart: true,
+          message: 'Update ready! Restart ZenFit to apply.',
+        };
+      }
     }
 
     onStatusChange?.('checking');
     const check = await Updates.checkForUpdateAsync();
 
-    if (!check.isAvailable) {
+    if (!check.isAvailable && !check.isRollBackToEmbedded) {
       onStatusChange?.('idle');
       return {
         success: true,
         updated: false,
-        message: 'ZenFit is already running the latest version.',
+        message: 'ZenFit is already up to date.',
       };
     }
 
-    // New bundle available — download in background
+    // New bundle (or rollback) available — download in background
     onStatusChange?.('downloading');
-    await Updates.fetchUpdateAsync();
+    const fetchResult = await Updates.fetchUpdateAsync();
     onStatusChange?.('ready');
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -186,26 +237,32 @@ export async function checkAndApplyOTAUpdate(
         try {
           await Updates.reloadAsync();
         } catch (_) {}
-        return { success: true, updated: true, message: 'App restarted.' };
+        return { success: true, updated: true, pendingRestart: false, message: 'App restarted.' };
       }
     }
 
     return {
       success: true,
-      updated: true,
-      message: 'Update downloaded and will apply on next app restart.',
+      updated: Boolean(fetchResult?.isNew || check.isRollBackToEmbedded),
+      pendingRestart: true,
+      message: 'Update downloaded! Restart ZenFit to apply it now.',
     };
   } catch (error: any) {
     onStatusChange?.('idle');
     console.warn('[OTA] Check failed:', error?.message);
     const msg = error?.message;
-    const isNetworkErr = !msg || msg.includes('Network') || msg.includes('fetch') || msg.includes('timeout');
+    const isNetworkErr =
+      !msg ||
+      msg.includes('Network') ||
+      msg.includes('fetch') ||
+      msg.includes('timeout') ||
+      msg.includes('Unable to resolve host');
     return {
       success: false,
       updated: false,
       message: isNetworkErr
         ? 'Could not reach update server. Check your internet connection.'
-        : (msg || 'An error occurred while checking for updates.'),
+        : msg || 'An error occurred while checking for updates.',
     };
   }
 }

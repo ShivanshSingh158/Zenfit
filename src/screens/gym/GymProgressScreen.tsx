@@ -71,6 +71,7 @@ export default function GymProgressScreen() {
 
   const [showWeighInSheet, setShowWeighInSheet] = useState(false);
   const [metricsSheetTab, setMetricsSheetTab] = useState<'weight' | 'photo'>('weight');
+  const [selectedPhotoPose, setSelectedPhotoPose] = useState<'all' | 'front' | 'side' | 'back'>('all');
   const [localWeightLogs, setLocalWeightLogs] = useState<any[]>(() =>
     getL1Sync<any[]>(WEIGHT_LOGS_KEY, null) || getL1Sync<any[]>(LEGACY_WEIGHT_LOGS_KEY, [])
   );
@@ -101,26 +102,49 @@ export default function GymProgressScreen() {
     prevSheetOpenRef.current = showWeighInSheet;
   }, [showWeighInSheet]);
 
-  // Unified chronological weight & photo history (contextWeightLogs first, localWeightLogs second so fresh edits win)
+  // Unified weight & check-in photo history:
+  // - Weigh-ins deduplicated per calendar date so multiple check-in poses don't skew charts.
+  // - Check-in photos keyed by id / date+pose so same-day front/side/back photos stay intact.
   const { combinedLogs, chartEntries, photoEntries } = useMemo(() => {
-    const map = new Map<string, { date: string; weight: number; photoUrl?: string | null }>();
-    (contextWeightLogs || []).forEach((l: any) => {
-      const w = Number(l.weightKg ?? l.weight);
-      if (l.date && w > 0) map.set(l.date, { date: l.date, weight: w, photoUrl: l.photoUrl });
-    });
-    localWeightLogs.forEach(l => {
-      const w = Number(l.weightKg ?? l.weight);
-      const existing = map.get(l.date);
-      if (l.date && w > 0) {
-        map.set(l.date, { date: l.date, weight: w, photoUrl: l.photoUrl || existing?.photoUrl });
-      }
-    });
+    const weightMap = new Map<string, { date: string; weight: number }>();
+    const photoMap = new Map<string, { id: string; date: string; weight: number; photoUrl: string; pose: 'front' | 'side' | 'back' }>();
 
-    // Oldest -> Newest
-    const chrono = Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
-    // Full chronological progression (up to 90 active data points instead of arbitrary 10-cap)
+    const ingest = (list: any[]) => {
+      for (const l of list || []) {
+        if (!l?.date) continue;
+        const w = Number(l.weightKg ?? l.weight);
+        if (Number.isFinite(w) && w > 0) {
+          const existingW = weightMap.get(l.date);
+          if (!existingW || (l as any).entryType !== 'photo') {
+            weightMap.set(l.date, { date: l.date, weight: w });
+          }
+        }
+        const photoUri = l.photoUrl || l.localPhotoUri;
+        if (photoUri) {
+          const pose: 'front' | 'side' | 'back' =
+            l.pose === 'side' || l.pose === 'back' ? l.pose : 'front';
+          const photoKey = l.id && String(l.id).includes('_photo_')
+            ? String(l.id)
+            : `${l.date}_${pose}`;
+          photoMap.set(photoKey, {
+            id: l.id || photoKey,
+            date: l.date,
+            weight: Number.isFinite(w) && w > 0 ? w : 0,
+            photoUrl: String(photoUri),
+            pose,
+          });
+        }
+      }
+    };
+
+    ingest(contextWeightLogs || []);
+    ingest(localWeightLogs || []);
+
+    const chrono = Array.from(weightMap.values()).sort((a, b) => a.date.localeCompare(b.date));
     const chartData: WeightChartEntry[] = chrono.slice(-90).map(l => ({ weight: l.weight, date: l.date }));
-    const photos = chrono.filter(l => Boolean(l.photoUrl)) as { date: string; weight: number; photoUrl: string }[];
+    const photos = Array.from(photoMap.values()).sort((a, b) =>
+      a.date.localeCompare(b.date) || a.pose.localeCompare(b.pose)
+    );
 
     return {
       combinedLogs: chrono,
@@ -128,6 +152,16 @@ export default function GymProgressScreen() {
       photoEntries: photos,
     };
   }, [localWeightLogs, contextWeightLogs]);
+
+  const filteredPhotoEntries = useMemo(() => {
+    if (selectedPhotoPose === 'all') return photoEntries;
+    return photoEntries.filter(p => p.pose === selectedPhotoPose);
+  }, [photoEntries, selectedPhotoPose]);
+
+  const availablePhotoPoses = useMemo(() => {
+    const poses = new Set(photoEntries.map(p => p.pose));
+    return poses;
+  }, [photoEntries]);
 
   const startWeight = combinedLogs[0]?.weight ?? gymProfile.weightKg ?? null;
   const currentWeight = combinedLogs[combinedLogs.length - 1]?.weight ?? gymProfile.weightKg ?? null;
@@ -155,6 +189,21 @@ export default function GymProgressScreen() {
     currentWeight && targetWeight && startWeight && startWeight !== targetWeight
       ? Math.min(Math.max((currentWeight - startWeight) / (targetWeight - startWeight), 0), 1)
       : null;
+
+  const weightDeltaColor = useMemo(() => {
+    if (dispWeightDelta === 0) return tokens.text.primary;
+    if (targetWeight != null && startWeight != null && targetWeight !== startWeight) {
+      const wantsGain = targetWeight > startWeight;
+      const movedInGoalDir = wantsGain ? dispWeightDelta > 0 : dispWeightDelta < 0;
+      return movedInGoalDir ? tokens.status.success : tokens.status.warning;
+    }
+    const g = String(gymProfile.goal || gymProfile.primaryGoal || '').toLowerCase();
+    const isBulkGoal = g.includes('hypertrophy') || g.includes('strength') || g.includes('bulk');
+    if (isBulkGoal) {
+      return dispWeightDelta > 0 ? tokens.status.success : tokens.accent.primary;
+    }
+    return dispWeightDelta < 0 ? tokens.status.success : tokens.status.warning;
+  }, [dispWeightDelta, targetWeight, startWeight, gymProfile.goal, gymProfile.primaryGoal, tokens]);
 
   const bodyMapStyle = useMemo(
     () => [styles.iosCard],
@@ -292,12 +341,7 @@ export default function GymProgressScreen() {
                     style={[
                       styles.kpiValue,
                       {
-                        color:
-                          dispWeightDelta === 0
-                            ? tokens.text.primary
-                            : dispWeightDelta < 0
-                            ? tokens.status.success
-                            : tokens.status.warning,
+                        color: weightDeltaColor,
                       },
                     ]}
                   />
@@ -306,12 +350,7 @@ export default function GymProgressScreen() {
                     style={[
                       styles.kpiValue,
                       {
-                        color:
-                          dispWeightDelta === 0
-                            ? tokens.text.primary
-                            : dispWeightDelta < 0
-                            ? tokens.status.success
-                            : tokens.status.warning,
+                        color: weightDeltaColor,
                       },
                     ]}
                   >
@@ -400,26 +439,60 @@ export default function GymProgressScreen() {
           </TactileButton>
         </View>
 
-        {photoEntries.length >= 2 ? (
+        {photoEntries.length > 0 && availablePhotoPoses.size > 1 && (
+          <View style={{ flexDirection: 'row', gap: SPACE[8], marginBottom: SPACE[10], paddingHorizontal: SPACE[4] }}>
+            {(['all', 'front', 'side', 'back'] as const)
+              .filter(p => p === 'all' || availablePhotoPoses.has(p))
+              .map(poseKey => {
+                const isSel = selectedPhotoPose === poseKey;
+                return (
+                  <TactileButton
+                    key={poseKey}
+                    variant="custom"
+                    haptic="selection"
+                    onPress={() => setSelectedPhotoPose(poseKey)}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: RADIUS.sm,
+                      backgroundColor: isSel ? tokens.accent.primary : (tokens.isDark ? 'rgba(255,255,255,0.06)' : tokens.bg.elevated),
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontFamily: isSel ? FONT_FAMILY.bold : FONT_FAMILY.medium,
+                        fontSize: 11.5,
+                        color: isSel ? tokens.accent.onPrimary : tokens.text.secondary,
+                      }}
+                    >
+                      {poseKey.toUpperCase()}
+                    </Text>
+                  </TactileButton>
+                );
+              })}
+          </View>
+        )}
+
+        {filteredPhotoEntries.length >= 2 ? (
           <View style={[styles.iosCard, { padding: SPACE[12] }]}>
             <BeforeAfterSlider
-              beforeImage={photoEntries[0].photoUrl}
-              afterImage={photoEntries[photoEntries.length - 1].photoUrl}
+              beforeImage={filteredPhotoEntries[0].photoUrl}
+              afterImage={filteredPhotoEntries[filteredPhotoEntries.length - 1].photoUrl}
             />
             <View style={styles.photoDatesRow}>
               <NumericText style={styles.photoDateLabel}>
-                Before: {photoEntries[0].date} ({formatWeight(photoEntries[0].weight, unitIsLbs, 1)})
+                Before: {filteredPhotoEntries[0].date} ({filteredPhotoEntries[0].pose.toUpperCase()}{filteredPhotoEntries[0].weight > 0 ? ` · ${formatWeight(filteredPhotoEntries[0].weight, unitIsLbs, 1)}` : ''})
               </NumericText>
               <NumericText style={styles.photoDateLabel}>
-                Latest: {photoEntries[photoEntries.length - 1].date} ({formatWeight(photoEntries[photoEntries.length - 1].weight, unitIsLbs, 1)})
+                Latest: {filteredPhotoEntries[filteredPhotoEntries.length - 1].date} ({filteredPhotoEntries[filteredPhotoEntries.length - 1].pose.toUpperCase()}{filteredPhotoEntries[filteredPhotoEntries.length - 1].weight > 0 ? ` · ${formatWeight(filteredPhotoEntries[filteredPhotoEntries.length - 1].weight, unitIsLbs, 1)}` : ''})
               </NumericText>
             </View>
           </View>
-        ) : photoEntries.length === 1 ? (
+        ) : filteredPhotoEntries.length === 1 ? (
           <View style={[styles.iosCard, { padding: SPACE[12] }]}>
             <View style={[styles.baselinePhotoFrame, { height: bodyMapHeight }]}>
               <ExpoImage
-                source={{ uri: photoEntries[0].photoUrl }}
+                source={{ uri: filteredPhotoEntries[0].photoUrl }}
                 style={{ width: '100%', height: '100%' }}
                 contentFit="cover"
                 transition={120}
@@ -428,7 +501,7 @@ export default function GymProgressScreen() {
             </View>
             <View style={styles.baselineMetaRow}>
               <NumericText style={styles.photoDateLabel}>
-                Baseline Photo · {photoEntries[0].date} ({formatWeight(photoEntries[0].weight, unitIsLbs, 1)})
+                Baseline ({filteredPhotoEntries[0].pose.toUpperCase()}) · {filteredPhotoEntries[0].date}{filteredPhotoEntries[0].weight > 0 ? ` (${formatWeight(filteredPhotoEntries[0].weight, unitIsLbs, 1)})` : ''}
               </NumericText>
               <TactileButton
                 variant="secondary"

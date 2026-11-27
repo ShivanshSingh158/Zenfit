@@ -24,6 +24,7 @@ import {
   Zap,
 } from 'lucide-react-native';
 import BottomSheet from '../../ui/BottomSheet';
+import { LazySheet } from '../../../hooks/useLazySheetMount';
 import { TactileButton } from '../../ui/TactileButton';
 import { NumericText } from '../../ui/NumericText';
 import { IOSSegmentedControl } from '../../ui/IOSSegmentedControl';
@@ -34,7 +35,9 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import { feedback } from '../../../utils/haptics';
 import { generateDatasetFingerprint } from '../../../utils/hotCacheStore';
 import { useGymPlan } from '../../../contexts/domains/WellnessContext';
-import { AddToDaySheet } from '../schedule/AddToDaySheet';
+const LazyAddToDaySheet = React.lazy(() =>
+  import('../schedule/AddToDaySheet').then(m => ({ default: m.AddToDaySheet }))
+);
 import { resolvePlanDay } from '../../../data/gymPlan';
 import { STATIC_BODY_SVG, CachedBodyView } from './muscleMapSvgCache';
 import {
@@ -153,6 +156,12 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
   const [mode, setMode] = useState<string>(initialMode === 'growth' || initialMode === 'strength' ? 'fatigue' : initialMode);
   const [windowDays, setWindowDays] = useState<TimeWindow>(timeWindowDays ?? 30);
   const [selectedMuscle, setSelectedMuscle] = useState<MuscleSlug | null>(null);
+
+  useEffect(() => {
+    if (timeWindowDays !== undefined) {
+      setWindowDays(timeWindowDays);
+    }
+  }, [timeWindowDays]);
 
   // ── Plan-Aware Add/Remove Modal & Toast States ────────────────────────────
   const [addToDayTarget, setAddToDayTarget] = useState<{ id: string; name: string; muscle: string } | null>(null);
@@ -1057,25 +1066,33 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
       </View>
 
       {/* ── Add to Split Day Sheet ── */}
-      <AddToDaySheet
+      <LazySheet
         visible={addToDayTarget !== null}
-        exercise={addToDayTarget}
-        initialDayIndex={initialDayIndex}
-        initialSets={3}
-        onClose={() => setAddToDayTarget(null)}
-        onSuccess={(dayName) => {
-          const addedName = addToDayTarget?.name || 'Exercise';
-          feedback.success();
-          showTimedToast(`Added ${addedName} to ${dayName}`);
-          // Don't call setAddToDayTarget(null) here — onClose handles dismissal
-        }}
+        render={() => (
+          <LazyAddToDaySheet
+            visible={addToDayTarget !== null}
+            exercise={addToDayTarget}
+            initialDayIndex={initialDayIndex}
+            initialSets={3}
+            onClose={() => setAddToDayTarget(null)}
+            onSuccess={(dayName) => {
+              const addedName = addToDayTarget?.name || 'Exercise';
+              feedback.success();
+              showTimedToast(`Added ${addedName} to ${dayName}`);
+              // Don't call setAddToDayTarget(null) here — onClose handles dismissal
+            }}
+          />
+        )}
       />
 
       {/* ── Remove Exercise from Plan Obsidian Sheet ── */}
-      <BottomSheet
+      <LazySheet
         visible={removeTarget !== null}
-        onClose={() => setRemoveTarget(null)}
-      >
+        render={() => (
+          <BottomSheet
+            visible={removeTarget !== null}
+            onClose={() => setRemoveTarget(null)}
+          >
         <View style={styles.confirmSheetBody}>
           <View style={styles.confirmIconWrap}>
             <Trash2 size={22} color={tokens.accent.crimson} strokeWidth={ICON.strokeWidth} />
@@ -1117,7 +1134,7 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
                   await updateMasterPlan(removeTarget.dayIndex, {
                     ...currentDay,
                     exercises: updatedExercises,
-                  });
+                  }, true);
                   showTimedToast(`Removed ${removeTarget.exerciseName} from ${removeTarget.dayName}`);
                 }
                 setRemoveTarget(null);
@@ -1125,7 +1142,9 @@ export const AnatomicalBodyMapCard: React.FC<Props> = React.memo(({
             />
           </View>
         </View>
-      </BottomSheet>
+          </BottomSheet>
+        )}
+      />
 
       {/* ── Action Success Toast ── */}
       {actionToast && (

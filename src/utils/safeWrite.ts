@@ -37,22 +37,22 @@ export async function safeWrite(
 
   // Offline fast-path: enqueue immediately with no lease
   if (!_isOnlineSync) {
-    await queueWrite(collectionName, operation, payload, docId, false, 0);
+    await queueWrite(collectionName, operation, payload, docId, false, 0, now);
     return false;
   }
 
   // Online fast-path: Write-Ahead to RAM WAL immediately with a 12s in-flight lease (#77, #119, #240)
   // Guarantees 0ms data loss if user force-closes the app while network RTT is in flight,
   // while preventing syncOfflineQueue from double-committing the item during the lease!
-  await queueWrite(collectionName, operation, payload, docId, false, Date.now() + IN_FLIGHT_LEASE_MS);
+  const queued = await queueWrite(collectionName, operation, payload, docId, false, Date.now() + IN_FLIGHT_LEASE_MS, now);
 
   try {
     await firestoreFn(payload);
-    removeQueuedFallback(collectionName, operation, docId, now).catch(() => {});
+    removeQueuedFallback(collectionName, operation, docId, queued?.clientUpdatedAt ?? now, queued?.seq).catch(() => {});
     return true;
   } catch (err: any) {
     console.warn(`[safeWrite] Online write failed for ${collectionName}/${docId ?? 'new'}, releasing WAL lease:`, err?.message);
-    markQueueItemRetryable(collectionName, docId).catch(() => {});
+    markQueueItemRetryable(collectionName, docId, queued?.seq).catch(() => {});
     return false;
   }
 }

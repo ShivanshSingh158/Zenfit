@@ -15,7 +15,15 @@ import {
   LIGHT_TOKENS,
   ThemeTokens,
 } from '../theme/tokens';
-import { getBootManifestSync, getL1Sync, isL1BootHydrated, updateL1Cache } from '../utils/bootManifest';
+import {
+  getAuthBootSync,
+  getBootManifestSync,
+  getL1Sync,
+  isAuthBootHydrated,
+  isL1BootHydrated,
+  loadAuthBootSlice,
+  updateL1Cache,
+} from '../utils/bootManifest';
 
 export type ThemeMode = 'dark' | 'light' | 'system';
 
@@ -35,22 +43,29 @@ const ThemeContext = createContext<ThemeContextType | null>(null);
 const THEME_STORAGE_KEY = '@zentrack_theme';
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const _authSync = getAuthBootSync();
   const _sync = getBootManifestSync();
   const l1Mode = getL1Sync<ThemeMode | null>(THEME_STORAGE_KEY, null);
-  const syncMode: ThemeMode | null = _sync?.themeMode ?? l1Mode ?? null;
+  const syncMode: ThemeMode | null = _authSync?.themeMode ?? _sync?.themeMode ?? l1Mode ?? null;
 
   const [mode, setMode] = useState<ThemeMode>(syncMode ?? 'dark');
   const [systemScheme, setSystemScheme] = useState<ColorSchemeName>(
     Appearance.getColorScheme() || 'dark'
   );
+  const userChangedRef = React.useRef(false);
 
   useEffect(() => {
-    if (isL1BootHydrated()) return;
+    if (isAuthBootHydrated() || isL1BootHydrated()) return;
     let active = true;
     (async () => {
       try {
-        const savedTheme = await AsyncStorage.getItem(THEME_STORAGE_KEY);
-        if (active && (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system')) {
+        const slice = await loadAuthBootSlice();
+        const savedTheme = slice.themeMode ?? (await AsyncStorage.getItem(THEME_STORAGE_KEY));
+        if (
+          active &&
+          !userChangedRef.current &&
+          (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'system')
+        ) {
           updateL1Cache('themeMode', savedTheme as ThemeMode);
           setMode(savedTheme as ThemeMode);
         }
@@ -71,6 +86,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const applyMode = useCallback(async (next: ThemeMode) => {
+    userChangedRef.current = true;
     setMode(next);
     updateL1Cache('themeMode', next);
     try {

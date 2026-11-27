@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import Animated, {
   cancelAnimation,
+  useAnimatedKeyboard,
   useSharedValue,
   useAnimatedStyle,
   withTiming,
@@ -105,38 +106,12 @@ export function AppBottomSheet({
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const [containerHeight, setContainerHeight] = useState<number>(windowHeight);
-  const [keyboardHeight, setKeyboardHeight] = useState<number>(0);
-
-  useEffect(() => {
-    if (!avoidKeyboard) {
-      setKeyboardHeight(0);
-      return;
-    }
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const onShow = (e: any) => {
-      const h = Math.max(0, Math.round(e?.endCoordinates?.height || 0));
-      setKeyboardHeight(h);
-    };
-    const onHide = () => setKeyboardHeight(0);
-    const subShow = Keyboard.addListener(showEvt, onShow);
-    const subHide = Keyboard.addListener(hideEvt, onHide);
-    return () => {
-      subShow.remove();
-      subHide.remove();
-    };
-  }, [avoidKeyboard]);
+  const animatedKeyboard = useAnimatedKeyboard();
 
   const effectiveViewportH = containerHeight > 0 ? containerHeight : windowHeight;
-  // On Android adjustResize, the OS already shrinks containerHeight by ~keyboardHeight,
-  // so avoid subtracting keyboardHeight a second time (which caused empty backdrop gaps + top cutoff).
-  const osAlreadyResized = Math.max(0, windowHeight - effectiveViewportH);
-  const effectiveKeyboardPad = avoidKeyboard
-    ? Math.max(0, keyboardHeight - osAlreadyResized)
-    : 0;
   const maxSheetPx = Math.max(
     240,
-    Math.round(effectiveViewportH - effectiveKeyboardPad - Math.max(insets.top + 8, 36))
+    Math.round(effectiveViewportH - Math.max(insets.top + 8, 36))
   );
   const resolvedSheetPx = resolveSheetHeightPx(
     sheetHeight,
@@ -148,11 +123,12 @@ export function AppBottomSheet({
   const effectiveTravelPx = resolvedSheetPx
     ?? (measuredSheetHRef.current > 40
       ? Math.min(maxSheetPx, measuredSheetHRef.current + 20)
-      : Math.min(maxSheetPx, 420));
+      : maxSheetPx);
   const closedOffset = effectiveTravelPx;
 
   const [mounted, setMounted] = useState(visible);
   const isMountedRef = useRef(visible);
+  const waitingInitialLayoutRef = useRef(false);
   const closedOffsetRef = useRef(closedOffset);
   closedOffsetRef.current = closedOffset;
   const [portalId] = useState(
@@ -162,6 +138,35 @@ export function AppBottomSheet({
   const translateY = useSharedValue(visible ? 0 : closedOffset);
   const backdropProgress = useSharedValue(visible ? 1 : 0);
   const dragStartY = useSharedValue(0);
+  const closedOffsetSV = useSharedValue(closedOffset);
+  const windowHeightSV = useSharedValue(windowHeight);
+  const containerHeightSV = useSharedValue(containerHeight);
+  const avoidKeyboardSV = useSharedValue(avoidKeyboard ? 1 : 0);
+  const isFullSheetSV = useSharedValue(
+    fullHeight || (resolvedSheetPx !== undefined && resolvedSheetPx >= effectiveViewportH * 0.72) ? 1 : 0
+  );
+
+  useEffect(() => {
+    closedOffsetSV.value = closedOffset;
+  }, [closedOffset, closedOffsetSV]);
+
+  useEffect(() => {
+    windowHeightSV.value = windowHeight;
+  }, [windowHeight, windowHeightSV]);
+
+  useEffect(() => {
+    containerHeightSV.value = containerHeight;
+  }, [containerHeight, containerHeightSV]);
+
+  useEffect(() => {
+    avoidKeyboardSV.value = avoidKeyboard ? 1 : 0;
+  }, [avoidKeyboard, avoidKeyboardSV]);
+
+  useEffect(() => {
+    isFullSheetSV.value =
+      fullHeight || (resolvedSheetPx !== undefined && resolvedSheetPx >= effectiveViewportH * 0.72) ? 1 : 0;
+  }, [fullHeight, resolvedSheetPx, effectiveViewportH, isFullSheetSV]);
+
   const isClosingRef = useRef(false);
   const openRafRef = useRef<number | null>(null);
   const onCloseRef = useRef(onClose);
@@ -242,6 +247,8 @@ export function AppBottomSheet({
       isClosingRef.current = false;
       if (!isMountedRef.current) {
         isMountedRef.current = true;
+        const needsMeasure = resolvedSheetPx === undefined && measuredSheetHRef.current <= 40;
+        waitingInitialLayoutRef.current = needsMeasure;
         translateY.value = closedOffsetRef.current;
         backdropProgress.value = 0;
         setMounted(true);
@@ -249,6 +256,7 @@ export function AppBottomSheet({
       }
       startSpringOpen();
     } else if (isMountedRef.current && !isClosingRef.current) {
+      waitingInitialLayoutRef.current = false;
       animateClose(false);
     }
 
@@ -258,11 +266,11 @@ export function AppBottomSheet({
         openRafRef.current = null;
       }
     };
-  }, [visible, translateY, backdropProgress, animateClose, startSpringOpen, portalId]);
+  }, [visible, resolvedSheetPx, translateY, backdropProgress, animateClose, startSpringOpen, portalId]);
 
-  // Trigger spring immediately once Portal (via useLayoutEffect) has attached Animated.View
+  // Trigger spring immediately once Portal attaches known-height sheets (auto-height sheets wait 1 onLayout pass for exact travel)
   useEffect(() => {
-    if (mounted && visible && !isClosingRef.current) {
+    if (mounted && visible && !isClosingRef.current && !waitingInitialLayoutRef.current) {
       startSpringOpen();
     }
   }, [mounted, visible, startSpringOpen]);
@@ -285,6 +293,10 @@ export function AppBottomSheet({
     markSheetClosing(portalId);
   }, [portalId]);
 
+  const handleDismissKeyboardJS = useCallback(() => {
+    Keyboard.dismiss();
+  }, []);
+
   const handleDragDismissJS = useCallback(() => {
     isClosingRef.current = false;
     isMountedRef.current = false;
@@ -302,14 +314,18 @@ export function AppBottomSheet({
         .onStart(() => {
           'worklet';
           dragStartY.value = translateY.value;
+          if (avoidKeyboardSV.value === 1) {
+            runOnJS(handleDismissKeyboardJS)();
+          }
         })
         .onUpdate((e) => {
           'worklet';
           const next = dragStartY.value + e.translationY;
           translateY.value = next < 0 ? next * 0.15 : next;
+          const off = Math.max(120, closedOffsetSV.value);
           backdropProgress.value = interpolate(
             translateY.value,
-            [0, closedOffset],
+            [0, off],
             [1, 0],
             Extrapolation.CLAMP
           );
@@ -324,7 +340,7 @@ export function AppBottomSheet({
               easing: iosEasing.standard,
             });
             translateY.value = withTiming(
-              closedOffset,
+              Math.max(120, closedOffsetSV.value),
               {
                 duration: durations.sheetClose,
                 easing: iosEasing.accel,
@@ -347,9 +363,12 @@ export function AppBottomSheet({
       dragStartY,
       translateY,
       backdropProgress,
-      closedOffset,
+      closedOffsetSV,
+      avoidKeyboardSV,
+      handleDismissKeyboardJS,
       handleDragStartJS,
       handleDragDismissJS,
+      handleCloseInterruptedJS,
     ]
   );
 
@@ -357,9 +376,18 @@ export function AppBottomSheet({
     opacity: backdropProgress.value,
   }));
 
-  const sheetAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-  }));
+  const sheetAnimatedStyle = useAnimatedStyle(() => {
+    if (avoidKeyboardSV.value !== 1 || isFullSheetSV.value === 1) {
+      return {
+        transform: [{ translateY: translateY.value }],
+      };
+    }
+    const osAlreadyResized = Math.max(0, windowHeightSV.value - containerHeightSV.value);
+    const shift = Math.max(0, animatedKeyboard.height.value - osAlreadyResized);
+    return {
+      transform: [{ translateY: translateY.value - shift }],
+    };
+  });
 
   if (!mounted) return null;
 
@@ -405,18 +433,27 @@ export function AppBottomSheet({
           />
         </Animated.View>
 
-        {/* Bottom Sheet Surface + Single-Pass Keyboard Clamping */}
+        {/* Bottom Sheet Surface + GPU Compositor Keyboard Shift */}
         <View
-          style={[
-            styles.keyboardContainer,
-            effectiveKeyboardPad > 0 ? { paddingBottom: effectiveKeyboardPad } : null,
-          ]}
+          style={styles.keyboardContainer}
           pointerEvents="box-none"
         >
           <Animated.View
             onLayout={(e) => {
               const h = Math.round(e.nativeEvent.layout.height);
-              if (h > 0) measuredSheetHRef.current = h;
+              if (h > 0) {
+                measuredSheetHRef.current = h;
+                if (resolvedSheetPx === undefined) {
+                  const exactOffset = Math.min(maxSheetPx, h + 20);
+                  closedOffsetRef.current = exactOffset;
+                  closedOffsetSV.value = exactOffset;
+                  if (waitingInitialLayoutRef.current && visible && !isClosingRef.current) {
+                    waitingInitialLayoutRef.current = false;
+                    translateY.value = exactOffset;
+                    startSpringOpen();
+                  }
+                }
+              }
             }}
             style={[
               styles.sheetContainer,

@@ -106,7 +106,7 @@ export const AddToDaySheet: React.FC<AddToDaySheetProps> = ({
       exercises: [...(currentPlanDay.exercises || []), newExercise],
     };
 
-    await updateMasterPlan(targetDayIndex, updatedPlanDay);
+    await updateMasterPlan(targetDayIndex, updatedPlanDay, true);
     onSuccess(`${selectedDayObj.dayName} (${selectedDayObj.routineTitle})`);
     onClose();
   };

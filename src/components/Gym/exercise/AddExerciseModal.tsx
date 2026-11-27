@@ -1,11 +1,11 @@
 /**
  * AddExerciseModal.tsx • ZenFit Mobile
  *
- * Fully redesigned exercise catalogue search & creation modal:
- * - Segmented Anatomical Muscle Filter Bar with visual glyphs (No equipment filter).
+ * Unified exercise catalogue search, filtering & custom creation modal:
+ * - Segmented Anatomical Muscle Filter Bar with Equipment Filter Modal (`VaultEquipmentModal`).
  * - Rich card-style search results (Equipment glyph, Primary & Secondary muscles,
  *   Tier badge, and Past performance snippet).
- * - Instant "Create Custom Exercise" card on 0 search results with one-tap auto-categorization.
+ * - Full custom exercise builder (`CreateCustomExerciseModal`) + instant 1-tap creation on 0 results.
  * - Ultra-lightweight: Database activates ONLY when searching or filtering; turns OFF when idle
  *   so modal opening, closing, and interactions feel instantaneous.
  */
@@ -22,13 +22,14 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Check,
+  ChevronDown,
   ChevronLeft,
   Dumbbell,
   Plus,
   Search,
   X,
 } from 'lucide-react-native';
-import { TactileButton } from '../../ui';
+import { NumericText, TactileButton } from '../../ui';
 import BottomSheet from '../../ui/BottomSheet';
 
 import { FONT_FAMILY, ICON, SPACE, TOUCH } from '../../../theme/tokens';
@@ -55,6 +56,12 @@ import type { ExerciseCatalogEntry } from '../../../types/gym.types';
 import ExerciseCardItem from './ExerciseCardItem';
 import ExerciseCustomFields from './ExerciseCustomFields';
 import ExerciseAnimationCard from './ExerciseAnimationCard';
+import { VaultEquipmentModal } from './VaultEquipmentModal';
+import { CreateCustomExerciseModal, CustomExerciseItem } from './CreateCustomExerciseModal';
+import {
+  EquipmentCategory,
+  resolveExerciseEquipment,
+} from '../../../utils/equipmentResolver';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import {
   getBiomechanicalPrescription,
@@ -66,6 +73,9 @@ import {
 } from '../../../utils/gymUtils';
 
 // ── Muscle Filter Chips & Unified Catalogue Re-exports ────────────────────────
+const exerciseCardKeyExtractor = (item: ExerciseCatalogEntry) =>
+  `${item.id || item.name}_${item.isCustom ? 'c' : 's'}`;
+
 export const MUSCLE_FILTER_CHIPS = UNIFIED_MUSCLE_CHIPS;
 export const getExerciseCatalogue = getUnifiedExerciseCatalogue;
 export const getCategoryMap = getUnifiedCategoryMap;
@@ -133,6 +143,21 @@ const entryMetaCache = new WeakMap<ExerciseCatalogEntry, {
   aliasesLower: string[];
   normAliases: string[];
 }>();
+
+const entryEquipmentCache = new WeakMap<ExerciseCatalogEntry, EquipmentCategory>();
+
+function getEntryEquipment(entry: ExerciseCatalogEntry): EquipmentCategory {
+  const explicit = entry.equipment as EquipmentCategory | undefined;
+  if (explicit && explicit !== 'All') {
+    return explicit;
+  }
+  let cached = entryEquipmentCache.get(entry);
+  if (!cached) {
+    cached = resolveExerciseEquipment(entry.name, entry.aliases || []);
+    entryEquipmentCache.set(entry, cached);
+  }
+  return cached;
+}
 
 function getEntryMeta(entry: ExerciseCatalogEntry) {
   let meta = entryMetaCache.get(entry);
@@ -288,6 +313,9 @@ export function AddExerciseModal({
   // Search and Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMuscle, setSelectedMuscle] = useState<string>('all');
+  const [selectedEquipment, setSelectedEquipment] = useState<EquipmentCategory>('All');
+  const [showEquipmentModal, setShowEquipmentModal] = useState(false);
+  const [showCreateCustomModal, setShowCreateCustomModal] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<ExerciseCatalogEntry | null>(null);
   const [multiSelected, setMultiSelected] = useState<Record<string, ExerciseCatalogEntry>>({});
   const [showCustomTuning, setShowCustomTuning] = useState(false);
@@ -323,13 +351,22 @@ export function AddExerciseModal({
     const catalogue = getExerciseCatalogue();
     const categoryMap = getCategoryMap();
     const q = debouncedQuery;
+    const hasEquipmentFilter = selectedEquipment !== 'All';
 
-    // Muscle category only (no search text)
+    // Muscle & Equipment browse mode (no search text)
     if (!q) {
+      let baseList: ExerciseCatalogEntry[];
       if (selectedMuscle && selectedMuscle !== 'all') {
-        return categoryMap[selectedMuscle] || catalogue.filter(e => checkCategoryMatch(e.muscle, selectedMuscle));
+        baseList =
+          categoryMap[selectedMuscle] ||
+          catalogue.filter((e) => checkCategoryMatch(e.muscle, selectedMuscle));
+      } else {
+        baseList = catalogue;
       }
-      return catalogue;
+      if (hasEquipmentFilter) {
+        return baseList.filter((e) => getEntryEquipment(e) === selectedEquipment);
+      }
+      return baseList;
     }
 
     // Full Relevance Search
@@ -340,6 +377,9 @@ export function AddExerciseModal({
     const scored: { item: ExerciseCatalogEntry; score: number }[] = [];
 
     for (const entry of catalogue) {
+      if (hasEquipmentFilter && getEntryEquipment(entry) !== selectedEquipment) {
+        continue;
+      }
       const score = scoreExerciseMatch(
         entry,
         q,
@@ -362,7 +402,7 @@ export function AddExerciseModal({
     });
 
     return scored.map(s => s.item);
-  }, [visible, debouncedQuery, selectedMuscle, catalogTick]);
+  }, [visible, debouncedQuery, selectedMuscle, selectedEquipment, catalogTick]);
 
   const displayedResults = results;
 
@@ -512,6 +552,41 @@ export function AddExerciseModal({
     resetAndClose();
   };
 
+  const handleCustomModalCreated = useCallback(
+    (item: CustomExerciseItem) => {
+      const rx = getBiomechanicalPrescription(item.name, item.muscle);
+      const entry: ExerciseCatalogEntry = {
+        id: item.id,
+        name: item.name,
+        muscle: item.muscle,
+        targetSets: rx.targetSets,
+        targetReps: rx.targetReps,
+        restTimeSecs: rx.restTimeSecs,
+        videoId: '',
+        equipment: item.equipment,
+        tier: item.tier || 'A Tier',
+        isCurated: false,
+        isCustom: true,
+      };
+
+      persistCustomExercise(entry).catch(() => {});
+      setSelectedMuscle('all');
+      setSelectedEquipment('All');
+      setSearchQuery(item.name);
+      setDebouncedQuery(item.name.trim().toLowerCase());
+      setCatalogTick((t) => t + 1);
+      hapticSuccess();
+
+      if (selectionMode === 'multi') {
+        const key = (entry.id || entry.name).toLowerCase();
+        setMultiSelected((prev) => ({ ...prev, [key]: entry }));
+      } else {
+        handleSelectEntry(entry);
+      }
+    },
+    [selectionMode, handleSelectEntry]
+  );
+
   // Commit from Quick Tuner
   const handleConfirmAddTuned = () => {
     const exerciseName = selectedEntry?.name || searchQuery.trim();
@@ -584,6 +659,9 @@ export function AddExerciseModal({
     setSearchQuery('');
     setDebouncedQuery('');
     setSelectedMuscle('all');
+    setSelectedEquipment('All');
+    setShowEquipmentModal(false);
+    setShowCreateCustomModal(false);
     setSelectedEntry(null);
     setMultiSelected({});
     setShowCustomTuning(false);
@@ -596,6 +674,13 @@ export function AddExerciseModal({
     setAiLoading(false);
     onClose();
   };
+
+  const hasActiveFilters = selectedMuscle !== 'all' || selectedEquipment !== 'All';
+  const clearFilters = useCallback(() => {
+    hapticSelection();
+    setSelectedMuscle('all');
+    setSelectedEquipment('All');
+  }, []);
 
   const multiCount = Object.keys(multiSelected).length;
 
@@ -816,20 +901,98 @@ export function AddExerciseModal({
                 </ScrollView>
               </View>
 
+              {/* Equipment Filter Pill & Custom Exercise Creator */}
+              <View style={styles.utilityFilterRow}>
+                <View
+                  style={[
+                    styles.equipmentPill,
+                    selectedEquipment !== 'All' && styles.equipmentPillActive,
+                  ]}
+                >
+                  <TactileButton
+                    lightweight
+                    variant="custom"
+                    haptic="selection"
+                    style={styles.equipmentPillLeft}
+                    onPress={() => setShowEquipmentModal(true)}
+                  >
+                    <Dumbbell
+                      size={14}
+                      strokeWidth={ICON.strokeWidth}
+                      color={selectedEquipment !== 'All' ? tokens.accent.primary : tokens.text.secondary}
+                    />
+                    <Text
+                      style={[
+                        styles.equipmentPillText,
+                        selectedEquipment !== 'All' && styles.equipmentPillTextActive,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {selectedEquipment === 'All' ? 'All Equipment' : selectedEquipment === 'None' ? 'Bodyweight' : selectedEquipment}
+                    </Text>
+                  </TactileButton>
+                  {selectedEquipment !== 'All' ? (
+                    <TactileButton
+                      lightweight
+                      variant="custom"
+                      haptic="selection"
+                      hitSlop={TOUCH.hitSlop}
+                      onPress={() => setSelectedEquipment('All')}
+                      accessibilityLabel="Clear equipment filter"
+                    >
+                      <X size={14} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
+                    </TactileButton>
+                  ) : (
+                    <TactileButton
+                      lightweight
+                      variant="custom"
+                      haptic="selection"
+                      hitSlop={TOUCH.hitSlop}
+                      onPress={() => setShowEquipmentModal(true)}
+                      accessibilityLabel="Open equipment filter"
+                    >
+                      <ChevronDown size={14} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} />
+                    </TactileButton>
+                  )}
+                </View>
+
+                <TactileButton
+                  lightweight
+                  variant="custom"
+                  haptic="selection"
+                  style={styles.customCreatePill}
+                  onPress={() => setShowCreateCustomModal(true)}
+                >
+                  <Plus size={14} strokeWidth={ICON.strokeWidth} color={tokens.accent.primary} />
+                  <Text style={styles.customCreatePillText}>Custom</Text>
+                </TactileButton>
+              </View>
+
               <View style={styles.statusNotice}>
-                <Text style={styles.statusNoticeText}>
-                  {selectedMuscle && selectedMuscle !== 'all'
-                    ? `${selectedMuscle} Exercises`
-                    : searchQuery.trim()
-                    ? 'Matching Exercises'
-                    : 'All Exercises'}
-                </Text>
+                <NumericText style={styles.statusNoticeText}>
+                  {[
+                    selectedMuscle && selectedMuscle !== 'all' ? selectedMuscle : null,
+                    selectedEquipment !== 'All' ? (selectedEquipment === 'None' ? 'Bodyweight' : selectedEquipment) : null,
+                  ].filter(Boolean).join(' · ') || (searchQuery.trim() ? 'Matching' : 'All Exercises')}
+                  {' · '}
+                  {results.length} {results.length === 1 ? 'Exercise' : 'Exercises'}
+                </NumericText>
+                {hasActiveFilters && (
+                  <TactileButton
+                    lightweight
+                    variant="custom"
+                    hitSlop={TOUCH.hitSlop}
+                    onPress={clearFilters}
+                  >
+                    <Text style={styles.resetFiltersLink}>Reset Filters</Text>
+                  </TactileButton>
+                )}
               </View>
 
               {results.length > 0 ? (
                 <FlatList
                   data={displayedResults}
-                  keyExtractor={(item) => `${item.id || item.name}_${item.isCustom ? 'c' : 's'}`}
+                  keyExtractor={exerciseCardKeyExtractor}
                   renderItem={renderExerciseCard}
                   contentContainerStyle={[
                     styles.cardList,
@@ -907,8 +1070,27 @@ export function AddExerciseModal({
                   <View style={styles.emptyState}>
                     <Search size={ICON.lg} strokeWidth={ICON.strokeWidth} color={tokens.text.muted} />
                     <Text style={styles.emptyStateText}>
-                      Not in standard catalogue? Tap create above or configure custom details below.
+                      {hasActiveFilters
+                        ? 'No exercises match the active muscle/equipment filters.'
+                        : 'Not in standard catalogue? Tap create above or use the custom exercise builder.'}
                     </Text>
+                    {hasActiveFilters ? (
+                      <TactileButton
+                        variant="custom"
+                        style={{ marginTop: SPACE.sm }}
+                        onPress={clearFilters}
+                      >
+                        <Text style={styles.resetFiltersLink}>Reset Muscle & Equipment Filters</Text>
+                      </TactileButton>
+                    ) : (
+                      <TactileButton
+                        variant="custom"
+                        style={{ marginTop: SPACE.sm }}
+                        onPress={() => setShowCreateCustomModal(true)}
+                      >
+                        <Text style={styles.resetFiltersLink}>Open Custom Exercise Builder</Text>
+                      </TactileButton>
+                    )}
                   </View>
                 </ScrollView>
               )}
@@ -930,6 +1112,21 @@ export function AddExerciseModal({
               )}
             </View>
           )}
+
+        <VaultEquipmentModal
+          visible={showEquipmentModal}
+          selectedEquipment={selectedEquipment}
+          resultCount={results.length}
+          onSelect={(eq) => setSelectedEquipment(eq)}
+          onClear={() => setSelectedEquipment('All')}
+          onClose={() => setShowEquipmentModal(false)}
+        />
+
+        <CreateCustomExerciseModal
+          visible={showCreateCustomModal}
+          onClose={() => setShowCreateCustomModal(false)}
+          onCreated={handleCustomModalCreated}
+        />
       </View>
   );
 

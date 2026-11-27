@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Check, Flame, Play } from 'lucide-react-native';
+import { Check, Flame, Play, RotateCcw } from 'lucide-react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { hapticMedium } from '../../utils/haptics';
 import { resolveExerciseTargetMuscle } from '../../utils/gymUtils';
@@ -283,18 +283,32 @@ export const GymWorkoutBanner: React.FC<GymWorkoutBannerProps> = React.memo(
                   </Text>
                 </TactileButton>
               ) : (
-                <TactileButton
-                  variant="secondary"
-                  size="md"
-                  haptic="medium"
-                  onPress={() => {
-                    navigation.navigate('ActiveLogging', { date: selectedDate, autoStart: 'resume' });
-                  }}
-                >
-                  <Text style={[tokens.typography.label, { color: tokens.status.success }]}>
-                    Resume
-                  </Text>
-                </TactileButton>
+                <>
+                  {onRevertWorkout && (
+                    <TactileButton
+                      variant="secondary"
+                      size="md"
+                      haptic="medium"
+                      onPress={() => setPendingAction('revert')}
+                      accessibilityLabel="Revert workout session"
+                      style={{ paddingHorizontal: 12 }}
+                    >
+                      <AppIcon icon={RotateCcw} size={15} color={tokens.status.warning} />
+                    </TactileButton>
+                  )}
+                  <TactileButton
+                    variant="secondary"
+                    size="md"
+                    haptic="medium"
+                    onPress={() => {
+                      navigation.navigate('ActiveLogging', { date: selectedDate, autoStart: 'resume' });
+                    }}
+                  >
+                    <Text style={[tokens.typography.label, { color: tokens.status.success }]}>
+                      Resume
+                    </Text>
+                  </TactileButton>
+                </>
               )}
 
               <TactileButton

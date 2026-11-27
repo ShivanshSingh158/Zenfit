@@ -46,8 +46,8 @@ import {
   normalizeExerciseKey,
   resolveExerciseTargetMuscle,
 } from '../../utils/gymUtils';
-import { setL1Sync } from '../../utils/bootManifest';
-import { mapPlanCardioToLogs, todayStr } from '../../hooks/useGymLog';
+import { setL1Sync, deleteL1Sync } from '../../utils/bootManifest';
+import { executeFirestoreLogWrite, mapPlanCardioToLogs, todayStr } from '../../hooks/useGymLog';
 import { useGymProfile } from '../../hooks/useGymProfile';
 import { useCoreData } from '../../contexts/domains/CoreDataContext';
 
@@ -479,10 +479,11 @@ export default function GymSplitsScreen({ route }: any) {
       ? [...keptCompletedCardio, ...mapPlanCardioToLogs(routineCardio)]
       : (existingToday?.cardio || []);
     const isCardioOnly = seededExercises.length === 0 && seededCardio.length > 0;
+    const isReplacingCompleted = Boolean(existingToday?.completed);
     const adHocLog: GymDayLog = {
       ...(existingToday || {}),
       id: logId,
-      userId: existingToday?.userId || user?.uid || '',
+      userId: existingToday?.userId || user?.uid || effectiveUid,
       date: todayDateStr,
       dayPlanIndex: existingToday?.dayPlanIndex ?? todayDayIdx,
       exercises: seededExercises,
@@ -492,6 +493,22 @@ export default function GymSplitsScreen({ route }: any) {
       createdAt: (existingToday as any)?.createdAt || now,
       updatedAt: now,
     };
+    delete (adHocLog as any).revertedAt;
+    delete (adHocLog as any).workoutDurationMinutes;
+    delete (adHocLog as any).workoutDurationSeconds;
+    delete (adHocLog as any).startTime;
+    delete (adHocLog as any).endTime;
+    delete (adHocLog as any).restTimerStartTime;
+    delete (adHocLog as any).restTimerDurationSecs;
+    delete (adHocLog as any).restTimerExerciseName;
+    if (isCardioOnly) {
+      delete (adHocLog as any).workoutStartTime;
+    }
+
+    if (isReplacingCompleted || isCardioOnly) {
+      deleteL1Sync(`@zenfit_hot_log_${todayDateStr}`);
+      AsyncStorage.multiRemove(['@gym_last_completed_session', `@zenfit_hot_log_${todayDateStr}`]).catch(() => {});
+    }
 
     // Seed ad-hoc session into daily draft + optimistic gymLogs only (master weekly split untouched)
     setL1Sync(`gym_active_draft_${logId}`, adHocLog);
@@ -516,12 +533,29 @@ export default function GymSplitsScreen({ route }: any) {
       }
       if (!isCardioOnly) {
         setWorkoutActiveGlobal(true, now, todayDateStr);
+      } else if (isReplacingCompleted || existingToday?.workoutStartTime) {
+        setWorkoutActiveGlobal(false);
       }
       DeviceEventEmitter.emit('gym_log_local_mutation', {
         date: todayDateStr,
         log: adHocLog,
+        isSwap: true,
+        isRevert: isReplacingCompleted && isCardioOnly,
         senderId: 'gym_splits_adhoc_start',
       });
+      if (user?.uid || isReplacingCompleted) {
+        executeFirestoreLogWrite(logId, adHocLog, [
+          'revertedAt',
+          'workoutDurationMinutes',
+          'workoutDurationSeconds',
+          'startTime',
+          'endTime',
+          'restTimerStartTime',
+          'restTimerDurationSecs',
+          'restTimerExerciseName',
+          ...(isCardioOnly ? ['workoutStartTime'] : []),
+        ]).catch(() => {});
+      }
     });
     if (isCardioOnly) {
       navigation.navigate('Today');
@@ -707,6 +741,30 @@ export default function GymSplitsScreen({ route }: any) {
       });
     });
   }, [activeDay, updateMasterPlan]);
+
+  const handleReorderExercisesInPlan = useCallback(async (dayIndex: number, reorderedExercises: any[]) => {
+    const targetDay = activeDay?.dayIndex === dayIndex
+      ? activeDay.planDay
+      : resolvePlanDay(userGymPlan, dayIndex);
+    if (!targetDay) return;
+    const updatedPlanDay: GymPlanDay = {
+      ...targetDay,
+      exercises: reorderedExercises,
+    };
+    await updateMasterPlan(dayIndex, updatedPlanDay, true);
+    const routineId = targetDay.routineId;
+    const customRoutine = routineId ? userGymPlan?.routines?.[routineId] : undefined;
+    if (customRoutine) {
+      await saveCustomRoutine(
+        {
+          ...customRoutine,
+          exercises: reorderedExercises,
+          updatedAt: Date.now(),
+        },
+        null
+      );
+    }
+  }, [activeDay, userGymPlan, updateMasterPlan, saveCustomRoutine]);
 
   const handleDeleteCardioFromPlan = useCallback((dayIndex: number, cardioIndex: number, cardioName: string) => {
     hapticLight();
@@ -1119,6 +1177,7 @@ export default function GymSplitsScreen({ route }: any) {
             onEditWorkout={handleEditWorkoutFromDetail}
             onEditExercise={handleEditExerciseFromDetail}
             onEditCardio={handleEditCardioFromDetail}
+            onReorderExercises={handleReorderExercisesInPlan}
           />
         )}
       />
@@ -1479,10 +1538,12 @@ export default function GymSplitsScreen({ route }: any) {
                     variant={confirmDialog.primaryDestructive ? 'danger' : 'primary'}
                     size="lg"
                     label={confirmDialog.primaryLabel}
-                    onPress={async () => {
+                    onPress={() => {
                       const action = confirmDialog.onPrimary;
                       setConfirmDialog(null);
-                      await action();
+                      afterSheetDismiss(() => {
+                        void action();
+                      });
                     }}
                   />
                   {confirmDialog.secondaryLabel && confirmDialog.onSecondary ? (
@@ -1490,10 +1551,12 @@ export default function GymSplitsScreen({ route }: any) {
                       variant="secondary"
                       size="lg"
                       label={confirmDialog.secondaryLabel}
-                      onPress={async () => {
+                      onPress={() => {
                         const action = confirmDialog.onSecondary!;
                         setConfirmDialog(null);
-                        await action();
+                        afterSheetDismiss(() => {
+                          void action();
+                        });
                       }}
                     />
                   ) : null}

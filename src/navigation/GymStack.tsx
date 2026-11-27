@@ -51,10 +51,6 @@ const LazyExerciseDetailScreen = withScreenBoundary(
   cacheAwareLazy('ExerciseDetail', () => import('../screens/gym/ExerciseDetailScreen')),
   'Exercise Detail'
 );
-const LazyExerciseLibraryScreen = withScreenBoundary(
-  cacheAwareLazy('ExerciseLibrary', () => import('../screens/gym/ExerciseLibraryScreen')),
-  'Exercise Library'
-);
 const LazyGymProfileScreen = withScreenBoundary(
   cacheAwareLazy('GymProfile', () => import('../screens/gym/GymProfileScreen')),
   'Profile'
@@ -139,7 +135,6 @@ export default function GymStack() {
           }}
         />
         <Stack.Screen name="ExerciseDetail" component={LazyExerciseDetailScreen} />
-        <Stack.Screen name="ExerciseLibrary" component={LazyExerciseLibraryScreen} />
         <Stack.Screen name="GymProfile" component={LazyGymProfileScreen} />
         <Stack.Screen
           name="ExerciseSwap"

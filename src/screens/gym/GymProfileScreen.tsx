@@ -21,6 +21,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Activity,
+  ArrowUpCircle,
   BarChart2,
   BellOff,
   Check,
@@ -43,6 +44,8 @@ import {
   Volume2,
   X,
 } from 'lucide-react-native';
+import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { collection, query, where, getDocs } from 'firebase/firestore';
@@ -91,6 +94,12 @@ import { computeAthleteCardStats } from '../../services/athleteCardService';
 import { clearDomainHotCache } from '../../utils/hotCacheStore';
 import { afterSheetDismiss } from '../../utils/sheetCoordinator';
 import { useWeightUnit, formatWeight } from '../../utils/weightUnit';
+import {
+  OtaManualStatus,
+  applyDownloadedOTAUpdate,
+  checkAndApplyOTAUpdate,
+  getOTAUpdateInfo,
+} from '../../services/otaUpdateService';
 
 const REST_PRESETS = [
   { secs: 60, label: '1:00' },
@@ -121,7 +130,7 @@ const TIME_OPTIONS = [
 type SettingsActionSheetState =
   | null
   | {
-      kind: 'clearCache' | 'signOut' | 'permission';
+      kind: 'clearCache' | 'signOut' | 'permission' | 'applyUpdate';
       title: string;
       message: string;
       confirmLabel: string;
@@ -163,6 +172,24 @@ export default function GymProfileScreen() {
   const [actionSheet, setActionSheet] = useState<SettingsActionSheetState>(null);
   const [statusToast, setStatusToast] = useState<string | null>(null);
   const [cloudSyncing, setCloudSyncing] = useState(false);
+
+  // App Updates (Expo EAS OTA + runtime telemetry)
+  const otaInfo = useMemo(() => getOTAUpdateInfo(), []);
+  const updatesState = Updates.useUpdates();
+  const [updateStatus, setUpdateStatus] = useState<OtaManualStatus>('idle');
+  const [updateNote, setUpdateNote] = useState<string | null>(null);
+  const appVersion = Constants.expoConfig?.version || '1.0.0';
+  const isUpdateBusy =
+    updateStatus === 'checking' ||
+    updateStatus === 'downloading' ||
+    updatesState.isChecking ||
+    updatesState.isDownloading;
+  const isUpdatePending =
+    updatesState.isUpdatePending || updateStatus === 'ready';
+  const downloadPct =
+    typeof updatesState.downloadProgress === 'number'
+      ? Math.round(updatesState.downloadProgress * 100)
+      : 0;
 
   // Sync latest weight & athlete dossier
   const latestTrackedWeightKg = useMemo(() => {
@@ -313,6 +340,14 @@ export default function GymProfileScreen() {
       return;
     }
 
+    if (current.kind === 'applyUpdate') {
+      const res = await applyDownloadedOTAUpdate();
+      if (!res.success) {
+        setStatusToast(res.message);
+      }
+      return;
+    }
+
     if (current.kind === 'signOut') {
       notificationAsync(Haptics.NotificationFeedbackType.Success);
       try {
@@ -408,6 +443,54 @@ export default function GymProfileScreen() {
       setCloudSyncing(false);
     }
   }, [cloudSyncing, user, gymLogs, performGoogleSignIn]);
+
+  const handleCheckForUpdatesPress = useCallback(async () => {
+    if (isUpdateBusy) return;
+    impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    if (isUpdatePending) {
+      setActionSheet({
+        kind: 'applyUpdate',
+        title: 'Restart & Apply Update',
+        message: 'A new ZenFit update has been downloaded cleanly to this device. Restart now to switch to the latest version?',
+        confirmLabel: 'Restart Now',
+      });
+      return;
+    }
+
+    const res = await checkAndApplyOTAUpdate((next) => setUpdateStatus(next));
+    setUpdateNote(res.message);
+    setStatusToast(res.message);
+
+    if (res.pendingRestart) {
+      setActionSheet({
+        kind: 'applyUpdate',
+        title: 'Update Ready to Install',
+        message: 'The latest ZenFit bundle is downloaded. Restart now to apply it immediately?',
+        confirmLabel: 'Restart Now',
+      });
+    }
+  }, [isUpdateBusy, isUpdatePending]);
+
+  const updateRowSubtitle = useMemo(() => {
+    if (updatesState.isDownloading || updateStatus === 'downloading') {
+      return downloadPct > 0
+        ? `Downloading update (${downloadPct}%)...`
+        : 'Downloading latest update...';
+    }
+    if (updatesState.isChecking || updateStatus === 'checking') {
+      return 'Checking update server...';
+    }
+    if (isUpdatePending) {
+      return 'Downloaded & ready · Tap to restart ZenFit';
+    }
+    if (updateNote) {
+      return updateNote;
+    }
+    const channelTag = otaInfo.channel || (__DEV__ ? 'dev' : otaInfo.isEmbeddedLaunch ? 'built-in' : 'ota');
+    const shortId = otaInfo.updateId ? ` · #${otaInfo.updateId.slice(0, 7)}` : '';
+    return `Version ${appVersion} (${channelTag})${shortId}`;
+  }, [updatesState.isDownloading, updatesState.isChecking, updateStatus, downloadPct, isUpdatePending, updateNote, otaInfo, appVersion]);
 
   const statsSummarySub = useMemo(() => {
     if (!athleteStats.hasPhysicalStats) {
@@ -855,6 +938,59 @@ export default function GymProfileScreen() {
 
           <View style={styles.hairline} />
 
+          {/* Check for App Updates */}
+          <TactileButton
+            variant="custom"
+            scaleTo={0.99}
+            style={styles.settingRow}
+            onPress={handleCheckForUpdatesPress}
+            disabled={isUpdateBusy}
+          >
+            <View
+              style={[
+                styles.iconBox,
+                isUpdatePending && { backgroundColor: tokens.accent.primaryDim },
+              ]}
+            >
+              <ArrowUpCircle
+                size={ICON.sm}
+                color={isUpdatePending ? tokens.accent.primary : tokens.text.primary}
+                strokeWidth={ICON.strokeWidth}
+              />
+            </View>
+            <View style={styles.settingTextCol}>
+              <Text style={styles.settingLabel}>Check for Updates</Text>
+              <Text style={styles.settingSub} numberOfLines={2}>
+                {updateRowSubtitle}
+              </Text>
+            </View>
+            <View style={styles.syncStatusBadge}>
+              {isUpdateBusy ? (
+                <ActivityIndicator size="small" color={tokens.accent.primary} />
+              ) : isUpdatePending ? (
+                <View style={[styles.syncStatusDot, { backgroundColor: tokens.status.success }]} />
+              ) : null}
+              <Text
+                style={[
+                  styles.syncStatusText,
+                  isUpdatePending && { color: tokens.accent.primary },
+                ]}
+              >
+                {isUpdateBusy
+                  ? updatesState.isDownloading || updateStatus === 'downloading'
+                    ? downloadPct > 0
+                      ? `${downloadPct}%`
+                      : 'Downloading'
+                    : 'Checking'
+                  : isUpdatePending
+                  ? 'Restart'
+                  : 'Check'}
+              </Text>
+            </View>
+          </TactileButton>
+
+          <View style={styles.hairline} />
+
           {/* Clear Temporary Cache */}
           <TactileButton
             variant="custom"
@@ -911,7 +1047,11 @@ export default function GymProfileScreen() {
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.versionText}>ZenFit · Performance & Training OS</Text>
+          <NumericText style={styles.versionText}>
+            ZenFit v{appVersion}
+            {otaInfo.channel ? ` · ${otaInfo.channel}` : __DEV__ ? ' · dev' : ''}
+            {otaInfo.updateId ? ` · #${otaInfo.updateId.slice(0, 7)}` : ''}
+          </NumericText>
         </View>
       </ScrollView>
 

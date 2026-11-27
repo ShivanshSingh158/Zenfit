@@ -13,6 +13,7 @@ import {
   convertGymLogsToHistory,
 } from './progressionEngine';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DeviceEventEmitter } from 'react-native';
 import { normalizeExerciseKey } from './gymUtils';
 import { formatLocalDateStr } from './dateUtils';
 import { estimate1RM, OneRMFormula, calculateRepMaxTable } from '../services/oneRepMaxEngine';
@@ -68,6 +69,19 @@ export interface OverloadSuggestion extends ProgressionRecommendation {
   type: "increase" | "decrease" | "maintain";
 }
 
+export interface ProgrammeRecoveryMeta {
+  weekNumber?: number;
+  phaseName?: string;
+  phaseType?: string;
+  targetRir?: number;
+  intensityPercentage1RM?: number;
+  volumeModifierSets?: number;
+}
+
+export type OverloadRecoveryContext = RecoveryContextInput & {
+  programme?: ProgrammeRecoveryMeta;
+};
+
 /**
  * Universal entry point for ActiveLoggingScreen.tsx and ActiveExerciseHeader.tsx.
  * Supports:
@@ -85,7 +99,7 @@ export function getOverloadSuggestion(
 ): OverloadSuggestion {
   let profile: ExerciseProfileInput;
   let history: HistoricalSessionInput[] = [];
-  let recoveryContext: RecoveryContextInput = {};
+  let recoveryContext: OverloadRecoveryContext = {};
   let completedSetsToday: LoggedSetInput[] = [];
 
   // Check if called with legacy multi-param signature
@@ -150,10 +164,62 @@ export function getOverloadSuggestion(
     recoveryContext
   );
 
+  const prog = recoveryContext?.programme;
+  let effectiveRec = baseRec;
+
+  if (prog) {
+    const step = baseRec.inferredMeta.incrementKg || 2.5;
+    const weekLabel = prog.weekNumber ? `W${prog.weekNumber}` : 'Plan';
+    const phaseSuffix = prog.phaseName
+      ? ` · ${weekLabel} ${prog.phaseName}${prog.targetRir != null ? ` (${prog.targetRir} RIR)` : ''}`
+      : '';
+
+    if (prog.phaseType === 'deload' && baseRec.recommendedWeight > 0) {
+      const ratio = prog.intensityPercentage1RM && prog.intensityPercentage1RM > 0
+        ? Math.max(0.55, Math.min(0.85, prog.intensityPercentage1RM / 82))
+        : 0.75;
+      const rawDeloadW = baseRec.recommendedWeight * ratio;
+      const deloadWeight = Math.max(0, Math.round(rawDeloadW / step) * step);
+      const deloadSets = (baseRec.prescribedSets || []).map((s, idx) => ({
+        ...s,
+        setNumber: idx + 1,
+        targetWeight: deloadWeight,
+        targetRir: prog.targetRir ?? 4,
+        role: 'DELOAD' as const,
+        label: deloadWeight > 0
+          ? `${deloadWeight} kg × ${s.targetReps} (${prog.targetRir ?? 4} RIR Deload)`
+          : `BW × ${s.targetReps} (${prog.targetRir ?? 4} RIR Deload)`,
+      }));
+      effectiveRec = {
+        ...baseRec,
+        state: 'REACTIVE_DELOAD',
+        badgeLabel: `${weekLabel} Recovery`,
+        badgeColor: '#38BDF8',
+        headline: deloadWeight > 0
+          ? `Deload: ${deloadWeight} kg × ${deloadSets.length} sets`
+          : `Deload: ${deloadSets.length} recovery sets`,
+        subheadline: `Planned recovery week${phaseSuffix}`,
+        prescribedSets: deloadSets,
+        recommendedWeight: deloadWeight,
+        weightDelta: Number((deloadWeight - baseRec.recommendedWeight).toFixed(1)),
+        isDeload: true,
+      };
+    } else if (prog.targetRir != null || phaseSuffix) {
+      effectiveRec = {
+        ...baseRec,
+        subheadline: `${baseRec.subheadline}${phaseSuffix}`,
+        prescribedSets: (baseRec.prescribedSets || []).map(s => ({
+          ...s,
+          targetRir: prog.targetRir ?? s.targetRir,
+        })),
+      };
+    }
+  }
+
   const livePrescribedSets =
     completedSetsToday && completedSetsToday.length > 0
-      ? recalculateRemainingSetsLive(baseRec, completedSetsToday)
-      : baseRec.prescribedSets;
+      ? recalculateRemainingSetsLive(effectiveRec, completedSetsToday)
+      : effectiveRec.prescribedSets;
 
   const repTargetsJoined = livePrescribedSets
     .map((s) => s.targetReps)
@@ -165,36 +231,37 @@ export function getOverloadSuggestion(
     : 0;
 
   const activeHeadline =
-    completedWorkingCount > 0 && baseRec.state !== 'BASELINE'
+    completedWorkingCount > 0 && effectiveRec.state !== 'BASELINE'
       ? `Next Target: ${
           livePrescribedSets[completedWorkingCount]?.label ??
-          `${baseRec.recommendedWeight} kg × ${repTargetsJoined}`
+          `${effectiveRec.recommendedWeight} kg × ${repTargetsJoined}`
         }`
-      : baseRec.headline;
+      : effectiveRec.headline;
 
   const isWeightIncrease =
-    baseRec.state === 'WEIGHT_UNLOCK' || baseRec.state === 'PLATEAU_BREAK';
+    !effectiveRec.isDeload &&
+    (effectiveRec.state === 'WEIGHT_UNLOCK' || effectiveRec.state === 'PLATEAU_BREAK');
   const isDeload =
-    baseRec.state === 'REACTIVE_DELOAD' || baseRec.state === 'DETRAINED_RAMP' || baseRec.isDeload;
+    effectiveRec.state === 'REACTIVE_DELOAD' || effectiveRec.state === 'DETRAINED_RAMP' || effectiveRec.isDeload;
 
   let type: "increase" | "decrease" | "maintain" = "maintain";
-  if (isWeightIncrease || baseRec.weightDelta > 0) {
+  if (isWeightIncrease || effectiveRec.weightDelta > 0) {
     type = "increase";
-  } else if (isDeload || baseRec.weightDelta < 0) {
+  } else if (isDeload || effectiveRec.weightDelta < 0) {
     type = "decrease";
   }
 
   return {
-    ...baseRec,
+    ...effectiveRec,
     headline: activeHeadline,
     prescribedSets: livePrescribedSets,
-    suggestedWeight: baseRec.recommendedWeight,
+    suggestedWeight: effectiveRec.recommendedWeight,
     suggestedReps: repTargetsJoined,
     reps: repTargetsJoined,
-    reason: baseRec.subheadline,
+    reason: effectiveRec.subheadline,
     isWeightIncrease,
     isDeload,
-    recommended: baseRec.recommendedWeight,
+    recommended: effectiveRec.recommendedWeight,
     type,
     policy: (profile as any).progressionPolicy || 'double',
   };
@@ -404,7 +471,22 @@ export async function detectPR(
 }
 
 export async function getAllPRs(logs?: any[]): Promise<PRRecord> {
-  const fp = logs && Array.isArray(logs) ? `${logs.length}_${logs[0]?.date || ''}_${logs[logs.length - 1]?.date || ''}` : 'empty';
+  let versionSig = 'empty';
+  if (logs && Array.isArray(logs) && logs.length > 0) {
+    let maxUpdatedAt = 0;
+    let completedCount = 0;
+    let revertedCount = 0;
+    for (let i = 0; i < logs.length; i++) {
+      const l = logs[i];
+      if (!l) continue;
+      const u = Number(l.updatedAt || 0);
+      if (u > maxUpdatedAt) maxUpdatedAt = u;
+      if (l.completed) completedCount++;
+      if (l.revertedAt) revertedCount++;
+    }
+    versionSig = `${logs.length}_${logs[0]?.date || ''}_${logs[logs.length - 1]?.date || ''}_${maxUpdatedAt}_${completedCount}_${revertedCount}`;
+  }
+  const fp = versionSig;
   if (_cachedMergedPRs && _cachedMergedPRsFingerprint === fp) {
     return _cachedMergedPRs;
   }
@@ -438,6 +520,46 @@ export async function getAllPRs(logs?: any[]): Promise<PRRecord> {
   _cachedMergedPRs = merged;
   _cachedMergedPRsFingerprint = fp;
   return merged;
+}
+
+export async function reconcilePRsForDate(
+  dateStr: string,
+  logs?: any[]
+): Promise<void> {
+  if (!dateStr) return;
+  try {
+    const stored = { ...(await readPRs()) };
+    const fromLogs = Array.isArray(logs) ? extractAllPRsFromLogs(logs) : {};
+    let changed = false;
+
+    for (const key of Object.keys(stored)) {
+      const existing = stored[key];
+      if (existing?.achievedAt === dateStr) {
+        const recalculated = fromLogs[key];
+        if (recalculated) {
+          if (
+            recalculated.best1RM !== existing.best1RM ||
+            recalculated.heaviestWeight !== existing.heaviestWeight ||
+            recalculated.bestReps !== existing.bestReps ||
+            recalculated.achievedAt !== existing.achievedAt
+          ) {
+            stored[key] = recalculated;
+            changed = true;
+          }
+        } else {
+          delete stored[key];
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      await writePRs(stored);
+      DeviceEventEmitter.emit('gym_prs_updated', { date: dateStr });
+    } else {
+      invalidatePRCache();
+    }
+  } catch { /* ignore */ }
 }
 
 export async function clearAllPRs(): Promise<void> {

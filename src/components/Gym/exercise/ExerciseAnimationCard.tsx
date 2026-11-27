@@ -3,10 +3,10 @@
  *
  * High-Quality Exercise Form & Looping Animation Card.
  */
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
-import { Video as ExpoVideo, ResizeMode } from 'expo-av';
+const LazyVideoPlayer = React.lazy(() => import('../../workout/ActiveExerciseVideoPlayer'));
 import {
   ChevronDown,
   ChevronUp,
@@ -75,7 +75,6 @@ export const ExerciseAnimationCard: React.FC<ExerciseAnimationCardProps> = React
   const [isMinimized, setIsMinimized] = useState(false);
   const [failedUris, setFailedUris] = useState<Record<string, boolean>>({});
   const [showCues, setShowCues] = useState(false);
-  const videoRef = useRef<ExpoVideo>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -168,22 +167,19 @@ export const ExerciseAnimationCard: React.FC<ExerciseAnimationCardProps> = React
         )}
 
         {isVideoAvailable && videoMountReady ? (
-          <ExpoVideo
-            ref={videoRef}
-            source={{ uri: media.clipUri! }}
-            rate={playbackSpeed}
-            volume={0}
-            isMuted={true}
-            resizeMode={ResizeMode.CONTAIN}
-            shouldPlay={isPlaying && !isMinimized}
-            isLooping={true}
-            style={[styles.gifImage, { opacity: isVideoLoaded ? 1 : 0 }]}
-            onLoad={() => setIsVideoLoaded(true)}
-            onError={(err) => {
-              console.warn('[ExerciseAnimationCard] Video playback fallback triggered:', err);
-              setVideoFailed(true);
-            }}
-          />
+          <React.Suspense fallback={null}>
+            <LazyVideoPlayer
+              uri={media.clipUri!}
+              rate={playbackSpeed}
+              isPlaying={isPlaying && !isMinimized}
+              style={[styles.gifImage, { opacity: isVideoLoaded ? 1 : 0 }]}
+              onLoad={() => setIsVideoLoaded(true)}
+              onError={(err) => {
+                console.warn('[ExerciseAnimationCard] Video playback fallback triggered:', err);
+                setVideoFailed(true);
+              }}
+            />
+          </React.Suspense>
         ) : activeFallbackUri ? (
           <Image
             source={{ uri: activeFallbackUri }}

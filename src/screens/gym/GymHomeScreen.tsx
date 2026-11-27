@@ -4,7 +4,6 @@ import {
   View,
   Text,
   Pressable,
-  ScrollView,
   DeviceEventEmitter,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,6 +32,7 @@ import {
   useGymLog,
   todayStr,
   dateStrOffset,
+  resolvePlanDay,
 } from '../../hooks/useGymLog';
 import { parseLocalDate } from '../../utils/dateCore';
 import { getL1Sync, isL1BootHydrated } from '../../utils/bootManifest';
@@ -57,7 +57,8 @@ import {
 } from '../../utils/gymUtils';
 import type { GymCardioLog } from '../../types/gym.types';
 import { awardXP } from '../../services/xpSystem';
-import { getWorkoutDaysInRotation, getRotationLetterForDay } from '../../services/gymRotationService';
+import { getRotationNextDayIndex, getWorkoutDaysInRotation, getRotationLetterForDay } from '../../services/gymRotationService';
+import { NestableScrollContainer, NestableDraggableFlatList, ScaleDecorator } from 'react-native-draggable-flatlist';
 import { makeStyles } from './gymHomeStyles';
 
 // ─── Core Frame-0 Components (Rendered directly on Today's active workout surface) ───
@@ -212,11 +213,16 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
 
   // ─── Workouts Left This Week Countdown (openGym v1.4.4 #753) ────────────────
   const weeklyCountdown = useMemo(() => {
+    const isRotationMode = userGymPlan?.scheduleMode === 'rotation';
     let plannedCount = 0;
-    for (let i = 1; i <= 7; i++) {
-      const customDay = userGymPlan?.customDays?.[i];
-      const isRest = customDay ? Boolean(customDay.isRest) : (i === 7);
-      if (!isRest) plannedCount++;
+    if (isRotationMode) {
+      plannedCount = Math.min(7, getWorkoutDaysInRotation(userGymPlan).length);
+    } else {
+      for (let i = 1; i <= 7; i++) {
+        const resolved = resolvePlanDay(userGymPlan, i);
+        const isRest = resolved ? Boolean(resolved.isRest) : (i === 7);
+        if (!isRest) plannedCount++;
+      }
     }
     if (plannedCount === 0) plannedCount = 4;
 
@@ -409,82 +415,6 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
     return map;
   }, [activeExercises, historyIndex]);
 
-  // Group adjacent exercises with matching supersetGroup into fused superset containers
-  const exerciseCardGroups = useMemo(() => {
-    const groups: Array<{
-      id: string;
-      isSuperset: boolean;
-      supersetGroup?: string;
-      items: Array<{ exercise: any; index: number }>;
-    }> = [];
-    let currentGroup: {
-      id: string;
-      isSuperset: boolean;
-      supersetGroup?: string;
-      items: Array<{ exercise: any; index: number }>;
-    } | null = null;
-
-    activeExercises.forEach((ex: any, idx: number) => {
-      const sGroup = ex.supersetGroup ? String(ex.supersetGroup).trim() : null;
-      if (sGroup) {
-        if (currentGroup && currentGroup.isSuperset && currentGroup.supersetGroup === sGroup) {
-          currentGroup.items.push({ exercise: ex, index: idx });
-        } else {
-          currentGroup = {
-            id: `superset_${sGroup}_${idx}`,
-            isSuperset: true,
-            supersetGroup: sGroup,
-            items: [{ exercise: ex, index: idx }],
-          };
-          groups.push(currentGroup);
-        }
-      } else {
-        currentGroup = {
-          id: `single_${ex.exerciseId || ex.name || idx}`,
-          isSuperset: false,
-          items: [{ exercise: ex, index: idx }],
-        };
-        groups.push(currentGroup);
-      }
-    });
-
-    return groups;
-  }, [activeExercises]);
-
-  const exerciseRenderSections = useMemo(() => {
-    const sections: Array<
-      | { kind: 'standalone'; key: string; items: Array<{ exercise: any; index: number }> }
-      | { kind: 'superset'; key: string; superLetter: string; items: Array<{ exercise: any; index: number }> }
-    > = [];
-    let standaloneBatch: Array<{ exercise: any; index: number }> = [];
-
-    const flushStandalone = (key: string) => {
-      if (standaloneBatch.length === 0) return;
-      sections.push({ kind: 'standalone', key, items: standaloneBatch });
-      standaloneBatch = [];
-    };
-
-    exerciseCardGroups.forEach((group, gIdx) => {
-      if (group.isSuperset && group.items.length > 1) {
-        flushStandalone(`standalone_before_${gIdx}`);
-        const superLetter = group.supersetGroup
-          ? group.supersetGroup.replace(/^SUPER-?/i, '')
-          : 'A';
-        sections.push({
-          kind: 'superset',
-          key: group.id,
-          superLetter,
-          items: group.items,
-        });
-      } else {
-        standaloneBatch.push(...group.items);
-      }
-    });
-
-    flushStandalone('standalone_tail');
-    return sections;
-  }, [exerciseCardGroups]);
-
   // Direct toggle on GymHome list: allows user to mark an exercise done/undone without opening active logger
   const handleToggleExerciseComplete = useCallback((ex: any, idx: number) => {
     const setsLog = ex.setsLog || [];
@@ -676,7 +606,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
       />
 
       {/* ─── 2. SCROLLABLE CONTENT ──────────────────────────────────────── */}
-      <ScrollView
+      <NestableScrollContainer
         contentContainerStyle={[
           s.scrollContent,
           isTablet && { maxWidth: maxContentWidth, width: '100%', alignSelf: 'center' as const },
@@ -765,8 +695,14 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
               // Determine workout status dot for this day (O(1) map lookup)
               const logForDay = logsByDateMap?.get(date);
               const isDone = Boolean(logForDay?.completed);
-              const customDay = userGymPlan?.customDays?.[planDayIdx];
-              const isRest = customDay ? Boolean(customDay.isRest) : (planDayIdx === 7);
+              const isRest = isRotation
+                ? (date < today && !isDone)
+                : Boolean(
+                    (() => {
+                      const resolved = resolvePlanDay(userGymPlan, planDayIdx);
+                      return resolved ? resolved.isRest : (planDayIdx === 7);
+                    })()
+                  );
 
               const dotColor = isDone
                 ? tokens.status.success
@@ -963,65 +899,95 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
                   </Text>
                 </View>
               ) : activeExercises.length === 0 ? null : (
-                <View style={{ gap: SPACE[8] }}>
-                  {exerciseRenderSections.map((section) =>
-                    section.kind === 'standalone' ? (
-                      <View key={section.key} style={s.insetGroupedCard}>
-                        {section.items.map((item, bIdx) => (
-                          <React.Fragment key={item.exercise.exerciseId || item.exercise.name || item.index}>
-                            {bIdx > 0 && <View style={s.hairlineDivider} />}
-                            <GymExerciseDraggableRow
-                              exercise={item.exercise}
-                              index={item.index}
-                              isPartnerWithPrevious={false}
-                              logCompleted={isWorkoutCompleted}
-                              logWorkoutStartTime={log?.workoutStartTime || null}
-                              s={s}
-                              selectedDate={selectedDate}
-                              navigation={navigation}
-                              onResumeWorkout={handleExercisePress}
-                              onShowHistory={handleShowHistory}
-                              onShowMenu={setExerciseMenuFor}
-                              onToggleComplete={handleToggleExerciseComplete}
-                            />
-                          </React.Fragment>
-                        ))}
-                      </View>
-                    ) : (
-                      <View key={section.key} style={s.supersetCardContainer}>
-                        <View style={s.supersetHeaderBar}>
-                          <View style={s.supersetHeaderLeft}>
-                            <Zap size={12} color={tokens.status.warning} strokeWidth={ICON.strokeWidth} />
-                            <Text style={s.supersetHeaderTitle}>
-                              SUPERSET {section.superLetter}
-                            </Text>
-                          </View>
-                          <Text style={s.supersetHeaderSubtitle}>BACK-TO-BACK</Text>
-                        </View>
+                <NestableDraggableFlatList
+                  data={activeExercises}
+                  keyExtractor={(item: any, idx: number) =>
+                    String(item.exerciseId || item.id || `${item.name || 'ex'}_${item._idx ?? idx}`)
+                  }
+                  activationDistance={14}
+                  onDragBegin={() => hapticMedium()}
+                  onDragEnd={({ data, from, to }) => {
+                    if (from === to) return;
+                    hapticLight();
+                    const skippedTail = (log?.exercises || []).filter((ex: any) => ex?.skipped);
+                    reorderExercisesFull(
+                      skippedTail.length > 0 ? [...data, ...skippedTail] : data,
+                      true
+                    );
+                  }}
+                  renderItem={({ item, getIndex, drag, isActive }) => {
+                    const idx = getIndex() ?? activeExercises.indexOf(item);
+                    const prev = idx > 0 ? activeExercises[idx - 1] : null;
+                    const next = idx < activeExercises.length - 1 ? activeExercises[idx + 1] : null;
+                    const sGroup = item.supersetGroup ? String(item.supersetGroup).trim() : null;
+                    const prevGroup = prev?.supersetGroup ? String(prev.supersetGroup).trim() : null;
+                    const nextGroup = next?.supersetGroup ? String(next.supersetGroup).trim() : null;
 
-                        {section.items.map((item, itemIdx) => (
-                          <React.Fragment key={item.exercise.exerciseId || item.exercise.name || item.index}>
-                            {itemIdx > 0 && <View style={s.hairlineDivider} />}
-                            <GymExerciseDraggableRow
-                              exercise={item.exercise}
-                              index={item.index}
-                              isPartnerWithPrevious={itemIdx > 0}
-                              logCompleted={isWorkoutCompleted}
-                              logWorkoutStartTime={log?.workoutStartTime || null}
-                              s={s}
-                              selectedDate={selectedDate}
-                              navigation={navigation}
-                              onResumeWorkout={handleExercisePress}
-                              onShowHistory={handleShowHistory}
-                              onShowMenu={setExerciseMenuFor}
-                              onToggleComplete={handleToggleExerciseComplete}
-                            />
-                          </React.Fragment>
-                        ))}
-                      </View>
-                    )
-                  )}
-                </View>
+                    const inMultiSuperset = Boolean(sGroup && (sGroup === prevGroup || sGroup === nextGroup));
+                    const isSupersetFirst = Boolean(inMultiSuperset && sGroup !== prevGroup);
+                    const isSupersetLast = Boolean(inMultiSuperset && sGroup !== nextGroup);
+                    const superLetter = sGroup ? sGroup.replace(/^SUPER-?/i, '') : 'A';
+
+                    const isStandaloneFirst = !inMultiSuperset && (idx === 0 || Boolean(prevGroup && prevGroup === (idx > 1 && activeExercises[idx - 2]?.supersetGroup ? String(activeExercises[idx - 2].supersetGroup).trim() : null)));
+                    const isStandaloneLast = !inMultiSuperset && (idx === activeExercises.length - 1 || Boolean(nextGroup && idx + 2 < activeExercises.length && String(activeExercises[idx + 2]?.supersetGroup || '').trim() === nextGroup));
+
+                    const isCardTop = isSupersetFirst || isStandaloneFirst;
+                    const isCardBottom = isSupersetLast || isStandaloneLast;
+                    const showTopDivider = idx > 0 && !isCardTop;
+
+                    return (
+                      <ScaleDecorator activeScale={1.015}>
+                        <View
+                          style={[
+                            inMultiSuperset ? s.supersetCardContainer : s.insetGroupedCard,
+                            {
+                              marginBottom: isCardBottom && idx < activeExercises.length - 1 ? SPACE[8] : 0,
+                              borderTopLeftRadius: isCardTop ? 20 : 0,
+                              borderTopRightRadius: isCardTop ? 20 : 0,
+                              borderBottomLeftRadius: isCardBottom ? 20 : 0,
+                              borderBottomRightRadius: isCardBottom ? 20 : 0,
+                              borderTopWidth: isCardTop ? undefined : 0,
+                              borderBottomWidth: isCardBottom ? undefined : 0,
+                            },
+                            isActive && {
+                              borderRadius: 20,
+                              borderTopWidth: undefined,
+                              borderBottomWidth: undefined,
+                              opacity: 0.96,
+                            },
+                          ]}
+                        >
+                          {isSupersetFirst && (
+                            <View style={s.supersetHeaderBar}>
+                              <View style={s.supersetHeaderLeft}>
+                                <Zap size={12} color={tokens.status.warning} strokeWidth={ICON.strokeWidth} />
+                                <Text style={s.supersetHeaderTitle}>
+                                  SUPERSET {superLetter}
+                                </Text>
+                              </View>
+                              <Text style={s.supersetHeaderSubtitle}>BACK-TO-BACK</Text>
+                            </View>
+                          )}
+                          {showTopDivider && !isActive && <View style={s.hairlineDivider} />}
+                          <GymExerciseDraggableRow
+                            itemParams={{ item, getIndex, drag, isActive }}
+                            index={idx}
+                            isPartnerWithPrevious={inMultiSuperset && !isSupersetFirst}
+                            logCompleted={isWorkoutCompleted}
+                            logWorkoutStartTime={log?.workoutStartTime || null}
+                            s={s}
+                            selectedDate={selectedDate}
+                            navigation={navigation}
+                            onResumeWorkout={handleExercisePress}
+                            onShowHistory={handleShowHistory}
+                            onShowMenu={setExerciseMenuFor}
+                            onToggleComplete={handleToggleExerciseComplete}
+                          />
+                        </View>
+                      </ScaleDecorator>
+                    );
+                  }}
+                />
               )}
             </View>
 
@@ -1102,7 +1068,7 @@ export const GymHomeScreen = memo(function GymHomeScreen() {
             )}
           </>
         )}
-      </ScrollView>
+      </NestableScrollContainer>
 
       {/* ─── MODALS (Lazy-mounted shells keep closed modals zero-cost while preserving exit springs) ─── */}
       <LazySheet

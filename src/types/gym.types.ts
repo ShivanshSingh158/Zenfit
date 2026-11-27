@@ -75,6 +75,7 @@ export interface GymDayLog {
   restTimerExerciseName?: string | null;
   createdAt?: number;
   updatedAt: number;
+  revertedAt?: number;
   deleted?: boolean;
   isSampleData?: boolean;
 }
@@ -104,6 +105,7 @@ export interface GymPlanExercise {
   videoId?: string;
   restTimeSecs?: number;
   isCompound?: boolean;
+  supersetGroup?: string;
   progressionPolicy?: 'linear' | 'double' | 'triple' | 'top_backoff';
 }
 
@@ -317,7 +319,6 @@ export type GymNavigationParamList = {
   };
   ExerciseSwap: { exerciseIndex?: number; date?: string; currentName?: string; originalExerciseId?: string };
   GymHistory: undefined;
-  ExerciseLibrary: undefined;
   GymProfile: undefined;
 };
 
@@ -330,6 +331,7 @@ export interface ExerciseCatalogEntry {
   aliases?: string[];
   restTimeSecs: number;
   videoId: string;
+  equipment?: string;
   tier?: 'S Tier' | 'A+ Tier' | 'A Tier' | 'B Tier' | 'C Tier';
   isCurated?: boolean;
   isCustom?: boolean;

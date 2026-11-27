@@ -21,11 +21,12 @@ import {
   Plus,
 } from 'lucide-react-native';
 import BottomSheet from '../../../../components/ui/BottomSheet';
+import { NestableScrollContainer, NestableDraggableFlatList, ScaleDecorator, RenderItemParams } from 'react-native-draggable-flatlist';
 import { TactileButton, NumericText } from '../../../../components/ui';
 import { useTheme } from '../../../../contexts/ThemeContext';
 import { ICON, SPACE, TOUCH } from '../../../../theme/tokens';
 import { GymPlanCardio, GymPlanDay } from '../../../../types/gym.types';
-import { hapticLight, hapticSelection } from '../../../../utils/haptics';
+import { hapticLight, hapticMedium, hapticSelection } from '../../../../utils/haptics';
 import { getSplitsPalette, useSplitsStyles } from '../styles/gymSplitsStyles';
 import { getRotationLetterForDay } from '../../../../services/gymRotationService';
 import { resolveMuscleColor } from '../../../../utils/gymUtils';
@@ -69,6 +70,7 @@ export interface DayDetailModalProps {
   onEditWorkout?: (activeDay: any) => void;
   onEditExercise?: (dayIndex: number, exIndex: number, ex: any) => void;
   onEditCardio?: (dayIndex: number, cardioIndex: number, cardioItem: GymPlanCardio) => void;
+  onReorderExercises?: (dayIndex: number, exercises: any[]) => void;
 }
 
 export const DayDetailModal: React.FC<DayDetailModalProps> = React.memo(({
@@ -93,6 +95,7 @@ export const DayDetailModal: React.FC<DayDetailModalProps> = React.memo(({
   onEditWorkout,
   onEditExercise,
   onEditCardio,
+  onReorderExercises,
 }) => {
   const { tokens, isDark } = useTheme();
   const insets = useSafeAreaInsets();
@@ -264,7 +267,7 @@ export const DayDetailModal: React.FC<DayDetailModalProps> = React.memo(({
         ) : null}
 
         {/* Modal Content: Scrollable Borderless Exercise & Cardio Ledger OR Rest Presentation */}
-        <ScrollView
+        <NestableScrollContainer
           showsVerticalScrollIndicator={false}
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingVertical: SPACE[4] }}
@@ -310,75 +313,99 @@ export const DayDetailModal: React.FC<DayDetailModalProps> = React.memo(({
                 <View style={{ height: 140, backgroundColor: tokens.bg.surface, borderRadius: 12, marginVertical: SPACE[8] }} />
               ) : (
                 <View style={styles.exercisesListWrap}>
-                  {exercises.map((ex, idx) => (
-                    <View
-                      key={`${ex.name}-${idx}`}
-                      style={[
-                        styles.exerciseItemRow,
-                        idx === exercises.length - 1 && cardio.length === 0 && { borderBottomWidth: 0 },
-                      ]}
-                    >
-                      <Pressable
-                        disabled={isEditPlanMode || !onEditExercise}
-                        onPress={() => {
-                          if (!isEditPlanMode && onEditExercise) {
-                            hapticSelection();
-                            onEditExercise(currentDay.dayIndex, idx, ex);
-                          }
-                        }}
-                        style={({ pressed }) => [
-                          { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
-                          pressed && !isEditPlanMode && onEditExercise && { opacity: 0.72 },
-                        ]}
-                      >
-                        {/* Index Box */}
-                        <View style={styles.exIndexNum}>
-                          <NumericText style={styles.exIndexNumText}>{idx + 1}</NumericText>
-                        </View>
-
-                        {/* Title & Sets */}
-                        <View style={{ flex: 1, minWidth: 0, paddingRight: SPACE[8] }}>
-                          <Text style={styles.exNameText} numberOfLines={1}>{ex.name}</Text>
-                          <NumericText style={styles.exTargetText}>
-                            {ex.targetSets} sets × {ex.targetReps || '8–12'} reps
-                          </NumericText>
-                        </View>
-
-                        {/* Borderless Muscle Tag */}
-                        {ex.muscle ? (
-                          <View style={styles.exMuscleInline}>
+                  {exercises.length > 0 && (
+                    <NestableDraggableFlatList
+                      data={exercises}
+                      keyExtractor={(ex, idx) => String(ex.id || `${ex.name}-${idx}`)}
+                      activationDistance={14}
+                      onDragBegin={() => hapticMedium()}
+                      onDragEnd={({ data, from, to }) => {
+                        if (from === to) return;
+                        hapticLight();
+                        onReorderExercises?.(currentDay.dayIndex, data);
+                      }}
+                      renderItem={({ item: ex, getIndex, drag, isActive }: RenderItemParams<any>) => {
+                        const idx = getIndex() ?? exercises.indexOf(ex);
+                        return (
+                          <ScaleDecorator activeScale={1.015}>
                             <View
                               style={[
-                                styles.exMuscleDot,
-                                { backgroundColor: resolveMuscleColor(ex.muscle) },
+                                styles.exerciseItemRow,
+                                idx === exercises.length - 1 && cardio.length === 0 && { borderBottomWidth: 0 },
+                                isActive && { backgroundColor: tokens.bg.elevated, borderRadius: 12, borderBottomWidth: 0 },
                               ]}
-                            />
-                            <Text style={styles.exMuscleText} numberOfLines={1}>
-                              {ex.muscle.split('/')[0]}
-                            </Text>
-                          </View>
-                        ) : null}
+                            >
+                              <Pressable
+                                disabled={!onEditExercise && !onReorderExercises}
+                                onPress={() => {
+                                  if (!isEditPlanMode && onEditExercise) {
+                                    hapticSelection();
+                                    onEditExercise(currentDay.dayIndex, idx, ex);
+                                  }
+                                }}
+                                onLongPress={() => {
+                                  if (!isEditPlanMode && onReorderExercises) {
+                                    drag();
+                                  }
+                                }}
+                                delayLongPress={220}
+                                style={({ pressed }) => [
+                                  { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
+                                  pressed && !isEditPlanMode && onEditExercise && { opacity: 0.72 },
+                                ]}
+                              >
+                                {/* Index Box */}
+                                <View style={styles.exIndexNum}>
+                                  <NumericText style={styles.exIndexNumText}>{idx + 1}</NumericText>
+                                </View>
 
-                        {/* Edit cue when tapping row in view mode */}
-                        {!isEditPlanMode && onEditExercise ? (
-                          <Pencil size={13} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} style={{ marginLeft: SPACE[4] }} />
-                        ) : null}
-                      </Pressable>
+                                {/* Title & Sets */}
+                                <View style={{ flex: 1, minWidth: 0, paddingRight: SPACE[8] }}>
+                                  <Text style={styles.exNameText} numberOfLines={1}>{ex.name}</Text>
+                                  <NumericText style={styles.exTargetText}>
+                                    {ex.targetSets} sets × {ex.targetReps || '8–12'} reps
+                                  </NumericText>
+                                </View>
 
-                      {/* Delete trash button in edit mode */}
-                      {isEditPlanMode && (
-                        <TactileButton
-                          variant="custom"
-                          onPress={() => handleDeleteExerciseFromPlan(currentDay.dayIndex, idx, ex.name)}
-                          style={styles.planExDeleteBtn}
-                          hitSlop={TOUCH.hitSlop}
-                          accessibilityLabel={`Delete ${ex.name}`}
-                        >
-                          <Trash2 size={15} color={tokens.status.danger} strokeWidth={ICON.strokeWidth} />
-                        </TactileButton>
-                      )}
-                    </View>
-                  ))}
+                                {/* Borderless Muscle Tag */}
+                                {ex.muscle ? (
+                                  <View style={styles.exMuscleInline}>
+                                    <View
+                                      style={[
+                                        styles.exMuscleDot,
+                                        { backgroundColor: resolveMuscleColor(ex.muscle) },
+                                      ]}
+                                    />
+                                    <Text style={styles.exMuscleText} numberOfLines={1}>
+                                      {ex.muscle.split('/')[0]}
+                                    </Text>
+                                  </View>
+                                ) : null}
+
+                                {/* Edit cue when tapping row in view mode */}
+                                {!isEditPlanMode && onEditExercise ? (
+                                  <Pencil size={13} color={tokens.text.muted} strokeWidth={ICON.strokeWidth} style={{ marginLeft: SPACE[4] }} />
+                                ) : null}
+                              </Pressable>
+
+                              {/* Delete trash button in edit mode */}
+                              {isEditPlanMode && (
+                                <TactileButton
+                                  variant="custom"
+                                  onPress={() => handleDeleteExerciseFromPlan(currentDay.dayIndex, idx, ex.name)}
+                                  style={styles.planExDeleteBtn}
+                                  hitSlop={TOUCH.hitSlop}
+                                  accessibilityLabel={`Delete ${ex.name}`}
+                                >
+                                  <Trash2 size={15} color={tokens.status.danger} strokeWidth={ICON.strokeWidth} />
+                                </TactileButton>
+                              )}
+                            </View>
+                          </ScaleDecorator>
+                        );
+                      }}
+                    />
+                  )}
 
                   {cardio.length > 0 && (
                     <View>
@@ -450,7 +477,7 @@ export const DayDetailModal: React.FC<DayDetailModalProps> = React.memo(({
               )}
             </View>
           )}
-        </ScrollView>
+        </NestableScrollContainer>
 
         {/* ── Fixed Bottom Actions Bar ── */}
         {!isRest && (

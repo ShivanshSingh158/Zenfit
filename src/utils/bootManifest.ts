@@ -7,7 +7,9 @@ import { seedAvatarMemoryCache, AVATAR_BOOT_RECORD_KEY } from '../services/userA
 // ─── Pure JS RAM L1 Cache (0ms synchronous reads after boot) ──────────────────
 export const L1_RAM_CACHE = new Map<string, any>();
 let _isBootHydrated = false;
+let _isAuthBootHydrated = false;
 let _bootGenerationId = 0;
+const _liveTouchedKeys = new Set<string>();
 
 export function getL1Sync<T>(key: string, fallback: T): T {
   if (!L1_RAM_CACHE.has(key)) return fallback;
@@ -51,6 +53,7 @@ export function flushL1WriteTimers(): void {
 }
 
 export function setL1Sync<T>(key: string, value: T, immediate = false): void {
+  _liveTouchedKeys.add(key);
   L1_RAM_CACHE.set(key, value);
   const field = BOOT_KEY_TO_FIELD[key];
   if (field && _memoryBootCache) {
@@ -91,6 +94,7 @@ export function setL1Sync<T>(key: string, value: T, immediate = false): void {
 
 // Issue #45: deleteL1Sync now deletes from RAM AND removes key from AsyncStorage
 export function deleteL1Sync(key: string): void {
+  _liveTouchedKeys.add(key);
   L1_RAM_CACHE.delete(key);
   _pendingL1Values.delete(key);
   const existingTimer = _l1WriteTimers.get(key);
@@ -101,10 +105,15 @@ export function deleteL1Sync(key: string): void {
   AsyncStorage.removeItem(key).catch(() => {});
 }
 
+export function isAuthBootHydrated(): boolean {
+  return _isAuthBootHydrated;
+}
+
 export function isL1BootHydrated(): boolean {
   return _isBootHydrated;
 }
 
+export const GUEST_STORAGE_KEY = '@zenfit_guest_mode_v1';
 export const EXERCISE_LEDGER_KEY = '@zentrack_exercise_ledger_v1';
 export const ONBOARDING_FLOW_KEY = 'zenfit_onboarding_flow_done_v3';
 export const GYM_ARCHIVE_YEARS_KEY = '@zentrack_gym_archive_years';
@@ -124,25 +133,37 @@ export const BOOT_KEYS = {
   FIREBASE_AUTH_USER: `firebase:authUser:${FIREBASE_API_KEY}:[DEFAULT]`,
 } as const;
 
-// Tier-0 keys required for Frame-0 Auth, Theme, Navigation, Profile, & Working Sets Ledger (<5ms)
-const todayDateStr = formatLocalDateStr(new Date());
-const TIER_0_KEYS = [
+// Tiny auth/routing/theme keys hydrated FIRST in parallel (~5-15ms, never blocked by workout JSON)
+const AUTH_BOOT_KEYS = [
   BOOT_KEYS.OPTIMISTIC_USER,
   BOOT_KEYS.FIREBASE_AUTH_USER,
+  GUEST_STORAGE_KEY,
+  ONBOARDING_FLOW_KEY,
   BOOT_KEYS.THEME_MODE,
-  BOOT_KEYS.GYM_LOGS,
-  BOOT_KEYS.USER_GYM_PLAN,
-  '@zenfit_guest_mode_v1',
   'gym_profile_v1',
   BOOT_KEYS.NAV_ROUTE,
+  AVATAR_BOOT_RECORD_KEY,
+] as const;
+
+// Heavy Tier-0 domain data keys loaded concurrently without blocking auth/splash routing
+const getDataBootKeys = (todayStr: string) => [
+  BOOT_KEYS.GYM_LOGS,
+  BOOT_KEYS.USER_GYM_PLAN,
   EXERCISE_LEDGER_KEY,
-  ONBOARDING_FLOW_KEY,
-  `@zenfit_hot_log_${todayDateStr}`,
+  `@zenfit_hot_log_${todayStr}`,
   '@zentrack_active_workout_state',
   '@zenfit_global_rest_timer',
   'zentrack_gym_settings_prefs_v1',
-  AVATAR_BOOT_RECORD_KEY,
 ] as const;
+
+export interface AuthBootSlice {
+  optimisticUser: User | null;
+  isGuest: boolean;
+  onboarded: boolean;
+  themeMode: 'dark' | 'light' | 'system' | null;
+  lastRoute: string;
+  profile: any | null;
+}
 
 // Tier-1 heavy secondary domain caches hydrated after Frame 0 settles
 const TIER_1_KEYS = [
@@ -189,6 +210,8 @@ const BOOT_KEY_TO_FIELD: Record<string, keyof BootManifest> = {
   [BOOT_KEYS.NAV_ROUTE]: 'lastRoute',
 };
 
+let _authBootCache: AuthBootSlice | null = null;
+let _authBootPromise: Promise<AuthBootSlice> | null = null;
 let _memoryBootCache: BootManifest | null = null;
 let _bootPromise: Promise<BootManifest> | null = null;
 
@@ -202,28 +225,24 @@ function parseJsonArray<T = any>(raw: string | null | undefined): T[] {
   }
 }
 
-export async function loadBootManifest(): Promise<BootManifest> {
-  if (_memoryBootCache) return _memoryBootCache;
-  if (_bootPromise) return _bootPromise;
+export async function loadAuthBootSlice(): Promise<AuthBootSlice> {
+  if (_authBootCache) return _authBootCache;
+  if (_authBootPromise) return _authBootPromise;
 
   const bootGen = _bootGenerationId;
 
-  _bootPromise = (async () => {
+  _authBootPromise = (async () => {
     try {
-      const pairs = await AsyncStorage.multiGet([...TIER_0_KEYS]);
+      const pairs = await AsyncStorage.multiGet([...AUTH_BOOT_KEYS]);
       if (bootGen !== _bootGenerationId) {
-        const fallback: BootManifest = {
-          lastRoute: 'Today',
-          onboarded: true,
+        return {
           optimisticUser: null,
+          isGuest: false,
+          onboarded: false,
           themeMode: null,
-          gymLogs: [],
-          userGymPlan: null,
-          waterLogs: [],
-          sleepLogs: [],
-          weightLogs: [],
+          lastRoute: 'Today',
+          profile: null,
         };
-        return fallback;
       }
       const map = new Map<string, string | null>(pairs);
 
@@ -238,8 +257,132 @@ export async function loadBootManifest(): Promise<BootManifest> {
         } catch {}
       }
 
+      const guestRaw = map.get(GUEST_STORAGE_KEY);
+      const isGuest = guestRaw === 'true' || Boolean((optimisticUser as any)?.isAnonymous);
+
       const themeRaw = map.get(BOOT_KEYS.THEME_MODE);
       const themeMode = (themeRaw === 'dark' || themeRaw === 'light' || themeRaw === 'system') ? themeRaw : null;
+
+      let profile: any = null;
+      const profileRaw = map.get('gym_profile_v1');
+      if (profileRaw) {
+        try {
+          const parsedProf = JSON.parse(profileRaw);
+          if (parsedProf && typeof parsedProf === 'object') {
+            profile = parsedProf;
+          }
+        } catch {}
+      }
+
+      const onboardingRaw = map.get(ONBOARDING_FLOW_KEY);
+      const profileImpliesOnboarded = Boolean(
+        profile?.onboardingCompleted ||
+        (profile?.heightCm && profile?.weightKg) ||
+        profile?.goal
+      );
+      const onboarded = onboardingRaw === 'true' || profileImpliesOnboarded;
+
+      if (optimisticUser && !_liveTouchedKeys.has(BOOT_KEYS.OPTIMISTIC_USER)) {
+        L1_RAM_CACHE.set(BOOT_KEYS.OPTIMISTIC_USER, optimisticUser);
+        L1_RAM_CACHE.set(BOOT_KEYS.FIREBASE_AUTH_USER, optimisticUser);
+      }
+      if (!_liveTouchedKeys.has(GUEST_STORAGE_KEY)) {
+        L1_RAM_CACHE.set(GUEST_STORAGE_KEY, isGuest);
+      }
+      if (!_liveTouchedKeys.has(ONBOARDING_FLOW_KEY)) {
+        L1_RAM_CACHE.set(ONBOARDING_FLOW_KEY, onboarded);
+        if (onboarded && onboardingRaw !== 'true') {
+          AsyncStorage.setItem(ONBOARDING_FLOW_KEY, 'true').catch(() => {});
+        }
+      }
+      if (themeMode && !_liveTouchedKeys.has(BOOT_KEYS.THEME_MODE)) {
+        L1_RAM_CACHE.set(BOOT_KEYS.THEME_MODE, themeMode);
+      }
+      if (profile && !_liveTouchedKeys.has('gym_profile_v1')) {
+        L1_RAM_CACHE.set('gym_profile_v1', profile);
+      }
+      if (!_liveTouchedKeys.has(BOOT_KEYS.NAV_ROUTE)) {
+        L1_RAM_CACHE.set(BOOT_KEYS.NAV_ROUTE, lastRoute);
+      }
+
+      // Pre-seed cached local avatar URI synchronously in memory for 0ms Frame 0 paint
+      const avatarBootRaw = map.get(AVATAR_BOOT_RECORD_KEY);
+      if (avatarBootRaw && optimisticUser?.uid) {
+        try {
+          const parsedAvatar = JSON.parse(avatarBootRaw);
+          if (parsedAvatar?.uid === optimisticUser.uid && parsedAvatar?.path) {
+            seedAvatarMemoryCache(optimisticUser.uid, parsedAvatar.path);
+          }
+        } catch {}
+      }
+
+      const slice: AuthBootSlice = {
+        optimisticUser,
+        isGuest,
+        onboarded,
+        themeMode,
+        lastRoute,
+        profile,
+      };
+      _authBootCache = slice;
+      _isAuthBootHydrated = true;
+      return slice;
+    } catch {
+      const fallback: AuthBootSlice = {
+        optimisticUser: null,
+        isGuest: false,
+        onboarded: false,
+        themeMode: null,
+        lastRoute: 'Today',
+        profile: null,
+      };
+      if (bootGen === _bootGenerationId) {
+        _authBootCache = fallback;
+        _isAuthBootHydrated = true;
+      }
+      return fallback;
+    } finally {
+      _authBootPromise = null;
+    }
+  })();
+
+  return _authBootPromise;
+}
+
+export function getAuthBootSync(): AuthBootSlice | null {
+  return _authBootCache;
+}
+
+export async function loadBootManifest(): Promise<BootManifest> {
+  if (_memoryBootCache) return _memoryBootCache;
+  if (_bootPromise) return _bootPromise;
+
+  const bootGen = _bootGenerationId;
+
+  _bootPromise = (async () => {
+    try {
+      const todayStr = formatLocalDateStr(new Date());
+      const [authSlice, dataPairs] = await Promise.all([
+        loadAuthBootSlice(),
+        AsyncStorage.multiGet([...getDataBootKeys(todayStr)]),
+      ]);
+      if (bootGen !== _bootGenerationId) {
+        const fallback: BootManifest = {
+          lastRoute: 'Today',
+          onboarded: false,
+          optimisticUser: null,
+          themeMode: null,
+          gymLogs: [],
+          userGymPlan: null,
+          waterLogs: [],
+          sleepLogs: [],
+          weightLogs: [],
+        };
+        return fallback;
+      }
+      const map = new Map<string, string | null>(dataPairs);
+
+      const { lastRoute, optimisticUser, themeMode, onboarded } = authSlice;
 
       let gymLogs = parseJsonArray(map.get(BOOT_KEYS.GYM_LOGS));
       if (gymLogs.length === 0) {
@@ -254,23 +397,29 @@ export async function loadBootManifest(): Promise<BootManifest> {
 
       // Tier-1 Upgrade #70: Check for sharded hot active log and overlay from map
       try {
-        const todayStr = formatLocalDateStr(new Date());
         const hotRaw = map.get(`@zenfit_hot_log_${todayStr}`);
         if (hotRaw) {
           const hotLog = JSON.parse(hotRaw);
           if (hotLog && hotLog.date === todayStr) {
             const currentUserId = optimisticUser?.uid;
-            // Issue #51: verify hotLog.userId === optimisticUser.uid before overlaying
-            const userMatches = (!hotLog.userId && !currentUserId) || (hotLog.userId && hotLog.userId === currentUserId);
-            if (userMatches) {
+            // Issue #51: verify ownership (allow local_user / guest_local_user fallback drafts cleanly) and respect reverts
+            const isLocalDraftOwner =
+              hotLog.userId === 'local_user' || hotLog.userId === 'guest_local_user';
+            const userMatches =
+              !hotLog.userId ||
+              !currentUserId ||
+              isLocalDraftOwner ||
+              hotLog.userId === currentUserId;
+            if (userMatches && !hotLog.revertedAt) {
               const idx = gymLogs.findIndex((l: any) => l.date === todayStr);
               if (idx !== -1) {
-                // Issue #51: skip overlay if existing log is completed and hotLog is not completed
+                // Issue #51: skip overlay if existing log is completed or more recently reverted
                 const existingCompleted = gymLogs[idx].completed === true;
+                const existingRevertedAt = typeof gymLogs[idx].revertedAt === 'number' ? gymLogs[idx].revertedAt : 0;
                 if (!existingCompleted) {
                   const existingUpdatedAt = typeof gymLogs[idx].updatedAt === 'number' ? gymLogs[idx].updatedAt : 0;
                   const hotUpdatedAt = typeof hotLog.updatedAt === 'number' ? hotLog.updatedAt : 0;
-                  if (hotUpdatedAt >= existingUpdatedAt) {
+                  if (hotUpdatedAt >= existingUpdatedAt && hotUpdatedAt > existingRevertedAt) {
                     gymLogs[idx] = { ...gymLogs[idx], ...hotLog };
                   }
                 }
@@ -289,73 +438,46 @@ export async function loadBootManifest(): Promise<BootManifest> {
         try { userGymPlan = JSON.parse(gymPlanRaw); } catch {}
       }
 
-      const guestRaw = map.get('@zenfit_guest_mode_v1');
-      const isGuest = guestRaw === 'true';
-
       // Exercise Ledger Hydration (Issue #10)
-      const ledgerRaw = map.get(EXERCISE_LEDGER_KEY);
-      if (ledgerRaw) {
-        try {
-          const parsedLedger = JSON.parse(ledgerRaw);
-          if (parsedLedger && typeof parsedLedger === 'object') {
-            L1_RAM_CACHE.set(EXERCISE_LEDGER_KEY, parsedLedger);
-          }
-        } catch {}
-      } else if (!L1_RAM_CACHE.has(EXERCISE_LEDGER_KEY)) {
-        L1_RAM_CACHE.set(EXERCISE_LEDGER_KEY, {});
+      if (!_liveTouchedKeys.has(EXERCISE_LEDGER_KEY)) {
+        const ledgerRaw = map.get(EXERCISE_LEDGER_KEY);
+        if (ledgerRaw) {
+          try {
+            const parsedLedger = JSON.parse(ledgerRaw);
+            if (parsedLedger && typeof parsedLedger === 'object') {
+              L1_RAM_CACHE.set(EXERCISE_LEDGER_KEY, parsedLedger);
+            }
+          } catch {}
+        } else if (!L1_RAM_CACHE.has(EXERCISE_LEDGER_KEY)) {
+          L1_RAM_CACHE.set(EXERCISE_LEDGER_KEY, {});
+        }
       }
 
-      // Onboarding flag hydration (Issue #8)
-      const onboardingRaw = map.get(ONBOARDING_FLOW_KEY);
-      if (onboardingRaw) {
-        L1_RAM_CACHE.set(ONBOARDING_FLOW_KEY, onboardingRaw === 'true');
+      if (!_liveTouchedKeys.has(BOOT_KEYS.GYM_LOGS) && !_liveUpdatedKeys.has('gymLogs')) {
+        L1_RAM_CACHE.set(BOOT_KEYS.GYM_LOGS, gymLogs);
       }
-
-      // Direct L1 RAM hydration: 0 redundant JSON.parse calls across large arrays
-      if (optimisticUser) {
-        L1_RAM_CACHE.set(BOOT_KEYS.OPTIMISTIC_USER, optimisticUser);
-        L1_RAM_CACHE.set(BOOT_KEYS.FIREBASE_AUTH_USER, optimisticUser);
-      }
-      if (themeMode) L1_RAM_CACHE.set(BOOT_KEYS.THEME_MODE, themeMode);
-      L1_RAM_CACHE.set(BOOT_KEYS.GYM_LOGS, gymLogs);
-      if (userGymPlan) L1_RAM_CACHE.set(BOOT_KEYS.USER_GYM_PLAN, userGymPlan);
-      L1_RAM_CACHE.set('@zenfit_guest_mode_v1', isGuest);
-      L1_RAM_CACHE.set(BOOT_KEYS.NAV_ROUTE, lastRoute);
-
-      const profileRaw = map.get('gym_profile_v1');
-      if (profileRaw) {
-        try { L1_RAM_CACHE.set('gym_profile_v1', JSON.parse(profileRaw)); } catch {}
+      if (userGymPlan && !_liveTouchedKeys.has(BOOT_KEYS.USER_GYM_PLAN) && !_liveUpdatedKeys.has('userGymPlan')) {
+        L1_RAM_CACHE.set(BOOT_KEYS.USER_GYM_PLAN, userGymPlan);
       }
 
       const activeWorkoutRaw = map.get('@zentrack_active_workout_state');
-      if (activeWorkoutRaw) {
+      if (activeWorkoutRaw && !_liveTouchedKeys.has('@zentrack_active_workout_state')) {
         try { L1_RAM_CACHE.set('@zentrack_active_workout_state', JSON.parse(activeWorkoutRaw)); } catch {}
       }
 
       const restTimerRaw = map.get('@zenfit_global_rest_timer');
-      if (restTimerRaw) {
+      if (restTimerRaw && !_liveTouchedKeys.has('@zenfit_global_rest_timer')) {
         try { L1_RAM_CACHE.set('@zenfit_global_rest_timer', JSON.parse(restTimerRaw)); } catch {}
       }
 
       const gymPrefsRaw = map.get('zentrack_gym_settings_prefs_v1');
-      if (gymPrefsRaw) {
+      if (gymPrefsRaw && !_liveTouchedKeys.has('zentrack_gym_settings_prefs_v1')) {
         try { L1_RAM_CACHE.set('zentrack_gym_settings_prefs_v1', JSON.parse(gymPrefsRaw)); } catch {}
-      }
-
-      // Pre-seed cached local avatar URI synchronously in memory for 0ms Frame 0 paint
-      const avatarBootRaw = map.get(AVATAR_BOOT_RECORD_KEY);
-      if (avatarBootRaw && optimisticUser?.uid) {
-        try {
-          const parsedAvatar = JSON.parse(avatarBootRaw);
-          if (parsedAvatar?.uid === optimisticUser.uid && parsedAvatar?.path) {
-            seedAvatarMemoryCache(optimisticUser.uid, parsedAvatar.path);
-          }
-        } catch {}
       }
 
       const manifest: BootManifest = {
         lastRoute,
-        onboarded: onboardingRaw === 'true',
+        onboarded,
         optimisticUser,
         themeMode,
         gymLogs,
@@ -384,15 +506,33 @@ export async function loadBootManifest(): Promise<BootManifest> {
             const hydratedWaterLogs = _liveUpdatedKeys.has('waterLogs')
               ? _memoryBootCache.waterLogs
               : parseJsonArray(t1.get(BOOT_KEYS.WATER_LOGS));
+            const hydratedSleepLogs = _liveUpdatedKeys.has('sleepLogs')
+              ? _memoryBootCache.sleepLogs
+              : parseJsonArray(t1.get(BOOT_KEYS.SLEEP_LOGS));
+            const hydratedWeightLogs = _liveUpdatedKeys.has('weightLogs')
+              ? _memoryBootCache.weightLogs
+              : parseJsonArray(t1.get(BOOT_KEYS.WEIGHT_LOGS));
             _memoryBootCache = {
               ..._memoryBootCache,
               waterLogs: hydratedWaterLogs,
-              sleepLogs: _liveUpdatedKeys.has('sleepLogs') ? _memoryBootCache.sleepLogs : parseJsonArray(t1.get(BOOT_KEYS.SLEEP_LOGS)),
-              weightLogs: _liveUpdatedKeys.has('weightLogs') ? _memoryBootCache.weightLogs : parseJsonArray(t1.get(BOOT_KEYS.WEIGHT_LOGS)),
+              sleepLogs: hydratedSleepLogs,
+              weightLogs: hydratedWeightLogs,
             };
+            const tier1ChangedPayload: { waterLogs?: any[]; sleepLogs?: any[]; weightLogs?: any[] } = {};
             if (!_liveUpdatedKeys.has('waterLogs') && hydratedWaterLogs.length > 0) {
               L1_RAM_CACHE.set(BOOT_KEYS.WATER_LOGS, hydratedWaterLogs);
-              DeviceEventEmitter.emit('gym_logs_changed', { waterLogs: hydratedWaterLogs });
+              tier1ChangedPayload.waterLogs = hydratedWaterLogs;
+            }
+            if (!_liveUpdatedKeys.has('sleepLogs') && hydratedSleepLogs.length > 0) {
+              L1_RAM_CACHE.set(BOOT_KEYS.SLEEP_LOGS, hydratedSleepLogs);
+              tier1ChangedPayload.sleepLogs = hydratedSleepLogs;
+            }
+            if (!_liveUpdatedKeys.has('weightLogs') && hydratedWeightLogs.length > 0) {
+              L1_RAM_CACHE.set(BOOT_KEYS.WEIGHT_LOGS, hydratedWeightLogs);
+              tier1ChangedPayload.weightLogs = hydratedWeightLogs;
+            }
+            if (tier1ChangedPayload.waterLogs || tier1ChangedPayload.sleepLogs || tier1ChangedPayload.weightLogs) {
+              DeviceEventEmitter.emit('gym_logs_changed', tier1ChangedPayload);
             }
           }
 
@@ -506,6 +646,7 @@ export function updateL1Cache<K extends keyof BootManifest>(key: K, value: BootM
   }
   const bootKey = FIELD_TO_BOOT_KEY[key];
   if (bootKey) {
+    _liveTouchedKeys.add(bootKey);
     L1_RAM_CACHE.set(bootKey, value);
   }
 }
@@ -517,9 +658,13 @@ export function clearBootManifest(): void {
   }
   _l1WriteTimers.clear();
   _pendingL1Values.clear();
+  _authBootCache = null;
+  _authBootPromise = null;
+  _isAuthBootHydrated = false;
   _memoryBootCache = null;
   _bootPromise = null;
   _isBootHydrated = false;
   L1_RAM_CACHE.clear();
   _liveUpdatedKeys.clear();
+  _liveTouchedKeys.clear();
 }

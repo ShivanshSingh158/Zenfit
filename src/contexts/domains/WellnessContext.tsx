@@ -1,31 +1,31 @@
 /**
  * WellnessContext — ZenTrack Mobile
  *
- * Owns: gymLogs, userGymPlan, updateMasterPlan.
+ * Owns: gymLogs, userGymPlan, weightLogs, updateMasterPlan.
  *
  * Subscription strategy: DEMAND-BASED + OFFLINE-FIRST.
- * On mount: reads gymLogs/waterLogs/sleepLogs/weightLogs/userGymPlan from
+ * On mount: reads gymLogs/weightLogs/userGymPlan from
  * AsyncStorage instantly (~5ms). Gym screens show real data immediately,
  * even when offline. Firestore snapshots silently update the cache when online.
  */
 import React, { createContext, useContext, useEffect, useState, useRef, useMemo, useCallback } from "react";
-import { collection, query, where, onSnapshot, doc, setDoc, deleteField, limit } from "firebase/firestore";
+import { collection, query, where, onSnapshot, doc, setDoc, deleteDoc, deleteField, limit } from "firebase/firestore";
 import { InteractionManager, DeviceEventEmitter, unstable_batchedUpdates, AppState } from 'react-native';
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { db, auth } from "../../services/firebase";
 import { COLLECTION } from "../../config/constants";
 import { UserGymPlanDoc, GymPlanDay, GymRoutine, GymRoutineFolder, UserGymProgramme } from "../../types/gym.types";
 import type { GymLog } from "../../types/gym.types";
-import type { WaterLog, SleepLog, WeightLog } from "../../types/legacy.types";
+import type { WeightLog } from "../../types/legacy.types";
 import { GYM_PLAN_ARNOLD, GYM_PLAN_PPL, clearPlanDayCache } from "../../data/gymPlan";
 import { writeWellnessCache, readWellnessCache } from "../../utils/domainCache";
 import { loadBootManifest, getBootManifestSync, updateL1Cache, setL1Sync, getL1Sync, deleteL1Sync, L1_RAM_CACHE } from "../../utils/bootManifest";
 import { parseGymLog, areItemsEqual } from "../../utils/schemaGuards";
 import { mergeGymLogMonotonic, getCanonicalExerciseName, resolveExerciseTargetMuscle } from "../../utils/gymUtils";
 import { formatLocalDateStr, offsetDateStr } from "../../utils/dateUtils";
-import { clearScheduleCache, scheduleGymNotifications, checkAndTriggerWaterMilestones } from "../../services/notifications";
-import { applyPendingQueueOverlay } from "../../services/offlineSync";
-import { safeWrite } from "../../utils/safeWrite";
+import { scheduleGymNotifications } from "../../services/notifications";
+import { applyPendingQueueOverlay, getMemoryQueueSync } from "../../services/offlineSync";
+import { safeWrite, safeDelete } from "../../utils/safeWrite";
 import { getMonotonicTimestamp } from "../../utils/firebaseUtils";
 import { precomputeGymAnalytics } from "../../services/gymAnalyticsPrecompute";
 
@@ -150,12 +150,8 @@ export interface GymPlanContextType {
 }
 
 export interface BodyMetricsContextType {
-  waterLogs: WaterLog[];
-  sleepLogs: SleepLog[];
   weightLogs: WeightLog[];
-  optimisticAddWaterLog: (log: WaterLog) => void;
-  optimisticDeleteWaterLog: (logId: string) => void;
-  logWater: (amountMl: number, explicitUserId?: string) => Promise<void>;
+  optimisticUpdateWeightLogs: (logs: WeightLog[]) => void;
 }
 
 // ─── Unified Context Shape (Backward Compatible) ──────────────────────────────
@@ -166,9 +162,8 @@ const DEFAULT_WELLNESS_DATA: WellnessContextType = {
   recentGymLogs: [],
   logsByDateMap: new Map(),
   gymLogsReady: false,
-  waterLogs: [],
-  sleepLogs: [],
   weightLogs: [],
+  optimisticUpdateWeightLogs: () => {},
   userGymPlan: null,
   updateMasterPlan: async () => {},
   updateFullMasterPlan: async () => {},
@@ -182,9 +177,6 @@ const DEFAULT_WELLNESS_DATA: WellnessContextType = {
   ensureSubscribed: () => {},
   optimisticAddGymLog: () => {},
   optimisticUpdateGymLog: () => {},
-  optimisticAddWaterLog: () => {},
-  optimisticDeleteWaterLog: () => {},
-  logWater: async () => {},
 };
 
 const GymLogsContext = createContext<GymLogsContextType | null>(null);
@@ -230,12 +222,8 @@ export function useBodyMetrics(): BodyMetricsContextType {
   const ctx = useContext(BodyMetricsContext);
   if (!ctx) {
     return {
-      waterLogs: DEFAULT_WELLNESS_DATA.waterLogs,
-      sleepLogs: DEFAULT_WELLNESS_DATA.sleepLogs,
       weightLogs: DEFAULT_WELLNESS_DATA.weightLogs,
-      optimisticAddWaterLog: DEFAULT_WELLNESS_DATA.optimisticAddWaterLog,
-      optimisticDeleteWaterLog: DEFAULT_WELLNESS_DATA.optimisticDeleteWaterLog,
-      logWater: DEFAULT_WELLNESS_DATA.logWater,
+      optimisticUpdateWeightLogs: DEFAULT_WELLNESS_DATA.optimisticUpdateWeightLogs,
     };
   }
   return ctx;
@@ -366,11 +354,13 @@ function getCurrentWeekDatesFromMonday(baseDate: Date = new Date()): string[] {
 function purgeUnstartedDraftsForDates(
   dates: string[],
   userId: string | undefined,
-  setGymLogs: React.Dispatch<React.SetStateAction<GymLog[]>>
+  setGymLogs: React.Dispatch<React.SetStateAction<GymLog[]>>,
+  gymLogsRef?: React.MutableRefObject<GymLog[]>
 ) {
   if (!dates.length) return;
+  const uniqueDates = Array.from(new Set(dates));
   const keysToRemove: string[] = [];
-  for (const dStr of dates) {
+  for (const dStr of uniqueDates) {
     keysToRemove.push(`gym_active_draft_${dStr}`, `@zenfit_hot_log_${dStr}`);
     L1_RAM_CACHE.delete(`gym_active_draft_${dStr}`);
     L1_RAM_CACHE.delete(`@zenfit_hot_log_${dStr}`);
@@ -381,23 +371,43 @@ function purgeUnstartedDraftsForDates(
   }
   AsyncStorage.multiRemove(keysToRemove).catch(() => {});
 
-  setGymLogs(prev => {
+  const purgedDocIds: string[] = [];
+  const purgeUnstarted = (prev: GymLog[]): { changed: boolean; next: GymLog[] } => {
     let changed = false;
     const next = prev.filter(l => {
-      if (!dates.includes(l.date)) return true;
+      if (!uniqueDates.includes(l.date)) return true;
       const hasCompletedSets = (l.exercises || []).some((ex: any) =>
         (ex.setsLog || []).some((s: any) => s.completed === true)
       );
       const hasCompletedCardio = Array.isArray(l.cardio) && l.cardio.some((c: any) => c.completed === true);
       const hasNotes = Boolean(l.notes && l.notes.trim());
       const keep = Boolean(l.completed || l.workoutStartTime || hasCompletedSets || hasCompletedCardio || hasNotes);
-      if (!keep) changed = true;
+      if (!keep) {
+        changed = true;
+        if (l.id) purgedDocIds.push(l.id);
+      }
       return keep;
     });
+    return { changed, next };
+  };
+
+  setGymLogs(prev => {
+    const { changed, next } = purgeUnstarted(prev);
     if (!changed) return prev;
+    if (gymLogsRef) gymLogsRef.current = next;
     updateL1Cache('gymLogs', next);
     writeWellnessCache({ gymLogs: next }, true);
     return next;
+  });
+
+  if (userId && userId !== 'local_user' && purgedDocIds.length > 0) {
+    for (const docId of Array.from(new Set(purgedDocIds))) {
+      safeDelete(docId, COLLECTION.GYM_LOGS, () => deleteDoc(doc(db, COLLECTION.GYM_LOGS, docId))).catch(() => {});
+    }
+  }
+
+  queueMicrotask(() => {
+    DeviceEventEmitter.emit('gym_logs_purged', { dates: uniqueDates });
   });
 }
 
@@ -416,8 +426,6 @@ export function WellnessProvider({
   // for new users and breaks the loading skeleton logic.
   const [gymLogsSnapshotFired, setGymLogsSnapshotFired] = useState(false);
   const [userGymPlan, setUserGymPlan]   = useState<UserGymPlanDoc | null>(() => (initialManifest?.userGymPlan?.schemaVersion === 2 ? initialManifest.userGymPlan : canonicalizeUserGymPlan(initialManifest?.userGymPlan ?? null)));
-  const [waterLogs, setWaterLogs]       = useState<WaterLog[]>(initialManifest?.waterLogs ?? []);
-  const [sleepLogs, setSleepLogs]       = useState<SleepLog[]>(initialManifest?.sleepLogs ?? []);
   const [weightLogs, setWeightLogs]     = useState<WeightLog[]>(initialManifest?.weightLogs ?? []);
 
   const gymLogsRef = useRef<GymLog[]>(gymLogs);
@@ -437,8 +445,6 @@ export function WellnessProvider({
   const hasCachedDataRef = useRef(
     (initialManifest?.gymLogs?.length ?? 0) > 0 ||
     !!initialManifest?.userGymPlan ||
-    (initialManifest?.waterLogs?.length ?? 0) > 0 ||
-    (initialManifest?.sleepLogs?.length ?? 0) > 0 ||
     (initialManifest?.weightLogs?.length ?? 0) > 0
   );
 
@@ -523,14 +529,6 @@ export function WellnessProvider({
           setUserGymPlan(prev => !prev ? canonical : prev);
           seeded = true;
         }
-        if ((manifest.waterLogs?.length ?? 0) > 0) {
-          setWaterLogs(prev => prev.length === 0 ? manifest.waterLogs : prev);
-          seeded = true;
-        }
-        if ((manifest.sleepLogs?.length ?? 0) > 0) {
-          setSleepLogs(prev => prev.length === 0 ? manifest.sleepLogs : prev);
-          seeded = true;
-        }
         if (incomingWeightLogs.length > 0) {
           setWeightLogs(prev => prev.length === 0 ? incomingWeightLogs : prev);
           seeded = true;
@@ -592,7 +590,7 @@ export function WellnessProvider({
     });
 
     // Direct event listener for instant sample data population, archive hydration, or clearing
-    const gymLogsChangeSub = DeviceEventEmitter.addListener('gym_logs_changed', (payload?: { gymLogs?: GymLog[]; weightLogs?: WeightLog[]; waterLogs?: WaterLog[] }) => {
+    const gymLogsChangeSub = DeviceEventEmitter.addListener('gym_logs_changed', (payload?: { gymLogs?: GymLog[]; weightLogs?: WeightLog[] }) => {
       unstable_batchedUpdates(() => {
         if (payload?.gymLogs) {
           setGymLogs(payload.gymLogs);
@@ -600,9 +598,6 @@ export function WellnessProvider({
         }
         if (payload?.weightLogs) {
           setWeightLogs(payload.weightLogs);
-        }
-        if (payload?.waterLogs) {
-          setWaterLogs(payload.waterLogs);
         }
       });
     });
@@ -698,6 +693,11 @@ export function WellnessProvider({
       if (snap.metadata.hasPendingWrites) return;
       if (snap.docs.length === 0 && snap.metadata.fromCache && hasCachedDataRef.current) return;
 
+      const serverDocIds = new Set<string>();
+      snap.docs?.forEach?.((d: any) => {
+        if (d?.id) serverDocIds.add(d.id);
+      });
+
       const byId = new Map<string, GymLog>();
       for (const existing of gymLogsRef.current || []) {
         const key = existing.id || `${uid}_${existing.date}`;
@@ -719,6 +719,25 @@ export function WellnessProvider({
           }
         }
       });
+
+      // Multi-device delete reconciliation: on authoritative server snapshot (fromCache === false),
+      // prune stale synced docs for `uid` missing from Firestore unless pending in offline queue or written recently.
+      if (!snap.metadata.fromCache) {
+        const pendingGymIds = new Set(
+          getMemoryQueueSync()
+            .filter(q => q.collection === COLLECTION.GYM_LOGS && q.operation !== 'delete' && q.docId)
+            .map(q => q.docId!)
+        );
+        const graceCutoff = Date.now() - 15_000;
+        for (const [key, docItem] of Array.from(byId.entries())) {
+          const belongsToUid = docItem.userId === uid || key.startsWith(`${uid}_`);
+          if (!belongsToUid) continue;
+          if (serverDocIds.has(key)) continue;
+          if (pendingGymIds.has(key)) continue;
+          if (typeof docItem.updatedAt === 'number' && docItem.updatedAt >= graceCutoff) continue;
+          byId.delete(key);
+        }
+      }
 
       const merged = applyPendingQueueOverlay(COLLECTION.GYM_LOGS, Array.from(byId.values()));
       merged.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -798,60 +817,14 @@ export function WellnessProvider({
     unsubsMapRef.current.set('weightLogs', unsub);
   }, [scheduleListenerRestart]);
 
-  const subscribeWaterLogs = useCallback((uid: string) => {
-    const prev = unsubsMapRef.current.get('waterLogs');
-    if (prev) { try { prev(); } catch {} }
-    unsubsMapRef.current.delete('waterLogs');
-
-    const unsub = onSnapshot(
-      query(collection(db, COLLECTION.WATER_LOGS), where("userId", "==", uid), limit(500)),
-      snap => {
-        if (snap.metadata.hasPendingWrites) return;
-        if (snap.docs.length === 0 && snap.metadata.fromCache && hasCachedDataRef.current) return;
-        unstable_batchedUpdates(() => {
-          const fresh = applyPendingQueueOverlay(COLLECTION.WATER_LOGS, snap.docs.map(d => ({ id: d.id, ...d.data() } as WaterLog)));
-          fresh.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-          setWaterLogs(prev => areItemsEqual(prev, fresh) ? prev : fresh);
-          InteractionManager.runAfterInteractions(() => writeWellnessCache({ waterLogs: fresh }));
-        });
-      },
-      scheduleListenerRestart("waterLogs", uid)
-    );
-    unsubsMapRef.current.set('waterLogs', unsub);
-  }, [scheduleListenerRestart]);
-
-  const subscribeSleepLogs = useCallback((uid: string) => {
-    const prev = unsubsMapRef.current.get('sleepLogs');
-    if (prev) { try { prev(); } catch {} }
-    unsubsMapRef.current.delete('sleepLogs');
-
-    const unsub = onSnapshot(
-      query(collection(db, COLLECTION.SLEEP_LOGS), where("userId", "==", uid), limit(500)),
-      snap => {
-        if (snap.metadata.hasPendingWrites) return;
-        if (snap.docs.length === 0 && snap.metadata.fromCache && hasCachedDataRef.current) return;
-        unstable_batchedUpdates(() => {
-          const fresh = applyPendingQueueOverlay(COLLECTION.SLEEP_LOGS, snap.docs.map(d => ({ id: d.id, ...d.data() } as SleepLog)));
-          fresh.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-          setSleepLogs(prev => areItemsEqual(prev, fresh) ? prev : fresh);
-          InteractionManager.runAfterInteractions(() => writeWellnessCache({ sleepLogs: fresh }));
-        });
-      },
-      scheduleListenerRestart("sleepLogs", uid)
-    );
-    unsubsMapRef.current.set('sleepLogs', unsub);
-  }, [scheduleListenerRestart]);
-
   // Register listener methods into dispatch map
   useEffect(() => {
     subscribeListenerMapRef.current = {
       gymLogs: subscribeGymLogs,
       userGymPlan: subscribeUserGymPlan,
       weightLogs: subscribeWeightLogs,
-      waterLogs: subscribeWaterLogs,
-      sleepLogs: subscribeSleepLogs,
     };
-  }, [subscribeGymLogs, subscribeUserGymPlan, subscribeWeightLogs, subscribeWaterLogs, subscribeSleepLogs]);
+  }, [subscribeGymLogs, subscribeUserGymPlan, subscribeWeightLogs]);
 
   const openSubscriptions = useCallback((uid: string) => {
     if (subscribedRef.current) return;
@@ -864,10 +837,8 @@ export function WellnessProvider({
     deferredInteractionRef.current = InteractionManager.runAfterInteractions(() => {
       if (!subscribedRef.current) return;
       subscribeWeightLogs(uid);
-      subscribeWaterLogs(uid);
-      subscribeSleepLogs(uid);
     });
-  }, [subscribeGymLogs, subscribeUserGymPlan, subscribeWeightLogs, subscribeWaterLogs, subscribeSleepLogs]);
+  }, [subscribeGymLogs, subscribeUserGymPlan, subscribeWeightLogs]);
 
   const demandRequestedRef = useRef(false);
   const deferredSubTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -896,8 +867,6 @@ export function WellnessProvider({
       unstable_batchedUpdates(() => {
         setGymLogs([]);
         setUserGymPlan(null);
-        setWaterLogs([]);
-        setSleepLogs([]);
         setWeightLogs([]);
         setGymLogsSnapshotFired(false);
       });
@@ -956,9 +925,14 @@ export function WellnessProvider({
     });
     if (syncUnstartedDay && dayIndex >= 1 && dayIndex <= 7) {
       try {
-        const targetDateStr = getCurrentWeekDatesFromMonday()[dayIndex - 1];
-        if (targetDateStr) {
-          purgeUnstartedDraftsForDates([targetDateStr], user?.uid || 'local_user', setGymLogs);
+        const weekDates = getCurrentWeekDatesFromMonday();
+        const targetDateStr = weekDates[dayIndex - 1];
+        const todayDateStr = formatLocalDateStr(new Date());
+        const dates = updatedPlan.scheduleMode === 'rotation'
+          ? [targetDateStr, todayDateStr].filter(Boolean)
+          : [targetDateStr].filter(Boolean);
+        if (dates.length > 0) {
+          purgeUnstartedDraftsForDates(dates, user?.uid || 'local_user', setGymLogs, gymLogsRef);
         }
       } catch (e) {
         console.warn('[Wellness] Error clearing draft for updated plan day:', e);
@@ -1073,7 +1047,7 @@ export function WellnessProvider({
     // Clear unstarted active drafts across the week so the new split applies instantly
     try {
       const weekDates = getCurrentWeekDatesFromMonday();
-      purgeUnstartedDraftsForDates(weekDates, user?.uid, setGymLogs);
+      purgeUnstartedDraftsForDates(weekDates, user?.uid, setGymLogs, gymLogsRef);
     } catch (e) {
       console.warn('[Wellness] Error clearing unstarted week logs on plan update:', e);
     }
@@ -1189,7 +1163,7 @@ export function WellnessProvider({
 
     try {
       const weekDates = getCurrentWeekDatesFromMonday();
-      purgeUnstartedDraftsForDates(weekDates, user?.uid, setGymLogs);
+      purgeUnstartedDraftsForDates(weekDates, user?.uid, setGymLogs, gymLogsRef);
     } catch (e) {
       console.warn('[Wellness] Error clearing unstarted week logs on template apply:', e);
     }
@@ -1272,7 +1246,7 @@ export function WellnessProvider({
           .map(dIdx => weekDates[dIdx - 1])
           .filter(Boolean);
         if (datesToPurge.length > 0) {
-          purgeUnstartedDraftsForDates(datesToPurge, effectiveUid, setGymLogs);
+          purgeUnstartedDraftsForDates(datesToPurge, effectiveUid, setGymLogs, gymLogsRef);
         }
       } catch (e) {
         console.warn('[Wellness] Error clearing draft for assigned day:', e);
@@ -1418,9 +1392,14 @@ export function WellnessProvider({
     // Clear any unstarted active draft or log for the assigned day so it immediately displays the updated routine
     if (dayIndex >= 1 && dayIndex <= 7) {
       try {
-        const targetDateStr = getCurrentWeekDatesFromMonday()[dayIndex - 1];
-        if (targetDateStr) {
-          purgeUnstartedDraftsForDates([targetDateStr], effectiveUid, setGymLogs);
+        const weekDates = getCurrentWeekDatesFromMonday();
+        const targetDateStr = weekDates[dayIndex - 1];
+        const todayDateStr = formatLocalDateStr(new Date());
+        const dates = updatedPlan.scheduleMode === 'rotation'
+          ? [targetDateStr, todayDateStr].filter(Boolean)
+          : [targetDateStr].filter(Boolean);
+        if (dates.length > 0) {
+          purgeUnstartedDraftsForDates(dates, effectiveUid, setGymLogs, gymLogsRef);
         }
       } catch (e) {
         console.warn('[Wellness] Error clearing draft for assigned day:', e);
@@ -1503,14 +1482,31 @@ export function WellnessProvider({
     const prev = gymLogsRef.current || [];
     let updatedLog: GymLog | null = null;
     const exists = prev.some(l => l.id === logId || (partial.date && l.date === partial.date));
+    const clearUndefinedSessionFields = (target: Record<string, any>) => {
+      if (('workoutStartTime' in partial && partial.workoutStartTime === undefined) || partial.completed) {
+        delete target.workoutStartTime;
+      }
+      for (const k of [
+        'workoutDurationMinutes',
+        'workoutDurationSeconds',
+        'startTime',
+        'endTime',
+        'restTimerStartTime',
+        'restTimerDurationSecs',
+        'restTimerExerciseName',
+        'revertedAt',
+      ] as const) {
+        if (k in partial && (partial as any)[k] === undefined) {
+          delete target[k];
+        }
+      }
+    };
     let next: GymLog[];
     if (exists) {
       next = prev.map(l => {
         if (l.id === logId || (partial.date && l.date === partial.date)) {
           const merged: GymLog = { ...l, ...partial };
-          if (('workoutStartTime' in partial && partial.workoutStartTime === undefined) || partial.completed) {
-            delete (merged as any).workoutStartTime;
-          }
+          clearUndefinedSessionFields(merged as any);
           updatedLog = merged;
           return merged;
         }
@@ -1518,9 +1514,7 @@ export function WellnessProvider({
       });
     } else {
       const newLog: GymLog = { id: logId, ...partial } as GymLog;
-      if (('workoutStartTime' in partial && partial.workoutStartTime === undefined) || partial.completed) {
-        delete (newLog as any).workoutStartTime;
-      }
+      clearUndefinedSessionFields(newLog as any);
       updatedLog = newLog;
       next = [newLog, ...prev];
     }
@@ -1528,10 +1522,10 @@ export function WellnessProvider({
     updateL1Cache('gymLogs', next);
     setGymLogs(next);
 
-    // Tier-1 Upgrade #70 & Issue #168: If active workout, update sharded hot key via setL1Sync; on completion, deleteL1Sync
+    // Tier-1 Upgrade #70 & Issue #168: If active workout, update sharded hot key via setL1Sync; on completion or revert, deleteL1Sync
     if (updatedLog) {
       const activeLog: GymLog = updatedLog;
-      if (activeLog.completed && activeLog.date) {
+      if ((activeLog.completed || !activeLog.workoutStartTime) && activeLog.date) {
         deleteL1Sync(`@zenfit_hot_log_${activeLog.date}`);
       } else if (activeLog.workoutStartTime && activeLog.date) {
         setL1Sync(`@zenfit_hot_log_${activeLog.date}`, activeLog);
@@ -1540,80 +1534,27 @@ export function WellnessProvider({
     debouncePersistGymLogs(next);
   }, [debouncePersistGymLogs]);
 
-  const waterLogsRef = useRef<WaterLog[]>(waterLogs);
+  const weightLogsRef = useRef<WeightLog[]>(weightLogs);
   useEffect(() => {
-    waterLogsRef.current = waterLogs;
-  }, [waterLogs]);
+    weightLogsRef.current = weightLogs;
+  }, [weightLogs]);
 
-  const optimisticAddWaterLog = useCallback((log: WaterLog) => {
-    const todayStr = formatLocalDateStr(new Date());
-    const prev = waterLogsRef.current || [];
-    const previousToday = prev
-      .filter(w => (w.date || '').slice(0, 10) === todayStr)
-      .reduce((sum, w) => sum + (w.amountMl || 0), 0);
-    const newToday = previousToday + (log.amountMl || 0);
-
-    const next = [log, ...prev.filter(w => w.id !== log.id)];
-    waterLogsRef.current = next;
-    setWaterLogs(next);
-    writeWellnessCache({ waterLogs: next }, true);
-    clearScheduleCache();
-
-    const cachedGoal = getL1Sync('zentrack_water_goal_ml', 3800);
-    const goal = typeof cachedGoal === 'number' ? cachedGoal : (parseInt(cachedGoal, 10) || 3800);
-    try {
-      checkAndTriggerWaterMilestones(previousToday, newToday, goal);
-    } catch {}
+  const optimisticUpdateWeightLogs = useCallback((nextLogs: WeightLog[]) => {
+    weightLogsRef.current = nextLogs;
+    updateL1Cache('weightLogs', nextLogs);
+    setWeightLogs(nextLogs);
+    writeWellnessCache({ weightLogs: nextLogs }, true);
   }, []);
-
-  const optimisticDeleteWaterLog = useCallback((logId: string) => {
-    const prev = waterLogsRef.current || [];
-    const next = prev.filter(l => l.id !== logId);
-    waterLogsRef.current = next;
-    setWaterLogs(next);
-    writeWellnessCache({ waterLogs: next }, true);
-    clearScheduleCache();
-  }, []);
-
-  const logWater = useCallback(async (amountMl: number, explicitUserId?: string) => {
-    if (amountMl <= 0) return;
-    const todayStr = formatLocalDateStr(new Date());
-    const now = Date.now();
-    // Issue #169: Fallback through explicitUserId -> auth -> user -> local_user
-    const uid = explicitUserId || auth.currentUser?.uid || user?.uid || 'local_user';
-    const waterRef = doc(collection(db, COLLECTION.WATER_LOGS));
-    const logId = waterRef.id;
-
-    const payload: WaterLog = {
-      id: logId,
-      userId: uid,
-      date: todayStr,
-      amountMl,
-      timestamp: now,
-      createdAt: now,
-    };
-
-    optimisticAddWaterLog(payload);
-
-    try {
-      await safeWrite(
-        () => setDoc(waterRef, payload),
-        COLLECTION.WATER_LOGS,
-        'set',
-        payload,
-        logId
-      );
-    } catch (e) {
-      console.warn('[WellnessContext] Error persisting water log:', e);
-    }
-  }, [optimisticAddWaterLog, user?.uid]);
 
   const gymLogsReady = gymLogsSnapshotFired || hasCachedDataRef.current;
 
   // ── 0ms Legacy-Speed: Background Idle Analytical Pre-computation ─────────────
   // Deferred strictly off the critical startup path via runAfterInteractions
   useEffect(() => {
-    if (_isWorkoutActiveGlobal || !gymLogs?.length) return;
+    const hasActiveWorkout =
+      _isWorkoutActiveGlobal ||
+      (Array.isArray(gymLogs) && gymLogs.some((l) => Boolean(l && !l.completed && l.workoutStartTime)));
+    if (hasActiveWorkout || !gymLogs?.length) return;
     const handle = InteractionManager.runAfterInteractions(() => {
       try {
         precomputeGymAnalytics(gymLogs, userGymPlan);
@@ -1685,13 +1626,9 @@ export function WellnessProvider({
   ]);
 
   const bodyMetricsValue = useMemo<BodyMetricsContextType>(() => ({
-    waterLogs,
-    sleepLogs,
     weightLogs,
-    optimisticAddWaterLog,
-    optimisticDeleteWaterLog,
-    logWater,
-  }), [waterLogs, sleepLogs, weightLogs, optimisticAddWaterLog, optimisticDeleteWaterLog, logWater]);
+    optimisticUpdateWeightLogs,
+  }), [weightLogs, optimisticUpdateWeightLogs]);
 
   return (
     <GymLogsContext.Provider value={gymLogsValue}>

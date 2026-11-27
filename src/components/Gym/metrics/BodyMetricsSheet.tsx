@@ -5,18 +5,11 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  ScrollView,
-  StyleSheet,
-  InteractionManager,
-  Keyboard,
-} from 'react-native';
+import { DeviceEventEmitter, Keyboard, ScrollView, StyleSheet, Text, TextInput, View, InteractionManager } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { Camera, Image as ImageIcon, Minus, Plus, Scale, Trash2, X } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
+import NetInfo from '@react-native-community/netinfo';
 import { serverTimestamp } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -28,7 +21,7 @@ import { FONT_FAMILY, ICON, RADIUS, SPACE, TOUCH, ThemeTokens } from '../../../t
 import { useTheme } from '../../../contexts/ThemeContext';
 import { NumericText, TactileButton } from '../../ui';
 import BottomSheet from '../../ui/BottomSheet';
-import { queueWrite } from '../../../services/offlineSync';
+import { queuePendingPhotoUpload, queueWrite } from '../../../services/offlineSync';
 import { uploadFileToCloudinary } from '../../../services/cloudinary';
 import { formatLocalDateStr } from '../../../utils/dateUtils';
 import { BOOT_KEYS, updateL1Cache } from '../../../utils/bootManifest';
@@ -51,6 +44,7 @@ interface WeightEntry {
   date: string;
   photoUrl?: string | null;
   pose?: 'front' | 'back' | 'side';
+  entryType?: 'weight' | 'photo';
 }
 
 interface Props {
@@ -63,7 +57,7 @@ export default function BodyMetricsSheet({ visible, onClose, initialTab = 'weigh
   const { tokens } = useTheme();
   const styles = useMemo(() => makeStyles(tokens), [tokens]);
   const { user } = useCoreData();
-  const { weightLogs: contextWeightLogs } = useBodyMetrics();
+  const { weightLogs: contextWeightLogs, optimisticUpdateWeightLogs } = useBodyMetrics();
   const { gymProfile, saveGymProfile } = useGymProfile();
   const unitIsLbs = useWeightUnit();
   const weightUnitStr = unitLabel(unitIsLbs);
@@ -181,22 +175,36 @@ export default function BodyMetricsSheet({ visible, onClose, initialTab = 'weigh
     const today = formatLocalDateStr(new Date());
 
     try {
-      const existingToday = localLogs.find(l => l.date === today);
+      const uid = user?.uid || 'local_user';
+      const docId = `${uid}_weight_${today}`;
+      const existingToday = localLogs.find(
+        l => l.id === docId || (l.date === today && l.entryType !== 'photo')
+      );
       const newEntry: WeightEntry = {
+        id: existingToday?.id || docId,
         weight: w,
         weightKg: w,
         date: today,
+        entryType: 'weight',
         photoUrl: existingToday?.photoUrl || null,
         pose: existingToday?.pose,
       };
 
-      const updatedLocal = [newEntry, ...localLogs.filter(l => l.date !== today)];
+      // Replace only today's weigh-in row so same-day check-in pose photos remain intact
+      const updatedLocal = [
+        newEntry,
+        ...localLogs.filter(
+          l => !(l.id === newEntry.id || (l.date === today && l.entryType !== 'photo'))
+        ),
+      ];
       setLocalLogs(updatedLocal);
 
       await AsyncStorage.setItem(WEIGHT_LOGS_KEY, JSON.stringify(updatedLocal));
       await AsyncStorage.setItem(DOMAIN_CACHE_KEYS.WEIGHT_LOGS, JSON.stringify(updatedLocal));
       updateL1Cache('weightLogs', updatedLocal);
       writeWellnessCache({ weightLogs: updatedLocal as any }, true);
+      optimisticUpdateWeightLogs(updatedLocal as any);
+      DeviceEventEmitter.emit('gym_logs_changed', { weightLogs: updatedLocal });
 
       const rawTarget = targetInput ? parseFloat(targetInput) : null;
       const targetVal = rawTarget && rawTarget > 0 ? displayToKg(rawTarget, unitIsLbs) : gymProfile.targetBodyweightKg;
@@ -206,7 +214,6 @@ export default function BodyMetricsSheet({ visible, onClose, initialTab = 'weigh
       });
 
       if (user?.uid) {
-        const docId = `${user.uid}_weight_${today}`;
         await queueWrite(
           COLLECTION.WEIGHT_LOGS,
           'set',
@@ -214,10 +221,12 @@ export default function BodyMetricsSheet({ visible, onClose, initialTab = 'weigh
             userId: user.uid,
             weightKg: w,
             weight: w,
+            entryType: 'weight',
             date: today,
             createdAt: serverTimestamp(),
           },
-          docId
+          docId,
+          true
         );
       }
 
@@ -243,41 +252,77 @@ export default function BodyMetricsSheet({ visible, onClose, initialTab = 'weigh
     const today = formatLocalDateStr(new Date());
 
     try {
-      let finalPhotoUrl = photoUri;
+      const uid = user?.uid || 'local_user';
+      const photoDocId = `${uid}_photo_${today}_${selectedPose}`;
+      let remotePhotoUrl: string | null = null;
+      let isOfflineOrUploadPending = false;
+
       try {
-        const uploadRes = await uploadFileToCloudinary(photoUri, 'image/jpeg', `checkin_${today}.jpg`, () => {});
-        if (uploadRes?.url) {
-          finalPhotoUrl = uploadRes.url;
+        const net = await NetInfo.fetch();
+        if (net.isConnected) {
+          const uploadRes = await uploadFileToCloudinary(
+            photoUri,
+            'image/jpeg',
+            `checkin_${today}_${selectedPose}.jpg`,
+            () => {}
+          );
+          if (uploadRes?.url) {
+            remotePhotoUrl = uploadRes.url;
+          } else {
+            isOfflineOrUploadPending = true;
+          }
+        } else {
+          isOfflineOrUploadPending = true;
         }
       } catch {
-        finalPhotoUrl = photoUri;
+        isOfflineOrUploadPending = true;
       }
 
       const parsedInput = parseFloat(weightInput);
-      const existingToday = localLogs.find(l => l.date === today);
+      const existingWeighInToday = localLogs.find(l => l.date === today && l.entryType !== 'photo');
       const currentWeight =
         Number.isFinite(parsedInput) && parsedInput > 0
           ? displayToKg(parsedInput, unitIsLbs)
-          : (existingToday?.weightKg ?? existingToday?.weight ?? gymProfile.weightKg ?? 0);
+          : (existingWeighInToday?.weightKg ?? existingWeighInToday?.weight ?? gymProfile.weightKg ?? 0);
 
       const newEntry: WeightEntry = {
+        id: photoDocId,
         weight: currentWeight,
         weightKg: currentWeight,
         date: today,
-        photoUrl: finalPhotoUrl,
+        entryType: 'photo',
+        photoUrl: remotePhotoUrl || photoUri,
         pose: selectedPose,
       };
 
-      const updatedLocal = [newEntry, ...localLogs.filter(l => l.date !== today)];
+      const updatedLocal = [
+        newEntry,
+        ...localLogs.filter(
+          l => !(l.id === photoDocId || (l.date === today && l.entryType === 'photo' && (l.pose || 'front') === selectedPose))
+        ),
+      ];
       setLocalLogs(updatedLocal);
 
       await AsyncStorage.setItem(WEIGHT_LOGS_KEY, JSON.stringify(updatedLocal));
       await AsyncStorage.setItem(DOMAIN_CACHE_KEYS.WEIGHT_LOGS, JSON.stringify(updatedLocal));
       updateL1Cache('weightLogs', updatedLocal);
       writeWellnessCache({ weightLogs: updatedLocal as any }, true);
+      optimisticUpdateWeightLogs(updatedLocal as any);
+      DeviceEventEmitter.emit('gym_logs_changed', { weightLogs: updatedLocal });
+
+      if (isOfflineOrUploadPending) {
+        await queuePendingPhotoUpload({
+          docId: photoDocId,
+          userId: uid,
+          date: today,
+          pose: selectedPose,
+          weightKg: currentWeight,
+          localUri: photoUri,
+          createdAt: Date.now(),
+        });
+      }
 
       if (user?.uid) {
-        const docId = `${user.uid}_weight_${today}`;
         await queueWrite(
           COLLECTION.WEIGHT_LOGS,
           'set',
@@ -285,12 +330,14 @@ export default function BodyMetricsSheet({ visible, onClose, initialTab = 'weigh
             userId: user.uid,
             weightKg: currentWeight,
             weight: currentWeight,
-            photoUrl: finalPhotoUrl,
+            entryType: 'photo',
+            ...(remotePhotoUrl ? { photoUrl: remotePhotoUrl } : {}),
             pose: selectedPose,
             date: today,
             createdAt: serverTimestamp(),
           },
-          docId
+          photoDocId,
+          true
         );
       }
 
@@ -316,19 +363,30 @@ export default function BodyMetricsSheet({ visible, onClose, initialTab = 'weigh
     setWeightInput(String(next));
   };
 
-  const handleDeleteWeightEntry = async (dateToRemove: string) => {
-    const updatedLocal = localLogs.filter(l => l.date !== dateToRemove);
+  const handleDeleteWeightEntry = async (entry: WeightEntry) => {
+    const uid = user?.uid;
+    const targetDocId = entry.id || (uid ? `${uid}_weight_${entry.date}` : undefined);
+    const updatedLocal = localLogs.filter(l => {
+      if (entry.id && l.id) return l.id !== entry.id;
+      return !(l.date === entry.date && (l.entryType ?? 'weight') === (entry.entryType ?? 'weight'));
+    });
     setLocalLogs(updatedLocal);
     await AsyncStorage.setItem(WEIGHT_LOGS_KEY, JSON.stringify(updatedLocal));
     await AsyncStorage.setItem(DOMAIN_CACHE_KEYS.WEIGHT_LOGS, JSON.stringify(updatedLocal));
     updateL1Cache('weightLogs', updatedLocal);
     writeWellnessCache({ weightLogs: updatedLocal as any }, true);
+    optimisticUpdateWeightLogs(updatedLocal as any);
+    DeviceEventEmitter.emit('gym_logs_changed', { weightLogs: updatedLocal });
+
+    if (uid && targetDocId) {
+      await queueWrite(COLLECTION.WEIGHT_LOGS, 'delete', null, targetDocId, true);
+    }
   };
 
   const recentLogs = useMemo(
     () =>
       [...localLogs]
-        .filter(l => l?.date && Number(l.weightKg ?? l.weight) > 0)
+        .filter(l => l?.date && l.entryType !== 'photo' && Number(l.weightKg ?? l.weight) > 0)
         .sort((a, b) => b.date.localeCompare(a.date))
         .slice(0, 3),
     [localLogs]
@@ -542,7 +600,7 @@ export default function BodyMetricsSheet({ visible, onClose, initialTab = 'weigh
                         <TactileButton
                           variant="icon"
                           haptic="light"
-                          onPress={() => handleDeleteWeightEntry(item.date)}
+                          onPress={() => handleDeleteWeightEntry(item)}
                           hitSlop={TOUCH.hitSlop}
                           accessibilityLabel={`Delete weigh-in from ${item.date}`}
                         >

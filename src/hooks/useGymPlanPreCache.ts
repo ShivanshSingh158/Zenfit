@@ -12,7 +12,7 @@ import { InteractionManager } from 'react-native';
 import { useGymPlan, getWorkoutActiveGlobal } from '../contexts/domains/WellnessContext';
 import { GYM_PLAN } from '../data/gymPlan';
 import { preCacheExercises, preCacheAllCuratedExercises } from '../services/exerciseMediaService';
-import { getExerciseCatalogue, getCategoryMap } from '../components/Gym/exercise/AddExerciseModal';
+import { getUnifiedExerciseCatalogue, getUnifiedCategoryMap } from '../services/exerciseCatalogService';
 
 export function useGymPlanPreCache() {
   const { userGymPlan } = useGymPlan();
@@ -27,8 +27,8 @@ export function useGymPlanPreCache() {
       setTimeout(() => {
         try {
           if (getWorkoutActiveGlobal()) return;
-          getExerciseCatalogue();
-          getCategoryMap();
+          getUnifiedExerciseCatalogue();
+          getUnifiedCategoryMap();
         } catch (_) {}
       }, 2000);
     });

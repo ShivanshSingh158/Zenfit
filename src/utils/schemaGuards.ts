@@ -242,6 +242,7 @@ export function parseGymLog(docData: any, docId: string): GymLog {
     endTime: d.endTime ? sanitizeString(d.endTime, undefined as any, 20) : undefined,
     createdAt: d.createdAt != null ? sanitizeNumber(d.createdAt, 0, 0) : undefined,
     updatedAt: sanitizeNumber(d.updatedAt, 0, 0),
+    revertedAt: d.revertedAt != null ? sanitizeNumber(d.revertedAt, 0, 0) : undefined,
     notes: d.notes ? sanitizeString(d.notes, '', 500) : undefined,
     restTimerStartTime: d.restTimerStartTime !== undefined ? d.restTimerStartTime : null,
     restTimerDurationSecs: d.restTimerDurationSecs !== undefined ? d.restTimerDurationSecs : null,
